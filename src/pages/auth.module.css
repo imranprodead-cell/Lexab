@@ -355,3 +355,16 @@
 .termsLink:hover {
   color: var(--accent);
 }
+
+/* Keyframes ----------------------------------------------------------------
+   Defined locally: CSS Modules hashes animation names, so references to
+   keyframes living in global.css never resolve after the build. */
+@keyframes lxglow {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}

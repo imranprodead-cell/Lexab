@@ -1,26 +1,32 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { AppShell } from '@/components/layout/AppShell';
 import { RequireAuth } from './RequireAuth';
-import { AuthPage } from '@/pages/AuthPage';
-import { ChatPage } from '@/pages/ChatPage';
-import { WorkspacePage } from '@/pages/WorkspacePage';
-import { DocumentsPage } from '@/pages/DocumentsPage';
-import { DocumentDetailPage } from '@/pages/DocumentDetailPage';
-import { TemplatesPage } from '@/pages/TemplatesPage';
-import { SignaturesPage } from '@/pages/SignaturesPage';
-import { AnalyticsPage } from '@/pages/AnalyticsPage';
-import { SettingsPage } from '@/pages/SettingsPage';
-import { PlansPage } from '@/pages/PlansPage';
-import { TeamPage } from '@/pages/TeamPage';
-import { ComparePage } from '@/pages/ComparePage';
-import { ArchivePage } from '@/pages/ArchivePage';
-import { LegalPage } from '@/pages/LegalPage';
-import { NotFoundPage } from '@/pages/NotFoundPage';
 
+/**
+ * Pages are code-split: each route pulls its chunk on demand instead of
+ * shipping every page in the initial bundle. While a lazy route resolves on
+ * first load, RouterProvider shows the fallbackElement (see App.tsx); on
+ * client-side navigations the current page stays visible.
+ */
 export const router = createBrowserRouter([
-  { path: '/login', element: <AuthPage /> },
-  { path: '/terms', element: <LegalPage kind="terms" /> },
-  { path: '/privacy', element: <LegalPage kind="privacy" /> },
+  {
+    path: '/login',
+    lazy: async () => ({ Component: (await import('@/pages/AuthPage')).AuthPage }),
+  },
+  {
+    path: '/terms',
+    lazy: async () => {
+      const { LegalPage } = await import('@/pages/LegalPage');
+      return { Component: () => <LegalPage kind="terms" /> };
+    },
+  },
+  {
+    path: '/privacy',
+    lazy: async () => {
+      const { LegalPage } = await import('@/pages/LegalPage');
+      return { Component: () => <LegalPage kind="privacy" /> };
+    },
+  },
   {
     path: '/',
     element: (
@@ -30,21 +36,68 @@ export const router = createBrowserRouter([
     ),
     children: [
       { index: true, element: <Navigate to="/chat" replace /> },
-      { path: 'chat', element: <ChatPage /> },
-      { path: 'chat/:sessionId', element: <ChatPage /> },
-      { path: 'chat/:sessionId/workspace', element: <WorkspacePage /> },
-      { path: 'workspace', element: <WorkspacePage /> },
-      { path: 'documents', element: <DocumentsPage /> },
-      { path: 'documents/:id', element: <DocumentDetailPage /> },
-      { path: 'templates', element: <TemplatesPage /> },
-      { path: 'signatures', element: <SignaturesPage /> },
-      { path: 'analytics', element: <AnalyticsPage /> },
-      { path: 'plans', element: <PlansPage /> },
-      { path: 'team', element: <TeamPage /> },
-      { path: 'compare', element: <ComparePage /> },
-      { path: 'archive', element: <ArchivePage /> },
-      { path: 'settings', element: <SettingsPage /> },
-      { path: '*', element: <NotFoundPage /> },
+      {
+        path: 'chat',
+        lazy: async () => ({ Component: (await import('@/pages/ChatPage')).ChatPage }),
+      },
+      {
+        path: 'chat/:sessionId',
+        lazy: async () => ({ Component: (await import('@/pages/ChatPage')).ChatPage }),
+      },
+      {
+        path: 'chat/:sessionId/workspace',
+        lazy: async () => ({ Component: (await import('@/pages/WorkspacePage')).WorkspacePage }),
+      },
+      {
+        path: 'workspace',
+        lazy: async () => ({ Component: (await import('@/pages/WorkspacePage')).WorkspacePage }),
+      },
+      {
+        path: 'documents',
+        lazy: async () => ({ Component: (await import('@/pages/DocumentsPage')).DocumentsPage }),
+      },
+      {
+        path: 'documents/:id',
+        lazy: async () => ({
+          Component: (await import('@/pages/DocumentDetailPage')).DocumentDetailPage,
+        }),
+      },
+      {
+        path: 'templates',
+        lazy: async () => ({ Component: (await import('@/pages/TemplatesPage')).TemplatesPage }),
+      },
+      {
+        path: 'signatures',
+        lazy: async () => ({ Component: (await import('@/pages/SignaturesPage')).SignaturesPage }),
+      },
+      {
+        path: 'analytics',
+        lazy: async () => ({ Component: (await import('@/pages/AnalyticsPage')).AnalyticsPage }),
+      },
+      {
+        path: 'plans',
+        lazy: async () => ({ Component: (await import('@/pages/PlansPage')).PlansPage }),
+      },
+      {
+        path: 'team',
+        lazy: async () => ({ Component: (await import('@/pages/TeamPage')).TeamPage }),
+      },
+      {
+        path: 'compare',
+        lazy: async () => ({ Component: (await import('@/pages/ComparePage')).ComparePage }),
+      },
+      {
+        path: 'archive',
+        lazy: async () => ({ Component: (await import('@/pages/ArchivePage')).ArchivePage }),
+      },
+      {
+        path: 'settings',
+        lazy: async () => ({ Component: (await import('@/pages/SettingsPage')).SettingsPage }),
+      },
+      {
+        path: '*',
+        lazy: async () => ({ Component: (await import('@/pages/NotFoundPage')).NotFoundPage }),
+      },
     ],
   },
 ]);

@@ -809,3 +809,25 @@
   background: var(--hover);
   color: var(--text);
 }
+
+/* Keyframes ----------------------------------------------------------------
+   Defined locally: CSS Modules hashes animation names, so references to
+   keyframes living in global.css never resolve after the build. */
+@keyframes lxfade {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes lxfadeq {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
