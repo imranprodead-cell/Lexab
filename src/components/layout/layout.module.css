@@ -1,0 +1,811 @@
+/* App shell, side rail, and top bar. */
+
+.shell {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+  position: relative;
+  overflow: hidden;
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.routeFade {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  animation: lxfadeq var(--dur-mid) ease;
+}
+
+/* Side rail --------------------------------------------------------------- */
+.railSlot {
+  width: 64px;
+  flex-shrink: 0;
+  position: relative;
+  height: 100%;
+}
+.rail {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 64px;
+  background: var(--panel);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  padding: 16px 10px;
+  overflow: hidden;
+  transition: width var(--dur-mid) var(--ease);
+  z-index: 60;
+}
+.railOpen {
+  width: 272px;
+  box-shadow: var(--shadow-pop);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 38px;
+  padding: 0 6px;
+  margin-bottom: 16px;
+}
+.brandText {
+  opacity: 0;
+  transition: opacity var(--dur-fast);
+  white-space: nowrap;
+}
+.railOpen .brandText,
+.railOpen .navLabel,
+.railOpen .userText {
+  opacity: 1;
+}
+.brandName {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.brandSub {
+  font-size: 11px;
+  color: var(--mut);
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
+}
+
+.navItem {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: var(--r-lg);
+  cursor: pointer;
+  color: var(--dim);
+  background: transparent;
+  border: 1px solid transparent;
+  transition: background var(--dur-fast), color var(--dur-fast);
+  text-decoration: none;
+  width: 100%;
+}
+.navItem:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.navItemActive {
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 25%, transparent);
+}
+.navItemActive:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.navIcon {
+  width: 20px;
+  display: flex;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.navItemActive .navIcon {
+  color: var(--accent);
+}
+.navLabel {
+  opacity: 0;
+  transition: opacity var(--dur-fast);
+  white-space: nowrap;
+  font-size: 14px;
+}
+
+.newBtn {
+  composes: navItem;
+  color: var(--text);
+  background: var(--hover-2);
+  border: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+.newBtn:hover {
+  background: var(--hover-3);
+  color: var(--text);
+}
+
+.navGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.recent {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  flex: 1;
+  overflow-y: auto;
+  animation: lxfadeq var(--dur-mid) ease;
+}
+.recentGroup {
+  margin-bottom: 16px;
+}
+.recentLabel {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--mut);
+  padding: 0 12px 6px;
+}
+.recentItem {
+  display: block;
+  padding: 7px 12px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  color: var(--dim);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-decoration: none;
+}
+.recentItem:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.railSpacer {
+  flex: 1;
+}
+.railFooter {
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.user {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  height: 44px;
+  padding: 0 8px;
+  margin-top: 2px;
+}
+.userText {
+  opacity: 0;
+  transition: opacity var(--dur-fast);
+  white-space: nowrap;
+}
+.userName {
+  font-size: 13.5px;
+  font-weight: 500;
+}
+.userFirm {
+  font-size: 11px;
+  color: var(--mut);
+}
+.userPlan {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
+}
+
+/* Top bar ----------------------------------------------------------------- */
+.topBar {
+  height: 60px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 28px;
+  background: var(--bar-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  z-index: 5;
+}
+.topTitle {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.modelChip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--dim);
+  padding: 5px 11px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+.modelDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 8px var(--ok);
+}
+
+/* Mobile scrim behind the expanded rail */
+/* Mobile rail toggle + scrim */
+.mobileToggle {
+  display: none;
+}
+@media (max-width: 700px) {
+  .mobileToggle {
+    position: fixed;
+    top: 12px;
+    left: 12px;
+    z-index: 62;
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    cursor: pointer;
+  }
+  .topBar {
+    padding-left: 64px;
+  }
+}
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 55;
+  background: rgba(6, 6, 10, 0.5);
+  animation: lxfadeq var(--dur-fast) ease;
+}
+
+@media (max-width: 600px) {
+  .modelChip {
+    display: none;
+  }
+  .topBar {
+    padding: 0 16px;
+  }
+}
+
+/* Top-bar actions: upgrade + theme toggle + country selector ------------- */
+.topActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.upgrade {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 6px 12px 6px 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  transition: background var(--dur-fast), border-color var(--dur-fast);
+}
+.upgrade:hover {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.upgradeMark {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(150deg, var(--accent), color-mix(in srgb, var(--accent) 55%, transparent));
+}
+
+.themeToggle {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--dim);
+  border: 1px solid transparent;
+  background: transparent;
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+.themeToggle:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+}
+
+/* Country selector -------------------------------------------------------- */
+.country {
+  position: relative;
+}
+.countryTrigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  padding: 4px 8px 4px 4px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  transition: border-color var(--dur-fast);
+}
+.countryTrigger:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.flag {
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  display: block;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+}
+.countryChevron {
+  color: var(--mut);
+  display: flex;
+  opacity: 0;
+  transform: translateY(2px);
+  transition: opacity 0.22s ease, transform 0.25s ease;
+}
+.countryTrigger:hover .countryChevron,
+.countryTrigger:focus-visible .countryChevron {
+  opacity: 1;
+  transform: translateY(0);
+}
+.countryTrigger .countryChevronOpen,
+.countryTrigger:hover .countryChevronOpen {
+  opacity: 1;
+  transform: rotate(180deg);
+}
+.countryMenu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 260px;
+  padding: 6px;
+  border-radius: 14px;
+  transform-origin: top right;
+  animation: lxdropin 0.22s cubic-bezier(0.2, 0.8, 0.3, 1);
+  z-index: 80;
+  animation: lxfade 0.16s ease both;
+}
+.countrySearch {
+  position: relative;
+  margin-bottom: 6px;
+}
+.countrySearchIcon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--mut);
+  pointer-events: none;
+}
+.countrySearchInput {
+  width: 100%;
+  font-family: inherit;
+  font-size: 13.5px;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 8px 10px 8px 32px;
+  outline: none;
+}
+.countryList {
+  max-height: 280px;
+  overflow-y: auto;
+}
+.countryItem {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 10px;
+  border-radius: 9px;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+.countryItem:hover {
+  background: var(--hover);
+}
+.countryItemActive {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.countryItemActive:hover {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.countryName {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+}
+.countryLaw {
+  font-size: 11.5px;
+  color: var(--mut);
+  font-family: var(--font-mono);
+}
+.countryEmpty {
+  padding: 16px 10px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--mut);
+}
+
+/* Notifications ----------------------------------------------------------- */
+.bell {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: var(--dim);
+  border: 1px solid transparent;
+  background: transparent;
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+.bell:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+}
+.bellDot {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 2px var(--bg);
+  pointer-events: none;
+  z-index: 1;
+  border: 2px solid var(--bg);
+}
+.notifMenu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 320px;
+  padding: 6px;
+  border-radius: 14px;
+  z-index: 80;
+  animation: lxfade 0.16s ease both;
+}
+.notifHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px 10px;
+}
+.notifTitle {
+  font-size: 13px;
+  font-weight: 600;
+}
+.notifMarkAll {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+.notifList {
+  max-height: 340px;
+  overflow-y: auto;
+}
+.notifItem {
+  display: flex;
+  gap: 11px;
+  padding: 10px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+.notifItem:hover {
+  background: var(--hover);
+}
+.notifIcon {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+}
+.notifText {
+  flex: 1;
+  min-width: 0;
+}
+.notifItemTitle {
+  font-size: 13.5px;
+  line-height: 1.4;
+}
+.notifTime {
+  font-size: 11.5px;
+  color: var(--mut);
+  font-family: var(--font-mono);
+  margin-top: 3px;
+}
+.notifUnreadDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+  margin-top: 6px;
+}
+.notifEmpty {
+  padding: 28px 12px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--mut);
+}
+
+/* Command palette (Cmd+K) ------------------------------------------------- */
+.paletteOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 210;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 14vh;
+  background: rgba(6, 6, 10, 0.5);
+  backdrop-filter: blur(4px);
+  animation: lxfadeq var(--dur-fast) ease;
+}
+.palette {
+  width: 100%;
+  max-width: 560px;
+  border-radius: 16px;
+  overflow: hidden;
+  animation: lxfade var(--dur-mid) ease both;
+}
+.paletteSearch {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.paletteInput {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 16px;
+}
+.paletteList {
+  max-height: 360px;
+  overflow-y: auto;
+  padding: 8px;
+}
+.paletteGroup {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--mut);
+  padding: 8px 10px 4px;
+}
+.paletteItem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  cursor: pointer;
+  font-size: 14px;
+  border: 1px solid transparent;
+}
+.paletteItemActive {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.paletteItemIcon {
+  color: var(--dim);
+  display: flex;
+}
+.paletteItemActive .paletteItemIcon {
+  color: var(--accent);
+}
+.paletteEmpty {
+  padding: 28px;
+  text-align: center;
+  color: var(--mut);
+  font-size: 14px;
+}
+.paletteHint {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--mut);
+}
+
+/* Recent-history row: "⋯" actions menu ------------------------------------- */
+.recentRow {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.recentRow .recentItem {
+  flex: 1;
+  min-width: 0;
+}
+.recentRow:hover .recentItem {
+  padding-right: 32px;
+}
+.recentMore {
+  position: absolute;
+  right: 4px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, background 0.12s ease;
+}
+.recentRow:hover .recentMore,
+.recentMore:focus-visible,
+.recentMoreOpen {
+  opacity: 1;
+}
+.recentMore:hover,
+.recentMoreOpen {
+  background: var(--hover-2);
+  color: var(--text);
+}
+.recentMenu {
+  position: absolute;
+  right: 2px;
+  top: calc(100% + 2px);
+  z-index: 80;
+  min-width: 178px;
+  padding: 4px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
+}
+.recentMenuItem {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 7px 10px;
+  border: none;
+  border-radius: 7px;
+  background: none;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+.recentMenuItem:hover {
+  background: var(--hover);
+}
+.recentMenuDanger {
+  color: var(--danger);
+}
+.recentMenuDanger:hover {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+.recentRename {
+  flex: 1;
+  min-width: 0;
+  margin: 2px 4px;
+  padding: 6px 8px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--accent);
+  border-radius: 7px;
+  outline: none;
+}
+
+/* Sign-out: red, ChatGPT-style ---------------------------------------------- */
+.signOut {
+  color: var(--danger);
+}
+.signOut:hover {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+@keyframes lxdropin {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Archive link at the bottom of the recent list ------------------------------ */
+.archiveLink {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 7px 12px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: var(--mut);
+  text-decoration: none;
+}
+.archiveLink:hover {
+  background: var(--hover);
+  color: var(--text);
+}

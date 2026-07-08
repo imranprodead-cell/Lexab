@@ -1,0 +1,20 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: lexai
+      POSTGRES_PASSWORD: lexai
+      POSTGRES_DB: lexai
+    ports:
+      - "5432:5432"
+    volumes:
+      - lexai-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lexai"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  lexai-pgdata:

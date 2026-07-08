@@ -1,0 +1,10 @@
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+
+# Runtime data (embedded PGlite DB + local file uploads)
+data/
+data-*/
+
+node_modules

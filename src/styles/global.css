@@ -1,0 +1,273 @@
+/* ============================================================================
+   LexAI global stylesheet — design tokens, resets, keyframes, utilities.
+   Colors are exposed as CSS custom properties so the accent can be re-themed
+   at runtime (see UI store). Component styling lives in feature-scoped
+   *.module.css files.
+   ========================================================================== */
+
+:root {
+  /* Surfaces */
+  --bg: #101014;
+  --panel: #17171c;
+  --panel-2: #1c1c22;
+  --doc-bg: #0d0d11;
+
+  /* Hairlines & text */
+  --border: #26262e;
+  --text: #e7e7ec;
+  --dim: #9a9aa6;
+  --mut: #5f5f6a;
+
+  /* Accent (overridable at runtime via inline style on <html>) */
+  --accent: #8b7cf6;
+  --on-accent: #0c0c10;
+
+  /* Severity / status */
+  --sev-high: oklch(0.68 0.17 22);
+  --sev-med: oklch(0.79 0.14 78);
+  --sev-low: oklch(0.74 0.13 150);
+  --ok: oklch(0.74 0.13 150);
+  --warn: oklch(0.79 0.14 78);
+  --danger: oklch(0.68 0.17 22);
+
+  /* Radii */
+  --r-sm: 6px;
+  --r-md: 9px;
+  --r-lg: 12px;
+  --r-xl: 16px;
+
+  /* Elevation */
+  --shadow-card: 0 1px 0 rgba(255, 255, 255, 0.05) inset,
+    0 24px 60px -30px rgba(0, 0, 0, 0.7);
+  --shadow-pop: 0 20px 60px -20px rgba(0, 0, 0, 0.6);
+
+  /* Semantic translucent surfaces & hover overlays (theme-aware) */
+  --glass-bg: rgba(28, 28, 36, 0.55);
+  --glass-border: rgba(255, 255, 255, 0.07);
+  --bar-bg: rgba(16, 16, 20, 0.7);
+  --surface-translucent: rgba(23, 23, 28, 0.92);
+  --toolbar-bg: rgba(20, 20, 25, 0.86);
+  --hover: rgba(255, 255, 255, 0.04);
+  --hover-2: rgba(255, 255, 255, 0.06);
+  --hover-3: rgba(255, 255, 255, 0.09);
+  --row-tint: rgba(255, 255, 255, 0.015);
+  --row-hover: rgba(255, 255, 255, 0.025);
+
+  /* Type */
+  --font-sans: 'Instrument Sans', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --font-serif: Georgia, 'Times New Roman', serif;
+
+  /* Motion — set to 0s by the UI store when reduce-motion is on */
+  --dur-fast: 0.15s;
+  --dur-mid: 0.22s;
+  --dur-slow: 0.5s;
+  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+
+  color-scheme: dark;
+}
+
+/* ---------------------------------------------------------------------------
+   Light theme — activated by data-theme="light" on <html> (see UI store).
+   Only surface/text tokens change; brand accent and severity colours stay.
+   ------------------------------------------------------------------------- */
+html[data-theme='light'] {
+  --bg: #ffffff;
+  --panel: #f6f6f8;
+  --panel-2: #ededf1;
+  --doc-bg: #f0f0f4;
+
+  --border: #e4e4ea;
+  --text: #17171c;
+  --dim: #5a5a66;
+  --mut: #9a9aa6;
+
+  --shadow-card: 0 1px 0 rgba(255, 255, 255, 0.6) inset,
+    0 24px 60px -30px rgba(0, 0, 0, 0.22);
+  --shadow-pop: 0 20px 60px -20px rgba(0, 0, 0, 0.2);
+
+  --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-border: rgba(0, 0, 0, 0.08);
+  --bar-bg: rgba(255, 255, 255, 0.72);
+  --surface-translucent: rgba(255, 255, 255, 0.95);
+  --toolbar-bg: rgba(255, 255, 255, 0.92);
+  --hover: rgba(0, 0, 0, 0.04);
+  --hover-2: rgba(0, 0, 0, 0.05);
+  --hover-3: rgba(0, 0, 0, 0.08);
+  --row-tint: rgba(0, 0, 0, 0.015);
+  --row-hover: rgba(0, 0, 0, 0.03);
+
+  color-scheme: light;
+}
+
+/* Reduce-motion toggle: the UI store sets data-reduce-motion="true" on <html> */
+html[data-reduce-motion='true'] {
+  --dur-fast: 0s;
+  --dur-mid: 0s;
+  --dur-slow: 0s;
+}
+html[data-reduce-motion='true'] *,
+html[data-reduce-motion='true'] *::before,
+html[data-reduce-motion='true'] *::after {
+  animation-duration: 0.001s !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001s !important;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+#root {
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 32%, transparent);
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+a:hover {
+  color: color-mix(in srgb, var(--accent) 75%, white);
+}
+
+button {
+  font-family: inherit;
+}
+
+/* Custom scrollbars ------------------------------------------------------- */
+.scroll {
+  overflow-y: auto;
+}
+.scroll::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+.scroll::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 10px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+.scroll::-webkit-scrollbar-thumb:hover {
+  background: #3a3a44;
+  background-clip: padding-box;
+  border: 3px solid transparent;
+}
+.scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Visually-hidden (a11y) -------------------------------------------------- */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Keyframes --------------------------------------------------------------- */
+@keyframes lxspin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes lxfade {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes lxfadeq {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes lxblink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+@keyframes lxpulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+@keyframes lxglow {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+
+/* Print — only the tagged document surface prints, on clean white paper. */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .lx-print,
+  .lx-print * {
+    visibility: visible;
+  }
+  .lx-print {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    max-width: none;
+    border: none !important;
+    box-shadow: none !important;
+    background: #fff !important;
+    color: #111 !important;
+    padding: 2cm !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+}
