@@ -6,3 +6,7 @@ dist-ssr
 .DS_Store
 .vscode/*
 !.vscode/extensions.json
+
+# build artifacts from tsc -b
+vite.config.js
+*.tsbuildinfo
