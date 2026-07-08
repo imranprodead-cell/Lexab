@@ -13,6 +13,9 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    // Never silently hop to 5174/5175: a second `npm run dev` fails loudly
+    // instead of spawning another copy of the app (breaks OAuth returns).
+    strictPort: true,
     host: true,
   },
   test: {
