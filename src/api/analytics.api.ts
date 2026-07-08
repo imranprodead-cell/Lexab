@@ -11,7 +11,7 @@ import { clone, delay } from './util';
 export const analyticsApi = {
   async summary(signal?: AbortSignal): Promise<AnalyticsSummary> {
     if (USE_MOCK) {
-      await delay(500);
+      await delay(50);
       return clone(db.analytics);
     }
     return http<AnalyticsSummary>('/analytics/summary', { signal });
@@ -21,7 +21,7 @@ export const analyticsApi = {
 export const versionsApi = {
   async list(_documentId: string, signal?: AbortSignal): Promise<DocumentVersion[]> {
     if (USE_MOCK) {
-      await delay(300);
+      await delay(40);
       return clone(db.versions);
     }
     return http<DocumentVersion[]>(`/documents/${_documentId}/versions`, { signal });
@@ -31,7 +31,7 @@ export const versionsApi = {
 export const userApi = {
   async me(signal?: AbortSignal): Promise<UserProfile> {
     if (USE_MOCK) {
-      await delay(120);
+      await delay(40);
       return clone(db.user);
     }
     return http<UserProfile>('/me', { signal });

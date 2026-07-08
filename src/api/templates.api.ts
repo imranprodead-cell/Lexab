@@ -7,7 +7,7 @@ import { clone, delay } from './util';
 export const templatesApi = {
   async list(category?: string, signal?: AbortSignal): Promise<Template[]> {
     if (USE_MOCK) {
-      await delay(350);
+      await delay(40);
       let rows = clone(db.templates);
       if (category && category !== 'All') {
         rows = rows.filter((t) => t.category === category);

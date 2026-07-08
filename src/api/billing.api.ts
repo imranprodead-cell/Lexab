@@ -18,7 +18,7 @@ export interface PlanLimits {
 export const billingApi = {
   async limits(signal?: AbortSignal): Promise<PlanLimits> {
     if (USE_MOCK) {
-      await delay(300);
+      await delay(40);
       return {
         plan: 'Pro',
         aiRequests: { used: 37, limit: null },

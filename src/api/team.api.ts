@@ -39,7 +39,7 @@ const mockMembers: TeamMember[] = [
 export const teamApi = {
   async members(signal?: AbortSignal): Promise<TeamMember[]> {
     if (USE_MOCK) {
-      await delay(250);
+      await delay(40);
       return clone(mockMembers);
     }
     return http<TeamMember[]>('/team/members', { signal });
@@ -47,7 +47,7 @@ export const teamApi = {
 
   async invitations(signal?: AbortSignal): Promise<TeamInvitation[]> {
     if (USE_MOCK) {
-      await delay(150);
+      await delay(40);
       return [];
     }
     return http<TeamInvitation[]>('/team/invitations', { signal });

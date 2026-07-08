@@ -12,7 +12,7 @@ export interface SendSignatureInput {
 export const signaturesApi = {
   async list(signal?: AbortSignal): Promise<SignatureRequest[]> {
     if (USE_MOCK) {
-      await delay(400);
+      await delay(40);
       return clone(db.signatures);
     }
     return http<SignatureRequest[]>('/signatures', { signal });

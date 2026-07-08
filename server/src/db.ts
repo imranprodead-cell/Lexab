@@ -32,6 +32,13 @@ async function createDb(): Promise<Db> {
       connectionString: config.databaseUrl,
       ...(useSsl ? { ssl: { rejectUnauthorized: false } } : {}),
     });
+    // An idle pooled connection can error at any time (network change, pooler
+    // restart). Without this handler Node crashes the whole process
+    // ("Unhandled 'error' event"); with it the pool just drops the dead client
+    // and opens a fresh one on the next query.
+    pool.on('error', (err) => {
+      console.warn(`[db] idle connection error (recovered): ${err.message}`);
+    });
     return {
       kind: 'postgres',
       query: async (sql, params) => {

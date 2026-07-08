@@ -7,7 +7,7 @@ import { clone, delay } from './util';
 export const chatsApi = {
   async list(archived = false, signal?: AbortSignal): Promise<ChatSession[]> {
     if (USE_MOCK) {
-      await delay(200);
+      await delay(40);
       return archived ? [] : clone(db.sessions);
     }
     return http<ChatSession[]>(`/chats?archived=${archived}`, { signal });
@@ -36,7 +36,7 @@ export const chatsApi = {
 
   async messages(sessionId: string, signal?: AbortSignal): Promise<ChatMessage[]> {
     if (USE_MOCK) {
-      await delay(150);
+      await delay(40);
       return [];
     }
     return http<ChatMessage[]>(`/chats/${sessionId}/messages`, { signal });

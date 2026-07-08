@@ -9,6 +9,7 @@ import { create } from 'zustand';
 import { USE_MOCK } from '@/api/client';
 import { authApi } from '@/api/auth.api';
 import { CURRENT_USER } from '@/data/seed';
+import { clearAsyncCache } from '@/hooks/useAsync';
 import type { UserProfile } from '@/types/domain';
 
 const STORAGE_KEY = 'lexai.auth';
@@ -57,7 +58,7 @@ const initials = (name: string) => {
 
 /** Simulated auth backend (mock mode only). Accepts any well-formed credentials. */
 async function mockAuth(user: UserProfile): Promise<Session> {
-  await new Promise((r) => setTimeout(r, 600));
+  await new Promise((r) => setTimeout(r, 250));
   return { token: `mock_${Date.now()}`, user };
 }
 
@@ -74,6 +75,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const session = USE_MOCK
         ? await mockAuth({ ...CURRENT_USER, email })
         : await authApi.login(email, password);
+      clearAsyncCache();
       persist(session);
       set({ user: session.user, token: session.token, status: 'idle' });
     } catch (err) {
@@ -88,6 +90,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const session = USE_MOCK
         ? await mockAuth({ ...CURRENT_USER, name, email, initials: initials(name), firm: 'LexAI' })
         : await authApi.register(name, email, password);
+      clearAsyncCache();
       persist(session);
       set({ user: session.user, token: session.token, status: 'idle' });
     } catch (err) {
@@ -97,6 +100,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   adoptSession: (token, user) => {
+    clearAsyncCache();
     persist({ token, user });
     set({ user, token, status: 'idle' });
   },
@@ -104,6 +108,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   logout: () => {
     // Best-effort server-side token invalidation; local sign-out regardless.
     if (!USE_MOCK && get().token) void authApi.logout().catch(() => undefined);
+    clearAsyncCache();
     persist(null);
     set({ user: null, token: null });
   },

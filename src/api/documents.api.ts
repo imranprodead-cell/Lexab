@@ -13,7 +13,7 @@ export interface DocumentQuery {
 export const documentsApi = {
   async list(query: DocumentQuery = {}, signal?: AbortSignal): Promise<ContractDocument[]> {
     if (USE_MOCK) {
-      await delay(450);
+      await delay(50);
       let rows = clone(db.documents);
       const search = query.search?.trim().toLowerCase();
       if (search) {
@@ -40,7 +40,7 @@ export const documentsApi = {
 
   async get(id: string, signal?: AbortSignal): Promise<ContractDocument> {
     if (USE_MOCK) {
-      await delay(300);
+      await delay(40);
       const doc = db.documents.find((d) => d.id === id);
       if (!doc) throw new ApiError('Document not found', 404);
       return clone(doc);

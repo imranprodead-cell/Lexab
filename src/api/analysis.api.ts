@@ -22,7 +22,7 @@ async function analyzeMock(_input: AnalyzeInput): Promise<AnalysisResult> {
 }
 
 async function getAnalysisMock(id: string): Promise<AnalysisResult> {
-  await delay(250);
+  await delay(40);
   if (db.analysis.id !== id) throw new ApiError('Analysis not found', 404);
   return clone(db.analysis);
 }
