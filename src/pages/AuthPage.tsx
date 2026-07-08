@@ -67,12 +67,19 @@ export function AuthPage() {
   const status = useAuthStore((s) => s.status);
   const pushToast = useUIStore((s) => s.pushToast);
 
+  const token = useAuthStore((s) => s.token);
+
   const [emailOpen, setEmailOpen] = useState(false);
   const [mode, setMode] = useState<Mode>('signin');
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  /** Returning from Google with a session: show the branded "signing in"
+   *  screen instead of flashing the login form. */
+  const [finishing, setFinishing] = useState(() => window.location.hash.startsWith('#session='));
+  /** Fade the whole screen out before navigating into the app. */
+  const [leaving, setLeaving] = useState(false);
 
   const redirectTo = (location.state as { from?: string } | null)?.from ?? '/chat';
 
@@ -84,8 +91,8 @@ export function AuthPage() {
       window.history.replaceState(null, '', window.location.pathname);
       if (session) {
         adoptSession(session.token, session.user);
-        navigate(redirectTo, { replace: true });
       } else {
+        setFinishing(false);
         pushToast(t('auth.googleFailed'), 'error');
       }
     } else if (hash.startsWith('#error=')) {
@@ -95,9 +102,26 @@ export function AuthPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Once the Google session is adopted, glide into the app after a beat —
+  // keyed on the store token so it survives StrictMode's double-mount.
+  useEffect(() => {
+    if (!finishing || !token) return;
+    const timer = setTimeout(() => navigate(redirectTo, { replace: true }), 650);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finishing, token]);
+
+  /** Fade out, then run the actual transition (navigate / external redirect). */
+  const departAnd = (action: () => void, delay = 320) => {
+    setLeaving(true);
+    setTimeout(action, delay);
+  };
+
   const startGoogle = () => {
     const back = encodeURIComponent(`${window.location.origin}/login`);
-    window.location.href = `${API_BASE}/auth/google?redirect=${back}`;
+    departAnd(() => {
+      window.location.href = `${API_BASE}/auth/google?redirect=${back}`;
+    }, 260);
   };
 
   const title =
@@ -133,7 +157,7 @@ export function AuthPage() {
     try {
       if (mode === 'signin') await login(email.trim(), password);
       else await register(name.trim(), email.trim(), password);
-      navigate(redirectTo, { replace: true });
+      departAnd(() => navigate(redirectTo, { replace: true }));
     } catch (err) {
       // Surface the real backend message ("Invalid email or password", …).
       setError(err instanceof Error && err.message ? err.message : t('common.error'));
@@ -145,8 +169,23 @@ export function AuthPage() {
     setError(null);
   };
 
+  // Branded hand-off screen while the Google session settles in.
+  if (finishing) {
+    return (
+      <div className={`${styles.auth} ${styles.finishScreen}`}>
+        <div className={styles.finishInner}>
+          <Avatar size={56} />
+          <div className={styles.finishText}>{t('auth.signingIn')}</div>
+          <div className={styles.finishBar}>
+            <div />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className={styles.auth}>
+    <div className={`${styles.auth} ${leaving ? styles.authLeaving : ''}`}>
       <div className={styles.langRow}>
         {LANGUAGES.map((l) => (
           <button

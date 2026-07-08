@@ -831,3 +831,16 @@
     opacity: 1;
   }
 }
+
+/* Gentle fade-in when the app shell first mounts (login → app hand-off). */
+.shell {
+  animation: lxshellin 0.4s ease both;
+}
+@keyframes lxshellin {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

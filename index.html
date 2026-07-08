@@ -6,6 +6,23 @@
     <meta name="theme-color" content="#101014" />
     <meta name="description" content="LexAI — AI contract intelligence platform." />
     <title>LexAI — Contract Intelligence</title>
+    <!-- Apply the saved theme BEFORE first paint so full-page loads (e.g. the
+         return from Google sign-in) don't flash white/dark for an instant. -->
+    <script>
+      (function () {
+        try {
+          var prefs = JSON.parse(localStorage.getItem('lexai.ui.prefs') || '{}');
+          var theme = prefs.theme || 'light';
+          if (theme === 'system') {
+            theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+          }
+          document.documentElement.setAttribute('data-theme', theme);
+          document.documentElement.style.backgroundColor = theme === 'light' ? '#ffffff' : '#101014';
+        } catch (e) {
+          /* first visit — defaults apply */
+        }
+      })();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <!-- Fonts load async (media swap) so they never block first paint. -->

@@ -287,6 +287,7 @@ export const MESSAGES: Dict = {
     en: 'By continuing, you agree to the LexAI Terms of Use and Privacy Policy.',
   },
   'auth.googleFailed': { ru: 'Не удалось войти через Google. Попробуйте ещё раз.', en: 'Google sign-in failed. Please try again.' },
+  'auth.signingIn': { ru: 'Входим в LexAI…', en: 'Signing you in…' },
 
   // Settings
   'settings.title': { ru: 'Настройки', en: 'Settings' },
