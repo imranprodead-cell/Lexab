@@ -25,7 +25,7 @@ interface SummaryCardProps {
 /** Post-analysis report: streaming summary, risk gauge, top findings, actions. */
 export function SummaryCard({ analysis, onOpenWorkspace, onFollowUp }: SummaryCardProps) {
   const { t } = useI18n();
-  const { visible, done } = useStreamingText(analysis.summary);
+  const { visible } = useStreamingText(analysis.summary);
 
   return (
     <GlassCard className={styles.summary}>
@@ -37,10 +37,7 @@ export function SummaryCard({ analysis, onOpenWorkspace, onFollowUp }: SummaryCa
               {t('chat.sum.meta', { n: analysis.findings.length, m: analysis.clausesReviewed })}
             </span>
           </div>
-          <p className={styles.summaryText}>
-            {visible}
-            {!done ? <span className={styles.cursor} /> : null}
-          </p>
+          <p className={styles.summaryText}>{visible}</p>
         </div>
         <RiskGauge score={analysis.riskScore} />
       </div>

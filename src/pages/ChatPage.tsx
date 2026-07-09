@@ -9,6 +9,7 @@ import { SummaryCard } from '@/components/chat/SummaryCard';
 import { ChatInput } from '@/components/chat/ChatInput';
 import { CloudImportModal } from '@/components/chat/CloudImportModal';
 import { Avatar } from '@/components/ui/Avatar';
+import { LogoLoader } from '@/components/ui/LogoLoader';
 import { ErrorState } from '@/components/ui/States';
 import { useChatStore } from '@/store/useChatStore';
 import { useChatHistoryStore } from '@/store/useChatHistoryStore';
@@ -101,15 +102,19 @@ export function ChatPage() {
   const renderText = (m: ChatMessage) =>
     m.role === 'user' ? (
       <div key={m.id} className={chat.msgUser}>
-        <div className={chat.msgUserBubble}>{m.text}</div>
+        <div className={`${chat.msgUserBubble} ${chat.textIn}`}>{m.text}</div>
+      </div>
+    ) : m.streaming && !m.text ? (
+      // Waiting for the first token: the brand logo inside an infinite
+      // progress ring instead of a blinking cursor.
+      <div key={m.id} className={chat.msgAssistant}>
+        <LogoLoader size={30} />
+        <div className={`${chat.msgAssistantText} ${chat.thinkingText}`}>{t('chat.thinking')}</div>
       </div>
     ) : (
       <div key={m.id} className={chat.msgAssistant}>
         <Avatar size={30} />
-        <div className={chat.msgAssistantText}>
-          {m.text}
-          {m.streaming ? <span className={chat.cursor} /> : null}
-        </div>
+        <div className={`${chat.msgAssistantText} ${chat.textIn}`}>{m.text}</div>
       </div>
     );
 

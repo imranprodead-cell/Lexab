@@ -210,6 +210,7 @@ export const MESSAGES: Dict = {
   'chat.sum.meta': { ru: 'Находок: {n} · проверено пунктов: {m}', en: '{n} findings · {m} clauses reviewed' },
   'chat.sum.top': { ru: 'Топ-{n} находок', en: 'Top {n} findings' },
   'chat.sum.followUp': { ru: 'Задать вопрос', en: 'Ask a follow-up' },
+  'chat.thinking': { ru: 'LexAI думает…', en: 'LexAI is thinking…' },
 
   // Chat · offline fallback replies (no AI connection)
   'chat.mock.draft': {

@@ -337,15 +337,34 @@
   margin: 0;
   min-height: 72px;
 }
-.cursor {
-  display: inline-block;
-  width: 8px;
-  height: 16px;
-  background: var(--accent);
-  margin-left: 2px;
-  vertical-align: -2px;
-  animation: lxblink 1s step-end infinite;
-  border-radius: 1px;
+/* Modest fade-in for newly appearing message texts. */
+.textIn {
+  animation: lxTextIn 0.24s ease both;
+}
+@keyframes lxTextIn {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+/* «LexAI думает…» line next to the logo loader while the reply is pending. */
+.thinkingText {
+  color: var(--dim);
+  animation: lxSoftPulse 1.6s ease-in-out infinite;
+  min-height: auto;
+}
+@keyframes lxSoftPulse {
+  0%,
+  100% {
+    opacity: 0.9;
+  }
+  50% {
+    opacity: 0.45;
+  }
 }
 .gaugeWrap {
   display: flex;
@@ -611,16 +630,6 @@
   }
   to {
     opacity: 1;
-  }
-}
-@keyframes lxblink {
-  0%,
-  49% {
-    opacity: 1;
-  }
-  50%,
-  100% {
-    opacity: 0;
   }
 }
 @keyframes lxpulse {

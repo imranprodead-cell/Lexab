@@ -15,7 +15,7 @@ import { toIso } from '../lib/format.ts';
 import { newId } from '../lib/ids.ts';
 import { openSSE, wantsSSE } from '../lib/sse.ts';
 import { asObject, requireString } from '../lib/validate.ts';
-import { generateChatReply, type ChatTurn } from '../llm.ts';
+import { generateChatReply, generateHistorySummary, type ChatTurn } from '../llm.ts';
 import type { ChatMessage, ChatSession } from '../types.ts';
 
 interface SessionRow {
@@ -264,6 +264,25 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
     const turns = historyRes.rows.filter((r) => r.text).map((r): ChatTurn => ({ role: r.role, text: r.text as string }));
     const history = turns.slice(0, -1); // last turn is the message we just stored
 
+    // Context window: the last ~10 turns go to the model verbatim (fewer when
+    // they are long); everything older lives in a rolling summary on the
+    // session, updated incrementally as turns fall out of the window.
+    const { recent, older } = splitHistory(history);
+    const sessRow = await db.query<{ context_summary: string | null; summary_covers: number }>(
+      'SELECT context_summary, summary_covers FROM chat_sessions WHERE id = $1',
+      [sessionId],
+    );
+    let summary = sessRow.rows[0]?.context_summary ?? null;
+    const covers = Number(sessRow.rows[0]?.summary_covers ?? 0);
+    if (older.length > covers) {
+      summary = await generateHistorySummary(summary, older.slice(covers));
+      await db.query('UPDATE chat_sessions SET context_summary = $2, summary_covers = $3 WHERE id = $1', [
+        sessionId,
+        summary,
+        older.length,
+      ]);
+    }
+
     const finish = async (replyText: string): Promise<ChatMessage> => {
       const messageId = newId('m');
       await db.query(
@@ -278,7 +297,7 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
     if (wantsSSE(req)) {
       const sse = openSSE(req, reply);
       try {
-        const replyText = await generateChatReply(history, text, (delta) => sse.send('token', { text: delta }), docContext, jurisdiction, plan);
+        const replyText = await generateChatReply(recent, text, (delta) => sse.send('token', { text: delta }), docContext, jurisdiction, plan, summary);
         const message = await finish(replyText);
         sse.send('done', message);
       } catch (err) {
@@ -290,7 +309,22 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
       return reply;
     }
 
-    const replyText = await generateChatReply(history, text, undefined, docContext, jurisdiction, plan);
+    const replyText = await generateChatReply(recent, text, undefined, docContext, jurisdiction, plan, summary);
     return finish(replyText);
   });
+}
+
+const HISTORY_MAX_TURNS = 10;
+const HISTORY_MAX_CHARS = 16_000;
+
+/** Last N turns verbatim — fewer when they are long. The rest goes to the
+ *  rolling summary (see generateHistorySummary). */
+function splitHistory(turns: ChatTurn[]): { recent: ChatTurn[]; older: ChatTurn[] } {
+  let start = Math.max(0, turns.length - HISTORY_MAX_TURNS);
+  let chars = turns.slice(start).reduce((n, t) => n + t.text.length, 0);
+  while (start < turns.length - 2 && chars > HISTORY_MAX_CHARS) {
+    chars -= turns[start].text.length;
+    start += 1;
+  }
+  return { recent: turns.slice(start), older: turns.slice(0, start) };
 }

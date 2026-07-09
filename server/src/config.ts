@@ -29,7 +29,7 @@ export const config = {
   /** Per-plan Claude model: better plan → smarter model (see llm.ts modelForPlan). */
   planModels: {
     Free: env('ANTHROPIC_MODEL_FREE', 'claude-haiku-4-5'),
-    Standard: env('ANTHROPIC_MODEL_STANDARD', 'claude-opus-4-6'),
+    Standard: env('ANTHROPIC_MODEL_STANDARD', 'claude-sonnet-5'),
     Pro: env('ANTHROPIC_MODEL_PRO', 'claude-opus-4-8'),
     Business: env('ANTHROPIC_MODEL_BUSINESS', 'claude-fable-5'),
     Enterprise: env('ANTHROPIC_MODEL_ENTERPRISE', env('ANTHROPIC_MODEL_BUSINESS', 'claude-fable-5')),

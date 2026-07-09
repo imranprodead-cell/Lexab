@@ -36,10 +36,13 @@ interface LlmCall {
   op: string;
   model: string;
   maxTokens: number;
-  system: string;
+  /** Plain string, or blocks (lets large stable parts carry a cache_control breakpoint). */
+  system: string | Anthropic.Beta.BetaTextBlockParam[];
   messages: Anthropic.Beta.BetaMessageParam[];
   /** Structured outputs: force the response to match this JSON schema. */
   schema?: Record<string, unknown>;
+  /** Reasoning effort — 'medium' makes chat replies noticeably faster (and cheaper). */
+  effort?: 'low' | 'medium' | 'high';
 }
 
 /**
@@ -49,13 +52,19 @@ interface LlmCall {
  */
 function startStream(api: Anthropic, call: LlmCall) {
   const fable = call.model.includes('fable') || call.model.includes('mythos');
+  const adaptive = supportsAdaptiveThinking(call.model);
+  const outputConfig = {
+    ...(call.schema ? { format: { type: 'json_schema' as const, schema: call.schema } } : {}),
+    // effort is a thinking control — only valid on adaptive-thinking models.
+    ...(call.effort && adaptive ? { effort: call.effort } : {}),
+  };
   return api.beta.messages.stream({
     model: call.model,
     max_tokens: call.maxTokens,
     system: call.system,
     messages: call.messages,
-    ...(supportsAdaptiveThinking(call.model) ? { thinking: { type: 'adaptive' as const } } : {}),
-    ...(call.schema ? { output_config: { format: { type: 'json_schema' as const, schema: call.schema } } } : {}),
+    ...(adaptive ? { thinking: { type: 'adaptive' as const } } : {}),
+    ...(Object.keys(outputConfig).length ? { output_config: outputConfig } : {}),
     ...(fable ? { betas: ['server-side-fallback-2026-06-01'], fallbacks: [{ model: 'claude-opus-4-8' }] } : {}),
   });
 }
@@ -89,8 +98,11 @@ function logUsage(op: string, requested: string, message: Anthropic.Beta.BetaMes
   // show the arrow when a genuinely different model served the request.
   const sameModel = message.model.startsWith(requested);
   const served = sameModel ? message.model : `${requested} → served by ${message.model}`;
+  const cached = message.usage.cache_read_input_tokens
+    ? `, cache read ${message.usage.cache_read_input_tokens}`
+    : '';
   console.log(
-    `[llm] ${op}: ${served}${rescued ? ' (refusal rescued by fallback)' : ''}, in ${message.usage.input_tokens} / out ${message.usage.output_tokens} tokens`,
+    `[llm] ${op}: ${served}${rescued ? ' (refusal rescued by fallback)' : ''}, in ${message.usage.input_tokens} / out ${message.usage.output_tokens} tokens${cached}`,
   );
 }
 
@@ -296,8 +308,11 @@ function normalizeGenerated(raw: GeneratedAnalysis): GeneratedAnalysis {
   };
 }
 
-const CHAT_SYSTEM = `You are LexAI, an AI legal assistant for contract work (analysis, drafting, comparison, translation/localisation).
-Answer in the language the user writes in. Be concise and practical; cite the governing statutes or case law when you make a legal claim.
+const CHAT_SYSTEM = `You are LexAI, the branded AI legal assistant of the LexAI contract-intelligence platform.
+Persona: answer like a seasoned commercial lawyer — precise, confident, businesslike, warm but never chatty. No emoji, no filler, no restating the question.
+Be BRIEF and to the point: lead with the answer in as few sentences as the question allows; use a short list only when it genuinely helps. Cite the governing statute or case law when you make a legal claim. Answer in the language the user writes in.
+STRICT SCOPE — legal work only: contracts and documents (analysis, risks, redlines, drafting, comparison, templates, signatures, approvals), legislation, compliance, negotiations, and questions about the LexAI product itself.
+If the user asks anything outside that scope (write code, recipes, homework, small talk, general trivia, etc.), do NOT answer it even partially. Reply with ONE short, polite sentence in the user's language saying you only help with legal questions and contract/document analysis, and invite a legal question instead.
 You are not the user's solicitor — for high-stakes decisions, recommend review by qualified counsel in one short sentence at most.`;
 
 export interface ChatTurn {
@@ -317,6 +332,7 @@ export async function generateChatReply(
   docContext?: string,
   jurisdiction?: string,
   plan?: string | null,
+  historySummary?: string | null,
 ): Promise<string> {
   const api = getClient();
   if (!api) {
@@ -327,21 +343,37 @@ export async function generateChatReply(
 
   try {
     const messages: Anthropic.Beta.BetaMessageParam[] = [
-      ...history.slice(-20).map((t) => ({ role: t.role, content: t.text })),
+      ...history.slice(-12).map((t) => ({ role: t.role, content: t.text })),
       { role: 'user' as const, content: userText },
     ];
-    let system = CHAT_SYSTEM;
+    let base = CHAT_SYSTEM;
     if (jurisdiction) {
-      system += `\n\nThe user's default jurisdiction is ${jurisdiction}. Answer under that law unless the user or their document indicates otherwise.`;
+      base += `\n\nThe user's default jurisdiction is ${jurisdiction}. Answer under that law unless the user or their document indicates otherwise.`;
     }
+    // System blocks, most stable first: the big contract context carries a
+    // cache breakpoint (reused turn after turn — cached reads are ~90% cheaper
+    // and faster), while the rolling summary changes and stays after it.
+    const system: Anthropic.Beta.BetaTextBlockParam[] = [{ type: 'text', text: base }];
     if (docContext) {
-      system += `\n\nThe user is working on the following contract. Ground every answer in it and quote the relevant clause when you make a claim about it.\n<contract>\n${docContext.slice(0, 100_000)}\n</contract>`;
+      system.push({
+        type: 'text',
+        text: `The user is working on the following contract. Ground every answer in it and quote the relevant clause when you make a claim about it.\n<contract>\n${docContext.slice(0, 100_000)}\n</contract>`,
+        cache_control: { type: 'ephemeral' },
+      });
+    }
+    if (historySummary) {
+      system.push({
+        type: 'text',
+        text: `Summary of the earlier part of this conversation (rely on it as established context):\n${historySummary}`,
+      });
     }
     // Retry on the default model only while nothing has streamed to the client
     // yet — a mid-stream retry would duplicate the visible reply.
     let streamed = false;
     const runChat = async (model: string): Promise<string> => {
-      const stream = startStream(api, { op: 'chat', model, maxTokens: 4096, system, messages });
+      // effort 'medium': visibly faster replies at no extra cost — chat answers
+      // are short and grounded, they don't need deep deliberation.
+      const stream = startStream(api, { op: 'chat', model, maxTokens: 4096, system, messages, effort: 'medium' });
       if (onToken) {
         stream.on('text', (delta) => {
           streamed = true;
@@ -366,6 +398,42 @@ export async function generateChatReply(
     const reply = fallbackChatReply(userText, Boolean(docContext));
     onToken?.(reply);
     return reply;
+  }
+}
+
+/**
+ * Rolling summary of older chat turns (context-window management): the last
+ * ~10 messages reach the model verbatim, everything older is folded into one
+ * short summary. Always runs on Haiku — fast and costs a fraction of a cent.
+ * Non-fatal: on any failure the previous summary is kept.
+ */
+export async function generateHistorySummary(prevSummary: string | null, dropped: ChatTurn[]): Promise<string | null> {
+  const api = getClient();
+  if (!api || dropped.length === 0) return prevSummary;
+  try {
+    const convo = dropped
+      .map((t) => `${t.role === 'user' ? 'User' : 'LexAI'}: ${t.text}`)
+      .join('\n')
+      .slice(0, 30_000);
+    const stream = api.beta.messages.stream({
+      model: 'claude-haiku-4-5',
+      max_tokens: 500,
+      system:
+        'You maintain a running summary of a legal-assistant chat. Merge the previous summary with the new turns into ONE updated summary of at most 120 words, in the language of the conversation. Keep only what matters for future turns: document names, key facts and figures, legal positions taken, decisions made, open questions, user preferences. Output the summary only — no preamble.',
+      messages: [
+        {
+          role: 'user',
+          content: `${prevSummary ? `Previous summary:\n${prevSummary}\n\n` : ''}New turns to fold in:\n${convo}`,
+        },
+      ],
+    });
+    const message = await stream.finalMessage();
+    logUsage('history-summary', 'claude-haiku-4-5', message);
+    const text = textOf(message).trim();
+    return text || prevSummary;
+  } catch (err) {
+    console.warn(`[llm] history summary failed (keeping previous): ${(err as Error).message}`);
+    return prevSummary;
   }
 }
 

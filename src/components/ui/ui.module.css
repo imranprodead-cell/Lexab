@@ -156,6 +156,43 @@
   box-shadow: 0 0 18px -4px color-mix(in srgb, var(--accent) 70%, transparent);
 }
 
+/* Logo loader — brand mark inside an infinite progress ring ---------------- */
+.logoLoader {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.logoLoaderRing {
+  position: absolute;
+  inset: -5px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--accent) 18%, transparent);
+  border-top-color: var(--accent);
+  animation: logoLoaderSpin 0.9s linear infinite;
+}
+.logoLoaderMark {
+  display: grid;
+  place-items: center;
+  animation: logoLoaderPulse 1.8s ease-in-out infinite;
+}
+@keyframes logoLoaderSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes logoLoaderPulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(0.92);
+    opacity: 0.85;
+  }
+}
+
 /* Spinner ----------------------------------------------------------------- */
 .spinner {
   border-radius: 50%;
