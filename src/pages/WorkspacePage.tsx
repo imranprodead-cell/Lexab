@@ -4,7 +4,7 @@ import { Avatar } from '@/components/ui/Avatar';
 import { toneColor } from '@/components/ui/Badge';
 import { CitationChip } from '@/components/ui/CitationChip';
 import { IconButton } from '@/components/ui/Button';
-import { LoadingState } from '@/components/ui/States';
+import { SkeletonRows } from '@/components/ui/States';
 import { ChatInput } from '@/components/chat/ChatInput';
 import { DocumentViewer } from '@/components/workspace/DocumentViewer';
 import { FloatingToolbar } from '@/components/workspace/FloatingToolbar';
@@ -32,20 +32,49 @@ export function WorkspacePage() {
   const analysis = useChatStore((s) => s.analysis);
   const messages = useChatStore((s) => s.messages);
   const sendMessage = useChatStore((s) => s.sendMessage);
-  const seedAnalyzed = useChatStore((s) => s.seedAnalyzed);
   const acceptAll = useChatStore((s) => s.acceptAllRedlines);
   const updateDocument = useChatStore((s) => s.updateDocument);
+  const reanalyze = useChatStore((s) => s.reanalyze);
   const pushToast = useUIStore((s) => s.pushToast);
 
+  const analysisReadOnly = () => useChatStore.getState().analysis?.canEdit === false;
   const [signOpen, setSignOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [reanalyzing, setReanalyzing] = useState(false);
 
-  // Support landing directly on the workspace (refresh / deep link).
+  const runReanalysis = () => {
+    if (analysisReadOnly()) {
+      pushToast(t('ws.readOnly'), 'error');
+      return;
+    }
+    if (reanalyzing) return;
+    setReanalyzing(true);
+    pushToast(t('ws.reanalyzing'), 'default');
+    reanalyze()
+      .then((r) => pushToast(t('ws.reanalyzed', { score: r.riskScore, n: r.redlines.length }), 'success'))
+      .catch((err) => pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error'))
+      .finally(() => setReanalyzing(false));
+  };
+
+  // No analysis here (refresh / direct link) — send the user to the chat
+  // to upload their own document instead of showing any demo content.
   useEffect(() => {
-    if (!analysis) seedAnalyzed();
-  }, [analysis, seedAnalyzed]);
+    if (!analysis) {
+      pushToast(t('ws.noAnalysisRedirect'), 'default');
+      navigate(sessionId ? `/chat/${sessionId}` : '/chat', { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [analysis]);
 
-  if (!analysis) return <LoadingState label="Preparing workspace…" />;
+  if (!analysis) {
+    return (
+      <div style={{ padding: '28px 36px' }}>
+        <SkeletonRows rows={7} height={52} />
+      </div>
+    );
+  }
+
+  const canEdit = analysis.canEdit !== false;
 
   const pendingCount = analysis.redlines.filter((r) => r.status === 'pending').length;
   const textMessages = messages.filter((m) => m.kind === 'text');
@@ -68,18 +97,15 @@ export function WorkspacePage() {
       {/* Left: review conversation + findings + document Q&A */}
       <div className={styles.leftPane}>
         <div className={styles.leftHeader}>
-          <IconButton icon="back" label="Back to chat" size="sm" iconSize={18} onClick={closeWorkspace} />
-          <span className={styles.leftTitle}>Review</span>
+          <IconButton icon="back" label={t('ws.backToChat')} size="sm" iconSize={18} onClick={closeWorkspace} />
+          <span className={styles.leftTitle}>{t('ws.review')}</span>
         </div>
 
         <div className={`${styles.leftBody} scroll`}>
           <div className={styles.reviewIntro}>
             <Avatar size={28} />
             <div style={{ flex: 1, minWidth: 0 }}>
-              <p className={styles.reviewIntroText}>
-                I placed {analysis.redlines.length} tracked changes in the document. Accept or reject each on the right —
-                or apply all at once. Ask me anything about this contract below.
-              </p>
+              <p className={styles.reviewIntroText}>{t('ws.intro', { n: analysis.redlines.length })}</p>
               <div className={styles.findingCards}>
                 {analysis.findings.map((f) => (
                   <div key={f.id} className={styles.findingCard}>
@@ -112,24 +138,21 @@ export function WorkspacePage() {
           </div>
         </div>
 
-        <ChatInput
-          compact
-          onAnalyze={() => pushToast('Re-analysis will re-run against the current draft.')}
-          onSend={(text) => sendMessage(text)}
-        />
+        <ChatInput compact draftKey="workspace" onAnalyze={runReanalysis} onSend={(text) => sendMessage(text)} />
       </div>
 
       {/* Right: document viewer with redlines + floating toolbar */}
-      <DocumentViewer analysis={analysis} pendingCount={pendingCount} onSaveBlock={saveBlock}>
+      <DocumentViewer analysis={analysis} pendingCount={pendingCount} onSaveBlock={canEdit ? saveBlock : undefined}>
         <FloatingToolbar
+          readOnly={!canEdit}
           pendingCount={pendingCount}
           onAcceptAll={() => {
             acceptAll();
-            pushToast('All suggestions accepted.', 'success');
+            pushToast(t('ws.allAccepted'), 'success');
           }}
           onDownload={() => {
             exportDocx(analysis);
-            pushToast('DOCX с применёнными правками загружается…', 'success');
+            pushToast(t('ws.docxStarted'), 'success');
           }}
           onReport={() => {
             void analysisApi
@@ -147,7 +170,7 @@ export function WorkspacePage() {
         onClose={() => setSignOpen(false)}
         onSent={() => {
           setSignOpen(false);
-          pushToast('Signature request sent.', 'success');
+          pushToast(t('ws.signSentToast'), 'success');
         }}
       />
       <VersionHistoryModal open={historyOpen} documentId={analysis.id} onClose={() => setHistoryOpen(false)} />

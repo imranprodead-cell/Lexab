@@ -11,6 +11,12 @@ export interface TeamMember {
   roleKey: string;
   statusKey: string;
   color: string;
+  /** Human job title (Юрист, Директор, …) chosen when inviting. */
+  title?: string | null;
+  /** True when the current viewer (team owner) may remove this member. */
+  manageable?: boolean;
+  /** Pending invitations only: token for the join link. */
+  inviteToken?: string;
 }
 
 /** An invitation addressed to the current user (pending acceptance). */
@@ -20,6 +26,7 @@ export interface TeamInvitation {
   inviterFirm: string;
   role: TeamRole;
   roleKey: string;
+  title?: string | null;
 }
 
 export const ROLE_COLORS: Record<TeamRole, string> = {
@@ -53,7 +60,7 @@ export const teamApi = {
     return http<TeamInvitation[]>('/team/invitations', { signal });
   },
 
-  async invite(email: string, role: TeamRole): Promise<TeamMember> {
+  async invite(email: string, role: TeamRole, title?: string): Promise<TeamMember> {
     if (USE_MOCK) {
       await delay(400);
       const member: TeamMember = {
@@ -63,11 +70,12 @@ export const teamApi = {
         roleKey: `team.role.${role}`,
         statusKey: 'team.status.invited',
         color: ROLE_COLORS[role],
+        title: title ?? null,
       };
       mockMembers.push(member);
       return clone(member);
     }
-    return http<TeamMember>('/team/invite', { method: 'POST', body: { email, role } });
+    return http<TeamMember>('/team/invite', { method: 'POST', body: { email, role, ...(title ? { title } : {}) } });
   },
 
   async accept(id: string): Promise<void> {
@@ -75,8 +83,44 @@ export const teamApi = {
     await http<void>(`/team/invitations/${id}/accept`, { method: 'POST' });
   },
 
+  /** Accept an invitation straight from the notification bell. */
+  async acceptByToken(token: string): Promise<void> {
+    if (USE_MOCK) return;
+    await http<void>('/team/invitations/accept-by-token', { method: 'POST', body: { token } });
+  },
+
   async decline(id: string): Promise<void> {
     if (USE_MOCK) return;
     await http<void>(`/team/invitations/${id}/decline`, { method: 'POST' });
+  },
+
+  /** Owner: change a member's role. */
+  async updateRole(id: string, role: Exclude<TeamRole, 'owner'>): Promise<TeamMember> {
+    if (USE_MOCK) {
+      await delay(150);
+      const m = mockMembers.find((x) => x.id === id);
+      if (m) {
+        m.roleKey = `team.role.${role}`;
+        m.color = ROLE_COLORS[role];
+      }
+      return clone(m as TeamMember);
+    }
+    return http<TeamMember>(`/team/members/${id}`, { method: 'PATCH', body: { role } });
+  },
+
+  /** Owner: remove a member or revoke a pending invitation. */
+  async remove(id: string): Promise<void> {
+    if (USE_MOCK) {
+      await delay(150);
+      const i = mockMembers.findIndex((x) => x.id === id);
+      if (i >= 0) mockMembers.splice(i, 1);
+      return;
+    }
+    await http<void>(`/team/members/${id}`, { method: 'DELETE' });
+  },
+
+  /** PUBLIC: invite details for the login-page banner. */
+  async inviteInfo(token: string): Promise<{ email: string; role: string; inviterName: string; inviterFirm: string }> {
+    return http(`/team/invite-info/${encodeURIComponent(token)}`);
   },
 };

@@ -5,25 +5,16 @@
  */
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../db.ts';
+import { HttpError } from '../lib/errors.ts';
 import { toIso } from '../lib/format.ts';
-import { newId } from '../lib/ids.ts';
+import { notify } from '../lib/notify.ts';
 import { asObject, requireString } from '../lib/validate.ts';
+import { monthlyUsage, PLAN_LIMITS, planFor, storageUsedBytes } from '../lib/limits.ts';
+import { config } from '../config.ts';
+import { escapeMailHtml, mailLayout, sendMail } from '../mail.ts';
+import { getUserByEmail } from '../plugins/auth.ts';
 
 const KNOWN_PLANS = ['Free', 'Standard', 'Pro', 'Business'];
-
-/**
- * Plan limits (null = unlimited), mirroring the Plans page:
- * Free — 10 AI-запросов/мес, 3 документа/мес;
- * Standard — 100 / 20, 2 GB; Pro — безлимит AI, 80 док./мес, 50 GB;
- * Business — безлимит AI, 700 док./мес, 1 TB.
- */
-const PLAN_LIMITS: Record<string, { ai: number | null; docs: number | null; storageMb: number | null }> = {
-  Free: { ai: 10, docs: 3, storageMb: 100 },
-  Standard: { ai: 100, docs: 20, storageMb: 2 * 1024 },
-  Pro: { ai: null, docs: 80, storageMb: 50 * 1024 },
-  Business: { ai: null, docs: 700, storageMb: 1024 * 1024 },
-  Enterprise: { ai: null, docs: null, storageMb: null },
-};
 
 export function billingRoutes(app: FastifyInstance, db: Db): void {
   app.get('/billing/subscription', { preHandler: [app.authenticate] }, async (req) => {
@@ -36,49 +27,97 @@ export function billingRoutes(app: FastifyInstance, db: Db): void {
   });
 
   // Current usage vs the plan's monthly limits (drives the Settings widget).
+  // Reads the same counters the enforcement uses — deletion frees storage only.
   app.get('/billing/limits', { preHandler: [app.authenticate] }, async (req) => {
     const userId = req.currentUser.id;
-    const sub = await db.query<{ plan: string }>('SELECT plan FROM subscriptions WHERE user_id = $1', [userId]);
-    const plan = sub.rows[0]?.plan ?? 'Free';
+    const [plan, usage, storageBytes] = await Promise.all([
+      planFor(db, userId),
+      monthlyUsage(db, userId),
+      storageUsedBytes(db, userId),
+    ]);
     const limits = PLAN_LIMITS[plan] ?? PLAN_LIMITS.Free;
-
-    const count = async (sql: string): Promise<number> =>
-      Number((await db.query<{ count: string | number }>(sql, [userId])).rows[0]?.count ?? 0);
-
-    // "AI requests" = analyses run + assistant replies, this calendar month.
-    const analyses = await count(
-      `SELECT count(*) AS count FROM analyses WHERE user_id = $1 AND created_at >= date_trunc('month', now())`,
-    );
-    const replies = await count(
-      `SELECT count(*) AS count FROM chat_messages m
-       JOIN chat_sessions s ON s.id = m.session_id
-       WHERE s.user_id = $1 AND m.role = 'assistant' AND m.created_at >= date_trunc('month', now())`,
-    );
-    const documents = await count(
-      `SELECT count(*) AS count FROM documents WHERE user_id = $1 AND created_at >= date_trunc('month', now())`,
-    );
-    const storageBytes = Number(
-      (await db.query<{ sum: string | number | null }>(
-        'SELECT coalesce(sum(size_bytes), 0) AS sum FROM uploads WHERE user_id = $1',
-        [userId],
-      )).rows[0]?.sum ?? 0,
-    );
 
     return {
       plan,
-      aiRequests: { used: analyses + replies, limit: limits.ai },
-      documents: { used: documents, limit: limits.docs },
+      aiRequests: { used: usage.aiRequests, limit: limits.ai },
+      documents: { used: usage.docsCreated, limit: limits.docs },
       storageMb: { used: Math.round((storageBytes / (1024 * 1024)) * 10) / 10, limit: limits.storageMb },
     };
   });
 
-  app.post('/billing/checkout', { preHandler: [app.authenticate] }, async (req) => {
+  // Enterprise "contact sales": the request lands in the founder's inbox.
+  app.post(
+    '/billing/contact-sales',
+    { preHandler: [app.authenticate], config: { rateLimit: { max: 3, timeWindow: '1 minute' } } },
+    async (req) => {
+      const body = req.body === undefined || req.body === null ? {} : asObject(req.body);
+      const note = typeof body.note === 'string' ? body.note.slice(0, 2000) : '';
+      const u = req.currentUser;
+      await sendMail({
+        to: config.contactEmail,
+        subject: `Enterprise-заявка: ${u.name} (${u.firm})`,
+        html: mailLayout(
+          'Новая Enterprise-заявка',
+          `<p><strong>${escapeMailHtml(u.name)}</strong> из <strong>${escapeMailHtml(u.firm)}</strong> интересуется планом Enterprise.</p>
+           <p>Email для связи: <a href="mailto:${escapeMailHtml(u.email)}">${escapeMailHtml(u.email)}</a><br/>
+           Юрисдикция: ${escapeMailHtml(u.jurisdiction)}</p>
+           ${note ? `<p>Комментарий: ${escapeMailHtml(note)}</p>` : ''}`,
+        ),
+      });
+      // The founder also sees the lead in their bell (if that email has an account).
+      const founder = await getUserByEmail(db, config.contactEmail.toLowerCase());
+      if (founder) {
+        await notify(db, founder.id, 'docs', 'Заявка Enterprise', 'Enterprise lead', {
+          bodyRu: `${u.name} (${u.firm}) · ${u.email}`,
+          bodyEn: `${u.name} (${u.firm}) · ${u.email}`,
+        });
+      }
+      return { ok: true };
+    },
+  );
+
+  // Purchase / renew a plan. PRE-STRIPE: activation is immediate — when Stripe
+  // arrives, its payment step slots in front of this same activation logic
+  // (webhook → activatePlan). Buying (again) starts a fresh billing period:
+  // the current month's counters reset, so "докупить лимиты" works.
+  app.post('/billing/checkout', { preHandler: [app.authenticateReal] }, async (req) => {
     const body = asObject(req.body);
     const plan = requireString(body, 'plan', { min: 1, max: 50 });
-    const normalized = KNOWN_PLANS.find((p) => p.toLowerCase() === plan.toLowerCase()) ?? plan;
-    const sessionId = newId('cs');
+    const normalized = KNOWN_PLANS.find((p) => p.toLowerCase() === plan.toLowerCase());
+    if (!normalized) throw new HttpError(400, `План должен быть одним из: ${KNOWN_PLANS.join(', ')}`);
+    const period = body.period === 'yearly' ? 'yearly' : 'monthly';
+    const discountPercent = period === 'yearly' ? 15 : 0;
+
+    await db.query(
+      `INSERT INTO subscriptions (user_id, plan, status, period, renews_at)
+       VALUES ($1, $2, 'active', $3, now() + ($4)::interval)
+       ON CONFLICT (user_id)
+       DO UPDATE SET plan = $2, status = 'active', period = $3, renews_at = now() + ($4)::interval`,
+      [req.currentUser.id, normalized, period, period === 'yearly' ? '1 year' : '1 month'],
+    );
+    // Fresh purchase = fresh quota for the current month.
+    await db.query(
+      `INSERT INTO usage_counters (user_id, month, ai_requests, docs_created)
+       VALUES ($1, date_trunc('month', now())::date, 0, 0)
+       ON CONFLICT (user_id, month) DO UPDATE SET ai_requests = 0, docs_created = 0`,
+      [req.currentUser.id],
+    );
+    await notify(db, req.currentUser.id, 'check', 'Подписка активирована', 'Plan activated', {
+      bodyRu: `${normalized} · ${period === 'yearly' ? 'годовая' : 'месячная'} · лимиты обновлены`,
+      bodyEn: `${normalized} · ${period} · limits refreshed`,
+      action: { kind: 'open', data: '/settings' },
+    });
+
+    const renews = await db.query<{ renews_at: Date | string }>(
+      'SELECT renews_at FROM subscriptions WHERE user_id = $1',
+      [req.currentUser.id],
+    );
     return {
-      checkoutUrl: `https://checkout.lexai.example/session/${sessionId}?plan=${encodeURIComponent(normalized)}`,
+      ok: true,
+      plan: normalized,
+      period,
+      discountPercent,
+      renewsAt: renews.rows[0]?.renews_at ? toIso(renews.rows[0].renews_at) : null,
     };
   });
 }

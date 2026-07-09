@@ -4,13 +4,17 @@ import { GlassCard } from '@/components/ui/GlassCard';
 import { useDismissable } from '@/hooks/useAsync';
 import { COUNTRIES } from '@/data/countries';
 import { useUIStore } from '@/store/useUIStore';
+import { useI18n } from '@/i18n/I18nProvider';
 import { Flag } from './Flag';
 import styles from './layout.module.css';
 
-/** Searchable jurisdiction picker shown in the top bar. Opens on hover. */
+/** Searchable jurisdiction picker shown in the top bar. Opens on hover.
+ *  The chosen country becomes the default law context for AI analyses & chat. */
 export function CountrySelector() {
+  const { t } = useI18n();
   const country = useUIStore((s) => s.country);
   const setCountry = useUIStore((s) => s.setCountry);
+  const pushToast = useUIStore((s) => s.pushToast);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
 
@@ -44,9 +48,14 @@ export function CountrySelector() {
   }, [query]);
 
   const pick = (code: string) => {
+    const changed = code !== country;
     setCountry(code);
     setOpen(false);
     setQuery('');
+    if (changed) {
+      const picked = COUNTRIES.find((c) => c.code === code);
+      if (picked) pushToast(t('country.aiNote', { law: picked.law }), 'success');
+    }
   };
 
   return (
@@ -83,14 +92,14 @@ export function CountrySelector() {
             </span>
             <input
               className={styles.countrySearchInput}
-              placeholder="Поиск"
+              placeholder={t('country.search')}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
             />
           </div>
           <div className={`${styles.countryList} scroll`} role="listbox">
             {results.length === 0 ? (
-              <div className={styles.countryEmpty}>Ничего не найдено</div>
+              <div className={styles.countryEmpty}>{t('country.empty')}</div>
             ) : (
               results.map((c) => {
                 const active = c.code === country;

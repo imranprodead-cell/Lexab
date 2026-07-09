@@ -1,10 +1,18 @@
-/** POST /auth/login | /auth/register | /auth/logout | /auth/reset */
+/**
+ * POST /auth/register | /auth/login | /auth/logout
+ * POST /auth/verify { token } | /auth/verify/resend      — email confirmation
+ * POST /auth/reset { email } | /auth/reset/confirm       — password recovery
+ */
+import crypto from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
+import { config } from '../config.ts';
 import type { Db } from '../db.ts';
-import { HttpError, unauthorized } from '../lib/errors.ts';
+import { badRequest, HttpError, unauthorized } from '../lib/errors.ts';
 import { newId } from '../lib/ids.ts';
 import { hashPassword, verifyPassword } from '../lib/passwords.ts';
 import { asObject, requireEmail, requireString } from '../lib/validate.ts';
+import { escapeMailHtml, mailLayout, sendMail } from '../mail.ts';
+import { notify } from '../lib/notify.ts';
 import { getUserByEmail, getUserById, signToken, toProfile, type UserRow } from '../plugins/auth.ts';
 
 const RATE_LIMIT = { rateLimit: { max: 10, timeWindow: '1 minute' } };
@@ -16,6 +24,27 @@ function initialsOf(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
+function newToken(): string {
+  return crypto.randomBytes(24).toString('base64url');
+}
+
+async function sendVerificationMail(db: Db, userId: string, email: string, name: string): Promise<void> {
+  const token = newToken();
+  await db.query('UPDATE users SET verify_token = $2 WHERE id = $1', [userId, token]);
+  const url = `${config.appBaseUrl}/verify-email?token=${token}`;
+  void sendMail({
+    to: email,
+    subject: 'Подтвердите почту в LexAI',
+    html: mailLayout(
+      'Подтвердите вашу почту',
+      `<p>Здравствуйте, <strong>${escapeMailHtml(name)}</strong>!</p>
+       <p>Нажмите кнопку, чтобы подтвердить адрес <strong>${escapeMailHtml(email)}</strong> и открыть все возможности LexAI — включая приглашения в команды.</p>`,
+      'Подтвердить почту',
+      url,
+    ),
+  });
+}
+
 export function authRoutes(app: FastifyInstance, db: Db): void {
   app.post('/auth/register', { config: RATE_LIMIT }, async (req, reply) => {
     const body = asObject(req.body);
@@ -24,7 +53,14 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
     const password = requireString(body, 'password', { min: 8, max: 200 });
 
     const existing = await getUserByEmail(db, email);
-    if (existing) throw new HttpError(409, 'An account with this email already exists');
+    if (existing) {
+      throw new HttpError(
+        409,
+        existing.google_sub
+          ? 'Этот email уже привязан ко входу через Google — нажмите «Продолжить с Google» или задайте пароль через «Забыли пароль?»'
+          : 'Аккаунт с этим email уже существует — войдите или восстановите пароль',
+      );
+    }
 
     const id = newId('u');
     const passwordHash = await hashPassword(password);
@@ -35,15 +71,45 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
     );
     await db.query(`INSERT INTO subscriptions (user_id, plan, status) VALUES ($1, 'Free', 'active')`, [id]);
     await db.query(`INSERT INTO user_stats (user_id) VALUES ($1)`, [id]);
-    await db.query(
-      `INSERT INTO notifications (id, user_id, icon, title) VALUES ($1, $2, 'docs', $3)`,
-      [newId('n'), id, 'Добро пожаловать в LexAI! Загрузите первый контракт для анализа.'],
-    );
+    await notify(db, id, 'docs', 'Добро пожаловать в LexAI!', 'Welcome to LexAI!', {
+      bodyRu: 'Загрузите первый контракт для анализа',
+      bodyEn: 'Upload your first contract for review',
+    });
+
+    // Confirm the address before email-bound features (team invites) unlock.
+    await sendVerificationMail(db, id, email, name);
+    await notify(db, id, 'alert', 'Подтвердите почту', 'Verify your email', {
+      bodyRu: `Мы отправили письмо на ${email}`,
+      bodyEn: `We sent an email to ${email}`,
+    });
 
     const user = (await getUserById(db, id)) as UserRow;
     reply.code(201);
     return { token: signToken(app, user), user: toProfile(user) };
   });
+
+  // Verify the email by the token from the letter (public — works on any device).
+  app.post('/auth/verify', { config: RATE_LIMIT }, async (req) => {
+    const body = asObject(req.body);
+    const token = requireString(body, 'token', { min: 10, max: 100 });
+    const res = await db.query<{ id: string }>(
+      `UPDATE users SET email_verified = true, verify_token = NULL WHERE verify_token = $1 RETURNING id`,
+      [token],
+    );
+    if (!res.rows[0]) throw badRequest('Ссылка недействительна или уже использована');
+    return { ok: true };
+  });
+
+  // Logged-in user asks for the letter again.
+  app.post(
+    '/auth/verify/resend',
+    { preHandler: [app.authenticate], config: { rateLimit: { max: 3, timeWindow: '1 minute' } } },
+    async (req) => {
+      if (req.currentUser.email_verified) return { ok: true, already: true };
+      await sendVerificationMail(db, req.currentUser.id, req.currentUser.email, req.currentUser.name);
+      return { ok: true };
+    },
+  );
 
   app.post('/auth/login', { config: RATE_LIMIT }, async (req) => {
     const body = asObject(req.body);
@@ -52,7 +118,14 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
 
     const user = await getUserByEmail(db, email);
     if (!user || !(await verifyPassword(password, user.password_hash))) {
-      throw unauthorized('Invalid email or password');
+      // A Google-created account has no password yet — point the user at the
+      // Google button (or the reset flow, which SETS a password).
+      if (user?.google_sub) {
+        throw unauthorized(
+          'Этот аккаунт создан через Google — войдите кнопкой «Продолжить с Google» или задайте пароль через «Забыли пароль?»',
+        );
+      }
+      throw unauthorized('Неверный email или пароль / Invalid email or password');
     }
     return { token: signToken(app, user), user: toProfile(user) };
   });
@@ -63,12 +136,57 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
     reply.code(204);
   });
 
-  app.post('/auth/reset', { config: RATE_LIMIT }, async (req, reply) => {
+  // Request a reset link. Always 204 — never reveals whether the address exists.
+  app.post('/auth/reset', { config: { rateLimit: { max: 5, timeWindow: '1 minute' } } }, async (req, reply) => {
     const body = asObject(req.body);
-    requireEmail(body);
-    // Always 204 — never reveal whether the address exists. Hook up an email
-    // provider (SES/Postmark/…) here to actually deliver the reset link.
+    const email = requireEmail(body);
+    const user = await getUserByEmail(db, email);
+    if (user) {
+      const token = newToken();
+      await db.query(
+        `UPDATE users SET reset_token = $2, reset_expires = now() + interval '1 hour' WHERE id = $1`,
+        [user.id, token],
+      );
+      const url = `${config.appBaseUrl}/reset-password?token=${token}`;
+      void sendMail({
+        to: user.email,
+        subject: 'Сброс пароля LexAI',
+        html: mailLayout(
+          'Сброс пароля',
+          `<p>Здравствуйте, <strong>${escapeMailHtml(user.name)}</strong>!</p>
+           <p>Вы (или кто-то другой) запросили сброс пароля для этого аккаунта. Ссылка действует <strong>1 час</strong>.</p>
+           <p>Если это были не вы — просто проигнорируйте письмо, пароль не изменится.</p>`,
+          'Задать новый пароль',
+          url,
+        ),
+      });
+    }
     reply.code(204);
+  });
+
+  // Set a new password by the token; all old sessions are invalidated.
+  app.post('/auth/reset/confirm', { config: RATE_LIMIT }, async (req) => {
+    const body = asObject(req.body);
+    const token = requireString(body, 'token', { min: 10, max: 100 });
+    const password = requireString(body, 'password', { min: 8, max: 200 });
+
+    const found = await db.query<{ id: string }>(
+      `SELECT id FROM users WHERE reset_token = $1 AND reset_expires > now()`,
+      [token],
+    );
+    const row = found.rows[0];
+    if (!row) throw badRequest('Ссылка недействительна или истекла — запросите сброс ещё раз');
+
+    const passwordHash = await hashPassword(password);
+    await db.query(
+      `UPDATE users SET password_hash = $2, reset_token = NULL, reset_expires = NULL,
+        email_verified = true, verify_token = NULL, token_version = token_version + 1
+       WHERE id = $1`,
+      [row.id, passwordHash],
+    );
+    // Owning the mailbox proves the email → auto-login with a fresh session.
+    const fresh = (await getUserById(db, row.id)) as UserRow;
+    return { token: signToken(app, fresh), user: toProfile(fresh) };
   });
 
   // Change password. Verifies the current one, then invalidates all previously
@@ -98,9 +216,6 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
     const confirm = requireString(body, 'confirm', { min: 3, max: 320 });
     if (confirm.toLowerCase() !== req.currentUser.email.toLowerCase()) {
       throw new HttpError(400, 'Подтверждение не совпадает с email аккаунта');
-    }
-    if (req.currentUser.id === 'u_demo') {
-      throw new HttpError(400, 'Демо-аккаунт удалить нельзя');
     }
     await db.query('DELETE FROM users WHERE id = $1', [req.currentUser.id]);
     reply.code(204);

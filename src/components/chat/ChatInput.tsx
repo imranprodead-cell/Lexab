@@ -1,12 +1,36 @@
-import { useCallback, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { Icon } from '@/components/icons/Icon';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { useVoiceInput } from '@/hooks/useVoiceInput';
 import { useI18n } from '@/i18n/I18nProvider';
+import { useUIStore } from '@/store/useUIStore';
 import { COMMANDS } from '@/data/seed';
 import type { Command } from '@/types/domain';
 import { SlashMenu } from './SlashMenu';
 import styles from './chat.module.css';
+
+/* Unsent text survives page switches (and reloads) until it is sent. */
+const DRAFTS_KEY = 'lexai.drafts';
+
+function loadDraft(key: string): string {
+  try {
+    const all = JSON.parse(localStorage.getItem(DRAFTS_KEY) ?? '{}') as Record<string, string>;
+    return typeof all[key] === 'string' ? all[key] : '';
+  } catch {
+    return '';
+  }
+}
+
+function saveDraft(key: string, text: string) {
+  try {
+    const all = JSON.parse(localStorage.getItem(DRAFTS_KEY) ?? '{}') as Record<string, string>;
+    if (text) all[key] = text;
+    else delete all[key];
+    localStorage.setItem(DRAFTS_KEY, JSON.stringify(all));
+  } catch {
+    /* storage blocked — draft lives only until unmount */
+  }
+}
 
 interface ChatInputProps {
   compact?: boolean;
@@ -16,39 +40,58 @@ interface ChatInputProps {
   onSend?: (text: string) => void;
   /** When provided, the attach button opens a file picker and passes the chosen file here. */
   onFile?: (file: File) => void;
+  /** When provided, a cloud button opens the Google Drive / M365 / Dropbox import. */
+  onCloudImport?: () => void;
+  /** Storage slot for the unsent draft (chat and workspace keep separate drafts). */
+  draftKey?: string;
 }
 
 /**
  * The chat composer: auto-growing textarea, attach button, and slash-command
  * autocomplete with full keyboard control (↑/↓ to move, ↵ to pick, Esc to close).
  */
-export function ChatInput({ compact = false, onAnalyze, onSend, onFile }: ChatInputProps) {
+export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudImport, draftKey = 'chat' }: ChatInputProps) {
   const { t } = useI18n();
-  const [value, setValue] = useState('');
+  const [value, setValue] = useState(() => loadDraft(draftKey));
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashIndex, setSlashIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const micBaseRef = useRef('');
 
-  const onAttach = () => {
-    if (onFile) fileInputRef.current?.click();
-    else onAnalyze();
-  };
-
-  const applyValue = useCallback((next: string) => {
-    setValue(next);
-    setSlashOpen(next.startsWith('/') && !next.includes(' '));
-    setSlashIndex(0);
+  // A restored draft can be multi-line — size the textarea to it on mount.
+  useEffect(() => {
     const ta = textareaRef.current;
-    if (ta) {
+    if (ta && ta.value) {
       ta.style.height = 'auto';
       ta.style.height = `${Math.min(120, ta.scrollHeight)}px`;
     }
   }, []);
 
+  const onAttach = () => {
+    if (onFile) fileInputRef.current?.click();
+    else onAnalyze();
+  };
+
+  const applyValue = useCallback(
+    (next: string) => {
+      setValue(next);
+      saveDraft(draftKey, next);
+      setSlashOpen(next.startsWith('/') && !next.includes(' '));
+      setSlashIndex(0);
+      const ta = textareaRef.current;
+      if (ta) {
+        ta.style.height = 'auto';
+        ta.style.height = `${Math.min(120, ta.scrollHeight)}px`;
+      }
+    },
+    [draftKey],
+  );
+
+  const pushToast = useUIStore((s) => s.pushToast);
   const voice = useVoiceInput(
     useCallback((transcript: string) => applyValue(micBaseRef.current + transcript), [applyValue]),
+    useCallback(() => pushToast(t('chat.micDenied'), 'error'), [pushToast, t]),
   );
 
   const onMic = () => {
@@ -65,9 +108,14 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile }: ChatIn
     applyValue(next);
   };
 
+  const clearValue = () => {
+    setValue('');
+    saveDraft(draftKey, '');
+  };
+
   const pick = (command: Command) => {
     if (command.cmd === '/analyze') {
-      setValue('');
+      clearValue();
       setSlashOpen(false);
       onAnalyze();
       return;
@@ -81,12 +129,12 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile }: ChatIn
     const trimmed = value.trim();
     if (!trimmed) return;
     if (trimmed.startsWith('/analyze')) {
-      setValue('');
+      clearValue();
       onAnalyze();
       return;
     }
     onSend?.(trimmed);
-    setValue('');
+    clearValue();
     setSlashOpen(false);
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
   };
@@ -142,13 +190,25 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile }: ChatIn
           />
           <button
             type="button"
-            title="Attach contract"
-            aria-label="Attach contract"
+            title={t('chat.attach')}
+            aria-label={t('chat.attach')}
             onClick={onAttach}
             className={styles.attachBtn}
           >
             <Icon name="plus" size={22} />
           </button>
+
+          {onCloudImport ? (
+            <button
+              type="button"
+              title={t('cloud.title')}
+              aria-label={t('cloud.title')}
+              onClick={onCloudImport}
+              className={styles.attachBtn}
+            >
+              <Icon name="cloud" size={20} />
+            </button>
+          ) : null}
 
           <textarea
             ref={textareaRef}
@@ -165,8 +225,8 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile }: ChatIn
             <button
               type="button"
               className={styles.micBtn}
-              aria-label={voice.listening ? 'Остановить запись' : 'Голосовой ввод'}
-              title={voice.listening ? 'Остановить запись' : 'Голосовой ввод'}
+              aria-label={voice.listening ? t('chat.micStop') : t('chat.micStart')}
+              title={voice.listening ? t('chat.micStop') : t('chat.micStart')}
               onClick={onMic}
               style={{ color: voice.listening ? 'var(--accent)' : 'var(--dim)' }}
               data-listening={voice.listening ? 'true' : undefined}
@@ -178,7 +238,7 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile }: ChatIn
           <button
             type="button"
             className={styles.sendBtn}
-            aria-label="Send message"
+            aria-label={t('chat.sendLabel')}
             onClick={submit}
             style={{
               background: hasText ? 'var(--accent)' : 'var(--hover-2)',

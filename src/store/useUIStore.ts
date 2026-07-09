@@ -14,6 +14,16 @@ export interface Toast {
   id: string;
   message: string;
   tone: 'default' | 'success' | 'error';
+  /** Optional action button ("Undo") rendered on the right of the toast. */
+  actionLabel?: string;
+  onAction?: () => void;
+}
+
+interface ToastOptions {
+  actionLabel?: string;
+  onAction?: () => void;
+  /** Auto-dismiss delay in ms (default 3200). */
+  duration?: number;
 }
 
 interface Prefs {
@@ -34,9 +44,30 @@ interface UIState extends Prefs {
   setTheme: (t: Theme) => void;
   toggleTheme: () => void;
   setCountry: (code: string) => void;
-  pushToast: (message: string, tone?: Toast['tone']) => void;
+  pushToast: (message: string, tone?: Toast['tone'], options?: ToastOptions) => void;
   dismissToast: (id: string) => void;
+  /** Mouse over a toast: freeze its auto-dismiss until the cursor leaves. */
+  holdToast: (id: string) => void;
+  releaseToast: (id: string) => void;
   railOpen: () => boolean;
+}
+
+/** Countries available in the selector (must match data/countries.ts). */
+const KNOWN_COUNTRIES = ['US', 'GB', 'DE', 'CA', 'KZ', 'UZ', 'AE'];
+
+/** First visit: pick the country from the browser locale (en-US → US, …).
+ *  Once the user picks one themselves it persists and this never runs again. */
+function detectCountry(): string {
+  try {
+    const locales = typeof navigator !== 'undefined' ? navigator.languages ?? [navigator.language] : [];
+    for (const locale of locales) {
+      const region = locale.split('-')[1]?.toUpperCase();
+      if (region && KNOWN_COUNTRIES.includes(region)) return region;
+    }
+  } catch {
+    /* default below */
+  }
+  return 'GB';
 }
 
 function loadPrefs(): Prefs {
@@ -45,7 +76,7 @@ function loadPrefs(): Prefs {
     reduceMotion: false,
     railPinned: false,
     theme: 'light',
-    country: 'GB',
+    country: detectCountry(),
   };
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -63,6 +94,12 @@ function persist(prefs: Prefs) {
     /* storage unavailable — non-fatal */
   }
 }
+
+/** Auto-dismiss bookkeeping per toast (paused while the cursor is on it). */
+const toastTimers = new Map<
+  string,
+  { timeout: ReturnType<typeof setTimeout> | null; expiresAt: number; remaining: number }
+>();
 
 /** Resolve the "system" preference to an actual palette via matchMedia. */
 function resolveTheme(theme: Theme): 'dark' | 'light' {
@@ -156,13 +193,40 @@ export const useUIStore = create<UIState>((set, get) => ({
     persist(snapshot(get(), { country }));
   },
 
-  pushToast: (message, tone = 'default') => {
+  pushToast: (message, tone = 'default', options = {}) => {
     const id = `t_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-    set((s) => ({ toasts: [...s.toasts, { id, message, tone }] }));
-    setTimeout(() => get().dismissToast(id), 3200);
+    const { actionLabel, onAction, duration = 3200 } = options;
+    set((s) => ({ toasts: [...s.toasts, { id, message, tone, actionLabel, onAction }] }));
+    toastTimers.set(id, {
+      timeout: setTimeout(() => get().dismissToast(id), duration),
+      expiresAt: Date.now() + duration,
+      remaining: duration,
+    });
   },
 
-  dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+  dismissToast: (id) => {
+    const timer = toastTimers.get(id);
+    if (timer?.timeout) clearTimeout(timer.timeout);
+    toastTimers.delete(id);
+    set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
+  },
+
+  // Hover pauses the countdown; leaving resumes it from where it stopped
+  // (the initial 3–4 s lifetime is unchanged when nobody hovers).
+  holdToast: (id) => {
+    const timer = toastTimers.get(id);
+    if (!timer?.timeout) return;
+    clearTimeout(timer.timeout);
+    timer.timeout = null;
+    timer.remaining = Math.max(timer.expiresAt - Date.now(), 600);
+  },
+
+  releaseToast: (id) => {
+    const timer = toastTimers.get(id);
+    if (!timer || timer.timeout) return;
+    timer.expiresAt = Date.now() + timer.remaining;
+    timer.timeout = setTimeout(() => get().dismissToast(id), timer.remaining);
+  },
 
   railOpen: () => get().railPinned || get().railHovered,
 }));

@@ -2,7 +2,7 @@ import { useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { Icon } from '@/components/icons/Icon';
 import { Button } from '@/components/ui/Button';
-import { EmptyState, ErrorState, LoadingState } from '@/components/ui/States';
+import { EmptyState, ErrorState, SkeletonRows } from '@/components/ui/States';
 import { useAsync } from '@/hooks/useAsync';
 import { chatsApi } from '@/api/chats.api';
 import { useChatHistoryStore } from '@/store/useChatHistoryStore';
@@ -42,7 +42,7 @@ export function ArchivePage() {
           </div>
 
           {loading ? (
-            <LoadingState label={t('common.loading')} />
+            <SkeletonRows rows={5} height={52} />
           ) : error ? (
             <ErrorState message={error} onRetry={reload} />
           ) : !data || data.length === 0 ? (

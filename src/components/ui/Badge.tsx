@@ -1,4 +1,5 @@
 import type { Severity, RiskLevel } from '@/types/domain';
+import { useI18n } from '@/i18n/I18nProvider';
 import styles from './ui.module.css';
 
 /** Map a severity / risk / status keyword to its themed colour. */
@@ -63,6 +64,7 @@ export const SeverityBadge = ({ severity }: { severity: Severity }) => (
   <Badge color={severity}>{severity}</Badge>
 );
 
-export const RiskBadge = ({ risk, plain }: { risk: RiskLevel; plain?: boolean }) => (
-  <Badge color={risk} plain={plain}>{risk} risk</Badge>
-);
+export const RiskBadge = ({ risk, plain }: { risk: RiskLevel; plain?: boolean }) => {
+  const { t } = useI18n();
+  return <Badge color={risk} plain={plain}>{t(`risk.${risk}`)}</Badge>;
+};

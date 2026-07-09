@@ -1,9 +1,12 @@
 import { Icon, type IconName } from '@/components/icons/Icon';
 import { Badge } from '@/components/ui/Badge';
 import { GlassCard } from '@/components/ui/GlassCard';
+import { useI18n } from '@/i18n/I18nProvider';
 import styles from './workspace.module.css';
 
 interface FloatingToolbarProps {
+  /** Team viewer: hide editing controls, keep downloads/history. */
+  readOnly?: boolean;
   pendingCount: number;
   onAcceptAll: () => void;
   onDownload: () => void;
@@ -14,6 +17,7 @@ interface FloatingToolbarProps {
 
 /** Persistent action bar floating over the document viewer. */
 export function FloatingToolbar({
+  readOnly = false,
   pendingCount,
   onAcceptAll,
   onDownload,
@@ -21,6 +25,7 @@ export function FloatingToolbar({
   onSendForSignature,
   onVersionHistory,
 }: FloatingToolbarProps) {
+  const { t } = useI18n();
   const action = (icon: IconName, label: string, onClick: () => void) => (
     <button className={styles.toolbarBtn} onClick={onClick}>
       <Icon name={icon} size={16} strokeWidth={1.9} />
@@ -31,7 +36,7 @@ export function FloatingToolbar({
   return (
     <div className={styles.toolbar}>
       <GlassCard className={styles.toolbarInner}>
-        {pendingCount > 0 ? (
+        {pendingCount > 0 && !readOnly ? (
           <button
             className={styles.toolbarBtn}
             onClick={onAcceptAll}
@@ -43,16 +48,16 @@ export function FloatingToolbar({
             }}
           >
             <Icon name="check" size={16} color="var(--on-accent)" strokeWidth={1.9} />
-            Accept all ({pendingCount})
+            {t('ws.acceptAll', { n: pendingCount })}
           </button>
         ) : (
-          <Badge color="Low">Reviewed</Badge>
+          <Badge color="Low">{readOnly ? t('ws.readOnlyBadge') : t('ws.reviewedBadge')}</Badge>
         )}
         <span className={styles.toolbarDivider} />
-        {action('download', 'Download DOCX', onDownload)}
-        {action('docs', 'Report (PDF)', onReport)}
-        {action('esign', 'Send for e-signature', onSendForSignature)}
-        {action('history', 'Version history', onVersionHistory)}
+        {action('download', t('ws.downloadDocx'), onDownload)}
+        {action('docs', t('ws.report'), onReport)}
+        {!readOnly ? action('esign', t('ws.sendSign'), onSendForSignature) : null}
+        {action('history', t('ws.versionsTitle'), onVersionHistory)}
       </GlassCard>
     </div>
   );

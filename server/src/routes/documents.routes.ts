@@ -3,9 +3,12 @@
  * GET /documents/:id | GET /documents/:id/versions
  * POST /documents/:id/export { format: 'docx' | 'pdf' } → binary download
  */
+import { Document, HeadingLevel, Packer, Paragraph, TextRun } from 'docx';
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../db.ts';
 import { badRequest, notFound } from '../lib/errors.ts';
+import { assertFeature } from '../lib/limits.ts';
+import { canEdit, resolveDocumentAccess } from '../lib/teamAccess.ts';
 import { formatSize, toIso } from '../lib/format.ts';
 import { buildSimplePdf } from '../lib/pdf.ts';
 import { asObject, requireOneOf } from '../lib/validate.ts';
@@ -20,6 +23,8 @@ interface DocumentRow {
   jurisdiction: string;
   size_bytes: number;
   updated_at: Date | string;
+  team_shared?: boolean;
+  shared_by?: string | null;
 }
 
 function toDocument(row: DocumentRow): ContractDocument {
@@ -32,6 +37,8 @@ function toDocument(row: DocumentRow): ContractDocument {
     jurisdiction: row.jurisdiction,
     size: formatSize(Number(row.size_bytes)),
     updatedAt: toIso(row.updated_at),
+    teamShared: Boolean(row.team_shared),
+    ...(row.shared_by ? { sharedBy: row.shared_by } : {}),
   };
 }
 
@@ -110,42 +117,123 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
     const page = Math.max(Number(q.page) || 1, 1);
 
     const whereSql = where.join(' AND ');
-    const total = await db.query<{ count: string | number }>(
+    const totalQ = db.query<{ count: string | number }>(
       `SELECT count(*) AS count FROM documents WHERE ${whereSql}`,
       params,
     );
-    const rows = await db.query<DocumentRow>(
-      `SELECT id, name, counterparty, status, risk, jurisdiction, size_bytes, updated_at
+    const rowsQ = db.query<DocumentRow>(
+      `SELECT id, name, counterparty, status, risk, jurisdiction, size_bytes, updated_at, team_shared
        FROM documents WHERE ${whereSql}
        ORDER BY ${column} ${dir}
        LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`,
       params,
     );
 
-    reply.header('X-Total-Count', String(Number(total.rows[0]?.count ?? 0)));
-    return rows.rows.map(toDocument);
+    // Documents shared with me by teams I belong to (active member).
+    const sharedParams: unknown[] = [req.currentUser.id];
+    const sharedWhere: string[] = [
+      `documents.team_shared`,
+      `documents.user_id IN (
+         SELECT owner_user_id FROM team_members
+         WHERE member_user_id = $1 AND status = 'active')`,
+    ];
+    if (q.search?.trim()) {
+      sharedParams.push(`%${q.search.trim()}%`);
+      sharedWhere.push(`(documents.name ILIKE $${sharedParams.length} OR documents.counterparty ILIKE $${sharedParams.length})`);
+    }
+    if (q.status && q.status !== 'All') {
+      sharedParams.push(q.status);
+      sharedWhere.push(`documents.status = $${sharedParams.length}`);
+    }
+    if (q.risk && q.risk !== 'All') {
+      sharedParams.push(q.risk);
+      sharedWhere.push(`documents.risk = $${sharedParams.length}`);
+    }
+    const sharedQ = db.query<DocumentRow>(
+      `SELECT documents.id, documents.name, documents.counterparty, documents.status, documents.risk,
+              documents.jurisdiction, documents.size_bytes, documents.updated_at,
+              documents.team_shared, u.name AS shared_by
+       FROM documents JOIN users u ON u.id = documents.user_id
+       WHERE ${sharedWhere.join(' AND ')}
+       ORDER BY documents.updated_at DESC LIMIT 100`,
+      sharedParams,
+    );
+    // One DB round-trip of latency instead of three (the pool runs them together).
+    const [total, rows, shared] = await Promise.all([totalQ, rowsQ, sharedQ]);
+
+    reply.header('X-Total-Count', String(Number(total.rows[0]?.count ?? 0) + shared.rows.length));
+    return [...rows.rows, ...shared.rows]
+      .sort((a, b) => new Date(b.updated_at as string).getTime() - new Date(a.updated_at as string).getTime())
+      .map(toDocument);
   });
 
   app.get('/documents/:id', { preHandler: [app.authenticate] }, async (req): Promise<ContractDocument> => {
     const { id } = req.params as { id: string };
+    const { doc, access, ownerName } = await resolveDocumentAccess(db, req.currentUser.id, id);
+    return {
+      ...toDocument(doc as unknown as DocumentRow),
+      ...(access !== 'owner' && ownerName ? { sharedBy: ownerName } : {}),
+      canEdit: canEdit(access),
+      mine: access === 'owner',
+    };
+  });
+
+  // Owner shares / unshares a document with their team.
+  app.patch('/documents/:id', { preHandler: [app.authenticate] }, async (req): Promise<ContractDocument> => {
+    const { id } = req.params as { id: string };
+    const body = asObject(req.body);
+    if (typeof body.teamShared !== 'boolean') throw badRequest('Field "teamShared" must be a boolean');
+    if (body.teamShared) await assertFeature(db, req.currentUser.id, 'team');
     const res = await db.query<DocumentRow>(
-      `SELECT id, name, counterparty, status, risk, jurisdiction, size_bytes, updated_at
-       FROM documents WHERE id = $1 AND user_id = $2`,
-      [id, req.currentUser.id],
+      `UPDATE documents SET team_shared = $3 WHERE id = $1 AND user_id = $2
+       RETURNING id, name, counterparty, status, risk, jurisdiction, size_bytes, updated_at, team_shared`,
+      [id, req.currentUser.id, body.teamShared],
     );
     const row = res.rows[0];
     if (!row) throw notFound('Document not found');
-    return toDocument(row);
+    return { ...toDocument(row), canEdit: true, mine: true };
+  });
+
+  // Owner deletes a document with everything attached to it.
+  app.delete('/documents/:id', { preHandler: [app.authenticate] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const res = await db.query<{ name: string }>(
+      'SELECT name FROM documents WHERE id = $1 AND user_id = $2',
+      [id, req.currentUser.id],
+    );
+    const doc = res.rows[0];
+    if (!doc) throw notFound('Document not found');
+    // Analyses reference the document with ON DELETE SET NULL — remove them
+    // explicitly (findings/redlines cascade), then the document (versions cascade),
+    // then the stored uploads so the storage quota is freed.
+    await db.query('DELETE FROM analyses WHERE document_id = $1 AND user_id = $2', [id, req.currentUser.id]);
+    await db.query('DELETE FROM documents WHERE id = $1', [id]);
+    await db.query('DELETE FROM uploads WHERE user_id = $1 AND file_name = $2', [req.currentUser.id, doc.name]);
+    reply.code(204);
   });
 
   app.get('/documents/:id/versions', { preHandler: [app.authenticate] }, async (req): Promise<DocumentVersion[]> => {
     const { id } = req.params as { id: string };
-    const owner = await db.query('SELECT 1 FROM documents WHERE id = $1 AND user_id = $2', [id, req.currentUser.id]);
-    if (!owner.rows[0]) throw notFound('Document not found');
+    await assertFeature(db, req.currentUser.id, 'versions');
+    // The workspace passes the ANALYSIS id — resolve either kind to a document.
+    let documentId: string;
+    try {
+      const { doc } = await resolveDocumentAccess(db, req.currentUser.id, id);
+      documentId = doc.id;
+    } catch {
+      const viaAnalysis = await db.query<{ document_id: string | null }>(
+        'SELECT document_id FROM analyses WHERE id = $1',
+        [id],
+      );
+      const resolved = viaAnalysis.rows[0]?.document_id;
+      if (!resolved) throw notFound('Document not found');
+      const { doc } = await resolveDocumentAccess(db, req.currentUser.id, resolved);
+      documentId = doc.id;
+    }
     const res = await db.query<{ id: string; label: string; author: string; note: string; created_at: Date | string }>(
       `SELECT id, label, author, note, created_at FROM document_versions
        WHERE document_id = $1 ORDER BY created_at DESC`,
-      [id],
+      [documentId],
     );
     return res.rows.map((r) => ({ id: r.id, label: r.label, author: r.author, createdAt: toIso(r.created_at), note: r.note }));
   });
@@ -154,20 +242,15 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
     const { id } = req.params as { id: string };
     const body = asObject(req.body);
     const format = requireOneOf(body, 'format', ['docx', 'pdf'] as const);
+    if (format === 'docx') await assertFeature(db, req.currentUser.id, 'docxExport');
 
-    const docRes = await db.query<DocumentRow>(
-      `SELECT id, name, counterparty, status, risk, jurisdiction, size_bytes, updated_at
-       FROM documents WHERE id = $1 AND user_id = $2`,
-      [id, req.currentUser.id],
-    );
-    const doc = docRes.rows[0];
-    if (!doc) throw notFound('Document not found');
+    const { doc } = await resolveDocumentAccess(db, req.currentUser.id, id);
 
     // Latest analysis for this document → resolved clause text with redlines applied.
     const analysisRes = await db.query<{ id: string; document_blocks: DocBlock[] | string }>(
-      `SELECT id, document_blocks FROM analyses WHERE document_id = $1 AND user_id = $2
+      `SELECT id, document_blocks FROM analyses WHERE document_id = $1
        ORDER BY created_at DESC LIMIT 1`,
-      [id, req.currentUser.id],
+      [id],
     );
     let sections: { heading?: string; text?: string }[];
     if (analysisRes.rows[0]) {
@@ -193,20 +276,19 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
       return reply.send(pdf);
     }
 
-    // Word-compatible HTML (same approach as the frontend's local export).
-    const htmlBody = sections
-      .map((s) => (s.heading !== undefined ? `<h3>${escapeHtml(s.heading)}</h3>` : `<p>${escapeHtml(s.text ?? '')}</p>`))
-      .join('\n');
-    const html = `<!doctype html><html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
-<head><meta charset="utf-8"><title>${escapeHtml(doc.name)}</title>
-<style>body{font-family:Georgia,serif;font-size:12pt;line-height:1.6;} h3{font-size:13pt;}</style></head>
-<body><h2>${escapeHtml(doc.name)}</h2>${htmlBody}</body></html>`;
-    reply.header('Content-Type', 'application/msword');
-    reply.header('Content-Disposition', `attachment; filename="${baseName}.doc"`);
-    return reply.send(Buffer.from(html, 'utf8'));
+    // Real .docx via the docx library.
+    const paragraphs: Paragraph[] = [
+      new Paragraph({ text: doc.name, heading: HeadingLevel.HEADING_1 }),
+      ...sections.map((s) =>
+        s.heading !== undefined
+          ? new Paragraph({ text: s.heading, heading: HeadingLevel.HEADING_2, spacing: { before: 240, after: 120 } })
+          : new Paragraph({ children: [new TextRun(s.text ?? '')], spacing: { after: 160 } }),
+      ),
+    ];
+    const file = new Document({ sections: [{ children: paragraphs }] });
+    const buffer = await Packer.toBuffer(file);
+    reply.header('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    reply.header('Content-Disposition', `attachment; filename="${baseName}.docx"`);
+    return reply.send(buffer);
   });
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }

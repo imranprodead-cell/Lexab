@@ -14,7 +14,7 @@ interface SpeechRecognitionLike extends EventTarget {
   start: () => void;
   stop: () => void;
   onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
-  onerror: (() => void) | null;
+  onerror: ((event: { error?: string }) => void) | null;
   onend: (() => void) | null;
 }
 type SpeechRecognitionCtor = new () => SpeechRecognitionLike;
@@ -27,7 +27,7 @@ function getRecognitionCtor(): SpeechRecognitionCtor | null {
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null;
 }
 
-export function useVoiceInput(onResult: (text: string) => void) {
+export function useVoiceInput(onResult: (text: string) => void, onDenied?: () => void) {
   const [listening, setListening] = useState(false);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const supported = typeof window !== 'undefined' && getRecognitionCtor() !== null;
@@ -52,7 +52,11 @@ export function useVoiceInput(onResult: (text: string) => void) {
       }
       onResult(transcript);
     };
-    recognition.onerror = () => setListening(false);
+    recognition.onerror = (event) => {
+      setListening(false);
+      // Blocked microphone: tell the user instead of failing silently.
+      if (event?.error === 'not-allowed' || event?.error === 'service-not-allowed') onDenied?.();
+    };
     recognition.onend = () => {
       setListening(false);
       recognitionRef.current = null;
@@ -65,7 +69,7 @@ export function useVoiceInput(onResult: (text: string) => void) {
     } catch {
       setListening(false);
     }
-  }, [onResult]);
+  }, [onResult, onDenied]);
 
   const toggle = useCallback(() => {
     if (listening) stop();

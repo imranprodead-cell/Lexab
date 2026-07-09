@@ -19,6 +19,8 @@ export const COUNTRIES: Country[] = [
 export const FLAG_OBJECT_POSITION: Record<string, string> = {
   UZ: '15% 32%',
   US: '15% center',
+  // Keep the red hoist band inside the circular crop.
+  AE: '12% center',
 };
 
 export const flagUrl = (code: string) => `https://flagcdn.com/w160/${code.toLowerCase()}.png`;

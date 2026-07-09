@@ -39,7 +39,7 @@
 }
 .reviewIntroText {
   margin: 2px 0 0;
-  font-size: 14.5px;
+  font-size: 15px;
   line-height: 1.6;
   color: var(--text);
 }
@@ -54,7 +54,7 @@
   gap: 10px;
   align-items: flex-start;
   padding: 10px 12px;
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--panel);
   border: 1px solid var(--border);
 }
@@ -66,7 +66,7 @@
   flex-shrink: 0;
 }
 .findingCardTitle {
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 600;
   margin-bottom: 5px;
   line-height: 1.35;
@@ -110,7 +110,7 @@
   color: var(--accent);
 }
 .docName {
-  font-size: 14.5px;
+  font-size: 15px;
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
@@ -248,7 +248,7 @@
   align-items: center;
   gap: 8px;
   font-family: inherit;
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 500;
   cursor: pointer;
   color: var(--text);
@@ -363,7 +363,7 @@
 .clauseEdit {
   width: 100%;
   font-family: var(--font-serif);
-  font-size: 14.5px;
+  font-size: 15px;
   line-height: 1.7;
   color: var(--text);
   background: var(--panel-2);
@@ -443,5 +443,50 @@
   .toolbarInner {
     flex-wrap: wrap;
     justify-content: center;
+  }
+}
+
+/* ── Mobile: stack the two panes vertically ─────────────────────────────── */
+
+@media (max-width: 900px) {
+  .workspace {
+    flex-direction: column;
+    height: auto;
+    min-height: 100dvh;
+  }
+
+  .leftPane {
+    width: 100%;
+    max-width: none;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    max-height: 44dvh;
+  }
+
+  .rightPane {
+    width: 100%;
+    flex: 1;
+    min-height: 50dvh;
+  }
+
+  .paper {
+    padding: 22px 18px;
+  }
+
+  .toolbar {
+    left: 8px;
+    right: 8px;
+    bottom: 10px;
+  }
+
+  .toolbarInner {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 6px;
+    padding: 8px;
+  }
+
+  .toolbarDivider {
+    display: none;
   }
 }

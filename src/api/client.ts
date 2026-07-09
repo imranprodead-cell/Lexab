@@ -46,7 +46,13 @@ export async function http<T>(path: string, options: HttpOptions = {}): Promise<
       const response = await fetch(`${BASE_URL}${path}`, {
         method,
         signal,
-        headers: { 'Content-Type': 'application/json', ...authHeader(), ...headers },
+        // Content-Type only when a body is sent: Fastify rejects bodyless
+        // requests (e.g. DELETE /chats/:id) that declare application/json.
+        headers: {
+          ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+          ...authHeader(),
+          ...headers,
+        },
         body: body === undefined ? undefined : JSON.stringify(body),
       });
 
@@ -104,8 +110,16 @@ export async function httpForm<T>(path: string, form: FormData): Promise<T> {
 }
 
 /** Authenticated binary download (e.g. the PDF analysis report). */
-export async function httpBlob(path: string): Promise<Blob> {
-  const response = await fetch(`${BASE_URL}${path}`, { headers: { ...authHeader() } });
+export async function httpBlob(path: string, options: { method?: 'GET' | 'POST'; body?: unknown } = {}): Promise<Blob> {
+  const { method = 'GET', body } = options;
+  const response = await fetch(`${BASE_URL}${path}`, {
+    method,
+    headers: {
+      ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+      ...authHeader(),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
   if (!response.ok) {
     let message = `Request failed (${response.status})`;
     try {

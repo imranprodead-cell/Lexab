@@ -68,7 +68,7 @@
 }
 .select {
   font-family: inherit;
-  font-size: 13.5px;
+  font-size: 14px;
   color: var(--text);
   background: var(--panel);
   border: 1px solid var(--border);
@@ -91,7 +91,7 @@
 }
 .th {
   text-align: left;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -131,7 +131,7 @@
 }
 .pageBtn {
   font-family: inherit;
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 500;
   padding: 7px 14px;
   border-radius: var(--r-md);
@@ -198,7 +198,7 @@
 }
 .mono {
   font-family: var(--font-mono);
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--dim);
 }
 
@@ -265,7 +265,7 @@
   align-items: flex-start;
 }
 .docMetaLabel {
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -339,7 +339,7 @@
 .cardIcon {
   width: 40px;
   height: 40px;
-  border-radius: 10px;
+  border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -351,7 +351,7 @@
   font-weight: 600;
 }
 .cardDesc {
-  font-size: 13.5px;
+  font-size: 14px;
   color: var(--dim);
   line-height: 1.5;
   flex: 1;
@@ -379,7 +379,7 @@
   padding: 20px;
 }
 .statLabel {
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--mut);
   margin-bottom: 10px;
   display: flex;
@@ -412,7 +412,7 @@
   padding: 20px 22px;
 }
 .panelTitle {
-  font-size: 14.5px;
+  font-size: 15px;
   font-weight: 600;
   margin: 0 0 18px;
 }
@@ -440,7 +440,7 @@
   transition: height var(--dur-slow) var(--ease);
 }
 .barLabel {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--mut);
   font-family: var(--font-mono);
 }
@@ -485,7 +485,7 @@
   gap: 6px;
 }
 .label {
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--dim);
 }
@@ -543,7 +543,7 @@
 }
 .segBtn {
   font-family: inherit;
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 500;
   padding: 7px 16px;
   border-radius: 6px;
@@ -587,7 +587,7 @@
   font-size: 14px;
 }
 .toggleDesc {
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--mut);
   margin-top: 2px;
 }
@@ -713,7 +713,7 @@
   flex-shrink: 0;
 }
 .planTagline {
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--mut);
   line-height: 1.4;
   min-height: 34px;
@@ -738,7 +738,7 @@
   color: var(--mut);
 }
 .planInherits {
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text);
 }
@@ -774,7 +774,7 @@
   font-weight: 600;
   cursor: pointer;
   padding: 11px 14px;
-  border-radius: 10px;
+  border-radius: 12px;
   margin-top: 4px;
   color: var(--text);
   background: var(--hover-2);
@@ -830,7 +830,7 @@
 }
 .modalLabel {
   display: block;
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--dim);
   margin: 14px 0 8px;
@@ -845,7 +845,7 @@
   align-items: center;
   gap: 7px;
   padding: 7px 12px;
-  border-radius: 10px;
+  border-radius: 12px;
   border: 1px solid var(--border);
   background: var(--panel);
   color: var(--dim);
@@ -881,7 +881,7 @@
   margin: 14px 0 0;
 }
 .modalError {
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--danger);
   margin: 10px 0 0;
 }
@@ -896,7 +896,7 @@
   margin-bottom: 14px;
 }
 .inviteBannerText {
-  font-size: 13.5px;
+  font-size: 14px;
   line-height: 1.5;
   min-width: 0;
 }
@@ -1011,7 +1011,7 @@
   margin: 0 0 6px;
 }
 .legalUpdated {
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--mut);
   font-family: var(--font-mono);
   margin: 0 0 26px;
@@ -1022,7 +1022,7 @@
   margin: 26px 0 8px;
 }
 .legalP {
-  font-size: 14.5px;
+  font-size: 15px;
   line-height: 1.65;
   color: var(--dim);
   margin: 0 0 10px;
@@ -1042,7 +1042,7 @@
   align-items: center;
   gap: 6px;
   margin-top: 12px;
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--accent);
 }
@@ -1051,7 +1051,7 @@
   overflow: auto;
   white-space: pre-wrap;
   font-family: var(--font-serif);
-  font-size: 13.5px;
+  font-size: 14px;
   line-height: 1.6;
   background: var(--panel-2);
   border: 1px solid var(--border);
@@ -1087,4 +1087,785 @@
     padding-left: 4px;
     padding-right: 4px;
   }
+}
+
+/* ── Jurisdiction picker with real country flags (template generator) ─────── */
+
+.jurisField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.jurisLabel {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dim);
+}
+
+.jurisWrap {
+  position: relative;
+}
+
+.jurisSelect {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 9px 12px;
+  cursor: pointer;
+  transition: border-color var(--dur-fast);
+}
+
+.jurisSelect:hover,
+.jurisSelect:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  outline: none;
+}
+
+/* Fixed width + auto height keeps each flag's true aspect ratio —
+   the whole flag is always visible, never cropped or stretched. */
+.jurisFlag {
+  width: 24px;
+  height: auto;
+  flex: none;
+  display: block;
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px var(--border);
+}
+
+.jurisName {
+  flex: 1;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.jurisChevron {
+  display: flex;
+  color: var(--mut);
+  transition: transform 0.18s ease;
+}
+
+.jurisChevronOpen {
+  transform: rotate(180deg);
+}
+
+.jurisMenu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 18px 44px color-mix(in srgb, #000 22%, transparent);
+  animation: lxjurisin 0.16s ease;
+}
+
+@keyframes lxjurisin {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.jurisOption {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.jurisOption:hover {
+  background: var(--hover-2);
+}
+
+.jurisOptionActive {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.jurisCheck {
+  display: flex;
+  color: var(--accent);
+}
+
+/* ── Signature request detail modal ──────────────────────────────────────── */
+
+.sigDetailHead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 14px;
+}
+
+.sigDetailMeta {
+  font-size: 12px;
+  color: var(--mut);
+  margin-top: 2px;
+}
+
+.sigDetailLabel {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--mut);
+  margin-bottom: 8px;
+}
+
+.sigRecipients {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sigRecipient {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+}
+
+.sigRecipientDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.sigRecipientName {
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sigRecipientEmail {
+  font-size: 12px;
+  color: var(--dim);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sigRecipientStatus {
+  font-size: 13px;
+  font-weight: 600;
+  flex: none;
+}
+
+.sigDetailHint {
+  margin: 14px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--mut);
+}
+
+/* ── Billing period toggle (Plans page) ──────────────────────────────────── */
+
+.billingToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 18px;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+}
+
+.billingOpt {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 18px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dim);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease;
+}
+
+.billingOptActive {
+  background: var(--accent);
+  color: var(--on-accent);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.billingSave {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--sev-low) 18%, transparent);
+  color: var(--sev-low);
+}
+
+.billingOptActive .billingSave {
+  background: rgba(255, 255, 255, 0.22);
+  color: var(--on-accent);
+}
+
+.planPriceOld {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--mut);
+  text-decoration: line-through;
+  margin-right: 8px;
+}
+
+.planPriceNote {
+  font-size: 12px;
+  color: var(--sev-low);
+  font-weight: 600;
+  margin-top: -6px;
+}
+
+/* ── Mobile card view for table rows ─────────────────────────────────────── */
+
+.rowCards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rowCard {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.rowCard:active {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+.rowCardHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.rowCardBadges {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+
+.rowCardMeta {
+  font-size: 12px;
+  color: var(--mut);
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* ── Locked email field (Settings → Profile) ─────────────────────────────── */
+
+.emailLock {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 8px 9px 12px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  /* Slightly grey vs editable inputs — visibly read-only, not disabled-dead. */
+  background: color-mix(in srgb, var(--mut) 7%, var(--panel-2));
+  color: var(--dim);
+  font-size: 14px;
+  cursor: not-allowed;
+  user-select: none;
+}
+
+.emailLockText {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  letter-spacing: 0.02em;
+}
+
+.emailLockEye {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--mut);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.emailLockEye:hover {
+  background: var(--hover-2);
+  color: var(--text);
+}
+
+.emailLockHint {
+  font-size: 11px;
+  color: var(--mut);
+}
+
+/* ── Public signing page (/sign/:token) ──────────────────────────────────── */
+
+.signPage {
+  min-height: 100vh;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+}
+
+.signHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 28px;
+}
+
+.signBrand {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.signBody {
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 12px 20px 48px;
+}
+
+.signCard {
+  width: 100%;
+  max-width: 640px;
+  padding: 28px;
+  border-radius: var(--r-xl);
+}
+
+.signIcon {
+  margin-bottom: 10px;
+}
+
+.signTitle {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0 0 6px;
+  word-break: break-word;
+}
+
+.signSub {
+  font-size: 14px;
+  color: var(--dim);
+  margin: 0 0 16px;
+  line-height: 1.55;
+}
+
+.signDoc {
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 16px 18px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  font-family: var(--font-serif);
+  font-size: 14px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  margin-bottom: 18px;
+}
+
+.signNoPreview {
+  font-size: 13px;
+  color: var(--mut);
+  margin: 0 0 18px;
+}
+
+.signForm {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.signAgree {
+  font-size: 12px;
+  color: var(--mut);
+  line-height: 1.5;
+  margin: 0;
+}
+
+.docSharedNote {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: -8px 0 14px;
+  font-size: 13px;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.verifyCta {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 11px 26px;
+  border-radius: 12px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+  font-size: 14px;
+  text-decoration: none;
+}
+
+/* ── Approval workflow (маршруты согласования) ───────────────────────────── */
+
+.apprHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.apprEmpty {
+  margin: 0;
+  font-size: 14px;
+  color: var(--dim);
+}
+
+.apprChain {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.apprStatusRow {
+  margin-bottom: 8px;
+}
+
+.apprStep {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  margin-bottom: 6px;
+}
+
+.apprDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: none;
+}
+
+.apprName {
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.apprRole {
+  color: var(--dim);
+  font-weight: 500;
+}
+
+.apprMeta {
+  font-size: 12px;
+  color: var(--mut);
+  margin-top: 1px;
+}
+
+.apprHint {
+  margin: 0 0 14px;
+  font-size: 13px;
+  color: var(--dim);
+  line-height: 1.5;
+}
+
+.apprStepForm {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.apprStepFormHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.apprStepNum {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--mut);
+}
+
+.apprRemove {
+  display: flex;
+  border: none;
+  background: transparent;
+  color: var(--mut);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+}
+
+.apprRemove:hover {
+  background: var(--hover-2);
+  color: var(--danger);
+}
+
+.apprDate {
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 9px 12px;
+  width: 100%;
+}
+
+.apprAdd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 8px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--dim);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.apprAdd:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.apprComment {
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 10px 12px;
+  resize: vertical;
+}
+
+/* Integrations (Settings) --------------------------------------------------- */
+.integrList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.integrRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--panel-2);
+}
+
+.integrIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+/* Same width in every state, so «Подключить» → «Загрузка…» doesn't jump. */
+.integrBtn {
+  min-width: 138px;
+  justify-content: center;
+}
+
+.integrText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.integrName {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.integrStatus {
+  font-size: 12.5px;
+  color: var(--dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.integrHint {
+  margin: 12px 0 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--mut);
+}
+
+/* Cloud import (chat) ------------------------------------------------------- */
+.cloudTabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.cloudTab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 13px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dim);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+
+.cloudTab:hover {
+  color: var(--text);
+}
+
+.cloudTabActive {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+}
+
+.cloudList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.cloudFile {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cloudFile:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.cloudFile:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.cloudFileName {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cloudFileMeta {
+  font-size: 12px;
+  color: var(--mut);
+  font-family: var(--font-mono);
+  flex-shrink: 0;
+}
+
+.cloudEmpty {
+  padding: 26px 12px;
+  text-align: center;
+  font-size: 13.5px;
+  color: var(--mut);
 }

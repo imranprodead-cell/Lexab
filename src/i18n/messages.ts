@@ -94,6 +94,33 @@ export const MESSAGES: Dict = {
   'ws.report': { ru: 'Отчёт (PDF)', en: 'Report (PDF)' },
   'ws.saved': { ru: 'Изменения сохранены.', en: 'Changes saved.' },
   'ws.editHint': { ru: 'Нажмите на абзац, чтобы отредактировать его', en: 'Click a paragraph to edit it' },
+  'ws.versionsTitle': { ru: 'История версий', en: 'Version history' },
+  'ws.noVersions': {
+    ru: 'Версий пока нет — они появятся после загрузки и анализа документа.',
+    en: 'No versions yet — they will appear once the document is uploaded and analysed.',
+  },
+  'ws.reanalyzing': { ru: 'Запускаю повторный анализ текущего черновика…', en: 'Re-analysing the current draft…' },
+  'ws.reanalyzed': {
+    ru: 'Повторный анализ готов: риск {score}/100, правок: {n}.',
+    en: 'Re-analysis complete: risk {score}/100, {n} redlines.',
+  },
+  'docs.signSent': { ru: 'Запрос на подпись отправлен.', en: 'Signature request sent.' },
+  'docs.docxReady': { ru: 'DOCX скачан.', en: 'DOCX downloaded.' },
+  'docs.noAnalysis': {
+    ru: 'Для этого документа ещё нет ИИ-анализа. Загрузите его в чат — и обзор появится здесь.',
+    en: 'No AI review for this document yet. Upload it in the chat to get one.',
+  },
+  'sig.detailTitle': { ru: 'Запрос на подпись', en: 'Signature request' },
+  'sig.signedYes': { ru: 'Подпись получена', en: 'Signed' },
+  'sig.waiting': { ru: 'Ожидает', en: 'Waiting' },
+  'sig.detailHint': {
+    ru: 'Отправка приглашений по email подключается вместе с почтовым сервисом — пока статусы обновляются внутри LexAI.',
+    en: 'Email invitations will be enabled once a mail provider is connected — for now statuses update inside LexAI.',
+  },
+  'country.aiNote': {
+    ru: 'Юрисдикция по умолчанию: {law}. ИИ учтёт её в анализах и ответах.',
+    en: 'Default jurisdiction: {law}. The AI will use it for reviews and answers.',
+  },
 
   // Templates
   'tpl.title': { ru: 'Шаблоны', en: 'Templates' },
@@ -140,7 +167,8 @@ export const MESSAGES: Dict = {
   'team.status.active': { ru: 'Активен', en: 'Active' },
   'team.status.invited': { ru: 'Приглашён', en: 'Invited' },
   'team.inviteEmail': { ru: 'Email пользователя', en: "User's email" },
-  'team.inviteRole': { ru: 'Роль', en: 'Role' },
+  'team.inviteRole': { ru: 'Права доступа', en: 'Access level' },
+  'team.inviteTitle': { ru: 'Должность', en: 'Job title' },
   'team.inviteSend': { ru: 'Отправить приглашение', en: 'Send invitation' },
   'team.inviteHint': {
     ru: 'Участник появится в команде только после того, как примет приглашение в приложении.',
@@ -162,6 +190,50 @@ export const MESSAGES: Dict = {
   'top.notifications': { ru: 'Уведомления', en: 'Notifications' },
   'top.markAllRead': { ru: 'Отметить все', en: 'Mark all read' },
   'top.noNotifications': { ru: 'Пока нет уведомлений', en: 'No notifications yet' },
+  'top.notifOpen': { ru: 'Открыть', en: 'Open' },
+
+  // Job titles (approval steps + team invites)
+  'roles.placeholder': { ru: 'Выберите должность…', en: 'Pick a role…' },
+  'roles.editor': { ru: 'Редактор', en: 'Editor' },
+  'roles.lawyer': { ru: 'Юрист', en: 'Lawyer' },
+  'roles.admin': { ru: 'Админ', en: 'Admin' },
+  'roles.owner': { ru: 'Владелец', en: 'Owner' },
+  'roles.viewer': { ru: 'Наблюдатель', en: 'Viewer' },
+  'roles.custom': { ru: 'Другая должность…', en: 'Other role…' },
+  'roles.customPh': { ru: 'Введите должность', en: 'Type the role' },
+
+  // Integrations (Settings) + cloud import (chat)
+  'integr.title': { ru: 'Интеграции', en: 'Integrations' },
+  'integr.sub': {
+    ru: 'Подключите облачные хранилища и загружайте договоры прямо оттуда.',
+    en: 'Connect your cloud drives and pull contracts straight from them.',
+  },
+  'integr.statusConnected': { ru: 'Подключено', en: 'Connected' },
+  'integr.statusOff': { ru: 'Не подключено', en: 'Not connected' },
+  'integr.statusSoon': { ru: 'Скоро — идёт настройка', en: 'Coming soon — being set up' },
+  'integr.connect': { ru: 'Подключить', en: 'Connect' },
+  'integr.disconnect': { ru: 'Отключить', en: 'Disconnect' },
+  'integr.connected': { ru: 'Интеграция подключена ✓', en: 'Integration connected ✓' },
+  'integr.connectFailed': { ru: 'Не получилось подключить — попробуйте ещё раз', en: 'Connection failed — please try again' },
+  'integr.disconnected': { ru: 'Интеграция отключена', en: 'Integration disconnected' },
+  'integr.hint': {
+    ru: 'Импорт файлов — в чате: кнопка облака рядом со скрепкой.',
+    en: 'Import files from the chat: the cloud button next to the paperclip.',
+  },
+  'cloud.title': { ru: 'Импорт из облака', en: 'Import from cloud' },
+  'cloud.noneConnected': {
+    ru: 'Облачные хранилища ещё не подключены. Подключите Google Drive, Microsoft 365 или Dropbox в Настройках.',
+    en: 'No cloud drives connected yet. Connect Google Drive, Microsoft 365 or Dropbox in Settings.',
+  },
+  'cloud.goSettings': { ru: 'Открыть настройки', en: 'Open Settings' },
+  'cloud.drivePick': { ru: 'Выбрать файл на Google Диске', en: 'Pick a file from Google Drive' },
+  'cloud.driveHint': {
+    ru: 'Откроется окно Google — приложение получит доступ только к файлу, который вы выберете.',
+    en: 'Google’s own picker opens — the app can only access the file you pick.',
+  },
+  'cloud.search': { ru: 'Поиск по названию…', en: 'Search by name…' },
+  'cloud.empty': { ru: 'Подходящих файлов не найдено (PDF, DOC, DOCX, TXT, MD)', en: 'No matching files found (PDF, DOC, DOCX, TXT, MD)' },
+  'cloud.importing': { ru: 'Импортирую…', en: 'Importing…' },
 
   // Plan / subscription
   'plan.pro': { ru: 'Pro · активна', en: 'Pro · active' },
@@ -265,13 +337,13 @@ export const MESSAGES: Dict = {
   'auth.signOut': { ru: 'Выйти', en: 'Sign out' },
   'auth.errRequired': { ru: 'Заполните все поля.', en: 'All fields are required.' },
   'auth.errEmail': { ru: 'Введите корректный email.', en: 'Enter a valid email address.' },
-  'auth.errPassword': { ru: 'Пароль минимум 6 символов.', en: 'Password must be at least 6 characters.' },
+  'auth.errPassword': { ru: 'Пароль минимум 8 символов.', en: 'Password must be at least 8 characters.' },
   'auth.tagline': { ru: 'Интеллектуальный анализ контрактов', en: 'AI contract intelligence' },
   'auth.forgot': { ru: 'Забыли пароль?', en: 'Forgot password?' },
   'auth.resetTitle': { ru: 'Сброс пароля', en: 'Reset password' },
   'auth.resetHint': { ru: 'Укажите email — пришлём ссылку для сброса пароля.', en: "Enter your email — we'll send a reset link." },
   'auth.resetSend': { ru: 'Отправить ссылку', en: 'Send reset link' },
-  'auth.resetSent': { ru: 'Ссылка для сброса отправлена на почту.', en: 'A reset link has been sent to your email.' },
+  'auth.resetSent': { ru: 'Если такой аккаунт существует — письмо со ссылкой уже в пути.', en: 'If that account exists, a reset link is on its way.' },
   'auth.backToSignIn': { ru: '← Назад ко входу', en: '← Back to sign in' },
   'auth.heroLine1': { ru: 'Анализируй контракты', en: 'Review contracts' },
   'auth.heroLine2': { ru: 'быстрее', en: 'faster' },
@@ -288,6 +360,26 @@ export const MESSAGES: Dict = {
   },
   'auth.googleFailed': { ru: 'Не удалось войти через Google. Попробуйте ещё раз.', en: 'Google sign-in failed. Please try again.' },
   'auth.signingIn': { ru: 'Входим в LexAI…', en: 'Signing you in…' },
+  'auth.statDocs': { ru: 'проверено документов', en: 'documents reviewed' },
+  'auth.statAccuracy': { ru: 'точность', en: 'accuracy' },
+  'auth.featRiskTitle': { ru: 'Поиск рисков', en: 'Risk detection' },
+  'auth.featRiskText': {
+    ru: 'Отмечает пункты об ответственности, возмещении и необычные условия.',
+    en: 'Flags liability, indemnity and unusual clauses.',
+  },
+  'auth.featRedlineTitle': { ru: 'Готовые правки', en: 'Redline drafts' },
+  'auth.featRedlineText': {
+    ru: 'Предлагает правки, которые можно принять в один клик.',
+    en: 'Suggests edits you can accept in one click.',
+  },
+  'auth.featQaTitle': { ru: 'Вопросы по документу', en: 'Clause Q&A' },
+  'auth.featQaText': {
+    ru: 'Задавайте любые вопросы о документе простым языком.',
+    en: 'Ask anything about a document in plain language.',
+  },
+  'auth.trustedPre': { ru: 'Нам доверяют ', en: 'Trusted by ' },
+  'auth.trustedCount': { ru: '2 400+', en: '2,400+' },
+  'auth.trustedPost': { ru: ' юридических команд', en: ' legal teams' },
 
   // Settings
   'settings.title': { ru: 'Настройки', en: 'Settings' },
@@ -323,4 +415,317 @@ export const MESSAGES: Dict = {
   'palette.action.newReview': { ru: 'Новый обзор', en: 'New review' },
   'palette.action.toggleTheme': { ru: 'Переключить тему', en: 'Toggle theme' },
   'palette.action.upgrade': { ru: 'Открыть тарифы', en: 'Open plans' },
+
+  // Document / signature statuses and risk levels
+  'status.Draft': { ru: 'Черновик', en: 'Draft' },
+  'status.In review': { ru: 'На проверке', en: 'In review' },
+  'status.Reviewed': { ru: 'Проверен', en: 'Reviewed' },
+  'status.Signed': { ru: 'Подписан', en: 'Signed' },
+  'sigstatus.Draft': { ru: 'Черновик', en: 'Draft' },
+  'sigstatus.Sent': { ru: 'Отправлен', en: 'Sent' },
+  'sigstatus.Viewed': { ru: 'Просмотрен', en: 'Viewed' },
+  'sigstatus.Completed': { ru: 'Завершён', en: 'Completed' },
+  'sigstatus.Declined': { ru: 'Отклонён', en: 'Declined' },
+
+  // Chat composer
+  'chat.fileTypes': { ru: 'Поддерживаются файлы PDF, DOC/DOCX, TXT.', en: 'Supported files: PDF, DOC/DOCX, TXT.' },
+  'chat.fileTooBig': { ru: 'Файл больше 10 МБ — загрузите файл поменьше.', en: 'File exceeds 10 MB — please upload a smaller one.' },
+  'chat.uploadFailed': {
+    ru: 'Не удалось передать содержимое файла — анализ выполнен только по названию.',
+    en: "Couldn't upload the file contents — the review used the file name only.",
+  },
+  'chat.micDenied': {
+    ru: 'Разрешите доступ к микрофону в настройках браузера.',
+    en: 'Allow microphone access in your browser settings.',
+  },
+  'chat.micStart': { ru: 'Голосовой ввод', en: 'Voice input' },
+  'chat.micStop': { ru: 'Остановить запись', en: 'Stop recording' },
+  'chat.attach': { ru: 'Прикрепить договор', en: 'Attach contract' },
+  'chat.sendLabel': { ru: 'Отправить сообщение', en: 'Send message' },
+  'chat.followUp': {
+    ru: 'Какие пункты требуют доработки в первую очередь?',
+    en: 'Which clauses need attention first?',
+  },
+
+  // Workspace
+  'ws.preparing': { ru: 'Готовлю рабочую область…', en: 'Preparing workspace…' },
+  'ws.review': { ru: 'Обзор', en: 'Review' },
+  'ws.backToChat': { ru: 'Назад в чат', en: 'Back to chat' },
+  'ws.intro': {
+    ru: 'Я добавил {n} правок в документ. Примите или отклоните каждую справа — или примените все сразу. Задавайте вопросы по договору ниже.',
+    en: 'I placed {n} tracked changes in the document. Accept or reject each on the right — or apply all at once. Ask me anything about this contract below.',
+  },
+  'ws.allAccepted': { ru: 'Все правки приняты.', en: 'All suggestions accepted.' },
+  'ws.acceptAll': { ru: 'Принять все ({n})', en: 'Accept all ({n})' },
+  'ws.reviewedBadge': { ru: 'Проверено', en: 'Reviewed' },
+  'ws.allReviewedBadge': { ru: 'Все проверены', en: 'All reviewed' },
+  'ws.suggestionsCount': { ru: '{n} правок', en: '{n} suggestions' },
+  'ws.downloadDocx': { ru: 'Скачать DOCX', en: 'Download DOCX' },
+  'ws.sendSign': { ru: 'На e-подпись', en: 'Send for e-signature' },
+  'ws.editParagraph': { ru: 'Редактировать абзац', en: 'Edit paragraph' },
+  'ws.docxStarted': { ru: 'DOCX с применёнными правками загружается…', en: 'DOCX with applied redlines is downloading…' },
+  'ws.signSentToast': { ru: 'Запрос на подпись отправлен.', en: 'Signature request sent.' },
+
+  // Country selector
+  'country.search': { ru: 'Поиск', en: 'Search' },
+  'country.empty': { ru: 'Ничего не найдено', en: 'Nothing found' },
+
+  // Send-for-signature modal
+  'sign.title': { ru: 'Отправка на e-подпись', en: 'Send for e-signature' },
+  'sign.introA': { ru: 'Получатели получат ', en: 'Recipients will receive ' },
+  'sign.introB': { ru: ' с принятыми правками, в порядке подписания.', en: ' with the accepted redlines applied, in signing order.' },
+  'sign.namePh': { ru: 'Имя и фамилия', en: 'Full name' },
+  'sign.errRequired': { ru: 'Укажите имя и email.', en: 'Name and email are required.' },
+  'sign.errEmail': { ru: 'Введите корректный email.', en: 'Enter a valid email address.' },
+  'sign.errSend': { ru: 'Не удалось отправить запрос. Попробуйте ещё раз.', en: 'Could not send request. Please try again.' },
+  'sign.add': { ru: 'Добавить получателя', en: 'Add recipient' },
+  'sign.remove': { ru: 'Убрать получателя', en: 'Remove recipient' },
+  'sign.send': { ru: 'Отправить запрос', en: 'Send request' },
+  'sign.sending': { ru: 'Отправляю…', en: 'Sending…' },
+
+  // Settings extras
+  'settings.profileSub': {
+    ru: 'Используется в обзорах, правках и запросах подписи.',
+    en: 'Used across reviews, redlines, and signature requests.',
+  },
+  'settings.saved': { ru: 'Профиль сохранён.', en: 'Profile saved.' },
+  'settings.saveFailed': { ru: 'Не удалось сохранить профиль.', en: 'Could not save profile.' },
+  'settings.photoFailed': { ru: 'Не удалось сохранить фото.', en: 'Could not save photo.' },
+  'settings.photoRemoveFailed': { ru: 'Не удалось удалить фото.', en: 'Could not remove photo.' },
+  'settings.jurisdiction': { ru: 'Основная юрисдикция', en: 'Primary jurisdiction' },
+  'settings.organisation': { ru: 'Организация', en: 'Organisation' },
+  'settings.errName': { ru: 'Укажите имя.', en: 'Name is required.' },
+  'settings.errEmailReq': { ru: 'Укажите email.', en: 'Email is required.' },
+  'settings.errFirm': { ru: 'Укажите организацию.', en: 'Organisation is required.' },
+
+  // Plans page
+  'plans.topTitle': { ru: 'Тарифы', en: 'Plans' },
+  'plans.title': { ru: 'Тарифы', en: 'Plans' },
+  'plans.sub1': { ru: 'Выберите план под ваши юридические задачи.', en: 'Choose the plan that fits your legal workflow.' },
+  'plans.sub2': { ru: 'Начните бесплатно и расширяйтесь вместе с командой.', en: 'Start for free and upgrade as your team grows.' },
+  'plans.monthly': { ru: 'Месячный', en: 'Monthly' },
+  'plans.yearly': { ru: 'Годовой', en: 'Yearly' },
+  'plans.periodAria': { ru: 'Период оплаты', en: 'Billing period' },
+  'plans.perMonth': { ru: '/ мес', en: '/ mo' },
+  'plans.yearlyNote': { ru: 'при оплате за год · экономия 15%', en: 'billed yearly · save 15%' },
+  'plans.popular': { ru: 'Популярный', en: 'Popular' },
+  'plans.best': { ru: 'Самый выгодный', en: 'Best value' },
+  'plans.current': { ru: 'Ваш план', en: 'Your plan' },
+  'plans.opening': { ru: 'Открываю…', en: 'Opening…' },
+  'plans.checkoutYearly': {
+    ru: 'План {plan}, годовая оплата со скидкой {d}%. Оплата откроется после подключения Stripe.',
+    en: '{plan} plan, yearly billing with {d}% off. Checkout opens once Stripe is connected.',
+  },
+  'plans.checkoutMonthly': {
+    ru: 'План {plan}, помесячная оплата. Оплата откроется после подключения Stripe.',
+    en: '{plan} plan, monthly billing. Checkout opens once Stripe is connected.',
+  },
+  'plans.checkoutFailed': { ru: 'Не удалось начать оформление. Попробуйте ещё раз.', en: 'Could not start checkout. Please try again.' },
+  'plans.enterpriseContact': { ru: 'Мы свяжемся с вами для обсуждения условий.', en: 'We will contact you to discuss terms.' },
+  'plans.freeActive': { ru: 'План Free уже доступен — просто пользуйтесь LexAI.', en: 'The Free plan is already active — just use LexAI.' },
+
+  // Locked email + eye
+  'settings.emailLocked': {
+    ru: 'Email изменить нельзя — он привязан к аккаунту.',
+    en: 'Email cannot be changed — it is tied to your account.',
+  },
+  'settings.emailShow': { ru: 'Показать email', en: 'Show email' },
+  'settings.emailHide': { ru: 'Скрыть email', en: 'Hide email' },
+
+  // Team management
+  'team.col.actions': { ru: 'Действия', en: 'Actions' },
+  'team.roleChanged': { ru: 'Роль обновлена.', en: 'Role updated.' },
+  'team.removed': { ru: 'Участник удалён из команды.', en: 'Member removed from the team.' },
+  'team.revoked': { ru: 'Приглашение отозвано.', en: 'Invitation revoked.' },
+  'team.copyInvite': { ru: 'Скопировать ссылку-приглашение', en: 'Copy invite link' },
+  'team.inviteCopied': { ru: 'Ссылка-приглашение скопирована.', en: 'Invite link copied.' },
+  'team.remove': { ru: 'Удалить из команды', en: 'Remove from team' },
+  'team.revoke': { ru: 'Отозвать приглашение', en: 'Revoke invitation' },
+  'auth.inviteNote': {
+    ru: 'приглашает вас в команду с ролью {role}. Войдите или зарегистрируйтесь с почтой:',
+    en: 'invites you to their team as {role}. Sign in or sign up with:',
+  },
+
+  // Shared documents
+  'docs.share': { ru: 'Поделиться с командой', en: 'Share with team' },
+  'docs.unshare': { ru: 'Убрать из команды', en: 'Unshare from team' },
+  'docs.shared': { ru: 'Документ доступен вашей команде.', en: 'The document is now visible to your team.' },
+  'docs.unshared': { ru: 'Документ снова личный.', en: 'The document is private again.' },
+  'docs.teamBadge': { ru: 'В команде', en: 'Shared' },
+  'docs.fromTeam': { ru: 'Команда: {name}', en: 'Team: {name}' },
+  'docs.sharedByNote': {
+    ru: 'Документ из команды {name}. Ваши права зависят от роли.',
+    en: 'Shared by {name}. Your rights depend on your team role.',
+  },
+
+  // Document deletion
+  'docs.delete': { ru: 'Удалить', en: 'Delete' },
+  'docs.deleteTitle': { ru: 'Удалить документ?', en: 'Delete document?' },
+  'docs.deleteBody': {
+    ru: '«{name}» будет удалён вместе с анализами, версиями и загруженным файлом. Это действие необратимо.',
+    en: '“{name}” will be deleted with its analyses, versions and the uploaded file. This cannot be undone.',
+  },
+  'docs.deleteConfirm': { ru: 'Удалить навсегда', en: 'Delete forever' },
+  'docs.deleted': { ru: 'Документ удалён.', en: 'Document deleted.' },
+
+  // Signing links
+  'sig.copyLink': { ru: 'Скопировать ссылку для подписи', en: 'Copy signing link' },
+  'sig.linkCopied': { ru: 'Ссылка для подписи скопирована.', en: 'Signing link copied.' },
+  'sig.copyHint': {
+    ru: 'Отправьте получателю ссылку для подписи (кнопка справа) — письмо уйдёт автоматически после подключения почтового сервиса.',
+    en: 'Send the recipient their signing link (button on the right) — emails go out automatically once a mail provider is connected.',
+  },
+
+  // Public signing page
+  'sign.invalidTitle': { ru: 'Ссылка недействительна', en: 'This link is not valid' },
+  'sign.doneTitle': { ru: 'Документ подписан', en: 'Document signed' },
+  'sign.doneBody': {
+    ru: 'Спасибо! Подпись по документу «{doc}» зафиксирована, отправитель получил уведомление.',
+    en: 'Thank you! Your signature for “{doc}” has been recorded and the sender has been notified.',
+  },
+  'sign.requestedBy': { ru: '{name} ({firm}) просит вас подписать этот документ.', en: '{name} ({firm}) asks you to sign this document.' },
+  'sign.noPreview': {
+    ru: 'Предпросмотр текста недоступен — подтвердите подпись по названию документа.',
+    en: 'Text preview is unavailable — confirm your signature for the named document.',
+  },
+  'sign.yourName': { ru: 'Ваше имя и фамилия', en: 'Your full name' },
+  'sign.agree': {
+    ru: 'Нажимая «Подписать», вы подтверждаете согласие с содержанием документа. Дата, время и имя будут зафиксированы.',
+    en: 'By clicking “Sign” you agree to the contents of this document. Date, time and name will be recorded.',
+  },
+  'sign.signAction': { ru: 'Подписать', en: 'Sign' },
+
+  // Workspace paper header
+  'ws.paperKicker': { ru: 'Документ · проект с правками', en: 'Document · tracked-changes draft' },
+  'ws.noAnalysisRedirect': {
+    ru: 'Здесь пока нет анализа — загрузите документ в чате.',
+    en: 'No review here yet — upload a document in the chat.',
+  },
+  'ws.readOnly': {
+    ru: 'У вас право «только чтение» в этой команде.',
+    en: 'Your team role is view-only.',
+  },
+  'ws.readOnlyBadge': { ru: 'Только чтение', en: 'View only' },
+  'chat.attachFirst': {
+    ru: 'Прикрепите свой документ кнопкой «+» или перетащите файл в чат.',
+    en: 'Attach your document with the “+” button or drag a file into the chat.',
+  },
+  'plans.contactSent': {
+    ru: 'Заявка отправлена — мы свяжемся с вами по email.',
+    en: 'Request sent — we will contact you by email.',
+  },
+
+  // Approval workflows
+  'appr.title': { ru: 'Согласование', en: 'Approval' },
+  'appr.start': { ru: 'Отправить на согласование', en: 'Start approval' },
+  'appr.cancel': { ru: 'Отменить маршрут', en: 'Cancel workflow' },
+  'appr.cancelled': { ru: 'Маршрут согласования отменён.', en: 'Approval workflow cancelled.' },
+  'appr.started': { ru: 'Маршрут запущен — первый согласующий получил письмо.', en: 'Workflow started — the first approver got an email.' },
+  'appr.empty': {
+    ru: 'Маршрутов пока не было. Отправьте документ по цепочке: юрист → руководитель → директор.',
+    en: 'No workflows yet. Route the document through a chain: lawyer → manager → director.',
+  },
+  'appr.upgrade': {
+    ru: 'Маршруты согласования доступны на планах Pro и Business.',
+    en: 'Approval workflows are available on Pro and Business plans.',
+  },
+  'appr.modalTitle': { ru: 'Маршрут согласования', en: 'Approval workflow' },
+  'appr.modalHint': {
+    ru: 'Добавьте шаги по порядку — каждый следующий получит письмо только после решения предыдущего. Дедлайн необязателен: при просрочке придёт напоминание.',
+    en: 'Add steps in order — each next approver is emailed only after the previous decision. Deadline is optional: an overdue step triggers a reminder.',
+  },
+  'appr.stepN': { ru: 'Шаг {n}', en: 'Step {n}' },
+  'appr.name': { ru: 'Имя и фамилия', en: 'Full name' },
+  'appr.role': { ru: 'Роль (например, Юрист)', en: 'Role (e.g. Lawyer)' },
+  'appr.deadline': { ru: 'Дедлайн', en: 'Deadline' },
+  'appr.addStep': { ru: 'Добавить шаг', en: 'Add step' },
+  'appr.submit': { ru: 'Запустить маршрут', en: 'Start workflow' },
+  'appr.errSteps': { ru: 'У каждого шага должны быть имя и корректный email.', en: 'Every step needs a name and a valid email.' },
+  'appr.copyLink': { ru: 'Ссылка', en: 'Link' },
+  'appr.linkCopied': { ru: 'Ссылка для решения скопирована.', en: 'Decision link copied.' },
+  'appr.due': { ru: 'срок', en: 'due' },
+  'appr.flow.active': { ru: 'Идёт согласование', en: 'In progress' },
+  'appr.flow.approved': { ru: 'Согласовано всеми', en: 'Fully approved' },
+  'appr.flow.rejected': { ru: 'Отклонено', en: 'Rejected' },
+  'appr.flow.cancelled': { ru: 'Отменено', en: 'Cancelled' },
+  'appr.step.waiting': { ru: 'Ожидает очереди', en: 'Waiting' },
+  'appr.step.pending': { ru: 'На рассмотрении', en: 'Reviewing now' },
+  'appr.step.approved': { ru: 'Согласовано', en: 'Approved' },
+  'appr.step.rejected': { ru: 'Отклонено', en: 'Rejected' },
+  'appr.invalidTitle': { ru: 'Ссылка недействительна', en: 'This link is not valid' },
+  'appr.requestedBy': { ru: '{name} ({firm}) просит вас согласовать документ.', en: '{name} ({firm}) asks for your approval.' },
+  'appr.yourStep': { ru: 'ваша роль', en: 'your role' },
+  'appr.commentPh': { ru: 'Комментарий (необязательно)…', en: 'Comment (optional)…' },
+  'appr.approve': { ru: 'Согласовать', en: 'Approve' },
+  'appr.reject': { ru: 'Отклонить', en: 'Reject' },
+  'appr.notYourTurn': { ru: 'Сейчас очередь другого согласующего — мы пришлём письмо, когда наступит ваша.', en: 'It is another approver’s turn — you will get an email when yours comes.' },
+  'appr.doneApproved': { ru: 'Вы согласовали документ', en: 'You approved the document' },
+  'appr.doneRejected': { ru: 'Вы отклонили документ', en: 'You rejected the document' },
+  'appr.doneBody': { ru: 'Решение по «{doc}» зафиксировано, автор получил уведомление.', en: 'Your decision on “{doc}” is recorded and the author has been notified.' },
+
+  // Plan purchase (pre-Stripe activation)
+  'plans.renew': { ru: 'Обновить лимиты', en: 'Renew limits' },
+  'plans.activatedMonthly': { ru: 'Подписка {plan} активирована — лимиты обновлены.', en: '{plan} plan activated — limits refreshed.' },
+  'plans.activatedYearly': { ru: 'Подписка {plan} (годовая, −{d}%) активирована — лимиты обновлены.', en: '{plan} plan (yearly, −{d}%) activated — limits refreshed.' },
+
+  // Email verification
+  'verify.banner': {
+    ru: 'Подтвердите почту {email} — мы отправили письмо со ссылкой. Без подтверждения нельзя принимать приглашения в команды.',
+    en: 'Verify {email} — we sent you a confirmation link. Team invitations stay locked until then.',
+  },
+  'verify.resend': { ru: 'Отправить ещё раз', en: 'Resend' },
+  'verify.resent': { ru: 'Письмо отправлено повторно.', en: 'Verification email sent again.' },
+  'verify.invalid': { ru: 'Ссылка недействительна или уже использована.', en: 'The link is invalid or already used.' },
+  'verify.doneTitle': { ru: 'Почта подтверждена', en: 'Email verified' },
+  'verify.doneBody': {
+    ru: 'Спасибо! Теперь вам доступны все возможности LexAI, включая команды.',
+    en: 'Thank you! All LexAI features are now available, including teams.',
+  },
+  'verify.errorTitle': { ru: 'Не получилось', en: 'Something went wrong' },
+  'verify.toApp': { ru: 'В приложение', en: 'Open the app' },
+  'verify.toLogin': { ru: 'Войти', en: 'Sign in' },
+
+  // Password reset page
+  'reset.title': { ru: 'Новый пароль', en: 'New password' },
+  'reset.sub': {
+    ru: 'Придумайте новый пароль (минимум 8 символов) — после сохранения вы сразу войдёте в аккаунт.',
+    en: 'Choose a new password (min 8 characters) — you will be signed in right after saving.',
+  },
+  'reset.newPassword': { ru: 'Новый пароль', en: 'New password' },
+  'reset.submit': { ru: 'Сохранить и войти', en: 'Save and sign in' },
+  'reset.done': { ru: 'Пароль обновлён — вы вошли в аккаунт.', en: 'Password updated — you are signed in.' },
+
+  // Undo-delete
+  'rail.deleting': { ru: 'Чат будет удалён…', en: 'Deleting chat…' },
+  'rail.deleteCancelled': { ru: 'Удаление отменено.', en: 'Deletion cancelled.' },
+  'common.undo': { ru: 'Отменить', en: 'Undo' },
+
+  // Error boundary
+  'error.title': { ru: 'Что-то пошло не так', en: 'Something went wrong' },
+  'error.body': {
+    ru: 'Произошла непредвиденная ошибка интерфейса. Попробуйте перезагрузить страницу.',
+    en: 'An unexpected interface error occurred. Try reloading the page.',
+  },
+  'error.retry': { ru: 'Повторить', en: 'Retry' },
+  'error.reload': { ru: 'Перезагрузить', en: 'Reload' },
 };
+
+/**
+ * Translate outside React (stores, class components): reads the persisted
+ * language directly so non-hook code stays in the user's language too.
+ */
+export function tStandalone(key: string, params?: Record<string, string | number>): string {
+  let lang: Language = 'ru';
+  try {
+    const stored = localStorage.getItem('lexai.lang');
+    if (stored === 'ru' || stored === 'en') lang = stored;
+    else if (typeof navigator !== 'undefined' && navigator.language.startsWith('en')) lang = 'en';
+  } catch {
+    /* default ru */
+  }
+  const entry = MESSAGES[key];
+  if (!entry) return key;
+  let text = entry[lang];
+  if (params) text = text.replace(/\{(\w+)\}/g, (_, k: string) => String(params[k] ?? `{${k}}`));
+  return text;
+}

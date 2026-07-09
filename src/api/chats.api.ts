@@ -57,11 +57,12 @@ export const chatsApi = {
   },
 
   /** Send a user message; the server persists it and returns the AI reply.
-   *  Pass `analysisId` to ground the reply in that contract (document Q&A). */
-  async sendMessage(sessionId: string, text: string, analysisId?: string): Promise<ChatMessage> {
+   *  Pass `analysisId` to ground the reply in that contract (document Q&A);
+   *  `jurisdiction` sets the default law context from the country selector. */
+  async sendMessage(sessionId: string, text: string, analysisId?: string, jurisdiction?: string): Promise<ChatMessage> {
     return http<ChatMessage>(`/chats/${sessionId}/messages`, {
       method: 'POST',
-      body: analysisId ? { text, analysisId } : { text },
+      body: { text, ...(analysisId ? { analysisId } : {}), ...(jurisdiction ? { jurisdiction } : {}) },
     });
   },
 };

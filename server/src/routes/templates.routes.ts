@@ -5,6 +5,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../db.ts';
 import { notFound } from '../lib/errors.ts';
+import { assertAiAllowance, assertFeature, bumpUsage } from '../lib/limits.ts';
 import { asObject, optionalString, requireString } from '../lib/validate.ts';
 import { generateTemplateDraft } from '../llm.ts';
 import type { Template } from '../types.ts';
@@ -27,8 +28,10 @@ export function templateRoutes(app: FastifyInstance, db: Db): void {
 
   app.post(
     '/templates/:id/generate',
-    { preHandler: [app.authenticate], config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
+    { preHandler: [app.authenticateReal], config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
     async (req): Promise<{ title: string; content: string }> => {
+      await assertFeature(db, req.currentUser.id, 'templates');
+      await assertAiAllowance(db, req.currentUser.id);
       const { id } = req.params as { id: string };
       const tpl = await db.query<Template>(
         'SELECT id, name, category, description, jurisdiction, clauses FROM templates WHERE id = $1',
@@ -45,6 +48,7 @@ export function templateRoutes(app: FastifyInstance, db: Db): void {
         term: optionalString(body, 'term')?.trim() || '',
         details: (optionalString(body, 'details') ?? '').slice(0, 4000),
       };
+      await bumpUsage(db, req.currentUser.id, { ai: 1 });
       const content = await generateTemplateDraft(template.name, template.description, fields);
       return { title: `${template.name} — ${fields.partyA} / ${fields.partyB}`, content };
     },

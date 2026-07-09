@@ -11,11 +11,14 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Db } from '../db.ts';
 import { ALLOWED_EXTENSIONS, extractText, fileExtension, MAX_UPLOAD_BYTES } from '../extract.ts';
 import { badRequest, notFound } from '../lib/errors.ts';
+import { assertAiAllowance, assertDocumentAllowance, bumpUsage } from '../lib/limits.ts';
+import { notify } from '../lib/notify.ts';
+import { assertCanEdit, resolveAnalysisAccess, resolveDocumentAccess } from '../lib/teamAccess.ts';
 import { formatSize } from '../lib/format.ts';
 import { buildSimplePdf } from '../lib/pdf.ts';
 import { newId } from '../lib/ids.ts';
 import { openSSE, wantsSSE } from '../lib/sse.ts';
-import { asObject, requireOneOf, requireString } from '../lib/validate.ts';
+import { asObject, optionalString, requireOneOf, requireString } from '../lib/validate.ts';
 import { generateAnalysis, type GeneratedAnalysis } from '../llm.ts';
 import { readFileBytes, saveFile } from '../storage.ts';
 import type { AnalysisResult, DocBlock, Redline } from '../types.ts';
@@ -40,10 +43,13 @@ interface AnalysisRow {
 }
 
 async function loadAnalysis(db: Db, userId: string, id: string): Promise<AnalysisResult> {
+  // Owner, or an active team member when the linked document is shared.
+  const access = await resolveAnalysisAccess(db, userId, id);
+  const canEdit = access.access === 'owner' || access.access === 'admin' || access.access === 'editor';
   const res = await db.query<AnalysisRow>(
     `SELECT id, file_name, file_size, summary, risk_score, risk_level, clauses_reviewed, document_blocks
-     FROM analyses WHERE id = $1 AND user_id = $2`,
-    [id, userId],
+     FROM analyses WHERE id = $1`,
+    [id],
   );
   const row = res.rows[0];
   if (!row) throw notFound('Analysis not found');
@@ -75,6 +81,7 @@ async function loadAnalysis(db: Db, userId: string, id: string): Promise<Analysi
       status: r.status,
     })),
     document: blocks,
+    canEdit,
   };
 }
 
@@ -84,6 +91,50 @@ export interface AnalysisSource {
   sizeBytes: number;
   text: string | null;
   pdf: Buffer | null;
+  /** Default jurisdiction from the user's country selector (e.g. "German law"). */
+  jurisdiction?: string | null;
+  /** Re-analysis of a shared document: persist under this user (the owner). */
+  ownerUserId?: string;
+}
+
+/** Render document blocks to plain text with the CURRENT redline states applied
+ *  (accepted → new wording, otherwise the original) — the visible draft. */
+function blocksToDraftText(blocks: DocBlock[], redlines: Redline[]): string {
+  const byId = new Map(redlines.map((r) => [r.id, r]));
+  const lines: string[] = [];
+  for (const block of blocks) {
+    if (block.type === 'heading') {
+      lines.push(block.text ?? '');
+      continue;
+    }
+    let text = '';
+    for (const seg of block.segments ?? []) {
+      if (typeof seg === 'string') {
+        text += seg;
+      } else {
+        const rl = byId.get(seg.redlineId);
+        if (!rl) continue;
+        text += rl.status === 'accepted' ? rl.insText : rl.delText;
+      }
+    }
+    lines.push(text);
+  }
+  return lines.join('\n\n');
+}
+
+/** Re-analysis: build the source from an existing analysis' current draft.
+ *  Requires edit rights; the result is persisted under the document owner. */
+async function sourceFromAnalysis(db: Db, userId: string, analysisId: string): Promise<AnalysisSource> {
+  const access = await resolveAnalysisAccess(db, userId, analysisId, true);
+  const a = await loadAnalysis(db, userId, analysisId);
+  return {
+    fileName: a.fileName,
+    fileSizeLabel: a.fileSize,
+    sizeBytes: 0,
+    text: blocksToDraftText(a.document, a.redlines),
+    pdf: null,
+    ownerUserId: access.analysisUserId,
+  };
 }
 
 /** Resolve the contract content for JSON-mode requests from the uploads table. */
@@ -126,10 +177,19 @@ async function readSource(db: Db, req: FastifyRequest): Promise<AnalysisSource> 
   }
 
   const body = asObject(req.body);
+  const jurisdiction = optionalString(body, 'jurisdiction')?.slice(0, 60) ?? null;
+
+  // Re-analysis of an existing review: { analysisId } instead of a file.
+  const analysisId = optionalString(body, 'analysisId');
+  if (analysisId) {
+    const source = await sourceFromAnalysis(db, req.currentUser.id, analysisId);
+    return { ...source, jurisdiction };
+  }
+
   const fileName = requireString(body, 'fileName', { min: 1, max: 300 });
   const fileSizeLabel = requireString(body, 'fileSize', { min: 1, max: 50 });
   const uploaded = await resolveUploadedContent(db, req.currentUser.id, fileName);
-  return { fileName, fileSizeLabel, sizeBytes: uploaded.sizeBytes, text: uploaded.text, pdf: uploaded.pdf };
+  return { fileName, fileSizeLabel, sizeBytes: uploaded.sizeBytes, text: uploaded.text, pdf: uploaded.pdf, jurisdiction };
 }
 
 /** Persist the generated analysis and all side effects; return the wire shape.
@@ -156,6 +216,7 @@ export async function persistAnalysis(db: Db, userId: string, source: AnalysisSo
        VALUES ($1, $2, $3, '—', 'In review', $4, 'UK', $5)`,
       [documentId, userId, source.fileName, gen.riskLevel, source.sizeBytes],
     );
+    await bumpUsage(db, userId, { docs: 1 });
     await db.query(
       `INSERT INTO document_versions (id, document_id, label, author, note)
        VALUES ($1, $2, 'v1 — original', 'Upload', 'Initial draft received.')`,
@@ -213,17 +274,18 @@ export async function persistAnalysis(db: Db, userId: string, source: AnalysisSo
      findings_low = findings_low + $4, hours_saved_minutes = hours_saved_minutes + 90 WHERE user_id = $1`,
     [userId, bump.High, bump.Medium, bump.Low],
   );
-  await db.query(`INSERT INTO notifications (id, user_id, icon, title) VALUES ($1, $2, 'check', $3)`, [
-    newId('n'),
-    userId,
-    `Анализ ${source.fileName} готов`,
-  ]);
+  await bumpUsage(db, userId, { ai: 1 });
+  await notify(db, userId, 'check', 'Анализ готов', 'Analysis ready', {
+    bodyRu: source.fileName,
+    bodyEn: source.fileName,
+    action: { kind: 'open', data: '/documents' },
+  });
   if (gen.riskLevel === 'High') {
-    await db.query(`INSERT INTO notifications (id, user_id, icon, title) VALUES ($1, $2, 'alert', $3)`, [
-      newId('n'),
-      userId,
-      `${source.fileName}: найден высокий риск`,
-    ]);
+    await notify(db, userId, 'alert', 'Найден высокий риск', 'High risk found', {
+      bodyRu: source.fileName,
+      bodyEn: source.fileName,
+      action: { kind: 'open', data: '/documents' },
+    });
   }
 
   return {
@@ -241,17 +303,25 @@ export async function persistAnalysis(db: Db, userId: string, source: AnalysisSo
 }
 
 export function analysisRoutes(app: FastifyInstance, db: Db): void {
-  app.post('/analysis', { preHandler: [app.authenticate], config: RATE_LIMIT }, async (req, reply) => {
+  app.post('/analysis', { preHandler: [app.authenticateReal], config: RATE_LIMIT }, async (req, reply) => {
+    // Plan limits: AI allowance always; document allowance when this file
+    // would create a NEW document row.
+    await assertAiAllowance(db, req.currentUser.id);
     const source = await readSource(db, req);
+    const existingDoc = await db.query(
+      'SELECT 1 FROM documents WHERE user_id = $1 AND name = $2 LIMIT 1',
+      [req.currentUser.id, source.fileName],
+    );
+    if (!existingDoc.rows[0]) await assertDocumentAllowance(db, req.currentUser.id);
 
     if (wantsSSE(req)) {
       const sse = openSSE(req, reply);
       try {
         sse.send('step', { index: 0, label: ANALYSIS_STEPS[0] });
         sse.send('step', { index: 1, label: ANALYSIS_STEPS[1] });
-        const gen = await generateAnalysis({ fileName: source.fileName, text: source.text, pdf: source.pdf });
+        const gen = await generateAnalysis({ fileName: source.fileName, text: source.text, pdf: source.pdf, jurisdiction: source.jurisdiction });
         sse.send('step', { index: 2, label: ANALYSIS_STEPS[2] });
-        const result = await persistAnalysis(db, req.currentUser.id, source, gen);
+        const result = await persistAnalysis(db, source.ownerUserId ?? req.currentUser.id, source, gen);
         sse.send('result', result);
       } catch (err) {
         req.log.error(err, 'analysis failed');
@@ -262,14 +332,26 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
       return reply;
     }
 
-    const gen = await generateAnalysis({ fileName: source.fileName, text: source.text, pdf: source.pdf });
+    const gen = await generateAnalysis({ fileName: source.fileName, text: source.text, pdf: source.pdf, jurisdiction: source.jurisdiction });
     reply.code(201);
-    return persistAnalysis(db, req.currentUser.id, source, gen);
+    return persistAnalysis(db, source.ownerUserId ?? req.currentUser.id, source, gen);
   });
 
   app.get('/analysis/:id', { preHandler: [app.authenticate] }, async (req) => {
     const { id } = req.params as { id: string };
     return loadAnalysis(db, req.currentUser.id, id);
+  });
+
+  // Latest analysis for a document — powers "Open workspace" on the detail page.
+  app.get('/documents/:id/analysis', { preHandler: [app.authenticate] }, async (req) => {
+    const { id } = req.params as { id: string };
+    await resolveDocumentAccess(db, req.currentUser.id, id);
+    const res = await db.query<{ id: string }>(
+      'SELECT id FROM analyses WHERE document_id = $1 ORDER BY created_at DESC LIMIT 1',
+      [id],
+    );
+    if (!res.rows[0]) throw notFound('No analysis for this document yet');
+    return loadAnalysis(db, req.currentUser.id, res.rows[0].id);
   });
 
   // Live editor: replace the document blocks after manual edits.
@@ -286,11 +368,8 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
         throw badRequest('Each block must have type "heading" or "paragraph"');
       }
     }
-    const res = await db.query(
-      'UPDATE analyses SET document_blocks = $3 WHERE id = $1 AND user_id = $2',
-      [id, req.currentUser.id, JSON.stringify(blocks)],
-    );
-    void res;
+    await resolveAnalysisAccess(db, req.currentUser.id, id, true);
+    await db.query('UPDATE analyses SET document_blocks = $2 WHERE id = $1', [id, JSON.stringify(blocks)]);
     return loadAnalysis(db, req.currentUser.id, id);
   });
 
@@ -323,9 +402,8 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
     const body = asObject(req.body);
     const status = requireOneOf(body, 'status', ['accepted', 'rejected'] as const);
 
-    // Ownership check via the parent analysis.
-    const owner = await db.query('SELECT 1 FROM analyses WHERE id = $1 AND user_id = $2', [id, req.currentUser.id]);
-    if (!owner.rows[0]) throw notFound('Analysis not found');
+    // Owner or team member with edit rights.
+    await resolveAnalysisAccess(db, req.currentUser.id, id, true);
 
     const res = await db.query<{ id: string; del_text: string; ins_text: string; severity: 'High' | 'Medium' | 'Low'; status: 'pending' | 'accepted' | 'rejected' }>(
       `UPDATE redlines SET status = $3 WHERE analysis_id = $1 AND id = $2

@@ -39,6 +39,8 @@ export interface AnalysisInput {
   text?: string | null;
   /** Raw PDF bytes, sent to Claude as a native document block. */
   pdf?: Buffer | null;
+  /** User's default jurisdiction (e.g. "German law") from the country selector. */
+  jurisdiction?: string | null;
 }
 
 const SEVERITY = ['High', 'Medium', 'Low'];
@@ -123,7 +125,7 @@ Keep it tight: 3–6 findings, 2–5 redlines, and one heading+paragraph pair pe
 
 export async function generateAnalysis(input: AnalysisInput): Promise<GeneratedAnalysis> {
   const api = getClient();
-  if (!api) return fallbackAnalysis(input.fileName);
+  if (!api) return fallbackAnalysis(input.fileName, input.jurisdiction);
 
   try {
     const content: Anthropic.ContentBlockParam[] = [];
@@ -134,11 +136,16 @@ export async function generateAnalysis(input: AnalysisInput): Promise<GeneratedA
       });
     }
     const text = input.text?.slice(0, 150_000);
+    const jurisdictionNote = input.jurisdiction
+      ? `\n\nThe user's default jurisdiction is ${input.jurisdiction}. Review under that law (and cite its statutes/case law) unless the contract explicitly states a different governing law.`
+      : '';
     content.push({
       type: 'text',
-      text: text
-        ? `File name: ${input.fileName}\n\nContract text:\n<<<\n${text}\n>>>`
-        : `File name: ${input.fileName}\n\nNo machine-readable text could be extracted from this file. Infer the contract type from the file name and produce a realistic, jurisdiction-appropriate risk review of a typical contract of that type.`,
+      text:
+        (text
+          ? `File name: ${input.fileName}\n\nContract text:\n<<<\n${text}\n>>>`
+          : `File name: ${input.fileName}\n\nNo machine-readable text could be extracted from this file. Infer the contract type from the file name and produce a realistic, jurisdiction-appropriate risk review of a typical contract of that type.`) +
+        jurisdictionNote,
     });
 
     const stream = api.messages.stream({
@@ -157,7 +164,7 @@ export async function generateAnalysis(input: AnalysisInput): Promise<GeneratedA
     return normalizeGenerated(JSON.parse(textBlock.text));
   } catch (err) {
     console.warn(`[llm] analysis generation failed, using fallback: ${(err as Error).message}`);
-    return fallbackAnalysis(input.fileName);
+    return fallbackAnalysis(input.fileName, input.jurisdiction);
   }
 }
 
@@ -220,6 +227,7 @@ export async function generateChatReply(
   userText: string,
   onToken?: (delta: string) => void,
   docContext?: string,
+  jurisdiction?: string,
 ): Promise<string> {
   const api = getClient();
   if (!api) {
@@ -233,9 +241,13 @@ export async function generateChatReply(
       ...history.slice(-20).map((t) => ({ role: t.role, content: t.text })),
       { role: 'user' as const, content: userText },
     ];
-    const system = docContext
-      ? `${CHAT_SYSTEM}\n\nThe user is working on the following contract. Ground every answer in it and quote the relevant clause when you make a claim about it.\n<contract>\n${docContext.slice(0, 100_000)}\n</contract>`
-      : CHAT_SYSTEM;
+    let system = CHAT_SYSTEM;
+    if (jurisdiction) {
+      system += `\n\nThe user's default jurisdiction is ${jurisdiction}. Answer under that law unless the user or their document indicates otherwise.`;
+    }
+    if (docContext) {
+      system += `\n\nThe user is working on the following contract. Ground every answer in it and quote the relevant clause when you make a claim about it.\n<contract>\n${docContext.slice(0, 100_000)}\n</contract>`;
+    }
     const stream = api.messages.stream({
       model: config.anthropicModel,
       max_tokens: 4096,

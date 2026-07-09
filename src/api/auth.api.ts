@@ -33,4 +33,27 @@ export const authApi = {
   deleteAccount(confirm: string): Promise<void> {
     return http<void>('/me', { method: 'DELETE', body: { confirm } });
   },
+
+  /** Ask for a password-reset letter (always succeeds — no account leaking). */
+  async requestReset(email: string): Promise<void> {
+    await http<void>('/auth/reset', { method: 'POST', body: { email } });
+  },
+
+  /** Set a new password using the emailed token; returns a fresh session. */
+  async confirmReset(token: string, password: string): Promise<{ token: string; user: UserProfile }> {
+    return http<{ token: string; user: UserProfile }>('/auth/reset/confirm', {
+      method: 'POST',
+      body: { token, password },
+    });
+  },
+
+  /** Confirm the email address by the token from the letter. */
+  async verifyEmail(token: string): Promise<void> {
+    await http<void>('/auth/verify', { method: 'POST', body: { token } });
+  },
+
+  /** Send the verification letter again (signed-in users). */
+  async resendVerify(): Promise<void> {
+    await http<void>('/auth/verify/resend', { method: 'POST', body: {} });
+  },
 };

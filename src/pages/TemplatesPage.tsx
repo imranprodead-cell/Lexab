@@ -4,18 +4,48 @@ import { Icon } from '@/components/icons/Icon';
 import { Button } from '@/components/ui/Button';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { TextField } from '@/components/ui/TextField';
-import { EmptyState, ErrorState, LoadingState } from '@/components/ui/States';
-import { useAsync } from '@/hooks/useAsync';
+import { SelectMenu } from '@/components/ui/SelectMenu';
+import { EmptyState, ErrorState, SkeletonRows } from '@/components/ui/States';
+import { useAsync, useDismissable } from '@/hooks/useAsync';
 import { templatesApi } from '@/api';
+import { COUNTRIES, flagUrl } from '@/data/countries';
 import { TEMPLATES } from '@/data/seed';
 import { useUIStore } from '@/store/useUIStore';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { Template } from '@/types/domain';
 import styles from './pages.module.css';
 
+/** Jurisdictions offered in the generator — real flag images, full aspect. */
+const JURISDICTIONS = ['US', 'GB', 'DE', 'CA', 'KZ', 'UZ', 'AE']
+  .map((code) => COUNTRIES.find((c) => c.code === code))
+  .filter((c): c is (typeof COUNTRIES)[number] => Boolean(c));
+
+const JURISDICTION_EN: Record<string, string> = {
+  US: 'United States',
+  GB: 'United Kingdom',
+  DE: 'Germany',
+  CA: 'Canada',
+  KZ: 'Kazakhstan',
+  UZ: 'Uzbekistan',
+  AE: 'UAE',
+};
+
+/** Map a template's free-text jurisdiction to one of the picker countries. */
+function matchJurisdiction(text: string): string {
+  const s = text.toLowerCase();
+  if (/kingdom|brit|england|\buk\b/.test(s)) return 'GB';
+  if (/united states|\bus\b|usa|delaware/.test(s)) return 'US';
+  if (/german|deutsch/.test(s)) return 'DE';
+  if (/canad/.test(s)) return 'CA';
+  if (/kazakh|казах/.test(s)) return 'KZ';
+  if (/uzbek|узбек/.test(s)) return 'UZ';
+  if (/uae|emirat|эмират|оаэ/.test(s)) return 'AE';
+  return 'GB';
+}
+
 /** Reusable clause/document library + AI contract generator. */
 export function TemplatesPage() {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const pushToast = useUIStore((s) => s.pushToast);
   const [category, setCategory] = useState('All');
 
@@ -28,15 +58,24 @@ export function TemplatesPage() {
   const [tpl, setTpl] = useState<Template | null>(null);
   const [partyA, setPartyA] = useState('');
   const [partyB, setPartyB] = useState('');
-  const [jurisdiction, setJurisdiction] = useState('');
+  const [jurisdiction, setJurisdiction] = useState('GB'); // country code
+  const [jurisOpen, setJurisOpen] = useState(false);
+  const jurisRef = useDismissable<HTMLDivElement>(() => setJurisOpen(false), jurisOpen);
   const [term, setTerm] = useState('');
   const [details, setDetails] = useState('');
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState<{ title: string; content: string } | null>(null);
 
+  const countryName = (code: string) =>
+    lang === 'ru'
+      ? (JURISDICTIONS.find((c) => c.code === code)?.name ?? code)
+      : (JURISDICTION_EN[code] ?? code);
+  const selectedJuris = JURISDICTIONS.find((c) => c.code === jurisdiction) ?? JURISDICTIONS[0];
+
   const openGenerator = (template: Template) => {
     setTpl(template);
-    setJurisdiction(template.jurisdiction);
+    setJurisdiction(matchJurisdiction(template.jurisdiction));
+    setJurisOpen(false);
     setDraft(null);
   };
 
@@ -47,6 +86,7 @@ export function TemplatesPage() {
     setPartyB('');
     setTerm('');
     setDetails('');
+    setJurisOpen(false);
   };
 
   const generate = async (e: FormEvent) => {
@@ -54,7 +94,16 @@ export function TemplatesPage() {
     if (!tpl || !partyA.trim() || !partyB.trim()) return;
     setBusy(true);
     try {
-      setDraft(await templatesApi.generate(tpl.id, { partyA: partyA.trim(), partyB: partyB.trim(), jurisdiction, term, details }));
+      setDraft(
+        await templatesApi.generate(tpl.id, {
+          partyA: partyA.trim(),
+          partyB: partyB.trim(),
+          // Send a readable jurisdiction ("US law", "German law", …) to the AI.
+          jurisdiction: selectedJuris.law,
+          term,
+          details,
+        }),
+      );
     } catch (err) {
       pushToast(err instanceof Error ? err.message : t('common.error'), 'error');
     } finally {
@@ -99,22 +148,16 @@ export function TemplatesPage() {
           </div>
 
           <div className={styles.toolbar}>
-            <select
-              className={styles.select}
+            <SelectMenu
+              ariaLabel="category"
               value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              aria-label="category"
-            >
-              {categories.map((c) => (
-                <option key={c} value={c}>
-                  {c === 'All' ? t('tpl.allCategories') : c}
-                </option>
-              ))}
-            </select>
+              options={categories.map((c) => ({ value: c, label: c === 'All' ? t('tpl.allCategories') : c }))}
+              onChange={setCategory}
+            />
           </div>
 
           {loading ? (
-            <LoadingState label={t('common.loading')} />
+            <SkeletonRows rows={4} height={110} />
           ) : error ? (
             <ErrorState message={error} onRetry={reload} />
           ) : rows.length === 0 ? (
@@ -159,12 +202,49 @@ export function TemplatesPage() {
                     <TextField label={t('tpl.partyB')} name="partyB" value={partyB} onChange={(e) => setPartyB(e.target.value)} />
                   </div>
                   <div className={styles.formRow}>
-                    <TextField
-                      label={t('tpl.jurisdiction')}
-                      name="jurisdiction"
-                      value={jurisdiction}
-                      onChange={(e) => setJurisdiction(e.target.value)}
-                    />
+                    <div className={styles.jurisField}>
+                      <span className={styles.jurisLabel}>{t('tpl.jurisdiction')}</span>
+                      <div className={styles.jurisWrap} ref={jurisRef}>
+                        <button
+                          type="button"
+                          className={styles.jurisSelect}
+                          aria-haspopup="listbox"
+                          aria-expanded={jurisOpen}
+                          onClick={() => setJurisOpen((v) => !v)}
+                        >
+                          <img className={styles.jurisFlag} src={flagUrl(selectedJuris.code)} alt="" />
+                          <span className={styles.jurisName}>{countryName(selectedJuris.code)}</span>
+                          <span className={`${styles.jurisChevron} ${jurisOpen ? styles.jurisChevronOpen : ''}`}>
+                            <Icon name="chevron" size={14} />
+                          </span>
+                        </button>
+                        {jurisOpen ? (
+                          <div className={styles.jurisMenu} role="listbox">
+                            {JURISDICTIONS.map((c) => (
+                              <button
+                                key={c.code}
+                                type="button"
+                                role="option"
+                                aria-selected={c.code === jurisdiction}
+                                className={`${styles.jurisOption} ${c.code === jurisdiction ? styles.jurisOptionActive : ''}`}
+                                onClick={() => {
+                                  setJurisdiction(c.code);
+                                  setJurisOpen(false);
+                                }}
+                              >
+                                <img className={styles.jurisFlag} src={flagUrl(c.code)} alt="" />
+                                <span className={styles.jurisName}>{countryName(c.code)}</span>
+                                {c.code === jurisdiction ? (
+                                  <span className={styles.jurisCheck}>
+                                    <Icon name="check" size={14} />
+                                  </span>
+                                ) : null}
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
                     <TextField
                       label={t('tpl.term')}
                       name="term"

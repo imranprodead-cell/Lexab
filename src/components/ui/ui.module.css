@@ -17,7 +17,7 @@
   justify-content: center;
   gap: 8px;
   font-family: inherit;
-  font-size: 14.5px;
+  font-size: 15px;
   font-weight: 500;
   border-radius: var(--r-md);
   cursor: pointer;
@@ -59,7 +59,7 @@
 }
 .btnSm {
   padding: 7px 12px;
-  font-size: 13.5px;
+  font-size: 14px;
 }
 
 /* Icon button ------------------------------------------------------------- */
@@ -125,7 +125,7 @@
   align-items: center;
   gap: 6px;
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--dim);
   padding: 4px 9px;
   border-radius: 7px;
@@ -219,7 +219,7 @@
   gap: 6px;
 }
 .label {
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--dim);
 }
@@ -274,7 +274,7 @@
   color: var(--text);
 }
 .stateBody {
-  font-size: 13.5px;
+  font-size: 14px;
   max-width: 320px;
   line-height: 1.5;
 }
@@ -302,7 +302,7 @@
   backdrop-filter: blur(20px);
   border: 1px solid var(--border);
   box-shadow: var(--shadow-pop);
-  font-size: 13.5px;
+  font-size: 14px;
   color: var(--text);
   pointer-events: auto;
   animation: lxfade var(--dur-mid) ease both;
@@ -312,6 +312,145 @@
   height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
+}
+
+/* Date picker (deadlines) --------------------------------------------------- */
+.dateField {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 11px 12px;
+  font-family: inherit;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+.dateField:hover {
+  border-color: var(--accent);
+}
+.dateFieldEmpty {
+  color: var(--mut);
+}
+.dateFieldLabel {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dateFieldChevron {
+  display: flex;
+  color: var(--mut);
+  transform: rotate(90deg);
+}
+.dateFieldClear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  color: var(--mut);
+}
+.dateFieldClear:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.calendar {
+  position: fixed;
+  z-index: 400;
+  width: 268px;
+  padding: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-pop);
+  animation: lxfade var(--dur-mid) ease both;
+}
+.calHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.calMonth {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.calNav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+}
+.calNav:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.calWeekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  margin-bottom: 4px;
+}
+.calWeekdays span {
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--mut);
+  text-transform: capitalize;
+  padding: 4px 0;
+}
+.calGrid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+.calDay {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease);
+}
+.calDay:hover:not(:disabled) {
+  background: var(--hover);
+}
+.calDay:disabled {
+  color: var(--mut);
+  opacity: 0.4;
+  cursor: default;
+}
+.calDaySelected {
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 700;
+}
+.calDaySelected:hover:not(:disabled) {
+  background: var(--accent);
+}
+.calDayToday {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+  font-weight: 600;
 }
 
 /* Keyframes ----------------------------------------------------------------
@@ -339,4 +478,151 @@
   to {
     opacity: 1;
   }
+}
+
+/* ── SelectMenu: unified dropdown filter ─────────────────────────────────── */
+
+.selectMenu {
+  position: relative;
+  flex: none;
+}
+
+.selectMenuBtn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 150px;
+  padding: 9px 12px 9px 14px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
+}
+
+.selectMenuBtn:hover,
+.selectMenuBtnOpen {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.selectMenuLabel {
+  flex: 1;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.selectMenuChevron {
+  display: flex;
+  color: var(--mut);
+  transition: transform 0.18s ease;
+}
+
+.selectMenuChevronOpen {
+  transform: rotate(180deg);
+}
+
+.selectMenuList {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 100%;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 18px 44px color-mix(in srgb, #000 22%, transparent);
+  animation: lxselectin 0.16s ease;
+}
+
+@keyframes lxselectin {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.selectMenuItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.selectMenuItem:hover {
+  background: var(--hover-2);
+}
+
+.selectMenuItemActive {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  font-weight: 600;
+}
+
+.selectMenuItemLabel {
+  flex: 1;
+}
+
+.selectMenuCheck {
+  display: flex;
+  color: var(--accent);
+}
+
+/* ── Skeleton shimmer (app-wide loading placeholder) ─────────────────────── */
+
+.skeletonBox {
+  background: linear-gradient(90deg, var(--panel), var(--panel-2), var(--panel));
+  background-size: 200% 100%;
+  animation: lxskshimmer 1.3s ease-in-out infinite;
+  border: 1px solid var(--border);
+}
+
+@keyframes lxskshimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Toast action button ("Undo") on the right edge of a toast. */
+.toastAction {
+  flex: none;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 5px 12px;
+  border: none;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent);
+  cursor: pointer;
+  transition: filter 0.15s ease;
+}
+
+.toastAction:hover {
+  filter: brightness(1.08);
 }

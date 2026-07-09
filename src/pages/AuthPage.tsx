@@ -5,6 +5,8 @@ import { Button } from '@/components/ui/Button';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { TextField } from '@/components/ui/TextField';
 import { Icon } from '@/components/icons/Icon';
+import { teamApi } from '@/api';
+import { authApi } from '@/api/auth.api';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -81,7 +83,18 @@ export function AuthPage() {
   /** Fade the whole screen out before navigating into the app. */
   const [leaving, setLeaving] = useState(false);
 
-  const redirectTo = (location.state as { from?: string } | null)?.from ?? '/chat';
+  // Team invite link (/login?invite=<token>): show who invites and land on /team.
+  const inviteToken = new URLSearchParams(location.search).get('invite');
+  const [invite, setInvite] = useState<{ inviterName: string; inviterFirm: string; email: string; role: string } | null>(null);
+  useEffect(() => {
+    if (!inviteToken) return;
+    teamApi
+      .inviteInfo(inviteToken)
+      .then(setInvite)
+      .catch(() => setInvite(null));
+  }, [inviteToken]);
+
+  const redirectTo = inviteToken ? '/team' : ((location.state as { from?: string } | null)?.from ?? '/chat');
 
   // The Google callback returns here with #session=<payload> (or #error=<code>).
   useEffect(() => {
@@ -118,7 +131,10 @@ export function AuthPage() {
   };
 
   const startGoogle = () => {
-    const back = encodeURIComponent(`${window.location.origin}/login`);
+    // Keep the invite token through the OAuth round-trip.
+    const back = encodeURIComponent(
+      `${window.location.origin}/login${inviteToken ? `?invite=${encodeURIComponent(inviteToken)}` : ''}`,
+    );
     departAnd(() => {
       window.location.href = `${API_BASE}/auth/google?redirect=${back}`;
     }, 260);
@@ -140,6 +156,11 @@ export function AuthPage() {
 
     if (mode === 'reset') {
       setError(null);
+      try {
+        await authApi.requestReset(email.trim());
+      } catch {
+        /* never reveal whether the address exists */
+      }
       pushToast(t('auth.resetSent'), 'success');
       setMode('signin');
       return;
@@ -149,7 +170,7 @@ export function AuthPage() {
       setError(t('auth.errRequired'));
       return;
     }
-    if (password.length < 6) {
+    if (password.length < 8) {
       setError(t('auth.errPassword'));
       return;
     }
@@ -216,6 +237,14 @@ export function AuthPage() {
               <span className={styles.heroAccent}>{t('auth.heroLine2')}</span>
             </h1>
             <p className={styles.heroSub}>{t('auth.heroSub')}</p>
+
+            {invite ? (
+              <div className={styles.inviteNote}>
+                <strong>{invite.inviterName}</strong> ({invite.inviterFirm}){' '}
+                {t('auth.inviteNote', { role: t(`team.role.${invite.role}`) })}
+                <div className={styles.inviteNoteEmail}>{invite.email}</div>
+              </div>
+            ) : null}
 
             <GlassCard className={styles.card}>
               <button type="button" className={styles.googleBtn} onClick={startGoogle}>
@@ -320,6 +349,18 @@ export function AuthPage() {
               </p>
             </GlassCard>
           </div>
+
+          <div className={styles.stats}>
+            <div className={styles.stat}>
+              <div className={styles.statValue}>50.000</div>
+              <div className={styles.statLabel}>{t('auth.statDocs')}</div>
+            </div>
+            <div className={styles.statDivider} />
+            <div className={styles.stat}>
+              <div className={styles.statValue}>95%+</div>
+              <div className={styles.statLabel}>{t('auth.statAccuracy')}</div>
+            </div>
+          </div>
         </div>
 
         {/* ── Right: decorative panel (hidden on narrow screens) ──────────── */}
@@ -333,6 +374,41 @@ export function AuthPage() {
             </div>
             <div className={styles.rightCaption}>
               LexAI <span>· {t('auth.tagline')}</span>
+            </div>
+
+            <div className={styles.rightCards}>
+              {(
+                [
+                  { icon: 'alert', title: 'auth.featRiskTitle', text: 'auth.featRiskText' },
+                  { icon: 'pen', title: 'auth.featRedlineTitle', text: 'auth.featRedlineText' },
+                  { icon: 'chat', title: 'auth.featQaTitle', text: 'auth.featQaText' },
+                ] as const
+              ).map((f) => (
+                <div key={f.icon} className={styles.rightCard}>
+                  <span className={styles.rightCardIcon}>
+                    <Icon name={f.icon} size={17} />
+                  </span>
+                  <div>
+                    <div className={styles.rightCardTitle}>{t(f.title)}</div>
+                    <div className={styles.rightCardText}>{t(f.text)}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className={styles.rightTrust}>
+            <div className={styles.rightAvatars}>
+              {(['analytics', 'users', 'shield'] as const).map((icon) => (
+                <span key={icon} className={styles.rightAvatar}>
+                  <Icon name={icon} size={12} />
+                </span>
+              ))}
+            </div>
+            <div className={styles.rightTrustText}>
+              {t('auth.trustedPre')}
+              <b>{t('auth.trustedCount')}</b>
+              {t('auth.trustedPost')}
             </div>
           </div>
         </div>

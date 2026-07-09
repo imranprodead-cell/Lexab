@@ -1,0 +1,175 @@
+/**
+ * PUBLIC e-signing (no account needed):
+ *   GET  /sign/:token          — request details + document text for review
+ *   POST /sign/:token { name } — capture the signature; Completed when all signed
+ */
+import type { FastifyInstance } from 'fastify';
+import { config } from '../config.ts';
+import type { Db } from '../db.ts';
+import { badRequest, notFound } from '../lib/errors.ts';
+import { toIso } from '../lib/format.ts';
+import { notify } from '../lib/notify.ts';
+import { escapeMailHtml, mailLayout, sendMail } from '../mail.ts';
+import { asObject, requireString } from '../lib/validate.ts';
+import { getUserByEmail } from '../plugins/auth.ts';
+import type { DocBlock, Redline } from '../types.ts';
+
+interface RecipientRow {
+  id: number | string;
+  request_id: string;
+  name: string;
+  email: string;
+  signed: boolean;
+  signed_at: Date | string | null;
+  document_name: string;
+  status: string;
+  owner_id: string;
+  owner_name: string;
+  owner_firm: string;
+  owner_email: string;
+}
+
+async function findByToken(db: Db, token: string): Promise<RecipientRow | null> {
+  const res = await db.query<RecipientRow>(
+    `SELECT r.ord AS id, r.request_id, r.name, r.email, r.signed, r.signed_at,
+            q.document_name, q.status, u.id AS owner_id, u.name AS owner_name, u.firm AS owner_firm, u.email AS owner_email
+     FROM signature_recipients r
+     JOIN signature_requests q ON q.id = r.request_id
+     JOIN users u ON u.id = q.user_id
+     WHERE r.token = $1`,
+    [token],
+  );
+  return res.rows[0] ?? null;
+}
+
+/** Latest analysed text of the owner's document, redlines applied. */
+async function documentText(db: Db, ownerId: string, fileName: string): Promise<string | null> {
+  const a = await db.query<{ id: string; document_blocks: DocBlock[] | string }>(
+    `SELECT id, document_blocks FROM analyses
+     WHERE user_id = $1 AND file_name = $2 ORDER BY created_at DESC LIMIT 1`,
+    [ownerId, fileName],
+  );
+  const row = a.rows[0];
+  if (!row) return null;
+  const blocks = (typeof row.document_blocks === 'string' ? JSON.parse(row.document_blocks) : row.document_blocks) as DocBlock[];
+  const redlines = await db.query<{ id: string; del_text: string; ins_text: string; status: Redline['status'] }>(
+    'SELECT id, del_text, ins_text, status FROM redlines WHERE analysis_id = $1 ORDER BY ord',
+    [row.id],
+  );
+  const byId = new Map(redlines.rows.map((r) => [r.id, r]));
+  const lines: string[] = [];
+  for (const block of blocks) {
+    if (block.type === 'heading') {
+      lines.push(`## ${block.text ?? ''}`);
+      continue;
+    }
+    let text = '';
+    for (const seg of block.segments ?? []) {
+      if (typeof seg === 'string') text += seg;
+      else {
+        const rl = byId.get(seg.redlineId);
+        if (rl) text += rl.status === 'rejected' ? rl.del_text : rl.ins_text;
+      }
+    }
+    lines.push(text);
+  }
+  return lines.join('\n\n');
+}
+
+export function signRoutes(app: FastifyInstance, db: Db): void {
+  app.get('/sign/:token', async (req) => {
+    const { token } = req.params as { token: string };
+    const row = await findByToken(db, token);
+    if (!row) throw notFound('Ссылка недействительна или запрос отозван');
+
+    // First open moves the request from Sent to Viewed.
+    if (row.status === 'Sent') {
+      await db.query(`UPDATE signature_requests SET status = 'Viewed' WHERE id = $1 AND status = 'Sent'`, [
+        row.request_id,
+      ]);
+    }
+
+    return {
+      documentName: row.document_name,
+      ownerName: row.owner_name,
+      ownerFirm: row.owner_firm,
+      recipient: { name: row.name, email: row.email },
+      signed: row.signed,
+      signedAt: row.signed_at ? toIso(row.signed_at) : null,
+      documentText: await documentText(db, row.owner_id, row.document_name),
+    };
+  });
+
+  app.post('/sign/:token', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (req) => {
+    const { token } = req.params as { token: string };
+    const body = asObject(req.body);
+    const name = requireString(body, 'name', { min: 2, max: 200 });
+
+    const row = await findByToken(db, token);
+    if (!row) throw notFound('Ссылка недействительна или запрос отозван');
+    if (row.signed) throw badRequest('Документ уже подписан этой ссылкой');
+
+    await db.query(
+      `UPDATE signature_recipients SET signed = true, signed_at = now(), signature_name = $2 WHERE token = $1`,
+      [token, name],
+    );
+
+    const left = await db.query<{ count: string | number }>(
+      'SELECT count(*) AS count FROM signature_recipients WHERE request_id = $1 AND signed = false',
+      [row.request_id],
+    );
+    const remaining = Number(left.rows[0]?.count ?? 0);
+    if (remaining === 0) {
+      await db.query(`UPDATE signature_requests SET status = 'Completed' WHERE id = $1`, [row.request_id]);
+      await notify(db, row.owner_id, 'esign', 'Все подписи получены', 'All signatures collected', {
+        bodyRu: `${row.document_name} · последняя подпись: ${name}`,
+        bodyEn: `${row.document_name} · last signed by ${name}`,
+        action: { kind: 'open', data: '/signatures' },
+      });
+      // Email the owner that the document is fully signed.
+      void sendMail({
+        to: row.owner_email,
+        subject: `Документ подписан: ${row.document_name}`,
+        html: mailLayout(
+          'Все подписи получены',
+          `<p>Документ <strong>${escapeMailHtml(row.document_name)}</strong> подписан всеми получателями.</p>
+           <p>Последняя подпись: <strong>${escapeMailHtml(name)}</strong>. Статус запроса в LexAI — «Completed».</p>`,
+          'Открыть раздел «Подписи»',
+          `${config.appBaseUrl}/signatures`,
+        ),
+      });
+    } else {
+      await notify(db, row.owner_id, 'esign', 'Получена подпись', 'Signature received', {
+        bodyRu: `${row.document_name} · ${name}`,
+        bodyEn: `${row.document_name} · ${name}`,
+        action: { kind: 'open', data: '/signatures' },
+      });
+    }
+
+    // Signer's copy: confirmation + the document text they agreed to.
+    const text = await documentText(db, row.owner_id, row.document_name);
+    const docHtml = text
+      ? `<div style="margin-top:14px;padding:16px 18px;border:1px solid #e6e3f2;border-radius:12px;background:#faf9fe;font-family:Georgia,serif;font-size:13px;line-height:1.7;white-space:pre-wrap;color:#3b3552;">${escapeMailHtml(text.slice(0, 20000))}</div>`
+      : '';
+    void sendMail({
+      to: row.email,
+      subject: `Ваша подпись зафиксирована: ${row.document_name}`,
+      html: mailLayout(
+        'Вы подписали документ',
+        `<p>Подтверждаем: <strong>${escapeMailHtml(name)}</strong>, вы подписали документ <strong>${escapeMailHtml(row.document_name)}</strong>, отправленный ${escapeMailHtml(row.owner_name)} (${escapeMailHtml(row.owner_firm)}).</p>
+         <p>Дата и время подписи зафиксированы. Копия текста на момент подписания — ниже.</p>${docHtml}`,
+      ),
+    });
+
+    // Registered signer: the confirmation also lands in their bell.
+    const signerUser = await getUserByEmail(db, row.email.toLowerCase());
+    if (signerUser) {
+      await notify(db, signerUser.id, 'check', 'Ваша подпись зафиксирована', 'Your signature is recorded', {
+        bodyRu: `${row.document_name} · копия отправлена на почту`,
+        bodyEn: `${row.document_name} · a copy was emailed to you`,
+      });
+    }
+
+    return { ok: true, remaining };
+  });
+}

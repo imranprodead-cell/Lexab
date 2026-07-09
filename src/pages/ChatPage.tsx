@@ -7,6 +7,7 @@ import { UserFileBubble } from '@/components/chat/UserFileBubble';
 import { AnalysisCard } from '@/components/chat/AnalysisCard';
 import { SummaryCard } from '@/components/chat/SummaryCard';
 import { ChatInput } from '@/components/chat/ChatInput';
+import { CloudImportModal } from '@/components/chat/CloudImportModal';
 import { Avatar } from '@/components/ui/Avatar';
 import { ErrorState } from '@/components/ui/States';
 import { useChatStore } from '@/store/useChatStore';
@@ -42,6 +43,7 @@ export function ChatPage() {
   const pushToast = useUIStore((s) => s.pushToast);
   const threadRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
+  const [cloudOpen, setCloudOpen] = useState(false);
 
   // Opening a previous session from the sidebar restores its conversation
   // (from the server in real mode; the demo state in mock mode).
@@ -57,17 +59,28 @@ export function ChatPage() {
 
   const openWorkspace = () => navigate(sessionId ? `/chat/${sessionId}/workspace` : '/workspace');
 
-  const analyze = (file?: { name: string; size: string }) => {
-    addSession(file?.name ?? 'Employment_Agreement_v3.docx');
-    startAnalysis(file);
+  const setServerSession = useChatStore((s) => s.setServerSession);
+
+  const analyze = (file: { name: string; size: string }, rawFile?: File) => {
+    // Create the sidebar entry and tie it to this canvas, so follow-up
+    // questions land in the same session instead of creating a second one.
+    void addSession(file.name).then((session) => {
+      if (session) setServerSession(session.id);
+    });
+    void startAnalysis(file, rawFile);
   };
 
   const handleFile = (file: File) => {
     if (!ACCEPTED.test(file.name)) {
-      pushToast('Поддерживаются файлы PDF, DOC/DOCX, TXT.', 'error');
+      pushToast(t('chat.fileTypes'), 'error');
       return;
     }
-    analyze({ name: file.name, size: formatFileSize(file.size) });
+    if (file.size > 10 * 1024 * 1024) {
+      pushToast(t('chat.fileTooBig'), 'error');
+      return;
+    }
+    // Pass the file itself so its text reaches the AI (POST /uploads).
+    analyze({ name: file.name, size: formatFileSize(file.size) }, file);
   };
 
   const onDrop = (e: DragEvent) => {
@@ -114,7 +127,7 @@ export function ChatPage() {
 
       {phase === 'idle' && messages.length === 0 ? (
         <WelcomeScreen
-          onAnalyze={() => analyze()}
+          onAnalyze={() => pushToast(t('chat.attachFirst'), 'default')}
           onDraft={() => sendMessage('/draft ')}
           onCompare={() => navigate('/compare')}
         />
@@ -128,7 +141,7 @@ export function ChatPage() {
                 <Avatar size={30} />
                 <div className={chat.aiBody}>
                   {phase === 'error' ? (
-                    <ErrorState message={error ?? t('common.error')} onRetry={() => startAnalysis(fileMessage?.file)} />
+                    <ErrorState message={error ?? t('common.error')} onRetry={() => fileMessage?.file && void startAnalysis(fileMessage.file)} />
                   ) : (
                     <>
                       <AnalysisCard steps={steps} activeStep={activeStep} done={phase === 'analyzed'} />
@@ -136,7 +149,7 @@ export function ChatPage() {
                         <SummaryCard
                           analysis={analysis}
                           onOpenWorkspace={openWorkspace}
-                          onFollowUp={() => sendMessage('Какие пункты требуют доработки в первую очередь?')}
+                          onFollowUp={() => sendMessage(t('chat.followUp'))}
                         />
                       ) : null}
                     </>
@@ -151,9 +164,18 @@ export function ChatPage() {
       )}
 
       <ChatInput
-        onAnalyze={() => analyze()}
+        onAnalyze={() => pushToast(t('chat.attachFirst'), 'default')}
         onFile={(file) => handleFile(file)}
+        onCloudImport={() => setCloudOpen(true)}
         onSend={(text) => (text.trim().toLowerCase().startsWith('/compare') ? navigate('/compare') : sendMessage(text))}
+      />
+
+      <CloudImportModal
+        open={cloudOpen}
+        onClose={() => setCloudOpen(false)}
+        // The imported file already sits on the server as an upload, so the
+        // analysis pipeline picks it up by name — no re-upload needed.
+        onImported={(file) => analyze(file)}
       />
 
       {dragging ? (

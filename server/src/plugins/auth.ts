@@ -10,7 +10,7 @@
  * AUTH_MODE=required (production): a missing/invalid token is a 401.
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { DEMO_USER_ID, config } from '../config.ts';
+import { config } from '../config.ts';
 import type { Db } from '../db.ts';
 import { unauthorized } from '../lib/errors.ts';
 import type { UserProfile } from '../types.ts';
@@ -24,11 +24,16 @@ export interface UserRow {
   jurisdiction: string;
   avatar_url: string | null;
   token_version: number;
+  email_verified: boolean;
+  google_sub?: string | null;
 }
 
 declare module 'fastify' {
   interface FastifyInstance {
     authenticate: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    /** Like authenticate, but NEVER falls back to the demo user — AI endpoints
+     *  use this so an invalid token cannot burn the Anthropic key. */
+    authenticateReal: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
   interface FastifyRequest {
     currentUser: UserRow;
@@ -42,13 +47,14 @@ export function toProfile(row: UserRow): UserProfile {
     firm: row.firm,
     jurisdiction: row.jurisdiction,
     email: row.email,
+    emailVerified: Boolean(row.email_verified),
     ...(row.avatar_url ? { avatarUrl: row.avatar_url } : {}),
   };
 }
 
 export async function getUserById(db: Db, id: string): Promise<UserRow | null> {
   const res = await db.query<UserRow>(
-    'SELECT id, email, name, initials, firm, jurisdiction, avatar_url, token_version FROM users WHERE id = $1',
+    'SELECT id, email, name, initials, firm, jurisdiction, avatar_url, token_version, email_verified FROM users WHERE id = $1',
     [id],
   );
   return res.rows[0] ?? null;
@@ -56,7 +62,7 @@ export async function getUserById(db: Db, id: string): Promise<UserRow | null> {
 
 export async function getUserByEmail(db: Db, email: string): Promise<(UserRow & { password_hash: string }) | null> {
   const res = await db.query<UserRow & { password_hash: string }>(
-    'SELECT id, email, name, initials, firm, jurisdiction, avatar_url, token_version, password_hash FROM users WHERE lower(email) = lower($1)',
+    'SELECT id, email, name, initials, firm, jurisdiction, avatar_url, token_version, email_verified, google_sub, password_hash FROM users WHERE lower(email) = lower($1)',
     [email],
   );
   return res.rows[0] ?? null;
@@ -65,31 +71,35 @@ export async function getUserByEmail(db: Db, email: string): Promise<(UserRow & 
 export function registerAuth(app: FastifyInstance, db: Db): void {
   app.decorateRequest('currentUser');
 
-  app.decorate('authenticate', async (req: FastifyRequest) => {
+  /** Resolve a verified JWT to its user, or null. */
+  async function resolveToken(req: FastifyRequest): Promise<UserRow | null> {
     const header = req.headers.authorization ?? '';
     const token = header.startsWith('Bearer ') ? header.slice(7) : null;
-
-    if (token) {
-      try {
-        const payload = app.jwt.verify<{ sub: string; tv: number }>(token);
-        const user = await getUserById(db, payload.sub);
-        if (user && user.token_version === payload.tv) {
-          req.currentUser = user;
-          return;
-        }
-      } catch {
-        /* invalid/expired token — fall through */
-      }
+    if (!token) return null;
+    try {
+      const payload = app.jwt.verify<{ sub: string; tv: number }>(token);
+      const user = await getUserById(db, payload.sub);
+      if (user && user.token_version === payload.tv) return user;
+    } catch {
+      /* invalid/expired token */
     }
+    return null;
+  }
 
-    if (config.authMode === 'demo') {
-      const demo = await getUserById(db, DEMO_USER_ID);
-      if (demo) {
-        req.currentUser = demo;
-        return;
-      }
+  app.decorate('authenticate', async (req: FastifyRequest) => {
+    const user = await resolveToken(req);
+    if (user) {
+      req.currentUser = user;
+      return;
     }
     throw unauthorized();
+  });
+
+  // Strict variant for AI endpoints: a real signed-in session only.
+  app.decorate('authenticateReal', async (req: FastifyRequest) => {
+    const user = await resolveToken(req);
+    if (!user) throw unauthorized('Войдите в аккаунт, чтобы использовать ИИ');
+    req.currentUser = user;
   });
 }
 

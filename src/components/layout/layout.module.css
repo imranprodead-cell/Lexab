@@ -165,7 +165,7 @@
   display: block;
   padding: 7px 12px;
   border-radius: 8px;
-  font-size: 13.5px;
+  font-size: 14px;
   color: var(--dim);
   cursor: pointer;
   white-space: nowrap;
@@ -203,7 +203,7 @@
   white-space: nowrap;
 }
 .userName {
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 500;
 }
 .userFirm {
@@ -245,7 +245,7 @@
   align-items: center;
   gap: 8px;
   font-family: var(--font-mono);
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--dim);
   padding: 5px 11px;
   border-radius: 8px;
@@ -273,7 +273,7 @@
     z-index: 62;
     width: 40px;
     height: 40px;
-    border-radius: 10px;
+    border-radius: 12px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -429,7 +429,7 @@
 .countrySearchInput {
   width: 100%;
   font-family: inherit;
-  font-size: 13.5px;
+  font-size: 14px;
   color: var(--text);
   background: var(--panel-2);
   border: 1px solid var(--border);
@@ -466,7 +466,7 @@
   color: var(--text);
 }
 .countryLaw {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--mut);
   font-family: var(--font-mono);
 }
@@ -555,7 +555,7 @@
   display: flex;
   gap: 11px;
   padding: 10px;
-  border-radius: 10px;
+  border-radius: 12px;
   cursor: pointer;
 }
 .notifItem:hover {
@@ -577,14 +577,59 @@
   min-width: 0;
 }
 .notifItemTitle {
-  font-size: 13.5px;
+  font-size: 14px;
   line-height: 1.4;
 }
 .notifTime {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--mut);
   font-family: var(--font-mono);
   margin-top: 3px;
+}
+.notifBody {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--dim);
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+.notifActions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.notifActionPrimary,
+.notifActionGhost {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 11px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: filter var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+.notifActionPrimary {
+  border: none;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.notifActionPrimary:hover {
+  filter: brightness(1.08);
+}
+.notifActionPrimary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.notifActionGhost {
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text);
+}
+.notifActionGhost:hover {
+  background: var(--hover);
 }
 .notifUnreadDot {
   width: 7px;
@@ -730,7 +775,7 @@
   z-index: 80;
   min-width: 178px;
   padding: 4px;
-  border-radius: 10px;
+  border-radius: 12px;
   border: 1px solid var(--border);
   background: var(--panel);
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
@@ -801,7 +846,7 @@
   margin-top: 10px;
   padding: 7px 12px;
   border-radius: 8px;
-  font-size: 12.5px;
+  font-size: 13px;
   color: var(--mut);
   text-decoration: none;
 }
@@ -843,4 +888,82 @@
   to {
     opacity: 1;
   }
+}
+
+/* ── Top-bar language switcher ───────────────────────────────────────────── */
+
+.langSwitch {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+}
+
+.langSwitchBtn {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 4px 9px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--mut);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.langSwitchBtn:hover {
+  color: var(--text);
+}
+
+.langSwitchBtnActive {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+/* The user card links to Settings — make it feel clickable. */
+a.user {
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+  border-radius: 12px;
+  transition: background 0.15s ease;
+}
+
+a.user:hover {
+  background: var(--hover-2);
+}
+
+/* ── "Verify your email" banner (unverified accounts) ────────────────────── */
+
+.verifyBanner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 16px;
+  background: color-mix(in srgb, var(--sev-med) 12%, var(--panel));
+  border-bottom: 1px solid color-mix(in srgb, var(--sev-med) 30%, var(--border));
+  font-size: 13px;
+  color: var(--text);
+}
+
+.verifyBannerText {
+  flex: 1;
+  min-width: 0;
+}
+
+.verifyBannerBtn {
+  flex: none;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 14px;
+  border: none;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent);
+  cursor: pointer;
 }

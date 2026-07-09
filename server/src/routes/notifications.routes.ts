@@ -11,17 +11,28 @@ export function notificationRoutes(app: FastifyInstance, db: Db): void {
       id: string;
       icon: AppNotification['icon'];
       title: string;
+      title_en: string | null;
+      body: string | null;
+      body_en: string | null;
+      action_kind: string | null;
+      action_data: string | null;
       read: boolean;
       created_at: Date | string;
     }>(
-      'SELECT id, icon, title, read, created_at FROM notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT 50',
+      `SELECT id, icon, title, title_en, body, body_en, action_kind, action_data, read, created_at
+       FROM notifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT 50`,
       [req.currentUser.id],
     );
     return res.rows.map((r) => ({
       id: r.id,
       icon: r.icon,
       title: r.title,
+      titleEn: r.title_en,
+      body: r.body,
+      bodyEn: r.body_en,
+      ...(r.action_kind && r.action_data ? { actionKind: r.action_kind, actionData: r.action_data } : {}),
       time: relativeTimeRu(new Date(r.created_at as string)),
+      createdAt: new Date(r.created_at as string).toISOString(),
       read: Boolean(r.read),
     }));
   });

@@ -9,6 +9,7 @@ import type { Db } from './db.ts';
 import { HttpError } from './lib/errors.ts';
 import { registerAuth } from './plugins/auth.ts';
 import { analysisRoutes } from './routes/analysis.routes.ts';
+import { approvalRoutes } from './routes/approvals.routes.ts';
 import { analyticsRoutes } from './routes/analytics.routes.ts';
 import { authRoutes } from './routes/auth.routes.ts';
 import { billingRoutes } from './routes/billing.routes.ts';
@@ -17,7 +18,9 @@ import { compareRoutes } from './routes/compare.routes.ts';
 import { documentRoutes } from './routes/documents.routes.ts';
 import { googleRoutes } from './routes/google.routes.ts';
 import { inboundRoutes } from './routes/inbound.routes.ts';
+import { integrationRoutes } from './routes/integrations.routes.ts';
 import { notificationRoutes } from './routes/notifications.routes.ts';
+import { signRoutes } from './routes/sign.routes.ts';
 import { signatureRoutes } from './routes/signatures.routes.ts';
 import { teamRoutes } from './routes/team.routes.ts';
 import { templateRoutes } from './routes/templates.routes.ts';
@@ -82,12 +85,15 @@ export async function buildApp(db: Db): Promise<FastifyInstance> {
       inboundRoutes(api, db);
       uploadRoutes(api, db);
       documentRoutes(api, db);
+      signRoutes(api, db);
+      approvalRoutes(api, db);
       templateRoutes(api, db);
       signatureRoutes(api, db);
       analyticsRoutes(api, db);
       notificationRoutes(api, db);
       billingRoutes(api, db);
       teamRoutes(api, db);
+      integrationRoutes(api, db);
     },
     { prefix: config.apiPrefix },
   );

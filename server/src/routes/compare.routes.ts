@@ -10,12 +10,15 @@ import type { FastifyInstance } from 'fastify';
 import type { Db } from '../db.ts';
 import { ALLOWED_EXTENSIONS, extractText, fileExtension, MAX_UPLOAD_BYTES } from '../extract.ts';
 import { badRequest } from '../lib/errors.ts';
+import { assertAiAllowance, assertFeature, bumpUsage } from '../lib/limits.ts';
 import { generateCompare, type CompareResult } from '../llm.ts';
 
 const RATE_LIMIT = { rateLimit: { max: 10, timeWindow: '1 minute' } };
 
-export function compareRoutes(app: FastifyInstance, _db: Db): void {
-  app.post('/compare', { preHandler: [app.authenticate], config: RATE_LIMIT }, async (req): Promise<CompareResult & { fileA: string; fileB: string }> => {
+export function compareRoutes(app: FastifyInstance, db: Db): void {
+  app.post('/compare', { preHandler: [app.authenticateReal], config: RATE_LIMIT }, async (req): Promise<CompareResult & { fileA: string; fileB: string }> => {
+    await assertFeature(db, req.currentUser.id, 'compare');
+    await assertAiAllowance(db, req.currentUser.id);
     if (!req.isMultipart()) throw badRequest('Expected multipart/form-data with "fileA" and "fileB"');
 
     const files: { field: string; name: string; text: string | null }[] = [];
@@ -38,6 +41,7 @@ export function compareRoutes(app: FastifyInstance, _db: Db): void {
       );
     }
 
+    await bumpUsage(db, req.currentUser.id, { ai: 1 });
     const result = await generateCompare(a.text, b.text, a.name, b.name);
     return { ...result, fileA: a.name, fileB: b.name };
   });

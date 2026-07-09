@@ -9,6 +9,8 @@
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../db.ts';
 import { badRequest, notFound } from '../lib/errors.ts';
+import { assertAiAllowance, bumpUsage } from '../lib/limits.ts';
+import { resolveAnalysisAccess } from '../lib/teamAccess.ts';
 import { toIso } from '../lib/format.ts';
 import { newId } from '../lib/ids.ts';
 import { openSSE, wantsSSE } from '../lib/sse.ts';
@@ -36,9 +38,15 @@ function toSession(r: SessionRow): ChatSession {
 
 /** Contract context for document Q&A: summary + clause text with redline state. */
 async function buildAnalysisContext(db: Db, userId: string, analysisId: string): Promise<string | undefined> {
-  const res = await db.query<{ file_name: string; summary: string; document_blocks: unknown }>(
-    'SELECT file_name, summary, document_blocks FROM analyses WHERE id = $1 AND user_id = $2',
-    [analysisId, userId],
+  // Owner or team member with read access to the shared document.
+  try {
+    await resolveAnalysisAccess(db, userId, analysisId);
+  } catch {
+    return undefined;
+  }
+  const res = await db.query<{ user_id: string; file_name: string; summary: string; document_blocks: unknown }>(
+    'SELECT user_id, file_name, summary, document_blocks FROM analyses WHERE id = $1',
+    [analysisId],
   );
   const row = res.rows[0];
   if (!row) return undefined;
@@ -68,7 +76,7 @@ async function buildAnalysisContext(db: Db, userId: string, analysisId: string):
   // Full source text when we still have the uploaded file's extraction.
   const upload = await db.query<{ extracted_text: string | null }>(
     'SELECT extracted_text FROM uploads WHERE user_id = $1 AND file_name = $2 ORDER BY created_at DESC LIMIT 1',
-    [userId, row.file_name],
+    [row.user_id, row.file_name],
   );
   const fullText = upload.rows[0]?.extracted_text;
 
@@ -187,15 +195,18 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
     return res.rows.map(toChatMessage);
   });
 
-  app.post('/chats/:id/messages', { preHandler: [app.authenticate] }, async (req, reply) => {
+  app.post('/chats/:id/messages', { preHandler: [app.authenticateReal] }, async (req, reply) => {
     const { id: sessionId } = req.params as { id: string };
     await requireSession(req.currentUser.id, sessionId);
+    await assertAiAllowance(db, req.currentUser.id);
     const body = asObject(req.body);
     const text = requireString(body, 'text', { min: 1, max: 20_000 });
     // Document Q&A: when the client passes the analysis it is looking at,
     // the reply is grounded in that contract.
     const analysisId = typeof body.analysisId === 'string' ? body.analysisId : undefined;
     const docContext = analysisId ? await buildAnalysisContext(db, req.currentUser.id, analysisId) : undefined;
+    // Default legal context from the user's country selector (e.g. "German law").
+    const jurisdiction = typeof body.jurisdiction === 'string' ? body.jurisdiction.slice(0, 60) : undefined;
 
     // Persist the user's message.
     await db.query(
@@ -220,13 +231,14 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
         [messageId, sessionId, replyText],
       );
       await db.query('UPDATE chat_sessions SET updated_at = now() WHERE id = $1', [sessionId]);
+      await bumpUsage(db, req.currentUser.id, { ai: 1 });
       return { id: messageId, role: 'assistant', kind: 'text', text: replyText };
     };
 
     if (wantsSSE(req)) {
       const sse = openSSE(req, reply);
       try {
-        const replyText = await generateChatReply(history, text, (delta) => sse.send('token', { text: delta }), docContext);
+        const replyText = await generateChatReply(history, text, (delta) => sse.send('token', { text: delta }), docContext, jurisdiction);
         const message = await finish(replyText);
         sse.send('done', message);
       } catch (err) {
@@ -238,7 +250,7 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
       return reply;
     }
 
-    const replyText = await generateChatReply(history, text, undefined, docContext);
+    const replyText = await generateChatReply(history, text, undefined, docContext, jurisdiction);
     return finish(replyText);
   });
 }

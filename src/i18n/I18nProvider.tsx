@@ -20,8 +20,19 @@ function loadLang(): Language {
   } catch {
     /* ignore */
   }
-  // Default to Russian; fall back to English for non-RU browsers.
-  return typeof navigator !== 'undefined' && navigator.language.startsWith('en') ? 'en' : 'ru';
+  // First visit: follow the browser locale — Russian-speaking locales get RU,
+  // everyone else (US, UK, DE, …) gets EN. Persisted once the user switches.
+  try {
+    const locales = typeof navigator !== 'undefined' ? (navigator.languages ?? [navigator.language]) : [];
+    const russianSpeaking = /^(ru|be|kk|ky|uz|tg)\b/i;
+    for (const locale of locales) {
+      if (russianSpeaking.test(locale)) return 'ru';
+      if (/^en\b/i.test(locale)) return 'en';
+    }
+    return locales.length > 0 ? 'en' : 'ru';
+  } catch {
+    return 'ru';
+  }
 }
 
 function interpolate(template: string, params?: TParams): string {

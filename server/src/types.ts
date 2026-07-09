@@ -40,7 +40,8 @@ export interface AnalysisResult {
   clausesReviewed: number;
   findings: Finding[];
   redlines: Redline[];
-  document: DocBlock[];
+  document: DocBlock[];  /** Viewer may edit (owner / team admin / editor). */
+  canEdit?: boolean;
 }
 
 export interface ChatMessage {
@@ -70,7 +71,14 @@ export interface ContractDocument {
   risk: RiskLevel;
   jurisdiction: string;
   size: string;
-  updatedAt: string;
+  updatedAt: string;  /** Shared with the owner's team. */
+  teamShared?: boolean;
+  /** Owner name when the viewer sees it via team sharing. */
+  sharedBy?: string;
+  /** Viewer may edit (owner / admin / editor). */
+  canEdit?: boolean;
+  /** The viewer owns this document. */
+  mine?: boolean;
 }
 
 export interface Template {
@@ -87,7 +95,9 @@ export type SignatureStatus = 'Draft' | 'Sent' | 'Viewed' | 'Completed' | 'Decli
 export interface SignatureRecipient {
   name: string;
   email: string;
-  signed: boolean;
+  signed: boolean;  /** Public signing token (owner view). */
+  token?: string;
+  signedAt?: string | null;
 }
 
 export interface SignatureRequest {
@@ -121,7 +131,8 @@ export interface UserProfile {
   firm: string;
   jurisdiction: string;
   email: string;
-  avatarUrl?: string;
+  avatarUrl?: string;  /** Email confirmed via the verification link (Google users: auto-true). */
+  emailVerified?: boolean;
 }
 
 /** Notification shape from src/store/useNotificationsStore.ts. */
@@ -131,6 +142,13 @@ export interface AppNotification {
   title: string;
   time: string;
   read: boolean;
+  titleEn?: string | null;
+  body?: string | null;
+  bodyEn?: string | null;
+  /** 'team_invite' (data = invite token) or 'open' (data = app path). */
+  actionKind?: string;
+  actionData?: string;
+  createdAt?: string;
 }
 
 /** Team member shape from src/pages/TeamPage.tsx. */
@@ -141,4 +159,10 @@ export interface Member {
   roleKey: string;
   statusKey: string;
   color: string;
+  /** Human job title (Юрист, Директор, …) chosen when inviting. */
+  title?: string | null;
+  /** True when the current viewer (team owner) may remove this member. */
+  manageable?: boolean;
+  /** Present on pending invitations (owner view) — builds the join link. */
+  inviteToken?: string;
 }

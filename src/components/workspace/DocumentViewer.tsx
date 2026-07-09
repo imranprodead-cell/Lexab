@@ -3,6 +3,7 @@ import { Icon } from '@/components/icons/Icon';
 import { Badge } from '@/components/ui/Badge';
 import type { AnalysisResult } from '@/types/domain';
 import { RedlineSpan } from './RedlineSpan';
+import { useI18n } from '@/i18n/I18nProvider';
 import styles from './workspace.module.css';
 
 interface DocumentViewerProps {
@@ -28,6 +29,7 @@ function resolveParagraph(analysis: AnalysisResult, index: number): string {
 
 /** The right-hand paper view rendering the contract with inline AI redlines. */
 export function DocumentViewer({ analysis, pendingCount, onSaveBlock, children }: DocumentViewerProps) {
+  const { t } = useI18n();
   const redlineById = new Map(analysis.redlines.map((r) => [r.id, r]));
   const [editIdx, setEditIdx] = useState<number | null>(null);
   const [draft, setDraft] = useState('');
@@ -55,17 +57,19 @@ export function DocumentViewer({ analysis, pendingCount, onSaveBlock, children }
           <span className={styles.docName}>{analysis.fileName}</span>
         </div>
         {pendingCount > 0 ? (
-          <Badge color="accent">{pendingCount} suggestions</Badge>
+          <Badge color="accent">{t('ws.suggestionsCount', { n: pendingCount })}</Badge>
         ) : (
-          <Badge color="Low">All reviewed</Badge>
+          <Badge color="Low">{t('ws.allReviewedBadge')}</Badge>
         )}
       </div>
 
       <div className={`${styles.docBody} scroll`}>
         <article className={`${styles.paper} lx-print`}>
           <header className={styles.paperHeader}>
-            <div className={styles.paperKicker}>Contract of Employment</div>
-            <div className={styles.paperTitle}>Between Meridian Labs Ltd &amp; the Employee</div>
+            <div className={styles.paperKicker}>{t('ws.paperKicker')}</div>
+            <div className={styles.paperTitle}>
+              {analysis.fileName.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ')}
+            </div>
           </header>
 
           {analysis.document.map((block, i) =>
@@ -106,8 +110,8 @@ export function DocumentViewer({ analysis, pendingCount, onSaveBlock, children }
                   <button
                     type="button"
                     className={styles.clauseEditIcon}
-                    title="Edit paragraph"
-                    aria-label="Edit paragraph"
+                    title={t('ws.editParagraph')}
+                    aria-label={t('ws.editParagraph')}
                     onClick={() => startEdit(i)}
                   >
                     <Icon name="pen" size={12} />

@@ -13,15 +13,37 @@ const TONE_COLOR = {
 export function ToastHost() {
   const toasts = useUIStore((s) => s.toasts);
   const dismiss = useUIStore((s) => s.dismissToast);
+  const hold = useUIStore((s) => s.holdToast);
+  const release = useUIStore((s) => s.releaseToast);
 
   if (toasts.length === 0) return null;
 
   return createPortal(
     <div className={styles.toastStack} aria-live="polite">
       {toasts.map((t) => (
-        <div key={t.id} className={styles.toast} role="status" onClick={() => dismiss(t.id)}>
+        <div
+          key={t.id}
+          className={styles.toast}
+          role="status"
+          onClick={() => dismiss(t.id)}
+          onMouseEnter={() => hold(t.id)}
+          onMouseLeave={() => release(t.id)}
+        >
           <span className={styles.toastDot} style={{ background: TONE_COLOR[t.tone] }} />
           <span style={{ flex: 1 }}>{t.message}</span>
+          {t.actionLabel ? (
+            <button
+              type="button"
+              className={styles.toastAction}
+              onClick={(e) => {
+                e.stopPropagation();
+                t.onAction?.();
+                dismiss(t.id);
+              }}
+            >
+              {t.actionLabel}
+            </button>
+          ) : null}
           <Icon name="x" size={14} color="var(--mut)" />
         </div>
       ))}

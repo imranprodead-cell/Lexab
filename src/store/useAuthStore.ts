@@ -10,6 +10,7 @@ import { USE_MOCK } from '@/api/client';
 import { authApi } from '@/api/auth.api';
 import { CURRENT_USER } from '@/data/seed';
 import { clearAsyncCache } from '@/hooks/useAsync';
+import { useNotificationsStore } from '@/store/useNotificationsStore';
 import type { UserProfile } from '@/types/domain';
 
 const STORAGE_KEY = 'lexai.auth';
@@ -76,6 +77,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         ? await mockAuth({ ...CURRENT_USER, email })
         : await authApi.login(email, password);
       clearAsyncCache();
+      useNotificationsStore.getState().reset();
       persist(session);
       set({ user: session.user, token: session.token, status: 'idle' });
     } catch (err) {
@@ -91,6 +93,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         ? await mockAuth({ ...CURRENT_USER, name, email, initials: initials(name), firm: 'LexAI' })
         : await authApi.register(name, email, password);
       clearAsyncCache();
+      useNotificationsStore.getState().reset();
       persist(session);
       set({ user: session.user, token: session.token, status: 'idle' });
     } catch (err) {
@@ -101,6 +104,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   adoptSession: (token, user) => {
     clearAsyncCache();
+    useNotificationsStore.getState().reset();
     persist({ token, user });
     set({ user, token, status: 'idle' });
   },
@@ -109,6 +113,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     // Best-effort server-side token invalidation; local sign-out regardless.
     if (!USE_MOCK && get().token) void authApi.logout().catch(() => undefined);
     clearAsyncCache();
+    useNotificationsStore.getState().reset();
     persist(null);
     set({ user: null, token: null });
   },

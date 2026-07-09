@@ -4,7 +4,10 @@
  * including the analytics figures (148 reviews, avg 41, 27 high-risk
  * findings, 216 hours saved, weekly counts 18/24/21/30/26/29).
  */
-import { DEMO_USER_ID, config } from './config.ts';
+import { config } from './config.ts';
+
+/** Dev-only demo account id (seeding is opt-in via SEED_DEMO_DATA=true). */
+const DEMO_USER_ID = 'u_demo';
 import type { Db } from './db.ts';
 import { newId } from './lib/ids.ts';
 import { hashPassword } from './lib/passwords.ts';

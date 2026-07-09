@@ -77,7 +77,7 @@ async function findOrCreateUser(db: Db, profile: GoogleProfile): Promise<UserRow
   );
   if (byEmail.rows[0]) {
     const { id, avatar_url } = byEmail.rows[0];
-    await db.query('UPDATE users SET google_sub = $2, avatar_url = COALESCE($3, avatar_url) WHERE id = $1', [
+    await db.query('UPDATE users SET google_sub = $2, email_verified = true, avatar_url = COALESCE($3, avatar_url) WHERE id = $1', [
       id,
       profile.sub,
       avatar_url ? null : (profile.picture ?? null),
@@ -96,6 +96,8 @@ async function findOrCreateUser(db: Db, profile: GoogleProfile): Promise<UserRow
   );
   await db.query(`INSERT INTO subscriptions (user_id, plan, status) VALUES ($1, 'Free', 'active')`, [id]);
   await db.query(`INSERT INTO user_stats (user_id) VALUES ($1)`, [id]);
+  // Google has already verified this mailbox.
+  await db.query('UPDATE users SET email_verified = true WHERE id = $1', [id]);
   await db.query(`INSERT INTO notifications (id, user_id, icon, title) VALUES ($1, $2, 'docs', $3)`, [
     newId('n'),
     id,

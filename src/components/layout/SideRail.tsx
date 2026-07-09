@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { Icon, type IconName } from '@/components/icons/Icon';
 import { Avatar, InitialsAvatar } from '@/components/ui/Avatar';
-import { useDismissable } from '@/hooks/useAsync';
+import { useAsync, useDismissable } from '@/hooks/useAsync';
+import { billingApi } from '@/api/billing.api';
 import { useChatHistoryStore } from '@/store/useChatHistoryStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -63,6 +64,9 @@ export function SideRail({ sessions, user, onNewReview, onLogout }: SideRailProp
   const renameSession = useChatHistoryStore((s) => s.renameSession);
   const archiveSession = useChatHistoryStore((s) => s.archiveSession);
   const deleteSession = useChatHistoryStore((s) => s.deleteSession);
+
+  // Real plan from billing (not a hardcoded label).
+  const { data: limits } = useAsync((signal) => billingApi.limits(signal), []);
 
   // Collapse the rail after a navigation click (unless the user pinned it) —
   // the width transition plays the close animation.
@@ -169,9 +173,8 @@ export function SideRail({ sessions, user, onNewReview, onLogout }: SideRailProp
               role="menuitem"
               className={`${styles.recentMenuItem} ${styles.recentMenuDanger}`}
               onClick={() => {
-                deleteSession(s.id);
+                deleteSession(s.id); // shows the 5s undo toast itself
                 setMenuFor(null);
-                pushToast(t('rail.deletedToast'), 'default');
               }}
             >
               <Icon name="trash" size={15} />
@@ -271,16 +274,16 @@ export function SideRail({ sessions, user, onNewReview, onLogout }: SideRailProp
             <span className={styles.navLabel}>{t('auth.signOut')}</span>
           </button>
 
-          <div className={styles.user}>
+          <NavLink to="/settings" className={styles.user} onClick={collapse} aria-label={t('nav.settings')}>
             <InitialsAvatar initials={user.initials} src={user.avatarUrl} />
             <div className={styles.userText}>
               <div className={styles.userName}>{user.name}</div>
               <div className={styles.userPlan}>
                 <Icon name="diamond" size={11} color="var(--accent)" strokeWidth={2} />
-                {t('plan.pro')}
+                {limits?.plan ?? '…'}
               </div>
             </div>
-          </div>
+          </NavLink>
         </div>
       </nav>
     </div>

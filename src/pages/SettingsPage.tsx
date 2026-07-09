@@ -1,28 +1,39 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { Icon } from '@/components/icons/Icon';
+import { BrandLogo } from '@/components/icons/BrandLogos';
 import { Button } from '@/components/ui/Button';
 import { InitialsAvatar } from '@/components/ui/Avatar';
 import { TextField } from '@/components/ui/TextField';
-import { LoadingState } from '@/components/ui/States';
-import { useAsync } from '@/hooks/useAsync';
+import { SkeletonRows } from '@/components/ui/States';
+import { useAsync, useDismissable } from '@/hooks/useAsync';
 import { billingApi, userApi } from '@/api';
 import { authApi } from '@/api/auth.api';
+import { integrationsApi, type CloudProvider } from '@/api/integrations.api';
 import { USE_MOCK } from '@/api/client';
-import { ACCENT_OPTIONS, useUIStore } from '@/store/useUIStore';
+import { useUIStore } from '@/store/useUIStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useI18n } from '@/i18n/I18nProvider';
-import { LANGUAGES } from '@/i18n/messages';
 import type { UserProfile } from '@/types/domain';
 import styles from './pages.module.css';
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const JURISDICTIONS = ['United Kingdom', 'European Union', 'United States', 'Singapore'];
+/** OAuth returns already processed this session (claim grants are one-shot). */
+const handledOAuthReturns = new Set<string>();
 
-/** Account + appearance settings. The profile form is fully validated. */
+/** Primary-jurisdiction options: canonical English value + localized label. */
+const JURISDICTIONS: { value: string; ru: string; en: string }[] = [
+  { value: 'United States', ru: 'США', en: 'United States' },
+  { value: 'United Kingdom', ru: 'Великобритания', en: 'United Kingdom' },
+  { value: 'Germany', ru: 'Германия', en: 'Germany' },
+  { value: 'Canada', ru: 'Канада', en: 'Canada' },
+  { value: 'Kazakhstan', ru: 'Казахстан', en: 'Kazakhstan' },
+  { value: 'Uzbekistan', ru: 'Узбекистан', en: 'Uzbekistan' },
+];
+
+/** Account settings. The profile form is fully validated. */
 export function SettingsPage() {
-  const { t, lang, setLang } = useI18n();
+  const { t, lang } = useI18n();
   const navigate = useNavigate();
   const pushToast = useUIStore((s) => s.pushToast);
   const authUser = useAuthStore((s) => s.user);
@@ -30,21 +41,83 @@ export function SettingsPage() {
   const adoptSession = useAuthStore((s) => s.adoptSession);
   const logout = useAuthStore((s) => s.logout);
   const fileRef = useRef<HTMLInputElement>(null);
-  const accent = useUIStore((s) => s.accent);
-  const setAccent = useUIStore((s) => s.setAccent);
-  const reduceMotion = useUIStore((s) => s.reduceMotion);
-  const setReduceMotion = useUIStore((s) => s.setReduceMotion);
-  const railPinned = useUIStore((s) => s.railPinned);
-  const toggleRailPinned = useUIStore((s) => s.toggleRailPinned);
-  const theme = useUIStore((s) => s.theme);
-  const setTheme = useUIStore((s) => s.setTheme);
 
   const { data, loading } = useAsync((signal) => userApi.me(signal), []);
   const limits = useAsync((signal) => billingApi.limits(signal), []);
+  const integrations = useAsync((signal) => integrationsApi.list(signal), []);
+  const [integrationBusy, setIntegrationBusy] = useState<CloudProvider | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Back from the provider's OAuth screen: claim the one-time grant with our
+  // own auth (activates the connection), then show the outcome and clean the URL.
+  useEffect(() => {
+    const status = searchParams.get('status');
+    const claim = searchParams.get('claim');
+    if (!searchParams.get('integration') || !status) return;
+    // A remount must not re-process the same return (the grant is one-shot —
+    // a second claim would 404 and flash a bogus error toast).
+    const marker = `${status}:${claim ?? ''}`;
+    if (handledOAuthReturns.has(marker)) return;
+    handledOAuthReturns.add(marker);
+    setSearchParams({}, { replace: true });
+    if (status === 'claim' && claim) {
+      integrationsApi
+        .claim(claim)
+        .then(() => {
+          pushToast(t('integr.connected'), 'success');
+          integrations.reload();
+        })
+        .catch((err) => pushToast(err instanceof Error && err.message ? err.message : t('integr.connectFailed'), 'error'));
+      return;
+    }
+    pushToast(t(status === 'connected' ? 'integr.connected' : 'integr.connectFailed'), status === 'connected' ? 'success' : 'error');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const connectIntegration = async (provider: CloudProvider) => {
+    setIntegrationBusy(provider);
+    try {
+      const { url } = await integrationsApi.connectUrl(provider);
+      window.location.href = url; // the provider redirects back to /settings
+    } catch (err) {
+      pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
+      setIntegrationBusy(null);
+    }
+  };
+
+  const disconnectIntegration = async (provider: CloudProvider) => {
+    setIntegrationBusy(provider);
+    try {
+      await integrationsApi.disconnect(provider);
+      integrations.reload();
+      pushToast(t('integr.disconnected'), 'default');
+    } catch (err) {
+      pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
+    } finally {
+      setIntegrationBusy(null);
+    }
+  };
 
   const [form, setForm] = useState<UserProfile | null>(null);
   const [errors, setErrors] = useState<Partial<Record<keyof UserProfile, string>>>({});
   const [saving, setSaving] = useState(false);
+
+  // Email is locked in the profile; the eye toggles between mask and value.
+  const [emailVisible, setEmailVisible] = useState(false);
+
+  // Animated jurisdiction dropdown (same look as the other profile fields).
+  const [jurisOpen, setJurisOpen] = useState(false);
+  const jurisRef = useDismissable<HTMLDivElement>(() => setJurisOpen(false), jurisOpen);
+  const maskEmail = (email: string) => {
+    const [local, domain] = email.split('@');
+    if (!domain) return '•'.repeat(Math.max(email.length, 6));
+    return `${'•'.repeat(Math.min(Math.max(local.length, 4), 10))}@${domain}`;
+  };
+
+  const jurisLabel = (value: string) => {
+    const match = JURISDICTIONS.find((j) => j.value === value);
+    return match ? (lang === 'ru' ? match.ru : match.en) : value;
+  };
 
   // Security card state.
   const [curPass, setCurPass] = useState('');
@@ -62,7 +135,9 @@ export function SettingsPage() {
     return (
       <div className={styles.page}>
         <TopBar title={t('settings.title')} />
-        <LoadingState label={t('common.loading')} />
+        <div style={{ padding: '24px 32px' }}>
+          <SkeletonRows rows={6} height={56} />
+        </div>
       </div>
     );
   }
@@ -71,10 +146,8 @@ export function SettingsPage() {
 
   const validate = (): boolean => {
     const next: Partial<Record<keyof UserProfile, string>> = {};
-    if (!form.name.trim()) next.name = 'Name is required.';
-    if (!form.email.trim()) next.email = 'Email is required.';
-    else if (!EMAIL_RE.test(form.email.trim())) next.email = 'Enter a valid email address.';
-    if (!form.firm.trim()) next.firm = 'Organisation is required.';
+    if (!form.name.trim()) next.name = t('settings.errName');
+    if (!form.firm.trim()) next.firm = t('settings.errFirm');
     setErrors(next);
     return Object.keys(next).length === 0;
   };
@@ -85,9 +158,9 @@ export function SettingsPage() {
     try {
       const saved = await userApi.update(form);
       updateProfile(saved); // keep the rail footer / auth session in sync
-      pushToast('Profile saved.', 'success');
+      pushToast(t('settings.saved'), 'success');
     } catch {
-      pushToast('Could not save profile.', 'error');
+      pushToast(t('settings.saveFailed'), 'error');
     } finally {
       setSaving(false);
     }
@@ -107,7 +180,7 @@ export function SettingsPage() {
         updateProfile({ avatarUrl: dataUrl });
         pushToast(t('common.save'), 'success');
       } catch {
-        pushToast('Could not save photo.', 'error');
+        pushToast(t('settings.photoFailed'), 'error');
       }
     };
     reader.readAsDataURL(file);
@@ -118,7 +191,7 @@ export function SettingsPage() {
       await userApi.update({ avatarUrl: '' }); // '' clears it server-side
       updateProfile({ avatarUrl: undefined });
     } catch {
-      pushToast('Could not remove photo.', 'error');
+      pushToast(t('settings.photoRemoveFailed'), 'error');
     }
   };
 
@@ -175,84 +248,10 @@ export function SettingsPage() {
           </div>
 
           <div className={styles.settingsGrid}>
-            {/* Appearance --------------------------------------------------- */}
-            <section className={styles.section}>
-              <h2 className={styles.sectionTitle}>{t('settings.appearance')}</h2>
-              <p className={styles.sectionSub}>{t('settings.sub')}</p>
-
-              <div className={styles.field} style={{ marginBottom: 18 }}>
-                <span className={styles.label}>{t('settings.theme')}</span>
-                <div className={styles.segRow}>
-                  <button
-                    className={`${styles.segBtn} ${theme === 'light' ? styles.segBtnActive : ''}`}
-                    onClick={() => setTheme('light')}
-                  >
-                    {t('settings.themeLight')}
-                  </button>
-                  <button
-                    className={`${styles.segBtn} ${theme === 'dark' ? styles.segBtnActive : ''}`}
-                    onClick={() => setTheme('dark')}
-                  >
-                    {t('settings.themeDark')}
-                  </button>
-                  <button
-                    className={`${styles.segBtn} ${theme === 'system' ? styles.segBtnActive : ''}`}
-                    onClick={() => setTheme('system')}
-                  >
-                    {t('settings.themeSystem')}
-                  </button>
-                </div>
-              </div>
-
-              <div className={styles.field} style={{ marginBottom: 18 }}>
-                <span className={styles.label}>{t('settings.language')}</span>
-                <div className={styles.segRow}>
-                  {LANGUAGES.map((l) => (
-                    <button
-                      key={l.code}
-                      className={`${styles.segBtn} ${lang === l.code ? styles.segBtnActive : ''}`}
-                      onClick={() => setLang(l.code)}
-                    >
-                      {l.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className={styles.field} style={{ marginBottom: 18 }}>
-                <span className={styles.label}>{t('settings.accent')}</span>
-                <div className={styles.swatchRow}>
-                  {ACCENT_OPTIONS.map((hex) => (
-                    <button
-                      key={hex}
-                      className={`${styles.swatch} ${accent === hex ? styles.swatchActive : ''}`}
-                      style={{ background: hex }}
-                      onClick={() => setAccent(hex)}
-                      aria-label={`Use accent ${hex}`}
-                      aria-pressed={accent === hex}
-                    />
-                  ))}
-                </div>
-              </div>
-
-              <Toggle
-                label={t('settings.reduceMotion')}
-                desc={t('settings.reduceMotionDesc')}
-                on={reduceMotion}
-                onToggle={() => setReduceMotion(!reduceMotion)}
-              />
-              <Toggle
-                label={t('settings.pinRail')}
-                desc={t('settings.pinRailDesc')}
-                on={railPinned}
-                onToggle={toggleRailPinned}
-              />
-            </section>
-
             {/* Profile ------------------------------------------------------ */}
             <section className={styles.section}>
               <h2 className={styles.sectionTitle}>{t('settings.profile')}</h2>
-              <p className={styles.sectionSub}>Used across reviews, redlines, and signature requests.</p>
+              <p className={styles.sectionSub}>{t('settings.profileSub')}</p>
 
               <div className={styles.avatarRow}>
                 <InitialsAvatar initials={authUser?.initials ?? form.initials} size={56} src={authUser?.avatarUrl} />
@@ -287,7 +286,7 @@ export function SettingsPage() {
                   onChange={(e) => update({ name: e.target.value, initials: initialsOf(e.target.value) })}
                 />
                 <TextField
-                  label="Organisation"
+                  label={t('settings.organisation')}
                   name="firm"
                   value={form.firm}
                   error={errors.firm}
@@ -295,30 +294,67 @@ export function SettingsPage() {
                 />
               </div>
               <div className={styles.formRow}>
-                <TextField
-                  label={t('auth.email')}
-                  name="email"
-                  type="email"
-                  value={form.email}
-                  error={errors.email}
-                  onChange={(e) => update({ email: e.target.value })}
-                />
-                <div className={styles.field}>
-                  <label className={styles.label} htmlFor="jurisdiction">
-                    Primary jurisdiction
-                  </label>
-                  <select
-                    id="jurisdiction"
-                    className={styles.select}
-                    value={form.jurisdiction}
-                    onChange={(e) => update({ jurisdiction: e.target.value })}
-                  >
-                    {JURISDICTIONS.map((j) => (
-                      <option key={j} value={j}>
-                        {j}
-                      </option>
-                    ))}
-                  </select>
+                <div className={styles.jurisField}>
+                  <span className={styles.jurisLabel}>{t('auth.email')}</span>
+                  <div className={styles.emailLock} aria-readonly="true">
+                    <span className={styles.emailLockText}>
+                      {emailVisible ? form.email : maskEmail(form.email)}
+                    </span>
+                    <button
+                      type="button"
+                      className={styles.emailLockEye}
+                      aria-label={emailVisible ? t('settings.emailHide') : t('settings.emailShow')}
+                      title={emailVisible ? t('settings.emailHide') : t('settings.emailShow')}
+                      onClick={() => setEmailVisible((v) => !v)}
+                    >
+                      <Icon name={emailVisible ? 'eyeOff' : 'eye'} size={17} />
+                    </button>
+                  </div>
+                  <span className={styles.emailLockHint}>{t('settings.emailLocked')}</span>
+                </div>
+                <div className={styles.jurisField}>
+                  <span className={styles.jurisLabel} id="jurisdiction-label">
+                    {t('settings.jurisdiction')}
+                  </span>
+                  <div className={styles.jurisWrap} ref={jurisRef}>
+                    <button
+                      type="button"
+                      className={styles.jurisSelect}
+                      aria-haspopup="listbox"
+                      aria-expanded={jurisOpen}
+                      aria-labelledby="jurisdiction-label"
+                      onClick={() => setJurisOpen((v) => !v)}
+                    >
+                      <span className={styles.jurisName}>{jurisLabel(form.jurisdiction)}</span>
+                      <span className={`${styles.jurisChevron} ${jurisOpen ? styles.jurisChevronOpen : ''}`}>
+                        <Icon name="chevron" size={14} />
+                      </span>
+                    </button>
+                    {jurisOpen ? (
+                      <div className={styles.jurisMenu} role="listbox">
+                        {JURISDICTIONS.map((j) => (
+                          <button
+                            key={j.value}
+                            type="button"
+                            role="option"
+                            aria-selected={form.jurisdiction === j.value}
+                            className={`${styles.jurisOption} ${form.jurisdiction === j.value ? styles.jurisOptionActive : ''}`}
+                            onClick={() => {
+                              update({ jurisdiction: j.value });
+                              setJurisOpen(false);
+                            }}
+                          >
+                            <span className={styles.jurisName}>{lang === 'ru' ? j.ru : j.en}</span>
+                            {form.jurisdiction === j.value ? (
+                              <span className={styles.jurisCheck}>
+                                <Icon name="check" size={14} />
+                              </span>
+                            ) : null}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
               </div>
 
@@ -366,8 +402,59 @@ export function SettingsPage() {
                   />
                 </>
               ) : (
-                <LoadingState label={t('common.loading')} />
+                <div style={{ padding: '24px 32px' }}>
+          <SkeletonRows rows={6} height={56} />
+        </div>
               )}
+            </section>
+
+            {/* Integrations -------------------------------------------------- */}
+            <section className={styles.section}>
+              <h2 className={styles.sectionTitle}>{t('integr.title')}</h2>
+              <p className={styles.sectionSub}>{t('integr.sub')}</p>
+
+              <div className={styles.integrList}>
+                {(integrations.data ?? []).map((integ) => (
+                  <div key={integ.provider} className={styles.integrRow}>
+                    <span className={styles.integrIcon}>
+                      <BrandLogo provider={integ.provider} size={24} />
+                    </span>
+                    <div className={styles.integrText}>
+                      <span className={styles.integrName}>{integ.label}</span>
+                      <span className={styles.integrStatus}>
+                        {integ.connected
+                          ? `${t('integr.statusConnected')}${integ.accountEmail ? ` · ${integ.accountEmail}` : ''}`
+                          : integ.configured
+                            ? t('integr.statusOff')
+                            : t('integr.statusSoon')}
+                      </span>
+                    </div>
+                    {integ.connected ? (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className={styles.integrBtn}
+                        disabled={integrationBusy === integ.provider}
+                        onClick={() => void disconnectIntegration(integ.provider)}
+                      >
+                        {integrationBusy === integ.provider ? t('common.loading') : t('integr.disconnect')}
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        icon="cloud"
+                        className={styles.integrBtn}
+                        disabled={integrationBusy === integ.provider || !integ.configured}
+                        onClick={() => void connectIntegration(integ.provider)}
+                      >
+                        {integrationBusy === integ.provider ? t('common.loading') : t('integr.connect')}
+                      </Button>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <p className={styles.integrHint}>{t('integr.hint')}</p>
             </section>
 
             {/* Security ------------------------------------------------------ */}
@@ -482,25 +569,4 @@ function initialsOf(name: string): string {
   if (parts.length === 0) return '?';
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
-
-function Toggle({ label, desc, on, onToggle }: { label: string; desc: string; on: boolean; onToggle: () => void }) {
-  return (
-    <div className={styles.toggleRow}>
-      <div>
-        <div className={styles.toggleLabel}>{label}</div>
-        <div className={styles.toggleDesc}>{desc}</div>
-      </div>
-      <button
-        className={styles.switch}
-        role="switch"
-        aria-checked={on}
-        aria-label={label}
-        onClick={onToggle}
-        style={{ background: on ? 'var(--accent)' : 'var(--border)' }}
-      >
-        <span className={styles.switchKnob} style={{ transform: on ? 'translateX(18px)' : 'none' }} />
-      </button>
-    </div>
-  );
 }

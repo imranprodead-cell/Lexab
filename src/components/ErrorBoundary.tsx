@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { tStandalone } from '@/i18n/messages';
 
 interface Props {
   children: ReactNode;
@@ -61,9 +62,9 @@ export class ErrorBoundary extends Component<Props, State> {
         >
           !
         </div>
-        <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>Что-то пошло не так</h1>
+        <h1 style={{ fontSize: 22, fontWeight: 700, margin: 0 }}>{tStandalone('error.title')}</h1>
         <p style={{ color: 'var(--dim)', maxWidth: 380, margin: 0, lineHeight: 1.5 }}>
-          Произошла непредвиденная ошибка интерфейса. Попробуйте перезагрузить страницу.
+          {tStandalone('error.body')}
         </p>
         <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
           <button
@@ -80,7 +81,7 @@ export class ErrorBoundary extends Component<Props, State> {
               border: '1px solid var(--border)',
             }}
           >
-            Повторить
+            {tStandalone('error.retry')}
           </button>
           <button
             onClick={() => window.location.reload()}
@@ -96,7 +97,7 @@ export class ErrorBoundary extends Component<Props, State> {
               border: 'none',
             }}
           >
-            Перезагрузить
+            {tStandalone('error.reload')}
           </button>
         </div>
       </div>

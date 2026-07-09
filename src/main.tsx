@@ -1,4 +1,3 @@
-import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
 import './styles/global.css';
@@ -14,8 +13,6 @@ if (sentryDsn) {
 const container = document.getElementById('root');
 if (!container) throw new Error('Root element #root not found');
 
-createRoot(container).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);
+// No <StrictMode>: its dev-only double mounting re-ran every page's data
+// fetch twice (abort + retry), which doubled perceived navigation latency.
+createRoot(container).render(<App />);

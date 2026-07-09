@@ -1,6 +1,7 @@
 /** Entrypoint: sentry → migrate → seed-if-empty → listen. */
 import { buildApp } from './app.ts';
 import { config } from './config.ts';
+import { checkApprovalDeadlines } from './routes/approvals.routes.ts';
 import { getDb, migrate } from './db.ts';
 import { seedIfEmpty } from './seed-data.ts';
 
@@ -16,7 +17,11 @@ const ran = await migrate(db);
 if (ran.length) console.log(`[db] applied migrations: ${ran.join(', ')}`);
 console.log(`[db] using ${db.kind}${db.kind === 'pglite' ? ` (embedded, data in ${config.dataDir}/pg)` : ''}`);
 
-const seeded = await seedIfEmpty(db);
+const seeded = config.seedDemoData ? await seedIfEmpty(db) : false;
+
+// Approval-deadline reminders: check every 10 minutes (and once at boot).
+void checkApprovalDeadlines(db).catch(() => undefined);
+setInterval(() => void checkApprovalDeadlines(db).catch(() => undefined), 10 * 60 * 1000);
 if (seeded) console.log('[db] seeded demo data (demo user: a.rahman@freshfields.com)');
 
 if (!config.anthropicApiKey) {

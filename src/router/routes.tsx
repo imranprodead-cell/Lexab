@@ -13,6 +13,10 @@ import { RequireAuth } from './RequireAuth';
  */
 const loaders = {
   AuthPage: () => import('@/pages/AuthPage'),
+  SignPage: () => import('@/pages/SignPage'),
+  VerifyEmailPage: () => import('@/pages/VerifyEmailPage'),
+  ApprovePage: () => import('@/pages/ApprovePage'),
+  ResetPasswordPage: () => import('@/pages/ResetPasswordPage'),
   LegalPage: () => import('@/pages/LegalPage'),
   ChatPage: () => import('@/pages/ChatPage'),
   WorkspacePage: () => import('@/pages/WorkspacePage'),
@@ -49,6 +53,22 @@ export const router = createBrowserRouter([
   {
     path: '/login',
     lazy: async () => ({ Component: (await loaders.AuthPage()).AuthPage }),
+  },
+  {
+    path: '/sign/:token',
+    lazy: async () => ({ Component: (await loaders.SignPage()).SignPage }),
+  },
+  {
+    path: '/approve/:token',
+    lazy: async () => ({ Component: (await loaders.ApprovePage()).ApprovePage }),
+  },
+  {
+    path: '/verify-email',
+    lazy: async () => ({ Component: (await loaders.VerifyEmailPage()).VerifyEmailPage }),
+  },
+  {
+    path: '/reset-password',
+    lazy: async () => ({ Component: (await loaders.ResetPasswordPage()).ResetPasswordPage }),
   },
   {
     path: '/terms',

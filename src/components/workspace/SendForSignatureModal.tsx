@@ -4,6 +4,7 @@ import { Button, IconButton } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { TextField } from '@/components/ui/TextField';
 import { signaturesApi } from '@/api';
+import { useI18n } from '@/i18n/I18nProvider';
 import styles from './workspace.module.css';
 
 interface Recipient {
@@ -22,6 +23,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /** Modal to collect recipients and dispatch an e-signature request (validated). */
 export function SendForSignatureModal({ open, documentName, onClose, onSent }: SendForSignatureModalProps) {
+  const { t } = useI18n();
   const [recipients, setRecipients] = useState<Recipient[]>([{ name: '', email: '' }]);
   const [errors, setErrors] = useState<Record<number, string>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -33,8 +35,8 @@ export function SendForSignatureModal({ open, documentName, onClose, onSent }: S
   const validate = (): boolean => {
     const next: Record<number, string> = {};
     recipients.forEach((r, i) => {
-      if (!r.name.trim() || !r.email.trim()) next[i] = 'Name and email are required.';
-      else if (!EMAIL_RE.test(r.email.trim())) next[i] = 'Enter a valid email address.';
+      if (!r.name.trim() || !r.email.trim()) next[i] = t('sign.errRequired');
+      else if (!EMAIL_RE.test(r.email.trim())) next[i] = t('sign.errEmail');
     });
     setErrors(next);
     return Object.keys(next).length === 0;
@@ -54,30 +56,31 @@ export function SendForSignatureModal({ open, documentName, onClose, onSent }: S
       onSent();
     } catch {
       setSubmitting(false);
-      setErrors({ 0: 'Could not send request. Please try again.' });
+      setErrors({ 0: t('sign.errSend') });
     }
   };
 
   return (
     <Modal
       open={open}
-      title="Send for e-signature"
+      title={t('sign.title')}
       onClose={onClose}
       maxWidth={520}
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>
-            Cancel
+            {t('common.cancel')}
           </Button>
           <Button variant="primary" icon="send" onClick={submit} disabled={submitting}>
-            {submitting ? 'Sending…' : 'Send request'}
+            {submitting ? t('sign.sending') : t('sign.send')}
           </Button>
         </>
       }
     >
-      <p style={{ margin: '0 0 16px', fontSize: 13.5, color: 'var(--dim)' }}>
-        Recipients will receive <strong style={{ color: 'var(--text)' }}>{documentName}</strong> with the accepted
-        redlines applied, in signing order.
+      <p style={{ margin: '0 0 16px', fontSize: 14, color: 'var(--dim)' }}>
+        {t('sign.introA')}
+        <strong style={{ color: 'var(--text)' }}>{documentName}</strong>
+        {t('sign.introB')}
       </p>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -85,7 +88,7 @@ export function SendForSignatureModal({ open, documentName, onClose, onSent }: S
           <div key={i} className={styles.recipientRow}>
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 8 }}>
               <TextField
-                placeholder="Full name"
+                placeholder={t('sign.namePh')}
                 value={r.name}
                 onChange={(e) => update(i, { name: e.target.value })}
                 error={errors[i] ? ' ' : null}
@@ -101,7 +104,7 @@ export function SendForSignatureModal({ open, documentName, onClose, onSent }: S
             {recipients.length > 1 ? (
               <IconButton
                 icon="x"
-                label="Remove recipient"
+                label={t('sign.remove')}
                 size="sm"
                 iconSize={15}
                 className={styles.recipientRemove}
@@ -118,7 +121,7 @@ export function SendForSignatureModal({ open, documentName, onClose, onSent }: S
         onClick={() => setRecipients((rs) => [...rs, { name: '', email: '' }])}
       >
         <Icon name="plus" size={15} />
-        Add recipient
+        {t('sign.add')}
       </button>
     </Modal>
   );

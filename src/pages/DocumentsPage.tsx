@@ -3,8 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { Icon } from '@/components/icons/Icon';
 import { RiskBadge, Badge } from '@/components/ui/Badge';
+import { SelectMenu } from '@/components/ui/SelectMenu';
 import { EmptyState, ErrorState } from '@/components/ui/States';
 import { useAsync } from '@/hooks/useAsync';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { documentsApi } from '@/api';
 import type { ContractStatus } from '@/types/domain';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -29,6 +31,7 @@ type SortDir = 'asc' | 'desc';
 export function DocumentsPage() {
   const navigate = useNavigate();
   const { t } = useI18n();
+  const isMobile = useMediaQuery('(max-width: 700px)');
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('All');
   const [risk, setRisk] = useState('All');
@@ -106,20 +109,24 @@ export function DocumentsPage() {
                 }}
               />
             </div>
-            <select className={styles.select} value={status} onChange={(e) => { setStatus(e.target.value); setPage(0); }} aria-label="status">
-              {STATUS_FILTERS.map((s) => (
-                <option key={s} value={s}>
-                  {s === 'All' ? t('docs.allStatuses') : s}
-                </option>
-              ))}
-            </select>
-            <select className={styles.select} value={risk} onChange={(e) => { setRisk(e.target.value); setPage(0); }} aria-label="risk">
-              {RISK_FILTERS.map((r) => (
-                <option key={r} value={r}>
-                  {r === 'All' ? t('docs.allRisk') : `${r} risk`}
-                </option>
-              ))}
-            </select>
+            <SelectMenu
+              ariaLabel="status"
+              value={status}
+              options={STATUS_FILTERS.map((s) => ({ value: s, label: s === 'All' ? t('docs.allStatuses') : t(`status.${s}`) }))}
+              onChange={(v) => {
+                setStatus(v);
+                setPage(0);
+              }}
+            />
+            <SelectMenu
+              ariaLabel="risk"
+              value={risk}
+              options={RISK_FILTERS.map((r) => ({ value: r, label: r === 'All' ? t('docs.allRisk') : t(`risk.${r}`) }))}
+              onChange={(v) => {
+                setRisk(v);
+                setPage(0);
+              }}
+            />
           </div>
 
           {loading ? (
@@ -140,6 +147,56 @@ export function DocumentsPage() {
             <ErrorState message={error} onRetry={reload} />
           ) : sorted.length === 0 ? (
             <EmptyState icon="docs" title={t('docs.empty')} body={t('docs.emptyBody')} />
+          ) : isMobile ? (
+            <>
+              <div className={styles.rowCards}>
+                {pageRows.map((d) => (
+                  <div key={d.id} className={styles.rowCard} onClick={() => navigate(`/documents/${d.id}`)}>
+                    <div className={styles.rowCardHead}>
+                      <div className={styles.docCellIcon}>
+                        <Icon name="docs" size={16} />
+                      </div>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div className={styles.docCellName}>{d.name}</div>
+                        <div className={styles.docCellSub}>
+                          {d.sharedBy ? `${t('docs.fromTeam', { name: d.sharedBy })} · ` : ''}
+                          {d.counterparty}
+                        </div>
+                      </div>
+                    </div>
+                    <div className={styles.rowCardBadges}>
+                      <Badge color={STATUS_TONE[d.status]} plain>{t(`status.${d.status}`)}</Badge>
+                      <RiskBadge risk={d.risk} plain />
+                    </div>
+                    <div className={styles.rowCardMeta}>
+                      <span>{d.jurisdiction}</span>
+                      <span>{timeAgo(d.updatedAt)}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className={styles.pagination}>
+                <span className={styles.paginationInfo}>{t('docs.count', { n: sorted.length })}</span>
+                <div className={styles.paginationControls}>
+                  <button
+                    className={styles.pageBtn}
+                    disabled={clampedPage === 0}
+                    onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  >
+                    {t('docs.prev')}
+                  </button>
+                  <span className={styles.pageOf}>{t('docs.pageOf', { page: clampedPage + 1, total: totalPages })}</span>
+                  <button
+                    className={styles.pageBtn}
+                    disabled={clampedPage >= totalPages - 1}
+                    onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                  >
+                    {t('docs.next')}
+                  </button>
+                </div>
+              </div>
+            </>
           ) : (
             <>
               <div className={styles.tableCard}>
@@ -163,12 +220,15 @@ export function DocumentsPage() {
                             </div>
                             <div style={{ minWidth: 0 }}>
                               <div className={styles.docCellName}>{d.name}</div>
-                              <div className={styles.docCellSub}>{d.counterparty}</div>
+                              <div className={styles.docCellSub}>
+                                {d.sharedBy ? `${t('docs.fromTeam', { name: d.sharedBy })} · ` : d.teamShared ? `${t('docs.teamBadge')} · ` : ''}
+                                {d.counterparty}
+                              </div>
                             </div>
                           </div>
                         </td>
                         <td className={`${styles.td} ${styles.hideSm}`}>
-                          <Badge color={STATUS_TONE[d.status]} plain>{d.status}</Badge>
+                          <Badge color={STATUS_TONE[d.status]} plain>{t(`status.${d.status}`)}</Badge>
                         </td>
                         <td className={styles.td}>
                           <RiskBadge risk={d.risk} plain />

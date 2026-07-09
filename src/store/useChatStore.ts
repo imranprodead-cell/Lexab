@@ -11,12 +11,27 @@
 import { create } from 'zustand';
 import { USE_MOCK, analysisApi } from '@/api';
 import { chatsApi } from '@/api/chats.api';
-import { ANALYSIS_STEPS, DEMO_ANALYSIS } from '@/data/seed';
+import { uploadsApi } from '@/api/uploads.api';
+import { COUNTRIES } from '@/data/countries';
+import { ANALYSIS_STEPS } from '@/data/seed';
+import { tStandalone } from '@/i18n/messages';
+import { useChatHistoryStore } from '@/store/useChatHistoryStore';
+import { useUIStore } from '@/store/useUIStore';
 import type { AnalysisResult, ChatMessage, RedlineStatus } from '@/types/domain';
+
+/** Refresh the sidebar list so new sessions / updated order show up instantly. */
+function refreshHistory() {
+  void useChatHistoryStore.getState().load();
+}
+
+/** Default law context ("German law", …) from the top-bar country selector. */
+function defaultLaw(): string | undefined {
+  const code = useUIStore.getState().country;
+  return COUNTRIES.find((c) => c.code === code)?.law;
+}
 
 export type ChatPhase = 'idle' | 'analyzing' | 'analyzed' | 'error';
 
-const DEFAULT_FILE = { name: 'Employment_Agreement_v3.docx', size: '48 KB' };
 const STEP_INTERVAL = 1150;
 
 /** Mock assistant replies per slash command — replaced by a real chat endpoint. */
@@ -44,12 +59,17 @@ interface ChatState {
   /** Backend chat session id (created lazily on the first real-API message). */
   serverSessionId: string | null;
 
-  startAnalysis: (file?: { name: string; size: string }) => Promise<void>;
+  startAnalysis: (file: { name: string; size: string }, rawFile?: File) => Promise<void>;
   sendMessage: (text: string) => void;
   reset: () => void;
-  seedAnalyzed: () => void;
   /** Real mode: hydrate the canvas from a server-side chat session. */
   loadSession: (sessionId: string) => Promise<void>;
+  /** Link the canvas to an already-created server session (sidebar entry). */
+  setServerSession: (id: string | null) => void;
+  /** Show a specific analysis in the workspace (e.g. from the Documents page). */
+  adoptAnalysis: (analysis: AnalysisResult) => void;
+  /** Re-run the AI review against the current draft; resolves with the new result. */
+  reanalyze: () => Promise<AnalysisResult>;
 
   setRedlineStatus: (id: string, status: RedlineStatus) => void;
   acceptAllRedlines: () => void;
@@ -94,7 +114,7 @@ export const useChatStore = create<ChatState>((set, get) => {
   steps: ANALYSIS_STEPS,
   serverSessionId: null,
 
-  startAnalysis: async (file = DEFAULT_FILE) => {
+  startAnalysis: async (file, rawFile) => {
     if (get().phase === 'analyzing') return;
     clearStepTimers();
 
@@ -119,9 +139,20 @@ export const useChatStore = create<ChatState>((set, get) => {
     }
 
     try {
+      // Ship the file itself first — the AI reads the actual contract text.
+      if (rawFile && !USE_MOCK) {
+        try {
+          await uploadsApi.upload(rawFile);
+        } catch {
+          // Upload failed (offline/limit) — the review still runs from the
+          // file name, but tell the user the content didn't make it through.
+          useUIStore.getState().pushToast(tStandalone('chat.uploadFailed'), 'error');
+        }
+      }
       const result = await analysisApi.analyze({
         fileName: file.name,
         fileSize: file.size,
+        jurisdiction: defaultLaw(),
       });
       clearStepTimers();
       set({
@@ -184,10 +215,12 @@ export const useChatStore = create<ChatState>((set, get) => {
           const session = await chatsApi.create(title);
           sessionId = session.id;
           set({ serverSessionId: sessionId });
+          refreshHistory(); // the new chat shows up in the sidebar right away
         }
         // Ground the reply in the contract being reviewed (document Q&A).
-        const reply = await chatsApi.sendMessage(sessionId, trimmed, get().analysis?.id);
+        const reply = await chatsApi.sendMessage(sessionId, trimmed, get().analysis?.id, defaultLaw());
         streamIn(assistantId, reply.text ?? '');
+        refreshHistory(); // bump the session to the top (updated_at changed)
       } catch {
         // Network/AI failure — degrade to the canned reply so the chat stays alive.
         streamIn(assistantId, mockReply(trimmed));
@@ -196,10 +229,7 @@ export const useChatStore = create<ChatState>((set, get) => {
   },
 
   loadSession: async (sessionId) => {
-    if (USE_MOCK) {
-      get().seedAnalyzed();
-      return;
-    }
+    if (USE_MOCK) return;
     if (get().serverSessionId === sessionId) return; // already showing this one
     clearStepTimers();
     if (streamTimer) clearInterval(streamTimer);
@@ -216,46 +246,73 @@ export const useChatStore = create<ChatState>((set, get) => {
         serverSessionId: sessionId,
       });
     } catch {
-      // Session unknown to the server (e.g. seeded demo id) — show the demo state.
-      get().seedAnalyzed();
+      // Session unknown to the server — show an empty canvas instead of
+      // someone else's demo contract.
+      set({ phase: 'idle', messages: [], analysis: null, activeStep: -1, error: null, serverSessionId: null });
     }
   },
 
-  // Used when landing directly on the workspace route (e.g. deep link / refresh).
-  seedAnalyzed: () => {
-    if (get().analysis) return;
+  setServerSession: (id) => set({ serverSessionId: id }),
+
+  // Documents page → "Open workspace": show that document's own analysis.
+  adoptAnalysis: (analysis) => {
+    clearStepTimers();
+    if (streamTimer) clearInterval(streamTimer);
     set({
       phase: 'analyzed',
-      messages: [{ id: 'seed', role: 'user', kind: 'file', file: DEFAULT_FILE }],
-      analysis: { ...DEMO_ANALYSIS, redlines: DEMO_ANALYSIS.redlines.map((r) => ({ ...r })) },
+      messages: [
+        {
+          id: `m_${Date.now()}`,
+          role: 'user',
+          kind: 'file',
+          file: { name: analysis.fileName, size: analysis.fileSize },
+        },
+      ],
+      analysis,
       activeStep: ANALYSIS_STEPS.length,
       error: null,
+      serverSessionId: null,
     });
   },
 
-  setRedlineStatus: (id, status) =>
-    set((s) => {
-      if (!s.analysis) return s;
-      return {
-        analysis: {
-          ...s.analysis,
-          redlines: s.analysis.redlines.map((r) => (r.id === id ? { ...r, status } : r)),
-        },
-      };
-    }),
+  reanalyze: async () => {
+    const current = get().analysis;
+    if (!current) throw new Error('Nothing to re-analyse');
+    const result = await analysisApi.reanalyze(current.id, defaultLaw());
+    set({ analysis: result, phase: 'analyzed', activeStep: ANALYSIS_STEPS.length, error: null });
+    return result;
+  },
 
-  acceptAllRedlines: () =>
-    set((s) => {
-      if (!s.analysis) return s;
-      return {
-        analysis: {
-          ...s.analysis,
-          redlines: s.analysis.redlines.map((r) =>
-            r.status === 'pending' ? { ...r, status: 'accepted' } : r,
-          ),
-        },
-      };
-    }),
+
+  setRedlineStatus: (id, status) => {
+    const analysis = get().analysis;
+    if (!analysis) return;
+    set({
+      analysis: {
+        ...analysis,
+        redlines: analysis.redlines.map((r) => (r.id === id ? { ...r, status } : r)),
+      },
+    });
+    // Persist so the decision survives reloads and reaches exports/teammates.
+    if (status === 'accepted' || status === 'rejected') {
+      void analysisApi.updateRedline(analysis.id, id, status).catch(() => undefined);
+    }
+  },
+
+  acceptAllRedlines: () => {
+    const analysis = get().analysis;
+    if (!analysis) return;
+    const pending = analysis.redlines.filter((r) => r.status === 'pending');
+    set({
+      analysis: {
+        ...analysis,
+        redlines: analysis.redlines.map((r) => (r.status === 'pending' ? { ...r, status: 'accepted' } : r)),
+      },
+    });
+    for (const r of pending) {
+      void analysisApi.updateRedline(analysis.id, r.id, 'accepted').catch(() => undefined);
+    }
+  },
 
   pendingRedlineCount: () =>
     get().analysis?.redlines.filter((r) => r.status === 'pending').length ?? 0,

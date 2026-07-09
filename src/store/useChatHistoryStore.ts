@@ -9,10 +9,15 @@ import { create } from 'zustand';
 import { USE_MOCK } from '@/api/client';
 import { chatsApi } from '@/api/chats.api';
 import { CHAT_SESSIONS } from '@/data/seed';
+import { tStandalone } from '@/i18n/messages';
+import { useUIStore } from '@/store/useUIStore';
 import type { ChatSession } from '@/types/domain';
 
 const STORAGE_KEY = 'lexai.chats';
 const META_KEY = 'lexai.chats.meta';
+
+/** How long the "Undo" window stays open before a chat is really deleted. */
+const UNDO_DELETE_MS = 5000;
 
 /* ── Mock-mode persistence (original prototype behaviour) ─────────────────── */
 
@@ -127,7 +132,7 @@ export const useChatHistoryStore = create<ChatHistoryState>((set, get) => {
         return session;
       }
       try {
-        const session = await chatsApi.create(cleaned || 'Новый обзор');
+        const session = await chatsApi.create(cleaned || tStandalone('nav.newReview'));
         await refresh();
         return session;
       } catch {
@@ -170,14 +175,36 @@ export const useChatHistoryStore = create<ChatHistoryState>((set, get) => {
     },
 
     deleteSession: (id) => {
-      if (USE_MOCK) {
-        applyMockMeta((meta) => {
-          if (!meta.deleted.includes(id)) meta.deleted.push(id);
-          meta.pinned = meta.pinned.filter((p) => p !== id);
-        });
-        return;
-      }
-      mutate(() => chatsApi.remove(id));
+      // Hide the chat immediately, but give the user a 5-second undo window
+      // before it is actually deleted (toast with an "Undo" button).
+      const prevSessions = get().sessions;
+      const prevPinned = get().pinned;
+      set({
+        sessions: prevSessions.filter((s) => s.id !== id),
+        pinned: prevPinned.filter((p) => p !== id),
+      });
+
+      const finalize = () => {
+        if (USE_MOCK) {
+          applyMockMeta((meta) => {
+            if (!meta.deleted.includes(id)) meta.deleted.push(id);
+            meta.pinned = meta.pinned.filter((p) => p !== id);
+          });
+          return;
+        }
+        mutate(() => chatsApi.remove(id));
+      };
+      const timer = setTimeout(finalize, UNDO_DELETE_MS);
+
+      useUIStore.getState().pushToast(tStandalone('rail.deleting'), 'default', {
+        duration: UNDO_DELETE_MS,
+        actionLabel: tStandalone('common.undo'),
+        onAction: () => {
+          clearTimeout(timer);
+          set({ sessions: prevSessions, pinned: prevPinned });
+          useUIStore.getState().pushToast(tStandalone('rail.deleteCancelled'), 'success');
+        },
+      });
     },
   };
 });

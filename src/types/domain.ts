@@ -56,7 +56,8 @@ export interface AnalysisResult {
   clausesReviewed: number;
   findings: Finding[];
   redlines: Redline[];
-  document: DocBlock[];
+  document: DocBlock[];  /** Current viewer may edit (owner / team admin / editor). */
+  canEdit?: boolean;
 }
 
 /** A chat message in the conversational canvas. */
@@ -93,6 +94,14 @@ export interface ContractDocument {
   jurisdiction: string;
   size: string;
   updatedAt: string; // ISO
+  /** Shared with the owner's team. */
+  teamShared?: boolean;
+  /** Owner name when this document is visible via team sharing. */
+  sharedBy?: string;
+  /** Current viewer may edit it. */
+  canEdit?: boolean;
+  /** Current viewer owns it. */
+  mine?: boolean;
 }
 
 export interface Template {
@@ -110,6 +119,9 @@ export interface SignatureRecipient {
   name: string;
   email: string;
   signed: boolean;
+  /** Public signing-link token (owner view). */
+  token?: string;
+  signedAt?: string | null;
 }
 
 export interface SignatureRequest {
@@ -145,5 +157,6 @@ export interface UserProfile {
   jurisdiction: string;
   email: string;
   /** Data URL or remote URL of the user's avatar (optional). */
-  avatarUrl?: string;
+  avatarUrl?: string;  /** Email confirmed via the verification link. */
+  emailVerified?: boolean;
 }

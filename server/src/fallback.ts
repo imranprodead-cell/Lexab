@@ -10,7 +10,7 @@ function hashInt(input: string): number {
   return crypto.createHash('sha256').update(input).digest().readUInt32BE(0);
 }
 
-export function fallbackAnalysis(fileName: string): GeneratedAnalysis {
+export function fallbackAnalysis(fileName: string, jurisdiction?: string | null): GeneratedAnalysis {
   const h = hashInt(fileName);
   const riskScore = 45 + (h % 31); // 45–75
   const riskLevel = riskScore < 34 ? 'Low' : riskScore < 67 ? 'Elevated' : 'High';
@@ -20,7 +20,8 @@ export function fallbackAnalysis(fileName: string): GeneratedAnalysis {
     summary:
       `This contract (“${baseName}”) is largely standard, but three clauses create material legal exposure. ` +
       'The termination notice sits below the statutory floor, and the post-termination covenant is drafted too broadly to be reliably enforced. ' +
-      'Tracked redlines are prepared for each finding.',
+      'Tracked redlines are prepared for each finding.' +
+      (jurisdiction ? ` Review performed under ${jurisdiction}.` : ''),
     riskScore,
     riskLevel,
     clausesReviewed: 12 + (h % 9),

@@ -6,12 +6,23 @@ import styles from './workspace.module.css';
 /** A single inline tracked change: pending (with accept/reject), accepted, or rejected. */
 export function RedlineSpan({ redline }: { redline: Redline }) {
   const setStatus = useChatStore((s) => s.setRedlineStatus);
+  const canEdit = useChatStore((s) => s.analysis?.canEdit !== false);
 
   if (redline.status === 'accepted') {
     return <span className={styles.redlineAccepted}>{redline.insText}</span>;
   }
   if (redline.status === 'rejected') {
     return <span>{redline.delText}</span>;
+  }
+
+  if (!canEdit) {
+    // Read-only team member: show the tracked change without action buttons.
+    return (
+      <span className={styles.redlinePending}>
+        <span className={styles.redlineDel}>{redline.delText}</span>
+        <span className={styles.redlineIns}> {redline.insText}</span>
+      </span>
+    );
   }
 
   return (

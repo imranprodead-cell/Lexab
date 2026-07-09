@@ -7,6 +7,10 @@ export function useDismissable<T extends HTMLElement>(onDismiss: () => void, act
   useEffect(() => {
     if (!active) return;
     const onPointer = (e: MouseEvent) => {
+      const target = e.target as Element;
+      // Floating layers (calendar popovers, …) render in portals outside the
+      // host element — clicking inside them must not dismiss the host.
+      if (target.closest?.('[data-popover-layer]')) return;
       if (ref.current && !ref.current.contains(e.target as Node)) onDismiss();
     };
     const onKey = (e: KeyboardEvent) => {
@@ -30,9 +34,15 @@ export function useDismissable<T extends HTMLElement>(onDismiss: () => void, act
  */
 const asyncCache = new Map<string, unknown>();
 
-/** Drop all cached results (call on login/logout so accounts never mix). */
+/** Mounted useAsync hooks subscribe here so a cache clear re-fetches them
+ *  immediately (plan purchase, document deletion, …) — no page reload. */
+const cacheListeners = new Set<() => void>();
+
+/** Drop all cached results and re-run every mounted fetcher (login/logout,
+ *  plan purchase, deletions — anything that changes what pages should show). */
 export function clearAsyncCache() {
   asyncCache.clear();
+  for (const listener of [...cacheListeners]) listener();
 }
 
 function cacheKeyOf(fetcher: (signal: AbortSignal) => Promise<unknown>, deps: unknown[]) {
@@ -60,6 +70,20 @@ export function useAsync<T>(fetcher: (signal: AbortSignal) => Promise<T>, deps: 
   const [loading, setLoading] = useState(cached === null);
   const [error, setError] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);
+  // Mirrors `data` so the fetch effect can tell "have something on screen"
+  // apart from "first load" without re-running on every data change.
+  const dataRef = useRef<T | null>(cached);
+  dataRef.current = data;
+
+  // clearAsyncCache() → silently re-fetch while keeping the current data on
+  // screen (no loading flash) so e.g. the sidebar plan updates in place.
+  useEffect(() => {
+    const listener = () => setNonce((n) => n + 1);
+    cacheListeners.add(listener);
+    return () => {
+      cacheListeners.delete(listener);
+    };
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -69,9 +93,11 @@ export function useAsync<T>(fetcher: (signal: AbortSignal) => Promise<T>, deps: 
       // Instant render from cache; the fetch below revalidates silently.
       setData(asyncCache.get(key) as T);
       setLoading(false);
-    } else {
+    } else if (dataRef.current === null) {
       setLoading(true);
     }
+    // With data already on screen (e.g. after clearAsyncCache) the refresh is
+    // silent — no skeleton flash; new data swaps in when it arrives.
     setError(null);
 
     fetcher(controller.signal)
@@ -81,6 +107,15 @@ export function useAsync<T>(fetcher: (signal: AbortSignal) => Promise<T>, deps: 
       })
       .catch((err: unknown) => {
         if (!alive || controller.signal.aborted) return;
+        // The resource is gone (deleted document/chat): drop the stale cache
+        // and surface the error instead of showing a "zombie" page forever.
+        const status = (err as { status?: number }).status;
+        if (status === 404 && key !== null) {
+          asyncCache.delete(key);
+          setData(null);
+          setError(err instanceof Error ? err.message : 'Not found.');
+          return;
+        }
         // With stale data on screen a failed refresh stays silent; the next
         // visit or reload() retries.
         if (!hasCached) setError(err instanceof Error ? err.message : 'Something went wrong.');

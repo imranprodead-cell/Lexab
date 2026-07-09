@@ -12,7 +12,7 @@ import styles from './layout.module.css';
  */
 export function TopBarActions() {
   const navigate = useNavigate();
-  const { t } = useI18n();
+  const { t, lang, setLang } = useI18n();
   const theme = useUIStore((s) => s.theme);
   const toggleTheme = useUIStore((s) => s.toggleTheme);
   const dark =
@@ -31,6 +31,20 @@ export function TopBarActions() {
       </button>
 
       <NotificationBell />
+
+      <div className={styles.langSwitch} role="group" aria-label="Language">
+        {(['ru', 'en'] as const).map((code) => (
+          <button
+            key={code}
+            type="button"
+            className={`${styles.langSwitchBtn} ${lang === code ? styles.langSwitchBtnActive : ''}`}
+            aria-pressed={lang === code}
+            onClick={() => setLang(code)}
+          >
+            {code.toUpperCase()}
+          </button>
+        ))}
+      </div>
 
       <button
         className={styles.themeToggle}

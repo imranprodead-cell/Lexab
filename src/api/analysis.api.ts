@@ -13,6 +13,8 @@ import { ApiError, clone, delay } from './util';
 export interface AnalyzeInput {
   fileName: string;
   fileSize: string;
+  /** Default law context from the country selector (e.g. "German law"). */
+  jurisdiction?: string;
 }
 
 async function analyzeMock(_input: AnalyzeInput): Promise<AnalysisResult> {
@@ -36,6 +38,36 @@ export const analysisApi = {
   get(id: string, signal?: AbortSignal): Promise<AnalysisResult> {
     if (USE_MOCK) return getAnalysisMock(id);
     return http<AnalysisResult>(`/analysis/${id}`, { signal });
+  },
+
+  /** Re-run the AI review against the current draft of an existing analysis. */
+  async reanalyze(analysisId: string, jurisdiction?: string): Promise<AnalysisResult> {
+    if (USE_MOCK) {
+      await delay(1800);
+      return clone(db.analysis);
+    }
+    return http<AnalysisResult>('/analysis', { method: 'POST', body: { analysisId, jurisdiction } });
+  },
+
+  /** Latest analysis linked to a document (404 if none has been run yet). */
+  async latestForDocument(documentId: string, signal?: AbortSignal): Promise<AnalysisResult> {
+    if (USE_MOCK) {
+      await delay(60);
+      if (documentId !== 'd1') throw new ApiError('No analysis for this document yet', 404);
+      return clone(db.analysis);
+    }
+    return http<AnalysisResult>(`/documents/${documentId}/analysis`, { signal });
+  },
+
+  /** Persist a redline decision (accept/reject). */
+  async updateRedline(analysisId: string, redlineId: string, status: 'accepted' | 'rejected'): Promise<void> {
+    if (USE_MOCK) {
+      await delay(80);
+      const rl = db.analysis.redlines.find((r) => r.id === redlineId);
+      if (rl) rl.status = status;
+      return;
+    }
+    await http(`/analysis/${analysisId}/redlines/${redlineId}`, { method: 'PATCH', body: { status } });
   },
 
   /** Persist manual edits made in the workspace editor. */

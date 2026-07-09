@@ -1,7 +1,7 @@
 import { TopBar } from '@/components/layout/TopBar';
 import { Icon, type IconName } from '@/components/icons/Icon';
 import { toneColor } from '@/components/ui/Badge';
-import { ErrorState, LoadingState } from '@/components/ui/States';
+import { ErrorState, SkeletonRows } from '@/components/ui/States';
 import { useAsync } from '@/hooks/useAsync';
 import { analyticsApi } from '@/api';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -44,7 +44,7 @@ export function AnalyticsPage() {
           </div>
 
           {loading ? (
-            <LoadingState label={t('common.loading')} />
+            <SkeletonRows rows={4} height={96} />
           ) : error ? (
             <ErrorState message={error} onRetry={reload} />
           ) : data ? (

@@ -4,6 +4,7 @@ import { SideRail } from './SideRail';
 import { CommandPalette } from './CommandPalette';
 import { OnboardingModal } from './OnboardingModal';
 import { ToastHost } from '@/components/ui/ToastHost';
+import { authApi } from '@/api/auth.api';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
@@ -12,6 +13,7 @@ import { useChatStore } from '@/store/useChatStore';
 import { useChatHistoryStore } from '@/store/useChatHistoryStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useUIStore } from '@/store/useUIStore';
+import { useI18n } from '@/i18n/I18nProvider';
 import { Icon } from '@/components/icons/Icon';
 import styles from './layout.module.css';
 
@@ -27,6 +29,15 @@ export function AppShell() {
 
   const resetChat = useChatStore((s) => s.reset);
   const authUser = useAuthStore((s) => s.user);
+  const pushToast = useUIStore((s) => s.pushToast);
+  const { t } = useI18n();
+
+  const resendVerify = () => {
+    void authApi
+      .resendVerify()
+      .then(() => pushToast(t('verify.resent'), 'success'))
+      .catch(() => pushToast(t('common.error'), 'error'));
+  };
   const logout = useAuthStore((s) => s.logout);
   const railPinned = useUIStore((s) => s.railPinned);
   const toggleRailPinned = useUIStore((s) => s.toggleRailPinned);
@@ -62,6 +73,14 @@ export function AppShell() {
       {isMobile && railPinned ? <div className={styles.scrim} onClick={toggleRailPinned} /> : null}
       <SideRail sessions={sessions} user={profile} onNewReview={onNewReview} onLogout={onLogout} />
       <div className={styles.main}>
+        {authUser && authUser.emailVerified === false ? (
+          <div className={styles.verifyBanner} role="status">
+            <span className={styles.verifyBannerText}>{t('verify.banner', { email: authUser.email })}</span>
+            <button type="button" className={styles.verifyBannerBtn} onClick={resendVerify}>
+              {t('verify.resend')}
+            </button>
+          </div>
+        ) : null}
         <div key={location.pathname.split('/')[1] || 'root'} className={styles.routeFade}>
           <Outlet />
         </div>
