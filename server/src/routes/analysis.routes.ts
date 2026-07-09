@@ -11,7 +11,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Db } from '../db.ts';
 import { ALLOWED_EXTENSIONS, extractText, fileExtension, MAX_UPLOAD_BYTES } from '../extract.ts';
 import { badRequest, notFound } from '../lib/errors.ts';
-import { assertAiAllowance, assertDocumentAllowance, bumpUsage } from '../lib/limits.ts';
+import { assertAiAllowance, assertDocumentAllowance, assertStorageAllowance, bumpUsage } from '../lib/limits.ts';
 import { notify } from '../lib/notify.ts';
 import { assertCanEdit, resolveAnalysisAccess, resolveDocumentAccess } from '../lib/teamAccess.ts';
 import { formatSize } from '../lib/format.ts';
@@ -166,12 +166,21 @@ async function readSource(db: Db, req: FastifyRequest): Promise<AnalysisSource> 
       throw badRequest(`Unsupported file type. Allowed: ${ALLOWED_EXTENSIONS.join(', ')}`);
     }
     const buffer = await part.toBuffer();
-    await saveFile(buffer, fileName, part.mimetype);
+    // Same bookkeeping as POST /uploads: the stored bytes count against the
+    // plan's storage quota and show up in the usage numbers.
+    await assertStorageAllowance(db, req.currentUser.id, buffer.length);
+    const stored = await saveFile(buffer, fileName, part.mimetype);
+    const text = await extractText(buffer, fileName);
+    await db.query(
+      `INSERT INTO uploads (id, user_id, file_name, size_bytes, mime, storage, storage_key, url, extracted_text)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [newId('up'), req.currentUser.id, fileName, buffer.length, part.mimetype || null, stored.storage, stored.key, stored.url, text],
+    );
     return {
       fileName,
       fileSizeLabel: formatSize(buffer.length),
       sizeBytes: buffer.length,
-      text: await extractText(buffer, fileName),
+      text,
       pdf: fileExtension(fileName) === '.pdf' ? buffer : null,
     };
   }
@@ -193,8 +202,16 @@ async function readSource(db: Db, req: FastifyRequest): Promise<AnalysisSource> 
 }
 
 /** Persist the generated analysis and all side effects; return the wire shape.
- *  Exported for the inbound-email pipeline. */
-export async function persistAnalysis(db: Db, userId: string, source: AnalysisSource, gen: GeneratedAnalysis): Promise<AnalysisResult> {
+ *  Exported for the inbound-email pipeline. `chargeUserId` is who spends the
+ *  AI quota and gets the analytics events — for shared team documents that is
+ *  the requester, while the rows stay under the document owner (`userId`). */
+export async function persistAnalysis(
+  db: Db,
+  userId: string,
+  source: AnalysisSource,
+  gen: GeneratedAnalysis,
+  chargeUserId: string = userId,
+): Promise<AnalysisResult> {
   const analysisId = newId('an');
 
   // Upsert the document row backing the Documents page.
@@ -206,15 +223,16 @@ export async function persistAnalysis(db: Db, userId: string, source: AnalysisSo
   if (existingDoc.rows[0]) {
     documentId = existingDoc.rows[0].id;
     await db.query(
-      `UPDATE documents SET status = 'In review', risk = $2, size_bytes = GREATEST(size_bytes, $3), updated_at = now() WHERE id = $1`,
-      [documentId, gen.riskLevel, source.sizeBytes],
+      `UPDATE documents SET status = 'In review', risk = $2, size_bytes = GREATEST(size_bytes, $3),
+              jurisdiction = COALESCE($4, jurisdiction), updated_at = now() WHERE id = $1`,
+      [documentId, gen.riskLevel, source.sizeBytes, source.jurisdiction ?? null],
     );
   } else {
     documentId = newId('d');
     await db.query(
       `INSERT INTO documents (id, user_id, name, counterparty, status, risk, jurisdiction, size_bytes)
-       VALUES ($1, $2, $3, '—', 'In review', $4, 'UK', $5)`,
-      [documentId, userId, source.fileName, gen.riskLevel, source.sizeBytes],
+       VALUES ($1, $2, $3, '—', 'In review', $4, $5, $6)`,
+      [documentId, userId, source.fileName, gen.riskLevel, source.jurisdiction ?? '—', source.sizeBytes],
     );
     await bumpUsage(db, userId, { docs: 1 });
     await db.query(
@@ -261,10 +279,11 @@ export async function persistAnalysis(db: Db, userId: string, source: AnalysisSo
     );
   }
 
-  // Analytics + notification side effects.
+  // Analytics + usage are attributed to whoever ran the review (the requester
+  // for shared team documents) — their allowance was checked, their stats move.
   await db.query('INSERT INTO review_events (id, user_id, risk_score) VALUES ($1, $2, $3)', [
     newId('re'),
-    userId,
+    chargeUserId,
     gen.riskScore,
   ]);
   const bump = { High: 0, Medium: 0, Low: 0 };
@@ -272,9 +291,9 @@ export async function persistAnalysis(db: Db, userId: string, source: AnalysisSo
   await db.query(
     `UPDATE user_stats SET findings_high = findings_high + $2, findings_medium = findings_medium + $3,
      findings_low = findings_low + $4, hours_saved_minutes = hours_saved_minutes + 90 WHERE user_id = $1`,
-    [userId, bump.High, bump.Medium, bump.Low],
+    [chargeUserId, bump.High, bump.Medium, bump.Low],
   );
-  await bumpUsage(db, userId, { ai: 1 });
+  await bumpUsage(db, chargeUserId, { ai: 1 });
   await notify(db, userId, 'check', 'Анализ готов', 'Analysis ready', {
     bodyRu: source.fileName,
     bodyEn: source.fileName,
@@ -306,7 +325,7 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
   app.post('/analysis', { preHandler: [app.authenticateReal], config: RATE_LIMIT }, async (req, reply) => {
     // Plan limits: AI allowance always; document allowance when this file
     // would create a NEW document row.
-    await assertAiAllowance(db, req.currentUser.id);
+    const plan = await assertAiAllowance(db, req.currentUser.id);
     const source = await readSource(db, req);
     const existingDoc = await db.query(
       'SELECT 1 FROM documents WHERE user_id = $1 AND name = $2 LIMIT 1',
@@ -319,9 +338,9 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
       try {
         sse.send('step', { index: 0, label: ANALYSIS_STEPS[0] });
         sse.send('step', { index: 1, label: ANALYSIS_STEPS[1] });
-        const gen = await generateAnalysis({ fileName: source.fileName, text: source.text, pdf: source.pdf, jurisdiction: source.jurisdiction });
+        const gen = await generateAnalysis({ fileName: source.fileName, text: source.text, pdf: source.pdf, jurisdiction: source.jurisdiction, plan });
         sse.send('step', { index: 2, label: ANALYSIS_STEPS[2] });
-        const result = await persistAnalysis(db, source.ownerUserId ?? req.currentUser.id, source, gen);
+        const result = await persistAnalysis(db, source.ownerUserId ?? req.currentUser.id, source, gen, req.currentUser.id);
         sse.send('result', result);
       } catch (err) {
         req.log.error(err, 'analysis failed');
@@ -332,9 +351,9 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
       return reply;
     }
 
-    const gen = await generateAnalysis({ fileName: source.fileName, text: source.text, pdf: source.pdf, jurisdiction: source.jurisdiction });
+    const gen = await generateAnalysis({ fileName: source.fileName, text: source.text, pdf: source.pdf, jurisdiction: source.jurisdiction, plan });
     reply.code(201);
-    return persistAnalysis(db, source.ownerUserId ?? req.currentUser.id, source, gen);
+    return persistAnalysis(db, source.ownerUserId ?? req.currentUser.id, source, gen, req.currentUser.id);
   });
 
   app.get('/analysis/:id', { preHandler: [app.authenticate] }, async (req) => {
@@ -370,6 +389,19 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
     }
     await resolveAnalysisAccess(db, req.currentUser.id, id, true);
     await db.query('UPDATE analyses SET document_blocks = $2 WHERE id = $1', [id, JSON.stringify(blocks)]);
+    // A manual edit can flatten a paragraph and drop its {redlineId} slots —
+    // retire the pending suggestions that no longer appear anywhere, so the
+    // "N suggestions" counters keep matching the visible document.
+    const referenced: string[] = [];
+    for (const b of blocks as DocBlock[]) {
+      for (const seg of b.segments ?? []) {
+        if (typeof seg !== 'string' && seg.redlineId) referenced.push(seg.redlineId);
+      }
+    }
+    await db.query(
+      `DELETE FROM redlines WHERE analysis_id = $1 AND status = 'pending' AND NOT (id = ANY($2::text[]))`,
+      [id, referenced],
+    );
     return loadAnalysis(db, req.currentUser.id, id);
   });
 

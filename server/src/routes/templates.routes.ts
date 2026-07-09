@@ -31,7 +31,7 @@ export function templateRoutes(app: FastifyInstance, db: Db): void {
     { preHandler: [app.authenticateReal], config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
     async (req): Promise<{ title: string; content: string }> => {
       await assertFeature(db, req.currentUser.id, 'templates');
-      await assertAiAllowance(db, req.currentUser.id);
+      const plan = await assertAiAllowance(db, req.currentUser.id);
       const { id } = req.params as { id: string };
       const tpl = await db.query<Template>(
         'SELECT id, name, category, description, jurisdiction, clauses FROM templates WHERE id = $1',
@@ -49,7 +49,7 @@ export function templateRoutes(app: FastifyInstance, db: Db): void {
         details: (optionalString(body, 'details') ?? '').slice(0, 4000),
       };
       await bumpUsage(db, req.currentUser.id, { ai: 1 });
-      const content = await generateTemplateDraft(template.name, template.description, fields);
+      const content = await generateTemplateDraft(template.name, template.description, fields, plan);
       return { title: `${template.name} — ${fields.partyA} / ${fields.partyB}`, content };
     },
   );

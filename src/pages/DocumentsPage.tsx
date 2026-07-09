@@ -40,7 +40,8 @@ export function DocumentsPage() {
   const [page, setPage] = useState(0);
 
   const timeAgo = (iso: string): string => {
-    const days = Math.round((Date.now() - new Date(iso).getTime()) / 86_400_000);
+    // Full elapsed days (floor): anything under 24h is still "today".
+    const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
     if (days <= 0) return t('docs.today');
     if (days === 1) return t('docs.yesterday');
     return t('docs.daysAgo', { n: days });

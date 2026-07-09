@@ -22,6 +22,78 @@ function getClient(): Anthropic | null {
   return client;
 }
 
+/** Plan → model. Unknown or missing plan falls back to the global default model. */
+export function modelForPlan(plan?: string | null): string {
+  return (plan && config.planModels[plan]) || config.anthropicModel;
+}
+
+/** Haiku 4.5 (and other pre-4.6 models) reject `thinking: adaptive` — omit it there. */
+function supportsAdaptiveThinking(model: string): boolean {
+  return !/haiku|-4-5/.test(model);
+}
+
+interface LlmCall {
+  op: string;
+  model: string;
+  maxTokens: number;
+  system: string;
+  messages: Anthropic.Beta.BetaMessageParam[];
+  /** Structured outputs: force the response to match this JSON schema. */
+  schema?: Record<string, unknown>;
+}
+
+/**
+ * Start a streamed request with per-model parameters. On Fable 5 a server-side
+ * fallback re-runs a safety-refused request on Opus 4.8 within the same call —
+ * contract texts occasionally trip its classifiers on benign legal work.
+ */
+function startStream(api: Anthropic, call: LlmCall) {
+  const fable = call.model.includes('fable') || call.model.includes('mythos');
+  return api.beta.messages.stream({
+    model: call.model,
+    max_tokens: call.maxTokens,
+    system: call.system,
+    messages: call.messages,
+    ...(supportsAdaptiveThinking(call.model) ? { thinking: { type: 'adaptive' as const } } : {}),
+    ...(call.schema ? { output_config: { format: { type: 'json_schema' as const, schema: call.schema } } } : {}),
+    ...(fable ? { betas: ['server-side-fallback-2026-06-01'], fallbacks: [{ model: 'claude-opus-4-8' }] } : {}),
+  });
+}
+
+/** All text blocks joined — a rescued (fallback) response can carry several. */
+function textOf(message: Anthropic.Beta.BetaMessage): string {
+  return message.content
+    .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === 'text')
+    .map((b) => b.text)
+    .join('');
+}
+
+/**
+ * Run the request; when a plan-specific model fails (e.g. a document too large
+ * for a smaller model's context), try once more on the default model before
+ * surfacing the error.
+ */
+async function withModelRetry<T>(model: string, run: (model: string) => Promise<T>): Promise<T> {
+  try {
+    return await run(model);
+  } catch (err) {
+    if (model === config.anthropicModel) throw err;
+    console.warn(`[llm] ${model} failed (${(err as Error).message}); retrying on ${config.anthropicModel}`);
+    return run(config.anthropicModel);
+  }
+}
+
+function logUsage(op: string, requested: string, message: Anthropic.Beta.BetaMessage): void {
+  const rescued = (message.usage.iterations ?? []).some((i) => i.type === 'fallback_message');
+  // The API may echo a dated alias of the requested model (same model) — only
+  // show the arrow when a genuinely different model served the request.
+  const sameModel = message.model.startsWith(requested);
+  const served = sameModel ? message.model : `${requested} → served by ${message.model}`;
+  console.log(
+    `[llm] ${op}: ${served}${rescued ? ' (refusal rescued by fallback)' : ''}, in ${message.usage.input_tokens} / out ${message.usage.output_tokens} tokens`,
+  );
+}
+
 /** Everything the model produces; id/status are assigned server-side. */
 export interface GeneratedAnalysis {
   summary: string;
@@ -41,6 +113,8 @@ export interface AnalysisInput {
   pdf?: Buffer | null;
   /** User's default jurisdiction (e.g. "German law") from the country selector. */
   jurisdiction?: string | null;
+  /** Subscription plan of the requesting user — selects the Claude model. */
+  plan?: string | null;
 }
 
 const SEVERITY = ['High', 'Medium', 'Low'];
@@ -128,7 +202,7 @@ export async function generateAnalysis(input: AnalysisInput): Promise<GeneratedA
   if (!api) return fallbackAnalysis(input.fileName, input.jurisdiction);
 
   try {
-    const content: Anthropic.ContentBlockParam[] = [];
+    const content: Anthropic.Beta.BetaContentBlockParam[] = [];
     if (input.pdf) {
       content.push({
         type: 'document',
@@ -148,20 +222,23 @@ export async function generateAnalysis(input: AnalysisInput): Promise<GeneratedA
         jurisdictionNote,
     });
 
-    const stream = api.messages.stream({
-      model: config.anthropicModel,
-      max_tokens: 16000,
-      thinking: { type: 'adaptive' },
-      system: ANALYSIS_SYSTEM,
-      output_config: { format: { type: 'json_schema', schema: ANALYSIS_SCHEMA as unknown as Record<string, unknown> } },
-      messages: [{ role: 'user', content }],
-    });
-    const message = await stream.finalMessage();
-    if (message.stop_reason === 'refusal') throw new Error('model refused the request');
+    return await withModelRetry(modelForPlan(input.plan), async (model) => {
+      const stream = startStream(api, {
+        op: 'analysis',
+        model,
+        maxTokens: 16000,
+        system: ANALYSIS_SYSTEM,
+        schema: ANALYSIS_SCHEMA as unknown as Record<string, unknown>,
+        messages: [{ role: 'user', content }],
+      });
+      const message = await stream.finalMessage();
+      logUsage('analysis', model, message);
+      if (message.stop_reason === 'refusal') throw new Error('model refused the request');
 
-    const textBlock = message.content.find((b) => b.type === 'text');
-    if (!textBlock || textBlock.type !== 'text') throw new Error('no text block in response');
-    return normalizeGenerated(JSON.parse(textBlock.text));
+      const text = textOf(message);
+      if (!text) throw new Error('no text block in response');
+      return normalizeGenerated(JSON.parse(text));
+    });
   } catch (err) {
     console.warn(`[llm] analysis generation failed, using fallback: ${(err as Error).message}`);
     return fallbackAnalysis(input.fileName, input.jurisdiction);
@@ -179,7 +256,23 @@ function normalizeGenerated(raw: GeneratedAnalysis): GeneratedAnalysis {
         ? 'Elevated'
         : 'High';
 
-  const redlineIds = new Set(raw.redlines.map((r) => r.id));
+  // Slice and dedupe redlines FIRST, then filter document slots against the
+  // kept ids — otherwise slots could reference dropped rows, and duplicate ids
+  // from the model would violate the redlines primary key on insert.
+  const redlineIds = new Set<string>();
+  const redlines: GeneratedAnalysis['redlines'] = [];
+  for (const [i, r] of raw.redlines.slice(0, 8).entries()) {
+    const id = r.id || `r${i + 1}`;
+    if (redlineIds.has(id)) continue; // duplicate id from the model — keep the first
+    redlineIds.add(id);
+    redlines.push({
+      id,
+      delText: r.delText,
+      insText: r.insText,
+      severity: (SEVERITY.includes(r.severity) ? r.severity : 'Medium') as Severity,
+    });
+  }
+
   const document: DocBlock[] = raw.document.map((block) => {
     if (block.type === 'heading') return { type: 'heading', text: block.text ?? '' };
     const segments = (block.segments ?? []).filter(
@@ -198,12 +291,7 @@ function normalizeGenerated(raw: GeneratedAnalysis): GeneratedAnalysis {
       title: f.title,
       citation: f.citation,
     })),
-    redlines: raw.redlines.slice(0, 8).map((r, i) => ({
-      id: r.id || `r${i + 1}`,
-      delText: r.delText,
-      insText: r.insText,
-      severity: (SEVERITY.includes(r.severity) ? r.severity : 'Medium') as Severity,
-    })),
+    redlines,
     document,
   };
 }
@@ -228,6 +316,7 @@ export async function generateChatReply(
   onToken?: (delta: string) => void,
   docContext?: string,
   jurisdiction?: string,
+  plan?: string | null,
 ): Promise<string> {
   const api = getClient();
   if (!api) {
@@ -237,7 +326,7 @@ export async function generateChatReply(
   }
 
   try {
-    const messages: Anthropic.MessageParam[] = [
+    const messages: Anthropic.Beta.BetaMessageParam[] = [
       ...history.slice(-20).map((t) => ({ role: t.role, content: t.text })),
       { role: 'user' as const, content: userText },
     ];
@@ -248,20 +337,30 @@ export async function generateChatReply(
     if (docContext) {
       system += `\n\nThe user is working on the following contract. Ground every answer in it and quote the relevant clause when you make a claim about it.\n<contract>\n${docContext.slice(0, 100_000)}\n</contract>`;
     }
-    const stream = api.messages.stream({
-      model: config.anthropicModel,
-      max_tokens: 4096,
-      thinking: { type: 'adaptive' },
-      system,
-      messages,
-    });
-    if (onToken) stream.on('text', onToken);
-    const message = await stream.finalMessage();
-    if (message.stop_reason === 'refusal') throw new Error('model refused the request');
-    return message.content
-      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-      .map((b) => b.text)
-      .join('');
+    // Retry on the default model only while nothing has streamed to the client
+    // yet — a mid-stream retry would duplicate the visible reply.
+    let streamed = false;
+    const runChat = async (model: string): Promise<string> => {
+      const stream = startStream(api, { op: 'chat', model, maxTokens: 4096, system, messages });
+      if (onToken) {
+        stream.on('text', (delta) => {
+          streamed = true;
+          onToken(delta);
+        });
+      }
+      const message = await stream.finalMessage();
+      logUsage('chat', model, message);
+      if (message.stop_reason === 'refusal') throw new Error('model refused the request');
+      return textOf(message);
+    };
+    const primary = modelForPlan(plan);
+    try {
+      return await runChat(primary);
+    } catch (err) {
+      if (primary === config.anthropicModel || streamed) throw err;
+      console.warn(`[llm] ${primary} failed (${(err as Error).message}); retrying on ${config.anthropicModel}`);
+      return await runChat(config.anthropicModel);
+    }
   } catch (err) {
     console.warn(`[llm] chat generation failed, using fallback: ${(err as Error).message}`);
     const reply = fallbackChatReply(userText, Boolean(docContext));
@@ -311,30 +410,39 @@ const COMPARE_SCHEMA = {
   },
 } as const;
 
-export async function generateCompare(textA: string, textB: string, nameA: string, nameB: string): Promise<CompareResult> {
+export async function generateCompare(
+  textA: string,
+  textB: string,
+  nameA: string,
+  nameB: string,
+  plan?: string | null,
+): Promise<CompareResult> {
   const api = getClient();
   if (!api) return fallbackCompare();
   try {
-    const stream = api.messages.stream({
-      model: config.anthropicModel,
-      max_tokens: 16000,
-      thinking: { type: 'adaptive' },
-      system:
-        'You are LexAI, a senior contracts lawyer comparing two versions of the same contract. Identify every clause that was added, removed, or materially modified. Quote the clause text (trim to the relevant part, ≤ 60 words each side). Assess how each change shifts legal risk. Report 3–10 changes, most material first.',
-      output_config: { format: { type: 'json_schema', schema: COMPARE_SCHEMA as unknown as Record<string, unknown> } },
-      messages: [
-        {
-          role: 'user',
-          content: `Version A (${nameA}):\n<<<\n${textA.slice(0, 60_000)}\n>>>\n\nVersion B (${nameB}):\n<<<\n${textB.slice(0, 60_000)}\n>>>`,
-        },
-      ],
+    return await withModelRetry(modelForPlan(plan), async (model) => {
+      const stream = startStream(api, {
+        op: 'compare',
+        model,
+        maxTokens: 16000,
+        system:
+          'You are LexAI, a senior contracts lawyer comparing two versions of the same contract. Identify every clause that was added, removed, or materially modified. Quote the clause text (trim to the relevant part, ≤ 60 words each side). Assess how each change shifts legal risk. Report 3–10 changes, most material first.',
+        schema: COMPARE_SCHEMA as unknown as Record<string, unknown>,
+        messages: [
+          {
+            role: 'user',
+            content: `Version A (${nameA}):\n<<<\n${textA.slice(0, 60_000)}\n>>>\n\nVersion B (${nameB}):\n<<<\n${textB.slice(0, 60_000)}\n>>>`,
+          },
+        ],
+      });
+      const message = await stream.finalMessage();
+      logUsage('compare', model, message);
+      if (message.stop_reason === 'refusal') throw new Error('model refused the request');
+      const text = textOf(message);
+      if (!text) throw new Error('no text block in response');
+      const parsed = JSON.parse(text) as CompareResult;
+      return { summary: parsed.summary, changes: parsed.changes.slice(0, 12) };
     });
-    const message = await stream.finalMessage();
-    if (message.stop_reason === 'refusal') throw new Error('model refused the request');
-    const block = message.content.find((b) => b.type === 'text');
-    if (!block || block.type !== 'text') throw new Error('no text block in response');
-    const parsed = JSON.parse(block.text) as CompareResult;
-    return { summary: parsed.summary, changes: parsed.changes.slice(0, 12) };
   } catch (err) {
     console.warn(`[llm] compare failed, using fallback: ${(err as Error).message}`);
     return fallbackCompare();
@@ -355,35 +463,35 @@ export async function generateTemplateDraft(
   templateName: string,
   templateDescription: string,
   fields: TemplateFields,
+  plan?: string | null,
 ): Promise<string> {
   const api = getClient();
   if (!api) return fallbackTemplateDraft(templateName, fields);
   try {
-    const stream = api.messages.stream({
-      model: config.anthropicModel,
-      max_tokens: 16000,
-      thinking: { type: 'adaptive' },
-      system:
-        'You are LexAI, a senior commercial contracts lawyer. Draft a complete, professionally structured contract from the given template type. Use numbered clauses with headings, defined terms, and jurisdiction-appropriate boilerplate (governing law, notices, entire agreement). Write in the language of the user-provided details (default: English). Output plain text only — no markdown syntax.',
-      messages: [
-        {
-          role: 'user',
-          content: `Template: ${templateName} — ${templateDescription}
+    return await withModelRetry(modelForPlan(plan), async (model) => {
+      const stream = startStream(api, {
+        op: 'template',
+        model,
+        maxTokens: 16000,
+        system:
+          'You are LexAI, a senior commercial contracts lawyer. Draft a complete, professionally structured contract from the given template type. Use numbered clauses with headings, defined terms, and jurisdiction-appropriate boilerplate (governing law, notices, entire agreement). Write in the language of the user-provided details (default: English). Output plain text only — no markdown syntax.',
+        messages: [
+          {
+            role: 'user',
+            content: `Template: ${templateName} — ${templateDescription}
 Party A: ${fields.partyA}
 Party B: ${fields.partyB}
 Governing jurisdiction: ${fields.jurisdiction}
 Term / duration: ${fields.term}
 Additional requirements: ${fields.details || '—'}`,
-        },
-      ],
+          },
+        ],
+      });
+      const message = await stream.finalMessage();
+      logUsage('template', model, message);
+      if (message.stop_reason === 'refusal') throw new Error('model refused the request');
+      return textOf(message).trim();
     });
-    const message = await stream.finalMessage();
-    if (message.stop_reason === 'refusal') throw new Error('model refused the request');
-    return message.content
-      .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-      .map((b) => b.text)
-      .join('')
-      .trim();
   } catch (err) {
     console.warn(`[llm] template generation failed, using fallback: ${(err as Error).message}`);
     return fallbackTemplateDraft(templateName, fields);

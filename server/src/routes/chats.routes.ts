@@ -67,7 +67,7 @@ async function buildAnalysisContext(db: Db, userId: string, analysisId: string):
         .map((seg) => {
           if (typeof seg === 'string') return seg;
           const rl = byId.get(seg.redlineId);
-          return rl ? (rl.status === 'rejected' ? rl.del_text : rl.ins_text) : '';
+          return rl ? (rl.status === 'accepted' ? rl.ins_text : rl.del_text) : '';
         })
         .join('');
     })
@@ -195,10 +195,50 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
     return res.rows.map(toChatMessage);
   });
 
+  // Link a finished analysis to the session so the summary card survives a
+  // reopen: stores the file + analysis reference messages (no LLM call).
+  app.post('/chats/:id/analysis-ref', { preHandler: [app.authenticate] }, async (req, reply): Promise<ChatMessage[]> => {
+    const { id: sessionId } = req.params as { id: string };
+    await requireSession(req.currentUser.id, sessionId);
+    const body = asObject(req.body);
+    const analysisId = requireString(body, 'analysisId', { min: 1, max: 60 });
+    const a = await db.query<{ id: string; file_name: string; file_size: string }>(
+      'SELECT id, file_name, file_size FROM analyses WHERE id = $1 AND user_id = $2',
+      [analysisId, req.currentUser.id],
+    );
+    const analysis = a.rows[0];
+    if (!analysis) throw notFound('Analysis not found');
+    // Idempotent: the same analysis is linked to a session at most once.
+    const existing = await db.query<{ id: string }>(
+      `SELECT id FROM chat_messages WHERE session_id = $1 AND analysis_id = $2 LIMIT 1`,
+      [sessionId, analysisId],
+    );
+    if (!existing.rows[0]) {
+      await db.query(
+        `INSERT INTO chat_messages (id, session_id, role, kind, file_name, file_size)
+         VALUES ($1, $2, 'user', 'file', $3, $4)`,
+        [newId('m'), sessionId, analysis.file_name, analysis.file_size],
+      );
+      await db.query(
+        `INSERT INTO chat_messages (id, session_id, role, kind, analysis_id)
+         VALUES ($1, $2, 'assistant', 'analysis', $3)`,
+        [newId('m'), sessionId, analysisId],
+      );
+      await db.query('UPDATE chat_sessions SET updated_at = now() WHERE id = $1', [sessionId]);
+    }
+    reply.code(201);
+    const res = await db.query<MessageRow>(
+      `SELECT id, role, kind, text, file_name, file_size, analysis_id
+       FROM chat_messages WHERE session_id = $1 ORDER BY created_at`,
+      [sessionId],
+    );
+    return res.rows.map(toChatMessage);
+  });
+
   app.post('/chats/:id/messages', { preHandler: [app.authenticateReal] }, async (req, reply) => {
     const { id: sessionId } = req.params as { id: string };
     await requireSession(req.currentUser.id, sessionId);
-    await assertAiAllowance(db, req.currentUser.id);
+    const plan = await assertAiAllowance(db, req.currentUser.id);
     const body = asObject(req.body);
     const text = requireString(body, 'text', { min: 1, max: 20_000 });
     // Document Q&A: when the client passes the analysis it is looking at,
@@ -238,7 +278,7 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
     if (wantsSSE(req)) {
       const sse = openSSE(req, reply);
       try {
-        const replyText = await generateChatReply(history, text, (delta) => sse.send('token', { text: delta }), docContext, jurisdiction);
+        const replyText = await generateChatReply(history, text, (delta) => sse.send('token', { text: delta }), docContext, jurisdiction, plan);
         const message = await finish(replyText);
         sse.send('done', message);
       } catch (err) {
@@ -250,7 +290,7 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
       return reply;
     }
 
-    const replyText = await generateChatReply(history, text, undefined, docContext, jurisdiction);
+    const replyText = await generateChatReply(history, text, undefined, docContext, jurisdiction, plan);
     return finish(replyText);
   });
 }

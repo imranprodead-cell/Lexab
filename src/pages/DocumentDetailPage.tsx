@@ -43,7 +43,7 @@ export function DocumentDetailPage() {
   const adoptAnalysis = useChatStore((s) => s.adoptAnalysis);
 
   const { data: doc, loading, error, reload } = useAsync((signal) => documentsApi.get(id, signal), [id]);
-  const { data: versions } = useAsync((signal) => versionsApi.list(id, signal), [id]);
+  const { data: versions, error: versionsError } = useAsync((signal) => versionsApi.list(id, signal), [id]);
   const approvals = useAsync((signal) => approvalsApi.forDocument(id, signal), [id]);
   const { data: limits } = useAsync((signal) => billingApi.limits(signal), []);
 
@@ -446,7 +446,10 @@ export function DocumentDetailPage() {
                 <h2 className={styles.sectionTitle} style={{ marginBottom: 14 }}>
                   {t('ws.versionsTitle')}
                 </h2>
-                {(versions ?? []).length === 0 ? (
+                {versionsError ? (
+                  // Plan gate / network error — never present it as "no versions".
+                  <p style={{ margin: 0, fontSize: 14, color: 'var(--dim)' }}>{versionsError}</p>
+                ) : (versions ?? []).length === 0 ? (
                   <p style={{ margin: 0, fontSize: 14, color: 'var(--dim)' }}>{t('ws.noVersions')}</p>
                 ) : (
                   (versions ?? []).map((v) => (

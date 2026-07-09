@@ -17,6 +17,7 @@ import { ALLOWED_EXTENSIONS, extractText, fileExtension, MAX_UPLOAD_BYTES } from
 import { badRequest, notFound, unauthorized } from '../lib/errors.ts';
 import { formatSize } from '../lib/format.ts';
 import { newId } from '../lib/ids.ts';
+import { planFor } from '../lib/limits.ts';
 import { asObject, requireString } from '../lib/validate.ts';
 import { generateAnalysis } from '../llm.ts';
 import { getUserByEmail } from '../plugins/auth.ts';
@@ -46,6 +47,7 @@ export function inboundRoutes(app: FastifyInstance, db: Db): void {
         return reply.code(202).send({ status: 'ignored', reason: 'unknown sender' });
       }
 
+      const plan = await planFor(db, user.id);
       const results: { fileName: string; analysisId?: string; error?: string }[] = [];
       for (const raw of attachments.slice(0, 3)) {
         const att = asObject(raw, 'attachment');
@@ -75,7 +77,7 @@ export function inboundRoutes(app: FastifyInstance, db: Db): void {
           text,
           pdf: fileExtension(fileName) === '.pdf' ? buffer : null,
         };
-        const gen = await generateAnalysis({ fileName, text: source.text, pdf: source.pdf });
+        const gen = await generateAnalysis({ fileName, text: source.text, pdf: source.pdf, plan });
         const analysis = await persistAnalysis(db, user.id, source, gen);
         results.push({ fileName, analysisId: analysis.id });
       }

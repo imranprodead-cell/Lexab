@@ -68,7 +68,9 @@ async function documentText(db: Db, ownerId: string, fileName: string): Promise<
       if (typeof seg === 'string') text += seg;
       else {
         const rl = byId.get(seg.redlineId);
-        if (rl) text += rl.status === 'rejected' ? rl.del_text : rl.ins_text;
+        // Only ACCEPTED suggestions are applied; pending keeps the original —
+        // nobody signs AI edits the owner has not approved.
+        if (rl) text += rl.status === 'accepted' ? rl.ins_text : rl.del_text;
       }
     }
     lines.push(text);
@@ -121,6 +123,11 @@ export function signRoutes(app: FastifyInstance, db: Db): void {
     const remaining = Number(left.rows[0]?.count ?? 0);
     if (remaining === 0) {
       await db.query(`UPDATE signature_requests SET status = 'Completed' WHERE id = $1`, [row.request_id]);
+      // The contract itself is now fully signed — reflect it on the Documents page.
+      await db.query(
+        `UPDATE documents SET status = 'Signed', updated_at = now() WHERE user_id = $1 AND name = $2`,
+        [row.owner_id, row.document_name],
+      );
       await notify(db, row.owner_id, 'esign', 'Все подписи получены', 'All signatures collected', {
         bodyRu: `${row.document_name} · последняя подпись: ${name}`,
         bodyEn: `${row.document_name} · last signed by ${name}`,

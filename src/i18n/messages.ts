@@ -144,10 +144,10 @@ export const MESSAGES: Dict = {
   // Analytics
   'an.title': { ru: 'Аналитика', en: 'Analytics' },
   'an.sub': { ru: 'Ваша активность по обзору контрактов за 6 недель.', en: 'Your contract review activity over the last six weeks.' },
-  'an.contractsReviewed': { ru: 'Проверено контрактов', en: 'Contracts reviewed' },
+  'an.contractsReviewed': { ru: 'Проверок проведено', en: 'Reviews run' },
   'an.avgRisk': { ru: 'Средний риск', en: 'Avg. risk score' },
   'an.highRisk': { ru: 'Находок высокого риска', en: 'High-risk findings' },
-  'an.hoursSaved': { ru: 'Сэкономлено часов', en: 'Hours saved' },
+  'an.hoursSaved': { ru: 'Сэкономлено часов (оценка)', en: 'Hours saved (est.)' },
   'an.hours': { ru: 'ч', en: 'hrs' },
   'an.perWeek': { ru: 'Обзоров в неделю', en: 'Reviews per week' },
   'an.bySeverity': { ru: 'Находки по серьёзности', en: 'Findings by severity' },
@@ -207,8 +207,8 @@ export const MESSAGES: Dict = {
   'chat.an.step3': { ru: 'Формирую отчёт о рисках', en: 'Building risk report' },
 
   // Chat · summary card
-  'chat.sum.meta': { ru: 'Критичных находок: {n} · проверено пунктов: {m}', en: '{n} critical findings · {m} clauses reviewed' },
-  'chat.sum.top': { ru: 'Топ-{n} критичных находок', en: 'Top {n} critical findings' },
+  'chat.sum.meta': { ru: 'Находок: {n} · проверено пунктов: {m}', en: '{n} findings · {m} clauses reviewed' },
+  'chat.sum.top': { ru: 'Топ-{n} находок', en: 'Top {n} findings' },
   'chat.sum.followUp': { ru: 'Задать вопрос', en: 'Ask a follow-up' },
 
   // Chat · offline fallback replies (no AI connection)

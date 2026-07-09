@@ -9,7 +9,6 @@ import { EmptyState, ErrorState, SkeletonRows } from '@/components/ui/States';
 import { useAsync, useDismissable } from '@/hooks/useAsync';
 import { templatesApi } from '@/api';
 import { COUNTRIES, flagUrl } from '@/data/countries';
-import { TEMPLATES } from '@/data/seed';
 import { useUIStore } from '@/store/useUIStore';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { Template } from '@/types/domain';
@@ -49,10 +48,18 @@ export function TemplatesPage() {
   const pushToast = useUIStore((s) => s.pushToast);
   const [category, setCategory] = useState('All');
 
-  const categories = useMemo(() => ['All', ...Array.from(new Set(TEMPLATES.map((tpl) => tpl.category)))], []);
-
-  const { data, loading, error, reload } = useAsync((signal) => templatesApi.list(category, signal), [category]);
-  const rows = data ?? [];
+  // The category filter is derived from the templates the SERVER returns —
+  // the full list is fetched once and filtered client-side.
+  const { data, loading, error, reload } = useAsync((signal) => templatesApi.list('All', signal), []);
+  const allRows = useMemo(() => data ?? [], [data]);
+  const categories = useMemo(
+    () => ['All', ...Array.from(new Set(allRows.map((tpl) => tpl.category)))],
+    [allRows],
+  );
+  const rows = useMemo(
+    () => (category === 'All' ? allRows : allRows.filter((tpl) => tpl.category === category)),
+    [allRows, category],
+  );
 
   // Generator modal state.
   const [tpl, setTpl] = useState<Template | null>(null);

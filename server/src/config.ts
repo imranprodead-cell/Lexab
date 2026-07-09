@@ -26,6 +26,14 @@ export const config = {
 
   anthropicApiKey: env('ANTHROPIC_API_KEY'),
   anthropicModel: env('ANTHROPIC_MODEL', 'claude-opus-4-8'),
+  /** Per-plan Claude model: better plan → smarter model (see llm.ts modelForPlan). */
+  planModels: {
+    Free: env('ANTHROPIC_MODEL_FREE', 'claude-haiku-4-5'),
+    Standard: env('ANTHROPIC_MODEL_STANDARD', 'claude-opus-4-6'),
+    Pro: env('ANTHROPIC_MODEL_PRO', 'claude-opus-4-8'),
+    Business: env('ANTHROPIC_MODEL_BUSINESS', 'claude-fable-5'),
+    Enterprise: env('ANTHROPIC_MODEL_ENTERPRISE', env('ANTHROPIC_MODEL_BUSINESS', 'claude-fable-5')),
+  } as Record<string, string>,
 
   googleClientId: env('GOOGLE_CLIENT_ID'),
   googleClientSecret: env('GOOGLE_CLIENT_SECRET'),

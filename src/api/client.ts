@@ -10,7 +10,9 @@ import { ApiError } from './util';
 
 export const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api';
 
-export const USE_MOCK = (import.meta.env.VITE_USE_MOCK_API ?? 'true') === 'true';
+// Mock mode is OPT-IN: without the env var the app talks to the real backend.
+// (A fresh deploy that forgets the var must never silently show demo data.)
+export const USE_MOCK = import.meta.env.VITE_USE_MOCK_API === 'true';
 
 interface HttpOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';

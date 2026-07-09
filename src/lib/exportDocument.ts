@@ -23,7 +23,8 @@ function resolveSections(analysis: AnalysisResult): { heading?: string; text?: s
       if (typeof seg === 'string') paragraph += seg;
       else {
         const rl = byId.get(seg.redlineId);
-        if (rl) paragraph += rl.status === 'rejected' ? rl.delText : rl.insText;
+        // Only accepted suggestions are applied; pending keeps the original.
+        if (rl) paragraph += rl.status === 'accepted' ? rl.insText : rl.delText;
       }
     }
     sections.push({ text: paragraph });
@@ -49,8 +50,8 @@ function resolveText(analysis: AnalysisResult): string {
       } else {
         const rl = analysis.redlines.find((r) => r.id === seg.redlineId);
         if (!rl) continue;
-        // Accepted → insertion text; rejected → original; pending → accept suggestion.
-        paragraph += rl.status === 'rejected' ? rl.delText : rl.insText;
+        // Only accepted suggestions are applied; pending keeps the original.
+        paragraph += rl.status === 'accepted' ? rl.insText : rl.delText;
       }
     }
     parts.push(`<p>${paragraph}</p>`);

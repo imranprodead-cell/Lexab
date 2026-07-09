@@ -22,7 +22,10 @@ function resolveParagraph(analysis: AnalysisResult, index: number): string {
     .map((seg) => {
       if (typeof seg === 'string') return seg;
       const rl = byId.get(seg.redlineId);
-      return rl ? (rl.status === 'rejected' ? rl.delText : rl.insText) : '';
+      // Only ACCEPTED suggestions are applied. A pending one keeps the original
+      // wording — otherwise editing a paragraph for an unrelated typo would
+      // silently bake in AI changes the user never approved.
+      return rl ? (rl.status === 'accepted' ? rl.insText : rl.delText) : '';
     })
     .join('');
 }

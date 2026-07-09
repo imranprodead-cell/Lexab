@@ -35,6 +35,9 @@ export const documentsApi = {
     if (query.search) params.set('search', query.search);
     if (query.status) params.set('status', query.status);
     if (query.risk) params.set('risk', query.risk);
+    // Server default is 50 — ask for its maximum so the client-side counter,
+    // sorting and pagination see the whole library.
+    params.set('pageSize', '200');
     return http<ContractDocument[]>(`/documents?${params.toString()}`, { signal });
   },
 

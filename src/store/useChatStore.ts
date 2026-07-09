@@ -80,6 +80,14 @@ function clearStepTimers() {
 }
 
 export const useChatStore = create<ChatState>((set, get) => {
+  /** Once both the analysis and the server session exist, tie them together so
+   *  the summary card is restored when the session is reopened (idempotent). */
+  const tryLinkAnalysis = () => {
+    const { analysis, serverSessionId } = get();
+    if (USE_MOCK || !analysis || !serverSessionId) return;
+    void chatsApi.linkAnalysis(serverSessionId, analysis.id).catch(() => undefined);
+  };
+
   /** Reveal `full` a few characters at a time inside the assistant bubble. */
   const streamIn = (assistantId: string, full: string) => {
     if (streamTimer) clearInterval(streamTimer);
@@ -154,6 +162,7 @@ export const useChatStore = create<ChatState>((set, get) => {
         analysis: result,
         activeStep: ANALYSIS_STEPS.length,
       });
+      tryLinkAnalysis();
     } catch (err) {
       clearStepTimers();
       set({
@@ -246,7 +255,10 @@ export const useChatStore = create<ChatState>((set, get) => {
     }
   },
 
-  setServerSession: (id) => set({ serverSessionId: id }),
+  setServerSession: (id) => {
+    set({ serverSessionId: id });
+    tryLinkAnalysis();
+  },
 
   // Documents page → "Open workspace": show that document's own analysis.
   adoptAnalysis: (analysis) => {
@@ -274,6 +286,7 @@ export const useChatStore = create<ChatState>((set, get) => {
     if (!current) throw new Error('Nothing to re-analyse');
     const result = await analysisApi.reanalyze(current.id, defaultLaw());
     set({ analysis: result, phase: 'analyzed', activeStep: ANALYSIS_STEPS.length, error: null });
+    tryLinkAnalysis();
     return result;
   },
 
@@ -288,8 +301,18 @@ export const useChatStore = create<ChatState>((set, get) => {
       },
     });
     // Persist so the decision survives reloads and reaches exports/teammates.
+    // On failure the optimistic change is rolled back — the UI must never
+    // claim a decision the server did not store.
     if (status === 'accepted' || status === 'rejected') {
-      void analysisApi.updateRedline(analysis.id, id, status).catch(() => undefined);
+      void analysisApi.updateRedline(analysis.id, id, status).catch(() => {
+        const a = get().analysis;
+        if (a && a.id === analysis.id) {
+          set({
+            analysis: { ...a, redlines: a.redlines.map((r) => (r.id === id ? { ...r, status: 'pending' } : r)) },
+          });
+        }
+        useUIStore.getState().pushToast(tStandalone('common.error'), 'error');
+      });
     }
   },
 
@@ -303,15 +326,45 @@ export const useChatStore = create<ChatState>((set, get) => {
         redlines: analysis.redlines.map((r) => (r.status === 'pending' ? { ...r, status: 'accepted' } : r)),
       },
     });
-    for (const r of pending) {
-      void analysisApi.updateRedline(analysis.id, r.id, 'accepted').catch(() => undefined);
-    }
+    void Promise.allSettled(
+      pending.map((r) => analysisApi.updateRedline(analysis.id, r.id, 'accepted').then(() => r.id)),
+    ).then((results) => {
+      const failed = new Set(
+        results.flatMap((res, i) => (res.status === 'rejected' ? [pending[i].id] : [])),
+      );
+      if (!failed.size) return;
+      const a = get().analysis;
+      if (a && a.id === analysis.id) {
+        set({
+          analysis: { ...a, redlines: a.redlines.map((r) => (failed.has(r.id) ? { ...r, status: 'pending' } : r)) },
+        });
+      }
+      useUIStore.getState().pushToast(tStandalone('common.error'), 'error');
+    });
   },
 
   pendingRedlineCount: () =>
     get().analysis?.redlines.filter((r) => r.status === 'pending').length ?? 0,
 
   updateDocument: (document) =>
-    set((s) => (s.analysis ? { analysis: { ...s.analysis, document } } : s)),
+    set((s) => {
+      if (!s.analysis) return s;
+      // A manual paragraph edit can drop {redlineId} slots — retire pending
+      // suggestions that are no longer in the document (the server PATCH does
+      // the same), so the "N suggestions" counters match what is visible.
+      const referenced = new Set<string>();
+      for (const b of document) {
+        for (const seg of b.segments ?? []) {
+          if (typeof seg !== 'string') referenced.add(seg.redlineId);
+        }
+      }
+      return {
+        analysis: {
+          ...s.analysis,
+          document,
+          redlines: s.analysis.redlines.filter((r) => r.status !== 'pending' || referenced.has(r.id)),
+        },
+      };
+    }),
   };
 });

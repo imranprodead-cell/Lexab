@@ -67,8 +67,9 @@ function resolveSections(blocks: DocBlock[], redlines: Redline[]): { heading?: s
       } else {
         const rl = byId.get(seg.redlineId);
         if (!rl) continue;
-        // Accepted → insertion; rejected → original; pending → accept the suggestion.
-        text += rl.status === 'rejected' ? rl.delText : rl.insText;
+        // Only accepted suggestions are applied; pending keeps the original —
+        // same convention as the draft builder and the signing page.
+        text += rl.status === 'accepted' ? rl.insText : rl.delText;
       }
     }
     sections.push({ text });

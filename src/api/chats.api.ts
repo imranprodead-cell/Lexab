@@ -42,6 +42,16 @@ export const chatsApi = {
     return http<ChatMessage[]>(`/chats/${sessionId}/messages`, { signal });
   },
 
+  /** Tie a finished analysis to the session so its summary card survives a
+   *  reopen from the sidebar (idempotent on the server). */
+  async linkAnalysis(sessionId: string, analysisId: string): Promise<ChatMessage[]> {
+    if (USE_MOCK) {
+      await delay(40);
+      return [];
+    }
+    return http<ChatMessage[]>(`/chats/${sessionId}/analysis-ref`, { method: 'POST', body: { analysisId } });
+  },
+
   async create(title: string): Promise<ChatSession> {
     if (USE_MOCK) {
       await delay(150);

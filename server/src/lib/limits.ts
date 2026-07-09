@@ -105,18 +105,21 @@ export async function assertFeature(db: Db, userId: string, feature: PlanFeature
   );
 }
 
-/** 402 when the user has no AI allowance left this month. */
-export async function assertAiAllowance(db: Db, userId: string): Promise<void> {
+/** 402 when the user has no AI allowance left this month. Returns the plan
+ *  so callers can pick the Claude model for it without a second query. */
+export async function assertAiAllowance(db: Db, userId: string): Promise<string> {
   const plan = await planFor(db, userId);
   const limit = (PLAN_LIMITS[plan] ?? PLAN_LIMITS.Free).ai;
-  if (limit === null) return;
-  const { aiRequests } = await monthlyUsage(db, userId);
-  if (aiRequests >= limit) {
-    throw new HttpError(
-      402,
-      `Лимит ИИ-запросов тарифа ${plan} исчерпан (${aiRequests}/${limit} в этом месяце). ${upgradeHint}`,
-    );
+  if (limit !== null) {
+    const { aiRequests } = await monthlyUsage(db, userId);
+    if (aiRequests >= limit) {
+      throw new HttpError(
+        402,
+        `Лимит ИИ-запросов тарифа ${plan} исчерпан (${aiRequests}/${limit} в этом месяце). ${upgradeHint}`,
+      );
+    }
   }
+  return plan;
 }
 
 /** 402 when creating one more document would exceed the monthly quota. */
