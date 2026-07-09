@@ -92,7 +92,7 @@ export function AnalyticsPage() {
                     <div key={f.severity} className={styles.legendRow}>
                       <span className={styles.legendLeft}>
                         <Icon name={SEVERITY_ICON[f.severity] ?? 'alert'} size={15} color={toneColor(f.severity)} />
-                        {f.severity}
+                        {t(`sev.${f.severity}`)}
                       </span>
                       <span className={styles.legendValue}>{f.count}</span>
                     </div>

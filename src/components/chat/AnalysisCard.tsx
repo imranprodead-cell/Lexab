@@ -1,6 +1,7 @@
 import { Icon } from '@/components/icons/Icon';
 import { Badge } from '@/components/ui/Badge';
 import { GlassCard } from '@/components/ui/GlassCard';
+import { useI18n } from '@/i18n/I18nProvider';
 import styles from './chat.module.css';
 
 interface AnalysisCardProps {
@@ -12,23 +13,26 @@ interface AnalysisCardProps {
 
 /** Animated progress card shown while (and after) the contract is analyzed. */
 export function AnalysisCard({ steps, activeStep, done }: AnalysisCardProps) {
+  const { t } = useI18n();
   const pct = done ? 100 : Math.max(4, (activeStep / steps.length) * 100);
+  // Step captions live in the dictionary; the array only sets the count.
+  const stepLabel = (i: number) => t(`chat.an.step${i + 1}`);
 
   return (
     <GlassCard className={styles.card}>
       <div className={styles.cardHead} style={{ marginBottom: done ? 12 : 14 }}>
-        <span className={styles.cardTitle}>{done ? 'Analysis complete' : 'Analyzing contract'}</span>
-        {done ? <Badge color="Low">Complete</Badge> : <Badge color="Elevated">Working</Badge>}
+        <span className={styles.cardTitle}>{done ? t('chat.an.doneTitle') : t('chat.an.workingTitle')}</span>
+        {done ? <Badge color="Low">{t('chat.an.badgeDone')}</Badge> : <Badge color="Elevated">{t('chat.an.badgeWork')}</Badge>}
       </div>
 
       {done ? (
         <div className={styles.doneList}>
-          {steps.map((label) => (
+          {steps.map((label, i) => (
             <div key={label} className={styles.doneItem}>
               <span className={styles.doneCheck}>
                 <Icon name="check" size={10} strokeWidth={2.6} />
               </span>
-              {label}
+              {stepLabel(i)}
             </div>
           ))}
         </div>
@@ -52,7 +56,7 @@ export function AnalysisCard({ steps, activeStep, done }: AnalysisCardProps) {
                     state === 'active' ? styles.stepLabelActive : ''
                   }`}
                 >
-                  {label}
+                  {stepLabel(i)}
                 </span>
               </div>
             );

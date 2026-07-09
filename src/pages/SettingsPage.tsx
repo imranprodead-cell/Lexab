@@ -147,7 +147,6 @@ export function SettingsPage() {
   const validate = (): boolean => {
     const next: Partial<Record<keyof UserProfile, string>> = {};
     if (!form.name.trim()) next.name = t('settings.errName');
-    if (!form.firm.trim()) next.firm = t('settings.errFirm');
     setErrors(next);
     return Object.keys(next).length === 0;
   };
@@ -285,13 +284,16 @@ export function SettingsPage() {
                   error={errors.name}
                   onChange={(e) => update({ name: e.target.value, initials: initialsOf(e.target.value) })}
                 />
-                <TextField
-                  label={t('settings.organisation')}
-                  name="firm"
-                  value={form.firm}
-                  error={errors.firm}
-                  onChange={(e) => update({ firm: e.target.value })}
-                />
+                {form.teamName ? (
+                  // Named by the team owner/admin on the Team page — read-only here.
+                  <div className={styles.jurisField}>
+                    <span className={styles.jurisLabel}>{t('settings.organisation')}</span>
+                    <div className={styles.emailLock} aria-readonly="true">
+                      <span className={styles.emailLockText}>{form.teamName}</span>
+                    </div>
+                    <span className={styles.emailLockHint}>{t('settings.orgLocked')}</span>
+                  </div>
+                ) : null}
               </div>
               <div className={styles.formRow}>
                 <div className={styles.jurisField}>

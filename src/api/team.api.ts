@@ -89,6 +89,11 @@ export const teamApi = {
     await http<void>('/team/invitations/accept-by-token', { method: 'POST', body: { token } });
   },
 
+  /** Owner/admin names the organisation — once, immutable afterwards. */
+  setName(name: string): Promise<{ teamName: string }> {
+    return http<{ teamName: string }>('/team/name', { method: 'POST', body: { name } });
+  },
+
   async decline(id: string): Promise<void> {
     if (USE_MOCK) return;
     await http<void>(`/team/invitations/${id}/decline`, { method: 'POST' });

@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import { Icon } from '@/components/icons/Icon';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { useDismissable } from '@/hooks/useAsync';
-import { COUNTRIES } from '@/data/countries';
+import { COUNTRIES, countryName } from '@/data/countries';
 import { useUIStore } from '@/store/useUIStore';
 import { useI18n } from '@/i18n/I18nProvider';
 import { Flag } from './Flag';
@@ -11,7 +11,7 @@ import styles from './layout.module.css';
 /** Searchable jurisdiction picker shown in the top bar. Opens on hover.
  *  The chosen country becomes the default law context for AI analyses & chat. */
 export function CountrySelector() {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const country = useUIStore((s) => s.country);
   const setCountry = useUIStore((s) => s.setCountry);
   const pushToast = useUIStore((s) => s.pushToast);
@@ -42,6 +42,7 @@ export function CountrySelector() {
     return COUNTRIES.filter(
       (c) =>
         c.name.toLowerCase().includes(q) ||
+        c.nameEn.toLowerCase().includes(q) ||
         c.law.toLowerCase().includes(q) ||
         c.code.toLowerCase().includes(q),
     );
@@ -66,7 +67,7 @@ export function CountrySelector() {
         tabIndex={0}
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-label={`Jurisdiction: ${current.name}`}
+        aria-label={`Jurisdiction: ${countryName(current, lang)}`}
         onClick={() => {
           setOpen((v) => !v);
           setQuery('');
@@ -113,7 +114,7 @@ export function CountrySelector() {
                   >
                     <Flag code={c.code} size={26} />
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div className={styles.countryName}>{c.name}</div>
+                      <div className={styles.countryName}>{countryName(c, lang)}</div>
                       <div className={styles.countryLaw}>{c.law}</div>
                     </div>
                     {active ? <Icon name="check" size={15} color="var(--accent)" strokeWidth={2.4} /> : null}

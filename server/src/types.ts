@@ -133,6 +133,8 @@ export interface UserProfile {
   email: string;
   avatarUrl?: string;  /** Email confirmed via the verification link (Google users: auto-true). */
   emailVerified?: boolean;
+  /** Organisation name set by the team owner/admin (null = no named team). */
+  teamName?: string | null;
 }
 
 /** Notification shape from src/store/useNotificationsStore.ts. */

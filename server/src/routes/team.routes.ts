@@ -59,6 +59,19 @@ function toMember(row: MemberRow, ownerView = true): Member {
   };
 }
 
+/** Organisation name: my own team's, or the team's I'm an active member of. */
+export async function resolveTeamName(db: Db, userId: string): Promise<string | null> {
+  const res = await db.query<{ team_name: string | null }>(
+    `SELECT coalesce(
+       (SELECT team_name FROM users WHERE id = $1),
+       (SELECT u.team_name FROM team_members tm JOIN users u ON u.id = tm.owner_user_id
+        WHERE tm.member_user_id = $1 AND tm.status = 'active' ORDER BY tm.created_at LIMIT 1)
+     ) AS team_name`,
+    [userId],
+  );
+  return res.rows[0]?.team_name ?? null;
+}
+
 /** The invite is resolved — the bell's «Принять» button must go dead. */
 async function retireInviteNotifications(db: Db, inviteToken: string | null): Promise<void> {
   if (!inviteToken) return;
@@ -138,6 +151,31 @@ export function teamRoutes(app: FastifyInstance, db: Db): void {
       manageable: false,
     };
     return [ownerRow, ...rows.map((r) => toMember(r, iAmOwner))];
+  });
+
+  // Owner or an active admin names (or renames) the organisation.
+  app.post('/team/name', { preHandler: [app.authenticate] }, async (req) => {
+    const body = asObject(req.body);
+    const name = requireString(body, 'name', { min: 2, max: 80 }).trim();
+
+    // Whose team am I naming? My own, or the one where I'm an active admin.
+    let ownerId = req.currentUser.id;
+    const ownTeam = await db.query('SELECT 1 FROM team_members WHERE owner_user_id = $1 LIMIT 1', [ownerId]);
+    if (!ownTeam.rows[0]) {
+      const adminOf = await db.query<{ owner_user_id: string }>(
+        `SELECT owner_user_id FROM team_members
+         WHERE member_user_id = $1 AND status = 'active' AND role = 'admin'
+         ORDER BY created_at LIMIT 1`,
+        [req.currentUser.id],
+      );
+      if (!adminOf.rows[0]) {
+        throw new HttpError(403, 'Название может задать владелец команды или админ / Only the team owner or an admin can set the name');
+      }
+      ownerId = adminOf.rows[0].owner_user_id;
+    }
+
+    await db.query(`UPDATE users SET team_name = $2 WHERE id = $1`, [ownerId, name]);
+    return { teamName: name };
   });
 
   app.post('/team/invite', { preHandler: [app.authenticate] }, async (req, reply): Promise<Member> => {

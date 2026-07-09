@@ -159,4 +159,6 @@ export interface UserProfile {
   /** Data URL or remote URL of the user's avatar (optional). */
   avatarUrl?: string;  /** Email confirmed via the verification link. */
   emailVerified?: boolean;
+  /** Organisation name set by the team owner/admin (null = no named team). */
+  teamName?: string | null;
 }

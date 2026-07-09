@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { tStandalone } from '@/i18n/messages';
 import { useUIStore } from '@/store/useUIStore';
 
 /**
@@ -9,8 +10,8 @@ export function useNetworkStatus() {
   const pushToast = useUIStore((s) => s.pushToast);
 
   useEffect(() => {
-    const onOffline = () => pushToast('Соединение потеряно — работаем офлайн.', 'error');
-    const onOnline = () => pushToast('Соединение восстановлено.', 'success');
+    const onOffline = () => pushToast(tStandalone('net.lost'), 'error');
+    const onOnline = () => pushToast(tStandalone('net.back'), 'success');
     window.addEventListener('offline', onOffline);
     window.addEventListener('online', onOnline);
     return () => {

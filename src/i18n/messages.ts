@@ -192,6 +192,62 @@ export const MESSAGES: Dict = {
   'top.noNotifications': { ru: 'Пока нет уведомлений', en: 'No notifications yet' },
   'top.notifOpen': { ru: 'Открыть', en: 'Open' },
 
+  // Finding severities (chat summary + analytics legend)
+  'sev.High': { ru: 'Высокая', en: 'High' },
+  'sev.Medium': { ru: 'Средняя', en: 'Medium' },
+  'sev.Low': { ru: 'Низкая', en: 'Low' },
+
+  // Chat · analysis progress card
+  'chat.an.workingTitle': { ru: 'Анализирую контракт', en: 'Analyzing contract' },
+  'chat.an.doneTitle': { ru: 'Анализ завершён', en: 'Analysis complete' },
+  'chat.an.badgeWork': { ru: 'В работе', en: 'Working' },
+  'chat.an.badgeDone': { ru: 'Готово', en: 'Complete' },
+  'chat.an.step1': { ru: 'Разбираю структуру документа', en: 'Parsing document structure' },
+  'chat.an.step2': { ru: 'Сверяю с законодательством и практикой', en: 'Checking against statute & case law' },
+  'chat.an.step3': { ru: 'Формирую отчёт о рисках', en: 'Building risk report' },
+
+  // Chat · summary card
+  'chat.sum.meta': { ru: 'Критичных находок: {n} · проверено пунктов: {m}', en: '{n} critical findings · {m} clauses reviewed' },
+  'chat.sum.top': { ru: 'Топ-{n} критичных находок', en: 'Top {n} critical findings' },
+  'chat.sum.followUp': { ru: 'Задать вопрос', en: 'Ask a follow-up' },
+
+  // Chat · offline fallback replies (no AI connection)
+  'chat.mock.draft': {
+    ru: 'Готовлю черновик. Вот структура двустороннего NDA (право Великобритании): 1) Стороны и определения; 2) Конфиденциальная информация; 3) Обязательства получателя; 4) Исключения; 5) Срок и возврат; 6) Средства правовой защиты; 7) Применимое право. Скажите, какие пункты уточнить.',
+    en: 'Drafting. Here is the structure of a mutual NDA (UK law): 1) Parties and definitions; 2) Confidential information; 3) Recipient obligations; 4) Exclusions; 5) Term and return; 6) Remedies; 7) Governing law. Tell me which clauses to refine.',
+  },
+  'chat.mock.compare': {
+    ru: 'Сравнение версий: обнаружено 6 изменённых пунктов. Ключевые: срок уведомления о расторжении сокращён с 3 месяцев до 1; добавлена оговорка о неконкуренции (12 мес.); изменён порядок разрешения споров на арбитраж LCIA. Открыть детальный дифф?',
+    en: 'Version compare: 6 changed clauses found. Key ones: termination notice cut from 3 months to 1; a non-compete clause added (12 months); dispute resolution switched to LCIA arbitration. Open the detailed diff?',
+  },
+  'chat.mock.translate': {
+    ru: 'Готов перевести и локализовать текст. Укажите целевой язык и юрисдикцию — я адаптирую терминологию и ссылки на нормы под местное право.',
+    en: 'Ready to translate and localise the text. Name the target language and jurisdiction — I will adapt the terminology and statutory references to local law.',
+  },
+  'chat.mock.default': {
+    ru: 'Принял. Уточните детали контракта или пункта — и я подготовлю ответ со ссылками на применимые нормы. Для полного обзора рисков загрузите документ или используйте /analyze.',
+    en: 'Got it. Share the contract or clause details and I will prepare an answer with references to the applicable rules. For a full risk review upload a document or use /analyze.',
+  },
+
+  // Network status
+  'net.lost': { ru: 'Соединение потеряно — работаем офлайн.', en: 'Connection lost — working offline.' },
+  'net.back': { ru: 'Соединение восстановлено.', en: 'Connection restored.' },
+  'net.offline': { ru: 'Нет подключения к интернету.', en: 'No internet connection.' },
+
+  // Team · organisation name
+  'team.orgPh': { ru: 'Название организации (например, ООО «Ромашка»)', en: 'Organisation name (e.g. Acme Inc.)' },
+  'team.orgSave': { ru: 'Сохранить название', en: 'Save name' },
+  'team.orgSaved': { ru: 'Название организации сохранено.', en: 'Organisation name saved.' },
+  'team.orgEdit': { ru: 'Изменить', en: 'Edit' },
+  'team.orgHint': {
+    ru: 'Название увидит вся команда в Настройках.',
+    en: 'The whole team will see this name in Settings.',
+  },
+  'settings.orgLocked': {
+    ru: 'Название организации задаёт владелец команды или админ — здесь его изменить нельзя',
+    en: 'The organisation name is managed by the team owner or an admin — it cannot be changed here',
+  },
+
   // Job titles (approval steps + team invites)
   'roles.placeholder': { ru: 'Выберите должность…', en: 'Pick a role…' },
   'roles.editor': { ru: 'Редактор', en: 'Editor' },
@@ -213,7 +269,7 @@ export const MESSAGES: Dict = {
   'integr.statusSoon': { ru: 'Скоро — идёт настройка', en: 'Coming soon — being set up' },
   'integr.connect': { ru: 'Подключить', en: 'Connect' },
   'integr.disconnect': { ru: 'Отключить', en: 'Disconnect' },
-  'integr.connected': { ru: 'Интеграция подключена ✓', en: 'Integration connected ✓' },
+  'integr.connected': { ru: 'Интеграция подключена', en: 'Integration connected' },
   'integr.connectFailed': { ru: 'Не получилось подключить — попробуйте ещё раз', en: 'Connection failed — please try again' },
   'integr.disconnected': { ru: 'Интеграция отключена', en: 'Integration disconnected' },
   'integr.hint': {

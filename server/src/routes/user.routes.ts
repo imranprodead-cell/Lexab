@@ -4,9 +4,13 @@ import type { Db } from '../db.ts';
 import { badRequest } from '../lib/errors.ts';
 import { asObject, optionalString } from '../lib/validate.ts';
 import { getUserById, toProfile, type UserRow } from '../plugins/auth.ts';
+import { resolveTeamName } from './team.routes.ts';
 
 export function userRoutes(app: FastifyInstance, db: Db): void {
-  app.get('/me', { preHandler: [app.authenticate] }, async (req) => toProfile(req.currentUser));
+  app.get('/me', { preHandler: [app.authenticate] }, async (req) => ({
+    ...toProfile(req.currentUser),
+    teamName: await resolveTeamName(db, req.currentUser.id),
+  }));
 
   app.patch('/me', { preHandler: [app.authenticate] }, async (req) => {
     const body = asObject(req.body);
@@ -46,6 +50,6 @@ export function userRoutes(app: FastifyInstance, db: Db): void {
       await db.query(`UPDATE users SET ${sets} WHERE id = $1`, [req.currentUser.id, ...keys.map((k) => patch[k])]);
     }
     const user = (await getUserById(db, req.currentUser.id)) as UserRow;
-    return toProfile(user);
+    return { ...toProfile(user), teamName: await resolveTeamName(db, req.currentUser.id) };
   });
 }

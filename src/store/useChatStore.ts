@@ -37,16 +37,10 @@ const STEP_INTERVAL = 1150;
 /** Mock assistant replies per slash command — replaced by a real chat endpoint. */
 function mockReply(text: string): string {
   const t = text.trim().toLowerCase();
-  if (t.startsWith('/draft')) {
-    return 'Готовлю черновик. Вот структура двустороннего NDA (право Великобритании): 1) Стороны и определения; 2) Конфиденциальная информация; 3) Обязательства получателя; 4) Исключения; 5) Срок и возврат; 6) Средства правовой защиты; 7) Применимое право. Скажите, какие пункты уточнить.';
-  }
-  if (t.startsWith('/compare')) {
-    return 'Сравнение версий: обнаружено 6 изменённых пунктов. Ключевые: срок уведомления о расторжении сокращён с 3 месяцев до 1; добавлена оговорка о неконкуренции (12 мес.); изменён порядок разрешения споров на арбитраж LCIA. Открыть детальный дифф?';
-  }
-  if (t.startsWith('/translate')) {
-    return 'Готов перевести и локализовать текст. Укажите целевой язык и юрисдикцию — я адаптирую терминологию и ссылки на нормы под местное право.';
-  }
-  return 'Принял. Уточните детали контракта или пункта — и я подготовлю ответ со ссылками на применимые нормы. Для полного обзора рисков загрузите документ или используйте /analyze.';
+  if (t.startsWith('/draft')) return tStandalone('chat.mock.draft');
+  if (t.startsWith('/compare')) return tStandalone('chat.mock.compare');
+  if (t.startsWith('/translate')) return tStandalone('chat.mock.translate');
+  return tStandalone('chat.mock.default');
 }
 
 interface ChatState {

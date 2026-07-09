@@ -5,6 +5,7 @@
  * `VITE_USE_MOCK_API` is not "true". Until the backend exists they route to the
  * mock implementation instead, so no UI code changes when the switch is flipped.
  */
+import { tStandalone } from '@/i18n/messages';
 import { ApiError } from './util';
 
 export const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api';
@@ -37,7 +38,7 @@ export async function http<T>(path: string, options: HttpOptions = {}): Promise<
   const { method = 'GET', body, signal, headers = {}, retries = method === 'GET' ? 2 : 0 } = options;
 
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-    throw new ApiError('Нет подключения к интернету.', 0);
+    throw new ApiError(tStandalone('net.offline'), 0);
   }
 
   let lastError: unknown;

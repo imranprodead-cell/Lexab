@@ -2,17 +2,21 @@
 export interface Country {
   code: string; // ISO 3166-1 alpha-2 (drives the flag image)
   name: string;
+  nameEn: string;
   law: string;
 }
 
+/** Country display name in the interface language. */
+export const countryName = (c: Country, lang: string) => (lang === 'ru' ? c.name : c.nameEn);
+
 export const COUNTRIES: Country[] = [
-  { code: 'US', name: 'США', law: 'US law' },
-  { code: 'GB', name: 'Великобритания', law: 'UK law' },
-  { code: 'DE', name: 'Германия', law: 'German law' },
-  { code: 'CA', name: 'Канада', law: 'Canadian law' },
-  { code: 'KZ', name: 'Казахстан', law: 'Kazakh law' },
-  { code: 'UZ', name: 'Узбекистан', law: 'Uzbek law' },
-  { code: 'AE', name: 'ОАЭ', law: 'UAE law' },
+  { code: 'US', name: 'США', nameEn: 'United States', law: 'US law' },
+  { code: 'GB', name: 'Великобритания', nameEn: 'United Kingdom', law: 'UK law' },
+  { code: 'DE', name: 'Германия', nameEn: 'Germany', law: 'German law' },
+  { code: 'CA', name: 'Канада', nameEn: 'Canada', law: 'Canadian law' },
+  { code: 'KZ', name: 'Казахстан', nameEn: 'Kazakhstan', law: 'Kazakh law' },
+  { code: 'UZ', name: 'Узбекистан', nameEn: 'Uzbekistan', law: 'Uzbek law' },
+  { code: 'AE', name: 'ОАЭ', nameEn: 'UAE', law: 'UAE law' },
 ];
 
 /** Per-flag crop tuning so round flags stay centered on their emblem. */

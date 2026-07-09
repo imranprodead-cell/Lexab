@@ -7,8 +7,9 @@ import { GlassCard } from '@/components/ui/GlassCard';
 import { TextField } from '@/components/ui/TextField';
 import { RoleSelect, type RolePresetKey } from '@/components/ui/RoleSelect';
 import { EmptyState, ErrorState, SkeletonRows } from '@/components/ui/States';
-import { useAsync } from '@/hooks/useAsync';
-import { ROLE_COLORS, teamApi, type TeamRole } from '@/api';
+import { useAsync, clearAsyncCache } from '@/hooks/useAsync';
+import { ROLE_COLORS, teamApi, userApi, type TeamRole } from '@/api';
+import { useAuthStore } from '@/store/useAuthStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useI18n } from '@/i18n/I18nProvider';
 import { initialsOf } from '@/lib/format';
@@ -31,11 +32,41 @@ export function TeamPage() {
   const { t } = useI18n();
   const pushToast = useUIStore((s) => s.pushToast);
 
+  const authUser = useAuthStore((s) => s.user);
   const members = useAsync((signal) => teamApi.members(signal), []);
   const invitations = useAsync((signal) => teamApi.invitations(signal), []);
+  const profile = useAsync((signal) => userApi.me(signal), []);
 
   // Inviting is the owner's power; members of someone else's team only look.
   const canInvite = (members.data ?? []).length === 0 || (members.data ?? []).some((m) => m.manageable);
+
+  // Organisation name: the owner (or an admin) sets it; members only see it.
+  const teamName = profile.data?.teamName ?? null;
+  const myRow = (members.data ?? []).find((m) => m.email.toLowerCase() === (authUser?.email ?? '').toLowerCase());
+  const hasTeam = (members.data ?? []).length > 0;
+  const canManageName = hasTeam && profile.data !== null && (canInvite || myRow?.roleKey === 'team.role.admin');
+  const [editingName, setEditingName] = useState(false);
+  const showNameForm = canManageName && (!teamName || editingName);
+  const [orgName, setOrgName] = useState('');
+  const [orgSaving, setOrgSaving] = useState(false);
+
+  const saveOrgName = async (e: FormEvent) => {
+    e.preventDefault();
+    const trimmed = orgName.trim();
+    if (trimmed.length < 2) return;
+    setOrgSaving(true);
+    try {
+      await teamApi.setName(trimmed);
+      clearAsyncCache(); // Settings and this page must pick the name up at once
+      profile.reload();
+      setEditingName(false);
+      pushToast(t('team.orgSaved'), 'success');
+    } catch (err) {
+      pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
+    } finally {
+      setOrgSaving(false);
+    }
+  };
 
   const [modalOpen, setModalOpen] = useState(false);
   const [email, setEmail] = useState('');
@@ -117,8 +148,22 @@ export function TeamPage() {
             style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 16, flexWrap: 'wrap' }}
           >
             <div>
-              <h1 className={styles.pageTitle}>{t('team.title')}</h1>
-              <p className={styles.pageSub}>{t('team.sub')}</p>
+              <h1 className={styles.pageTitle} style={{ display: 'flex', alignItems: 'baseline', gap: 12, flexWrap: 'wrap' }}>
+                {teamName || t('team.title')}
+                {teamName && canManageName && !editingName ? (
+                  <button
+                    type="button"
+                    className={styles.orgEditBtn}
+                    onClick={() => {
+                      setOrgName(teamName);
+                      setEditingName(true);
+                    }}
+                  >
+                    {t('team.orgEdit')}
+                  </button>
+                ) : null}
+              </h1>
+              <p className={styles.pageSub}>{teamName ? `${t('team.title')} · ${t('team.sub')}` : t('team.sub')}</p>
             </div>
             {canInvite ? (
               <Button variant="primary" icon="plus" onClick={openModal}>
@@ -126,6 +171,32 @@ export function TeamPage() {
               </Button>
             ) : null}
           </div>
+
+          {/* Organisation naming / renaming (owner or admin only). */}
+          {showNameForm ? (
+            <GlassCard className={styles.inviteBanner}>
+              <form onSubmit={saveOrgName} style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', width: '100%' }}>
+                <div style={{ flex: 1, minWidth: 220 }}>
+                  <TextField
+                    placeholder={t('team.orgPh')}
+                    name="orgName"
+                    value={orgName}
+                    autoComplete="off"
+                    onChange={(e) => setOrgName(e.target.value)}
+                  />
+                </div>
+                <Button type="submit" variant="primary" icon="check" disabled={orgSaving || orgName.trim().length < 2}>
+                  {orgSaving ? t('common.loading') : t('team.orgSave')}
+                </Button>
+                {editingName ? (
+                  <button type="button" className={styles.orgEditBtn} onClick={() => setEditingName(false)}>
+                    {t('common.cancel')}
+                  </button>
+                ) : null}
+                <p className={styles.modalHint} style={{ margin: 0, width: '100%' }}>{t('team.orgHint')}</p>
+              </form>
+            </GlassCard>
+          ) : null}
 
           {/* Invitations addressed to me — join only after accepting. */}
           {(invitations.data ?? []).map((inv) => (
