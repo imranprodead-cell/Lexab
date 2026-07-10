@@ -28,11 +28,13 @@ Alternative accents offered in Settings: `#5b8def`, `#3fb8af`, `#e0666b`.
 ## Typography
 
 - **Sans:** Instrument Sans (400/500/600/700) — UI text.
-- **Mono:** JetBrains Mono (400/500/600) — citations, badges, metadata, code-ish chips.
+- **Label:** Manrope (400/500/600/700), `--font-label` — citations, badges,
+  metadata, uppercase section eyebrows. Full Cyrillic. (Replaced JetBrains
+  Mono in 2026-07; the CSS variable was renamed `--font-mono` → `--font-label`.)
 - **Serif:** Georgia — the contract document body only.
 
 Notable sizes: welcome H1 34px/700; page title 22px/700; body 15px; card title
-14.5px/600; badge 10.5px mono uppercase; risk gauge number 34px/700.
+14.5px/600; badge 10.5px label-face uppercase; risk gauge number 34px/700.
 
 ## Radii
 

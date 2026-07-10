@@ -1,0 +1,204 @@
+/* ── Floating Telegram dock (right edge, vertically centered) ────────────── */
+
+.dock {
+  position: fixed;
+  right: 18px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  z-index: 70;
+}
+
+/* While the auth screen fades out it gets a transform, which re-anchors
+   position:fixed to the scrolled container — hide the dock for that beat. */
+.dockHidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.tg {
+  position: relative;
+}
+
+.tgBtn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  touch-action: manipulation;
+  padding: 13px 11px 11px;
+  border-radius: 999px;
+  background: linear-gradient(165deg, var(--accent), color-mix(in srgb, var(--accent) 60%, #3a2f80));
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  text-decoration: none;
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--accent) 28%, transparent);
+  transition: box-shadow var(--dur-mid) var(--ease), transform var(--dur-mid) var(--ease);
+}
+
+.tgBtn:hover,
+.tg:focus-within .tgBtn {
+  transform: translateY(-1px);
+  box-shadow:
+    0 14px 44px color-mix(in srgb, var(--accent) 55%, transparent),
+    0 0 0 5px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.tgIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #ffffff;
+  color: color-mix(in srgb, var(--accent) 80%, #1c1c22);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.05);
+}
+
+.tgIcon svg {
+  /* Optically center the paper plane inside the circle. */
+  transform: translate(-1px, 1px);
+}
+
+.tgLabel {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: #ffffff;
+}
+
+/* QR popover to the left of the pill */
+
+.qrPop {
+  position: absolute;
+  right: calc(100% + 16px);
+  top: 50%;
+  width: 216px;
+  padding: 16px 16px 14px;
+  border-radius: 18px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-pop);
+  text-align: center;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-50%) translateX(8px);
+  transition: opacity var(--dur-mid) var(--ease), transform var(--dur-mid) var(--ease);
+}
+
+/* Hover-reveal only on mouse-driven devices: on touch, revealing content on
+   :hover makes iOS swallow the first tap on the link (tap = hover heuristic)
+   and leaves the QR unreachable on Android — there a tap just opens t.me. */
+@media (hover: hover) and (pointer: fine) {
+  .tg:hover .qrPop,
+  .tg:focus-within .qrPop {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(-50%);
+  }
+}
+
+.qrTitle {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin-bottom: 12px;
+}
+
+.qrCard {
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+}
+
+.qrSvg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.qrUser {
+  margin-top: 10px;
+  font-family: var(--font-label);
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+
+.qrHint {
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--dim);
+}
+
+.qrArrow {
+  position: absolute;
+  left: 100%;
+  top: 50%;
+  margin-top: -7px;
+  border: 7px solid transparent;
+  border-left-color: var(--panel);
+  filter: drop-shadow(1px 0 0 var(--border));
+}
+
+/* Back-to-top button */
+
+.toTop {
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--dim);
+  cursor: pointer;
+  touch-action: manipulation;
+  box-shadow: var(--shadow-card);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(6px);
+  transition: opacity var(--dur-mid) var(--ease), transform var(--dur-mid) var(--ease),
+    color var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+}
+
+.toTopVisible {
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
+}
+
+.toTop:hover {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+
+/* Responsive */
+
+@media (max-width: 640px) {
+  /* Keep the dock clear of the sign-in card: pin it to the lower corner. */
+  .dock {
+    right: 10px;
+    top: auto;
+    bottom: 20px;
+    transform: none;
+  }
+  .tgBtn {
+    padding: 10px 9px 9px;
+  }
+  .tgIcon {
+    width: 34px;
+    height: 34px;
+  }
+  .tgLabel {
+    font-size: 10.5px;
+  }
+  .qrPop {
+    width: 190px;
+  }
+}

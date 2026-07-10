@@ -59,7 +59,7 @@
   font-size: 13px;
   font-weight: 600;
   color: var(--dim);
-  font-family: var(--font-mono);
+  font-family: var(--font-label);
 }
 .row {
   display: grid;

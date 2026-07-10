@@ -55,7 +55,9 @@
 
   /* Type */
   --font-sans: 'Instrument Sans', system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  /* Label/accent face for eyebrows, badges and small captions (was JetBrains
+     Mono). Manrope: clean semi-geometric sans with full Cyrillic support. */
+  --font-label: 'Manrope', 'Instrument Sans', system-ui, sans-serif;
   --font-serif: Georgia, 'Times New Roman', serif;
 
   /* Motion — set to 0s by the UI store when reduce-motion is on */
@@ -112,6 +114,28 @@ html[data-reduce-motion='true'] *::after {
   animation-duration: 0.001s !important;
   animation-iteration-count: 1 !important;
   transition-duration: 0.001s !important;
+}
+
+/* The OS-level setting gets the same treatment as the in-app toggle. */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    --dur-fast: 0s;
+    --dur-mid: 0s;
+    --dur-slow: 0s;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001s !important;
+  }
+}
+
+/* Keyboard focus: one consistent ring app-wide (invisible for mouse/touch). */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 * {

@@ -1,16 +1,20 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { GlassCard } from '@/components/ui/GlassCard';
+import { LanguageMenu } from '@/components/ui/LanguageMenu';
 import { TextField } from '@/components/ui/TextField';
 import { Icon } from '@/components/icons/Icon';
+import { LandingSections } from '@/components/landing/LandingSections';
+import { TelegramWidget } from '@/components/landing/TelegramWidget';
 import { teamApi } from '@/api';
 import { authApi } from '@/api/auth.api';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useUIStore } from '@/store/useUIStore';
+import { useResolvedDark } from '@/hooks/useResolvedDark';
 import { useI18n } from '@/i18n/I18nProvider';
-import { LANGUAGES } from '@/i18n/messages';
+import { scrollBehavior } from '@/lib/scroll';
 import type { UserProfile } from '@/types/domain';
 import styles from './auth.module.css';
 
@@ -58,16 +62,27 @@ function GoogleLogo() {
   );
 }
 
+/** Landing nav pill: section anchors rendered in the sticky top banner. */
+const NAV_SECTIONS = [
+  { id: 'features', key: 'landing.nav.features' },
+  { id: 'solutions', key: 'landing.nav.solutions' },
+  { id: 'security', key: 'landing.nav.security' },
+  { id: 'plans', key: 'landing.nav.plans' },
+  { id: 'faq', key: 'landing.nav.faq' },
+] as const;
+
 /** Sign-in / sign-up screen: Google OAuth + expandable email form. */
 export function AuthPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { t, lang, setLang } = useI18n();
+  const { t, lang } = useI18n();
   const login = useAuthStore((s) => s.login);
   const register = useAuthStore((s) => s.register);
   const adoptSession = useAuthStore((s) => s.adoptSession);
   const status = useAuthStore((s) => s.status);
   const pushToast = useUIStore((s) => s.pushToast);
+  const toggleTheme = useUIStore((s) => s.toggleTheme);
+  const dark = useResolvedDark();
 
   const token = useAuthStore((s) => s.token);
 
@@ -82,6 +97,10 @@ export function AuthPage() {
   const [finishing, setFinishing] = useState(() => window.location.hash.startsWith('#session='));
   /** Fade the whole screen out before navigating into the app. */
   const [leaving, setLeaving] = useState(false);
+  /** The page's own scroll container (#root is overflow:hidden). */
+  const rootRef = useRef<HTMLDivElement>(null);
+  /** Landing section currently in view — highlights its nav pill item. */
+  const [activeSection, setActiveSection] = useState<string | null>(null);
 
   // Team invite link (/login?invite=<token>): show who invites and land on /team.
   const inviteToken = new URLSearchParams(location.search).get('invite');
@@ -190,6 +209,48 @@ export function AuthPage() {
     setError(null);
   };
 
+  const scrollToSection = (id: string) => {
+    document.getElementById(id)?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
+    // Keep the section address shareable without polluting history.
+    window.history.replaceState(null, '', `#${id}`);
+  };
+
+  /** Landing CTAs: back to the top of the page with the sign-up form open. */
+  const startSignup = () => {
+    setEmailOpen(true);
+    setMode('signup');
+    rootRef.current?.scrollTo({ top: 0, behavior: scrollBehavior() });
+  };
+
+  // Deep link: /login#plans etc. opens scrolled to that section.
+  useEffect(() => {
+    if (finishing) return;
+    const id = window.location.hash.slice(1);
+    if (!id || !NAV_SECTIONS.some((s) => s.id === id)) return;
+    requestAnimationFrame(() => {
+      document.getElementById(id)?.scrollIntoView({ behavior: 'auto', block: 'start' });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Scrollspy: highlight the nav item of the section crossing mid-viewport.
+  useEffect(() => {
+    if (finishing || typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) setActiveSection(entry.target.id);
+        }
+      },
+      { root: rootRef.current, rootMargin: '-35% 0px -55% 0px' },
+    );
+    const watched = NAV_SECTIONS.map((s) => document.getElementById(s.id)).filter(
+      (el): el is HTMLElement => el !== null,
+    );
+    watched.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+  }, [finishing]);
+
   // Branded hand-off screen while the Google session settles in.
   if (finishing) {
     return (
@@ -206,18 +267,42 @@ export function AuthPage() {
   }
 
   return (
-    <div className={`${styles.auth} ${leaving ? styles.authLeaving : ''}`}>
-      <div className={styles.langRow}>
-        {LANGUAGES.map((l) => (
-          <button
-            key={l.code}
-            className={`${styles.langBtn} ${lang === l.code ? styles.langBtnActive : ''}`}
-            onClick={() => setLang(l.code)}
-          >
-            {l.short}
+    <div className={`${styles.auth} ${leaving ? styles.authLeaving : ''}`} ref={rootRef}>
+      {/* ── Sticky top banner: section nav pill + language/theme controls ── */}
+      <header className={styles.topBar}>
+        <div className={styles.topBarSide} />
+        <nav className={styles.navPill} aria-label={t('landing.nav.aria')}>
+          {NAV_SECTIONS.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              className={`${styles.navBtn} ${activeSection === s.id ? styles.navBtnActive : ''}`}
+              aria-current={activeSection === s.id ? 'true' : undefined}
+              onClick={() => scrollToSection(s.id)}
+            >
+              {t(s.key)}
+            </button>
+          ))}
+        </nav>
+        <div className={`${styles.topBarSide} ${styles.topBarRight}`}>
+          <button type="button" className={styles.headerCta} onClick={startSignup}>
+            {t('landing.navCta')}
           </button>
-        ))}
-      </div>
+          <div className={styles.controlsPill}>
+            <LanguageMenu />
+            <span className={styles.controlsDivider} />
+            <button
+              type="button"
+              className={styles.themeBtn}
+              onClick={toggleTheme}
+              aria-label={dark ? t('top.theme.toLight') : t('top.theme.toDark')}
+              title={dark ? t('top.theme.toLight') : t('top.theme.toDark')}
+            >
+              <Icon name={dark ? 'moon' : 'sun'} size={17} />
+            </button>
+          </div>
+        </div>
+      </header>
 
       <div className={styles.layout}>
         {/* ── Left: brand, hero, sign-in card ─────────────────────────────── */}
@@ -237,6 +322,15 @@ export function AuthPage() {
               <span className={styles.heroAccent}>{t('auth.heroLine2')}</span>
             </h1>
             <p className={styles.heroSub}>{t('auth.heroSub')}</p>
+
+            <div className={styles.heroCtas}>
+              <button type="button" className={styles.heroCtaOutline} onClick={() => scrollToSection('how-it-works')}>
+                {t('landing.howItWorks')}
+              </button>
+              <button type="button" className={styles.heroCtaGhost} onClick={() => scrollToSection('demo')}>
+                {t('landing.viewDemo')}
+              </button>
+            </div>
 
             {invite ? (
               <div className={styles.inviteNote}>
@@ -350,17 +444,22 @@ export function AuthPage() {
             </GlassCard>
           </div>
 
+          {/* Honest, measured metric: citation accuracy without vs with the
+              law-corpus check (RAG eval on the golden set — see HANDOFF.md). */}
           <div className={styles.stats}>
             <div className={styles.stat}>
-              <div className={styles.statValue}>50.000</div>
-              <div className={styles.statLabel}>{t('auth.statDocs')}</div>
+              <div className={styles.statValue}>{lang === 'ru' ? '2,5%' : '2.5%'}</div>
+              <div className={styles.statLabel}>{t('auth.metricWithoutLabel')}</div>
             </div>
-            <div className={styles.statDivider} />
+            <div className={styles.statArrow} aria-hidden="true">
+              →
+            </div>
             <div className={styles.stat}>
-              <div className={styles.statValue}>95%+</div>
-              <div className={styles.statLabel}>{t('auth.statAccuracy')}</div>
+              <div className={`${styles.statValue} ${styles.statValueAccent}`}>100%</div>
+              <div className={styles.statLabel}>{t('auth.metricWithLabel')}</div>
             </div>
           </div>
+          <div className={styles.statNote}>{t('auth.metricNote')}</div>
         </div>
 
         {/* ── Right: decorative panel (hidden on narrow screens) ──────────── */}
@@ -376,43 +475,31 @@ export function AuthPage() {
               LexAI <span>· {t('auth.tagline')}</span>
             </div>
 
-            <div className={styles.rightCards}>
+            {/* Verifiable trust signals — every line is true and checkable. */}
+            <div className={styles.rightBadges}>
               {(
                 [
-                  { icon: 'alert', title: 'auth.featRiskTitle', text: 'auth.featRiskText' },
-                  { icon: 'pen', title: 'auth.featRedlineTitle', text: 'auth.featRedlineText' },
-                  { icon: 'chat', title: 'auth.featQaTitle', text: 'auth.featQaText' },
+                  { icon: 'check', key: 'auth.badgeVerified' },
+                  { icon: 'globe', key: 'auth.badgeSources' },
+                  { icon: 'sparkle', key: 'auth.badgeClaude' },
                 ] as const
-              ).map((f) => (
-                <div key={f.icon} className={styles.rightCard}>
-                  <span className={styles.rightCardIcon}>
-                    <Icon name={f.icon} size={17} />
+              ).map((b) => (
+                <div key={b.key} className={styles.rightBadge}>
+                  <span className={styles.rightBadgeIcon}>
+                    <Icon name={b.icon} size={14} />
                   </span>
-                  <div>
-                    <div className={styles.rightCardTitle}>{t(f.title)}</div>
-                    <div className={styles.rightCardText}>{t(f.text)}</div>
-                  </div>
+                  {t(b.key)}
                 </div>
               ))}
             </div>
           </div>
-
-          <div className={styles.rightTrust}>
-            <div className={styles.rightAvatars}>
-              {(['analytics', 'users', 'shield'] as const).map((icon) => (
-                <span key={icon} className={styles.rightAvatar}>
-                  <Icon name={icon} size={12} />
-                </span>
-              ))}
-            </div>
-            <div className={styles.rightTrustText}>
-              {t('auth.trustedPre')}
-              <b>{t('auth.trustedCount')}</b>
-              {t('auth.trustedPost')}
-            </div>
-          </div>
         </div>
       </div>
+
+      {/* ── Landing sections below the first screen ──────────────────────── */}
+      <LandingSections onStart={startSignup} />
+
+      <TelegramWidget scrollRef={rootRef} hidden={leaving} />
     </div>
   );
 }

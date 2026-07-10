@@ -77,7 +77,7 @@
 .brandSub {
   font-size: 11px;
   color: var(--mut);
-  font-family: var(--font-mono);
+  font-family: var(--font-label);
   letter-spacing: 0.02em;
 }
 
@@ -217,7 +217,7 @@
   font-size: 11px;
   font-weight: 600;
   color: var(--accent);
-  font-family: var(--font-mono);
+  font-family: var(--font-label);
   letter-spacing: 0.02em;
 }
 
@@ -244,7 +244,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-family: var(--font-mono);
+  font-family: var(--font-label);
   font-size: 12px;
   color: var(--dim);
   padding: 5px 11px;
@@ -468,7 +468,7 @@
 .countryLaw {
   font-size: 12px;
   color: var(--mut);
-  font-family: var(--font-mono);
+  font-family: var(--font-label);
 }
 .countryEmpty {
   padding: 16px 10px;
@@ -583,7 +583,7 @@
 .notifTime {
   font-size: 12px;
   color: var(--mut);
-  font-family: var(--font-mono);
+  font-family: var(--font-label);
   margin-top: 3px;
 }
 .notifBody {
@@ -724,7 +724,7 @@
 }
 .paletteHint {
   margin-left: auto;
-  font-family: var(--font-mono);
+  font-family: var(--font-label);
   font-size: 11px;
   color: var(--mut);
 }
@@ -888,40 +888,6 @@
   to {
     opacity: 1;
   }
-}
-
-/* ── Top-bar language switcher ───────────────────────────────────────────── */
-
-.langSwitch {
-  display: flex;
-  gap: 2px;
-  padding: 3px;
-  border-radius: 999px;
-  background: var(--panel-2);
-  border: 1px solid var(--border);
-}
-
-.langSwitchBtn {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  padding: 4px 9px;
-  border: none;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--mut);
-  cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-
-.langSwitchBtn:hover {
-  color: var(--text);
-}
-
-.langSwitchBtnActive {
-  background: var(--accent);
-  color: var(--on-accent);
 }
 
 /* The user card links to Settings — make it feel clickable. */

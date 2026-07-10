@@ -46,7 +46,7 @@ export function RiskGauge({ score }: RiskGaugeProps) {
           }}
         >
           <div style={{ fontSize: 34, fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1 }}>{score}</div>
-          <div style={{ fontSize: 11, color: 'var(--mut)', fontFamily: 'var(--font-mono)', marginTop: 2 }}>/ 100</div>
+          <div style={{ fontSize: 11, color: 'var(--mut)', fontFamily: 'var(--font-label)', marginTop: 2 }}>/ 100</div>
         </div>
       </div>
       <div className={styles.gaugeLabel}>risk score</div>

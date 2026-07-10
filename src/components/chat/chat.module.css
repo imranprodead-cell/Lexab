@@ -135,7 +135,7 @@
 .fileMeta {
   font-size: 12px;
   color: var(--mut);
-  font-family: var(--font-mono);
+  font-family: var(--font-label);
 }
 .aiRow {
   display: flex;
@@ -375,7 +375,7 @@
   font-size: 12px;
   color: var(--dim);
   margin-top: 2px;
-  font-family: var(--font-mono);
+  font-family: var(--font-label);
 }
 .findings {
   margin-top: 20px;
@@ -525,7 +525,7 @@
   font-size: 12px;
   color: var(--mut);
   margin-top: 9px;
-  font-family: var(--font-mono);
+  font-family: var(--font-label);
 }
 
 /* Slash menu -------------------------------------------------------------- */
@@ -576,7 +576,7 @@
   color: var(--accent);
 }
 .slashCmd {
-  font-family: var(--font-mono);
+  font-family: var(--font-label);
   font-size: 14px;
   font-weight: 600;
   color: var(--text);
@@ -587,7 +587,7 @@
   margin-left: 10px;
 }
 .slashHint {
-  font-family: var(--font-mono);
+  font-family: var(--font-label);
   font-size: 11px;
   color: var(--mut);
 }

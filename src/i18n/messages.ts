@@ -417,26 +417,39 @@ export const MESSAGES: Dict = {
   },
   'auth.googleFailed': { ru: 'Не удалось войти через Google. Попробуйте ещё раз.', en: 'Google sign-in failed. Please try again.' },
   'auth.signingIn': { ru: 'Входим в LexAI…', en: 'Signing you in…' },
-  'auth.statDocs': { ru: 'проверено документов', en: 'documents reviewed' },
-  'auth.statAccuracy': { ru: 'точность', en: 'accuracy' },
-  'auth.featRiskTitle': { ru: 'Поиск рисков', en: 'Risk detection' },
-  'auth.featRiskText': {
-    ru: 'Отмечает пункты об ответственности, возмещении и необычные условия.',
-    en: 'Flags liability, indemnity and unusual clauses.',
+  // Honest, measured trust signals (RAG eval, golden set — see HANDOFF.md).
+  'auth.metricWithoutLabel': {
+    ru: 'точность ссылок на закон у ИИ без базы законов',
+    en: 'legal-citation accuracy of plain AI, no law corpus',
   },
-  'auth.featRedlineTitle': { ru: 'Готовые правки', en: 'Redline drafts' },
-  'auth.featRedlineText': {
-    ru: 'Предлагает правки, которые можно принять в один клик.',
-    en: 'Suggests edits you can accept in one click.',
+  'auth.metricWithLabel': {
+    ru: 'с проверкой по базе официальных текстов',
+    en: 'with verification against official texts',
   },
-  'auth.featQaTitle': { ru: 'Вопросы по документу', en: 'Clause Q&A' },
-  'auth.featQaText': {
-    ru: 'Задавайте любые вопросы о документе простым языком.',
-    en: 'Ask anything about a document in plain language.',
+  'auth.metricNote': {
+    ru: 'Замер на тестовом наборе вопросов · право Узбекистана',
+    en: 'Measured on our golden test set · Uzbekistan law',
   },
-  'auth.trustedPre': { ru: 'Нам доверяют ', en: 'Trusted by ' },
-  'auth.trustedCount': { ru: '2 400+', en: '2,400+' },
-  'auth.trustedPost': { ru: ' юридических команд', en: ' legal teams' },
+  'auth.badgeVerified': { ru: 'Каждая цитата проверяется автоматически', en: 'Every citation is checked automatically' },
+  'auth.badgeSources': { ru: 'Источники: legislation.gov.uk · lex.uz', en: 'Sources: legislation.gov.uk · lex.uz' },
+  'auth.badgeClaude': { ru: 'Работает на Claude (Anthropic)', en: 'Powered by Claude (Anthropic)' },
+
+  // Landing (public /login page)
+  'lang.switch': { ru: 'Язык интерфейса', en: 'Interface language' },
+  'landing.nav.aria': { ru: 'Разделы страницы', en: 'Page sections' },
+  'landing.nav.features': { ru: 'Возможности', en: 'Features' },
+  'landing.nav.solutions': { ru: 'Для кого', en: 'Who it’s for' },
+  'landing.nav.security': { ru: 'Безопасность', en: 'Security' },
+  'landing.nav.plans': { ru: 'Тарифы', en: 'Pricing' },
+  'landing.nav.faq': { ru: 'FAQ', en: 'FAQ' },
+  'landing.howItWorks': { ru: 'Как это работает', en: 'How it works' },
+  'landing.viewDemo': { ru: 'Посмотреть демо', en: 'View demo' },
+  'landing.startFree': { ru: 'Попробовать бесплатно', en: 'Try for free' },
+  'landing.navCta': { ru: 'Начать бесплатно', en: 'Start free' },
+  'landing.choosePlan': { ru: 'Выбрать план', en: 'Choose plan' },
+  'landing.toTop': { ru: 'Наверх', en: 'Back to top' },
+  'landing.tg.title': { ru: 'Свяжитесь с нами в Telegram', en: 'Contact us on Telegram' },
+  'landing.tg.scan': { ru: 'Наведите камеру на QR-код', en: 'Scan the QR code with your camera' },
 
   // Settings
   'settings.title': { ru: 'Настройки', en: 'Settings' },
