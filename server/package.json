@@ -15,7 +15,12 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test test/*.test.ts",
     "smoke": "bash scripts/smoke.sh",
-    "check:supabase": "node --env-file-if-exists=.env scripts/check-supabase.ts"
+    "check:supabase": "node --env-file-if-exists=.env scripts/check-supabase.ts",
+    "rag:ingest": "node --env-file-if-exists=.env src/rag/ingest/run-ingest.ts",
+    "rag:ingest:uz": "node --env-file-if-exists=.env src/rag/ingest/run-ingest-uz.ts",
+    "rag:index": "node --env-file-if-exists=.env src/rag/build-index.ts",
+    "rag:embed": "node --env-file-if-exists=.env src/rag/build-index.ts --embed-only",
+    "eval": "node --env-file-if-exists=.env evals/run-eval.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
@@ -29,6 +34,7 @@
     "@sentry/node": "^10.64.0",
     "@supabase/supabase-js": "^2.110.1",
     "docx": "^9.7.1",
+    "fast-xml-parser": "^5.9.3",
     "fastify": "^5.0.0",
     "mammoth": "^1.8.0",
     "pdf-parse": "^2.4.5",

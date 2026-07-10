@@ -12,6 +12,10 @@ export interface Finding {
   severity: Severity;
   title: string;
   citation: string;
+  /** Link into the legal corpus (legal_units.id) when the finding cites a real provision. */
+  unitId?: string | null;
+  /** True when the citation failed validation — the finding was demoted (RAG Этап 4). */
+  unverified?: boolean;
 }
 
 export interface Redline {

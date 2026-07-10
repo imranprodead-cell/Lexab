@@ -20,6 +20,9 @@ import { newId } from '../lib/ids.ts';
 import { openSSE, wantsSSE } from '../lib/sse.ts';
 import { asObject, optionalString, requireOneOf, requireString } from '../lib/validate.ts';
 import { generateAnalysis, type GeneratedAnalysis } from '../llm.ts';
+import { jurisdictionCode, retrieveLegalContext } from '../rag/retrieve.ts';
+import type { RetrievedChunk } from '../rag/types.ts';
+import { validateFindings } from '../rag/validate-citations.ts';
 import { readFileBytes, saveFile } from '../storage.ts';
 import type { AnalysisResult, DocBlock, Redline } from '../types.ts';
 
@@ -54,8 +57,8 @@ async function loadAnalysis(db: Db, userId: string, id: string): Promise<Analysi
   const row = res.rows[0];
   if (!row) throw notFound('Analysis not found');
 
-  const findings = await db.query<{ id: string; severity: 'High' | 'Medium' | 'Low'; title: string; citation: string }>(
-    'SELECT id, severity, title, citation FROM findings WHERE analysis_id = $1 ORDER BY ord',
+  const findings = await db.query<{ id: string; severity: 'High' | 'Medium' | 'Low'; title: string; citation: string; unit_id: string | null; unverified: boolean }>(
+    'SELECT id, severity, title, citation, unit_id, unverified FROM findings WHERE analysis_id = $1 ORDER BY ord',
     [id],
   );
   const redlines = await db.query<Redline & { del_text: string; ins_text: string }>(
@@ -72,7 +75,14 @@ async function loadAnalysis(db: Db, userId: string, id: string): Promise<Analysi
     riskScore: row.risk_score,
     riskLevel: row.risk_level,
     clausesReviewed: row.clauses_reviewed,
-    findings: findings.rows,
+    findings: findings.rows.map((f) => ({
+      id: f.id,
+      severity: f.severity,
+      title: f.title,
+      citation: f.citation,
+      unitId: f.unit_id,
+      unverified: f.unverified,
+    })),
     redlines: redlines.rows.map((r) => ({
       id: r.id,
       delText: r.del_text,
@@ -266,8 +276,8 @@ export async function persistAnalysis(
   for (let i = 0; i < gen.findings.length; i++) {
     const f = gen.findings[i];
     await db.query(
-      'INSERT INTO findings (analysis_id, id, ord, severity, title, citation) VALUES ($1, $2, $3, $4, $5, $6)',
-      [analysisId, `f${i + 1}`, i, f.severity, f.title, f.citation],
+      'INSERT INTO findings (analysis_id, id, ord, severity, title, citation, unit_id, unverified) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+      [analysisId, `f${i + 1}`, i, f.severity, f.title, f.citation, f.unitId ?? null, f.unverified ?? false],
     );
   }
   for (let i = 0; i < gen.redlines.length; i++) {
@@ -327,6 +337,22 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
     // would create a NEW document row.
     const plan = await assertAiAllowance(db, req.currentUser.id);
     const source = await readSource(db, req);
+
+    // RAG: pull the provisions in force for the user's jurisdiction and
+    // validate every citation afterwards (unverified findings get demoted).
+    const corpus = jurisdictionCode(source.jurisdiction);
+    const legalContext: RetrievedChunk[] = corpus
+      ? await retrieveLegalContext(db, {
+          query: (source.text ?? source.fileName).slice(0, 2500),
+          jurisdiction: corpus,
+          topK: 10,
+        }).catch((err) => {
+          req.log.warn(`legal retrieval failed: ${(err as Error).message}`);
+          return [];
+        })
+      : [];
+    const withValidation = async (gen: GeneratedAnalysis): Promise<GeneratedAnalysis> =>
+      legalContext.length ? { ...gen, findings: await validateFindings(db, gen.findings, undefined, corpus ?? 'UK') } : gen;
     const existingDoc = await db.query(
       'SELECT 1 FROM documents WHERE user_id = $1 AND name = $2 LIMIT 1',
       [req.currentUser.id, source.fileName],
@@ -338,7 +364,9 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
       try {
         sse.send('step', { index: 0, label: ANALYSIS_STEPS[0] });
         sse.send('step', { index: 1, label: ANALYSIS_STEPS[1] });
-        const gen = await generateAnalysis({ fileName: source.fileName, text: source.text, pdf: source.pdf, jurisdiction: source.jurisdiction, plan });
+        const gen = await withValidation(
+          await generateAnalysis({ fileName: source.fileName, text: source.text, pdf: source.pdf, jurisdiction: source.jurisdiction, plan, legalContext }),
+        );
         sse.send('step', { index: 2, label: ANALYSIS_STEPS[2] });
         const result = await persistAnalysis(db, source.ownerUserId ?? req.currentUser.id, source, gen, req.currentUser.id);
         sse.send('result', result);
@@ -351,7 +379,9 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
       return reply;
     }
 
-    const gen = await generateAnalysis({ fileName: source.fileName, text: source.text, pdf: source.pdf, jurisdiction: source.jurisdiction, plan });
+    const gen = await withValidation(
+      await generateAnalysis({ fileName: source.fileName, text: source.text, pdf: source.pdf, jurisdiction: source.jurisdiction, plan, legalContext }),
+    );
     reply.code(201);
     return persistAnalysis(db, source.ownerUserId ?? req.currentUser.id, source, gen, req.currentUser.id);
   });

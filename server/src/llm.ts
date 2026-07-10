@@ -13,6 +13,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { config } from './config.ts';
 import { fallbackAnalysis, fallbackChatReply, fallbackCompare, fallbackTemplateDraft } from './fallback.ts';
+import type { RetrievedChunk } from './rag/types.ts';
 import type { DocBlock, Finding, Redline, Severity } from './types.ts';
 
 let client: Anthropic | null = null;
@@ -127,6 +128,8 @@ export interface AnalysisInput {
   jurisdiction?: string | null;
   /** Subscription plan of the requesting user — selects the Claude model. */
   plan?: string | null;
+  /** Verified provisions from the legal corpus (RAG) — findings must cite them via unitId. */
+  legalContext?: RetrievedChunk[];
 }
 
 const SEVERITY = ['High', 'Medium', 'Low'];
@@ -148,11 +151,16 @@ const ANALYSIS_SCHEMA = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['severity', 'title', 'citation'],
+        required: ['severity', 'title', 'citation', 'unitId'],
         properties: {
           severity: { type: 'string', enum: SEVERITY },
           title: { type: 'string', description: 'Short title of the legal issue.' },
           citation: { type: 'string', description: 'Statute or case-law citation for the governing jurisdiction.' },
+          unitId: {
+            type: 'string',
+            description:
+              'ID of the supporting provision from the LEGAL CONTEXT block (unit_id in square brackets), or "" when no listed provision applies. NEVER invent ids.',
+          },
         },
       },
     },
@@ -225,13 +233,23 @@ export async function generateAnalysis(input: AnalysisInput): Promise<GeneratedA
     const jurisdictionNote = input.jurisdiction
       ? `\n\nThe user's default jurisdiction is ${input.jurisdiction}. Review under that law (and cite its statutes/case law) unless the contract explicitly states a different governing law.`
       : '';
+    // RAG: verified provisions from the official corpus. Findings that rest on
+    // one of them must reference it via unitId — the citation validator then
+    // confirms or demotes each finding (rule enforced in code, see Этап 4).
+    const contextNote = input.legalContext?.length
+      ? `\n\nLEGAL CONTEXT — verified provisions from official sources. When a finding relies on one of them, set its unitId to the id in square brackets. Never invent ids; use "" when none of these provisions applies.\n` +
+        input.legalContext
+          .map((c) => `[${c.unitId}] ${c.breadcrumb}\n${c.body.slice(0, 900)}`)
+          .join('\n---\n')
+      : '';
     content.push({
       type: 'text',
       text:
         (text
           ? `File name: ${input.fileName}\n\nContract text:\n<<<\n${text}\n>>>`
           : `File name: ${input.fileName}\n\nNo machine-readable text could be extracted from this file. Infer the contract type from the file name and produce a realistic, jurisdiction-appropriate risk review of a typical contract of that type.`) +
-        jurisdictionNote,
+        jurisdictionNote +
+        contextNote,
     });
 
     return await withModelRetry(modelForPlan(input.plan), async (model) => {
@@ -302,6 +320,7 @@ function normalizeGenerated(raw: GeneratedAnalysis): GeneratedAnalysis {
       severity: (SEVERITY.includes(f.severity) ? f.severity : 'Medium') as Severity,
       title: f.title,
       citation: f.citation,
+      unitId: f.unitId?.trim() || null,
     })),
     redlines,
     document,

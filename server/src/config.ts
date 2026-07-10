@@ -35,6 +35,9 @@ export const config = {
     Enterprise: env('ANTHROPIC_MODEL_ENTERPRISE', env('ANTHROPIC_MODEL_BUSINESS', 'claude-fable-5')),
   } as Record<string, string>,
 
+  /** Voyage AI — dense embeddings for the legal corpus (empty = FTS-only search). */
+  voyageApiKey: env('VOYAGE_API_KEY'),
+
   googleClientId: env('GOOGLE_CLIENT_ID'),
   googleClientSecret: env('GOOGLE_CLIENT_SECRET'),
   googleRedirectUri: env('GOOGLE_REDIRECT_URI', 'http://localhost:8080/api/auth/google/callback'),

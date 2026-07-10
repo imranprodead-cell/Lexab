@@ -1,0 +1,20 @@
+{
+  "at": "2026-07-09T19:27:24.676Z",
+  "model": "claude-sonnet-5",
+  "questions": 18,
+  "retrieval": {
+    "hit@5": 0.5,
+    "hit@10": 0.556,
+    "recall@10": 0.528
+  },
+  "baseline": {
+    "findings": 54,
+    "citationPrecision": 0.593,
+    "unverifiedShare": 0.407
+  },
+  "rag": {
+    "findings": 52,
+    "citationPrecision": 0.615,
+    "unverifiedShare": 0.385
+  }
+}

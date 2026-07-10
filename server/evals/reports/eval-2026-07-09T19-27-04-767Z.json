@@ -1,0 +1,10 @@
+{
+  "at": "2026-07-09T19:26:23.603Z",
+  "model": "claude-sonnet-5",
+  "questions": 18,
+  "retrieval": {
+    "hit@5": 0.5,
+    "hit@10": 0.667,
+    "recall@10": 0.639
+  }
+}
