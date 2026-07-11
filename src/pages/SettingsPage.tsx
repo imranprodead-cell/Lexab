@@ -8,6 +8,7 @@ import { InitialsAvatar } from '@/components/ui/Avatar';
 import { TextField } from '@/components/ui/TextField';
 import { SkeletonRows } from '@/components/ui/States';
 import { useAsync, useDismissable } from '@/hooks/useAsync';
+import { usePageTitle } from '@/hooks/usePageTitle';
 import { billingApi, userApi } from '@/api';
 import { authApi } from '@/api/auth.api';
 import { integrationsApi, type CloudProvider } from '@/api/integrations.api';
@@ -36,6 +37,7 @@ export function SettingsPage() {
   const { t, lang } = useI18n();
   const navigate = useNavigate();
   const pushToast = useUIStore((s) => s.pushToast);
+  usePageTitle(t('nav.settings'));
   const authUser = useAuthStore((s) => s.user);
   const updateProfile = useAuthStore((s) => s.updateProfile);
   const adoptSession = useAuthStore((s) => s.adoptSession);

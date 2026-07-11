@@ -8,6 +8,7 @@ import { TextField } from '@/components/ui/TextField';
 import { RoleSelect, type RolePresetKey } from '@/components/ui/RoleSelect';
 import { EmptyState, ErrorState, SkeletonRows } from '@/components/ui/States';
 import { useAsync, clearAsyncCache } from '@/hooks/useAsync';
+import { usePageTitle } from '@/hooks/usePageTitle';
 import { ROLE_COLORS, teamApi, userApi, type TeamRole } from '@/api';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useUIStore } from '@/store/useUIStore';
@@ -31,6 +32,7 @@ const PRESET_ACCESS: Record<RolePresetKey, Exclude<TeamRole, 'owner'>> = {
 export function TeamPage() {
   const { t } = useI18n();
   const pushToast = useUIStore((s) => s.pushToast);
+  usePageTitle(t('nav.team'));
 
   const authUser = useAuthStore((s) => s.user);
   const members = useAsync((signal) => teamApi.members(signal), []);

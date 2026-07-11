@@ -92,6 +92,8 @@ export function AuthPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  /** Set after sign-up: the confirmation letter went to this address. */
+  const [verifySentTo, setVerifySentTo] = useState<string | null>(null);
   /** Returning from Google with a session: show the branded "signing in"
    *  screen instead of flashing the login form. */
   const [finishing, setFinishing] = useState(() => window.location.hash.startsWith('#session='));
@@ -195,9 +197,20 @@ export function AuthPage() {
     }
     setError(null);
     try {
-      if (mode === 'signin') await login(email.trim(), password);
-      else await register(name.trim(), email.trim(), password);
-      departAnd(() => navigate(redirectTo, { replace: true }));
+      if (mode === 'signin') {
+        await login(email.trim(), password);
+        departAnd(() => navigate(redirectTo, { replace: true }));
+        return;
+      }
+      const outcome = await register(name.trim(), email.trim(), password);
+      if (outcome === 'signed-in') {
+        departAnd(() => navigate(redirectTo, { replace: true }));
+        return;
+      }
+      // Account created — the session starts from the emailed link.
+      setVerifySentTo(email.trim());
+      setPassword('');
+      setMode('signin');
     } catch (err) {
       // Surface the real backend message ("Invalid email or password", …).
       setError(err instanceof Error && err.message ? err.message : t('common.error'));
@@ -207,6 +220,7 @@ export function AuthPage() {
   const switchMode = (next: Mode) => {
     setMode(next);
     setError(null);
+    setVerifySentTo(null);
   };
 
   const scrollToSection = (id: string) => {
@@ -219,6 +233,7 @@ export function AuthPage() {
   const startSignup = () => {
     setEmailOpen(true);
     setMode('signup');
+    setVerifySentTo(null);
     rootRef.current?.scrollTo({ top: 0, behavior: scrollBehavior() });
   };
 
@@ -363,6 +378,16 @@ export function AuthPage() {
               ) : (
                 <div className={styles.emailBlock}>
                   <h2 className={styles.formTitle}>{title}</h2>
+                  {verifySentTo && mode === 'signin' ? (
+                    <p className={styles.verifySent} role="status">
+                      <Icon name="inbox" size={15} />
+                      <span>
+                        {t('auth.verifySentA')}
+                        <strong>{verifySentTo}</strong>
+                        {t('auth.verifySentB')}
+                      </span>
+                    </p>
+                  ) : null}
                   {mode === 'reset' ? <p className={styles.resetHint}>{t('auth.resetHint')}</p> : null}
 
                   <form className={styles.form} onSubmit={submit} noValidate>
@@ -481,7 +506,7 @@ export function AuthPage() {
                 [
                   { icon: 'check', key: 'auth.badgeVerified' },
                   { icon: 'globe', key: 'auth.badgeSources' },
-                  { icon: 'sparkle', key: 'auth.badgeClaude' },
+                  { icon: 'sparkle', key: 'auth.badgeAI' },
                 ] as const
               ).map((b) => (
                 <div key={b.key} className={styles.rightBadge}>

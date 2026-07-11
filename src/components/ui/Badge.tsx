@@ -26,7 +26,7 @@ interface BadgeProps {
   /** A colour keyword (High/Medium/Low/Elevated/accent) or a raw CSS colour. */
   color?: string;
   filled?: boolean;
-  /** Frameless variant: coloured dot + coloured Inter text, no box around it. */
+  /** Frameless variant: coloured dot + coloured label-face text, no box around it. */
   plain?: boolean;
 }
 

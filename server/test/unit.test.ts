@@ -77,3 +77,33 @@ test('fallbacks stay well-formed (used when no LLM key is set)', () => {
   assert.ok(fallbackCompare().changes.length > 0);
   assert.ok(fallbackTemplateDraft('NDA', { partyA: 'A', partyB: 'B', jurisdiction: '', term: '', details: '' }).includes('NDA'));
 });
+
+test('storage: local deleteFile is idempotent and stays inside uploads/', async () => {
+  const fs = await import('node:fs/promises');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'lexai-storage-'));
+  // Set DATA_DIR BEFORE the first import of storage.ts — config.ts reads the
+  // env once at import time (no other test module pulls config in).
+  process.env.DATA_DIR = dir;
+  const { saveFile, readFileBytes, deleteFile } = await import('../src/storage.ts');
+  try {
+    const stored = await saveFile(Buffer.from('hello'), 'note.txt', 'text/plain');
+    assert.equal(stored.storage, 'local');
+    assert.equal((await readFileBytes('local', stored.key)).toString(), 'hello');
+
+    await deleteFile('local', stored.key);
+    await assert.rejects(readFileBytes('local', stored.key));
+    // Deleting again is a no-op, not an error.
+    await deleteFile('local', stored.key);
+
+    // A traversal key must not reach outside DATA_DIR/uploads.
+    const outside = path.join(dir, 'outside.txt');
+    await fs.writeFile(outside, 'keep me');
+    await deleteFile('local', '../outside.txt');
+    assert.equal((await fs.readFile(outside)).toString(), 'keep me');
+    await deleteFile('local', '../../etc/passwd'); // resolves to uploads/passwd → ENOENT → ignored
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});

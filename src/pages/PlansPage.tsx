@@ -4,6 +4,7 @@ import { CountrySelector } from '@/components/layout/CountrySelector';
 import { Icon } from '@/components/icons/Icon';
 import { billingApi, type BillingPeriod } from '@/api/billing.api';
 import { useAsync, clearAsyncCache } from '@/hooks/useAsync';
+import { usePageTitle } from '@/hooks/usePageTitle';
 import { useUIStore } from '@/store/useUIStore';
 import { useI18n } from '@/i18n/I18nProvider';
 import styles from './pages.module.css';
@@ -226,6 +227,7 @@ function PlanCard({
 /** Full-page pricing view (Free / Standard / Pro / Business in a row, Enterprise below). */
 export function PlansPage() {
   const { t } = useI18n();
+  usePageTitle(t('plans.topTitle'));
   const firstFour = PLANS.slice(0, 4);
   const enterprise = PLANS[4];
   const [period, setPeriod] = useState<BillingPeriod>('monthly');

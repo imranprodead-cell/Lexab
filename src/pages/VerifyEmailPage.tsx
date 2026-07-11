@@ -4,7 +4,6 @@ import { Avatar } from '@/components/ui/Avatar';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Icon } from '@/components/icons/Icon';
 import { authApi } from '@/api/auth.api';
-import { userApi } from '@/api';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useI18n } from '@/i18n/I18nProvider';
 import styles from './pages.module.css';
@@ -15,7 +14,7 @@ export function VerifyEmailPage() {
   const token = params.get('token') ?? '';
   const { t } = useI18n();
   const authToken = useAuthStore((s) => s.token);
-  const updateProfile = useAuthStore((s) => s.updateProfile);
+  const adoptSession = useAuthStore((s) => s.adoptSession);
 
   const [state, setState] = useState<'working' | 'done' | 'error'>('working');
   const [message, setMessage] = useState('');
@@ -28,16 +27,10 @@ export function VerifyEmailPage() {
     }
     authApi
       .verifyEmail(token)
-      .then(async () => {
+      .then((session) => {
+        // The link proves mailbox ownership → sign in on this device too.
+        adoptSession(session.token, session.user);
         setState('done');
-        // Signed in on this device — refresh the profile so the banner hides.
-        if (authToken) {
-          try {
-            updateProfile(await userApi.me());
-          } catch {
-            /* profile refresh is best-effort */
-          }
-        }
       })
       .catch((err) => {
         setState('error');

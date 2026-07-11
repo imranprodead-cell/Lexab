@@ -7,6 +7,7 @@ import { Modal } from '@/components/ui/Modal';
 import { EmptyState, ErrorState, SkeletonRows } from '@/components/ui/States';
 import { useAsync } from '@/hooks/useAsync';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { usePageTitle } from '@/hooks/usePageTitle';
 import { signaturesApi } from '@/api';
 import type { SignatureRequest, SignatureStatus } from '@/types/domain';
 import { useUIStore } from '@/store/useUIStore';
@@ -36,6 +37,7 @@ export function SignaturesPage() {
   const { t, lang } = useI18n();
   const locale = lang === 'ru' ? 'ru-RU' : 'en-GB';
   const pushToast = useUIStore((s) => s.pushToast);
+  usePageTitle(t('nav.signatures'));
 
   const copySignLink = async (token: string) => {
     try {

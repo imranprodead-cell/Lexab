@@ -1,0 +1,22 @@
+User-agent: *
+Allow: /
+Allow: /login
+Allow: /terms
+Allow: /privacy
+Disallow: /chat
+Disallow: /documents
+Disallow: /settings
+Disallow: /team
+Disallow: /analytics
+Disallow: /templates
+Disallow: /signatures
+Disallow: /plans
+Disallow: /archive
+Disallow: /compare
+Disallow: /workspace
+Disallow: /sign/
+Disallow: /approve/
+Disallow: /verify-email
+Disallow: /reset-password
+
+Sitemap: https://lexai.app/sitemap.xml

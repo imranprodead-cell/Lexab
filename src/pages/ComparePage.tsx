@@ -8,6 +8,7 @@ import { GlassCard } from '@/components/ui/GlassCard';
 import { EmptyState } from '@/components/ui/States';
 import { compareApi, type CompareResult } from '@/api/compare.api';
 import { useUIStore } from '@/store/useUIStore';
+import { usePageTitle } from '@/hooks/usePageTitle';
 import { useI18n } from '@/i18n/I18nProvider';
 import styles from './compare.module.css';
 
@@ -94,6 +95,7 @@ export function ComparePage() {
   const navigate = useNavigate();
   const { t } = useI18n();
   const pushToast = useUIStore((s) => s.pushToast);
+  usePageTitle(t('cmp.title'));
 
   const [fileA, setFileA] = useState<File | null>(null);
   const [fileB, setFileB] = useState<File | null>(null);

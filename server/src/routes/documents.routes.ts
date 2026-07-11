@@ -12,6 +12,7 @@ import { canEdit, resolveDocumentAccess } from '../lib/teamAccess.ts';
 import { formatSize, toIso } from '../lib/format.ts';
 import { buildSimplePdf } from '../lib/pdf.ts';
 import { asObject, requireOneOf } from '../lib/validate.ts';
+import { deleteFile } from '../storage.ts';
 import type { ContractDocument, DocBlock, DocumentVersion, Redline } from '../types.ts';
 
 interface DocumentRow {
@@ -204,12 +205,25 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
     );
     const doc = res.rows[0];
     if (!doc) throw notFound('Document not found');
+    // Remember where the bytes live BEFORE the rows are gone.
+    const files = await db.query<{ storage: 's3' | 'local' | 'supabase'; storage_key: string }>(
+      'SELECT storage, storage_key FROM uploads WHERE user_id = $1 AND file_name = $2',
+      [req.currentUser.id, doc.name],
+    );
     // Analyses reference the document with ON DELETE SET NULL — remove them
     // explicitly (findings/redlines cascade), then the document (versions cascade),
     // then the stored uploads so the storage quota is freed.
     await db.query('DELETE FROM analyses WHERE document_id = $1 AND user_id = $2', [id, req.currentUser.id]);
     await db.query('DELETE FROM documents WHERE id = $1', [id]);
     await db.query('DELETE FROM uploads WHERE user_id = $1 AND file_name = $2', [req.currentUser.id, doc.name]);
+    // Best effort: a failed storage delete must not resurrect the DB rows.
+    for (const row of files.rows) {
+      try {
+        await deleteFile(row.storage, row.storage_key);
+      } catch (err) {
+        req.log.warn({ err, key: row.storage_key }, 'storage: delete failed');
+      }
+    }
     reply.code(204);
   });
 

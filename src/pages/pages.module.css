@@ -849,7 +849,7 @@
   border: 1px solid var(--border);
   background: var(--panel);
   color: var(--dim);
-  font-family: 'Inter', var(--font-sans);
+  font-family: var(--font-label);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.05em;
@@ -985,10 +985,43 @@
 }
 
 /* Legal pages (Terms / Privacy) ---------------------------------------------- */
+/* #root is overflow:hidden, so the page must be its own scroll container. */
 .legalPage {
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
+  overflow-y: auto;
   background: var(--bg);
   padding: 48px 20px;
+}
+.legalTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 28px;
+}
+.legalTop .legalBrand {
+  margin-bottom: 0;
+}
+.legalBack {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--dim);
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 7px 14px;
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+.legalBack:hover {
+  color: var(--text);
+  border-color: var(--accent);
 }
 .legalInner {
   max-width: 720px;
@@ -1457,8 +1490,11 @@
 
 /* ── Public signing page (/sign/:token) ──────────────────────────────────── */
 
+/* #root is overflow:hidden, so the page must be its own scroll container. */
 .signPage {
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
+  overflow-y: auto;
   background: var(--bg);
   display: flex;
   flex-direction: column;
@@ -1885,4 +1921,32 @@
 
 .orgEditBtn:hover {
   text-decoration: underline;
+}
+
+/* 404 page (NotFoundPage). */
+.nfWrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  text-align: center;
+  padding: 24px;
+}
+
+.nfTitle {
+  font-size: 26px;
+  font-weight: 700;
+  margin: 8px 0 0;
+}
+
+.nfBody {
+  color: var(--dim);
+  margin: 0;
+  max-width: 360px;
+}
+
+.nfCta {
+  margin-top: 4px;
 }

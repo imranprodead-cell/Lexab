@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { AppShell } from '@/components/layout/AppShell';
 import { RequireAuth } from './RequireAuth';
+import { useAuthStore } from '@/store/useAuthStore';
 
 /**
  * Pages are code-split: each route pulls its chunk on demand instead of
@@ -86,72 +88,90 @@ export const router = createBrowserRouter([
   },
   {
     path: '/',
-    element: (
-      <RequireAuth>
-        <AppShell />
-      </RequireAuth>
-    ),
     children: [
-      { index: true, element: <Navigate to="/chat" replace /> },
       {
-        path: 'chat',
-        lazy: async () => ({ Component: (await loaders.ChatPage()).ChatPage }),
+        // Public root: guests see the auth page right away, signed-in users
+        // go straight to the chat. The token is read once on mount (not via
+        // a store subscription) so the login fade-out animation is not cut
+        // short by a re-render when the token appears mid-transition.
+        index: true,
+        lazy: async () => {
+          const { AuthPage } = await loaders.AuthPage();
+          const HomeIndex = () => {
+            const [authed] = useState(() => Boolean(useAuthStore.getState().token));
+            return authed ? <Navigate to="/chat" replace /> : <AuthPage />;
+          };
+          return { Component: HomeIndex };
+        },
       },
       {
-        path: 'chat/:sessionId',
-        lazy: async () => ({ Component: (await loaders.ChatPage()).ChatPage }),
-      },
-      {
-        path: 'chat/:sessionId/workspace',
-        lazy: async () => ({ Component: (await loaders.WorkspacePage()).WorkspacePage }),
-      },
-      {
-        path: 'workspace',
-        lazy: async () => ({ Component: (await loaders.WorkspacePage()).WorkspacePage }),
-      },
-      {
-        path: 'documents',
-        lazy: async () => ({ Component: (await loaders.DocumentsPage()).DocumentsPage }),
-      },
-      {
-        path: 'documents/:id',
-        lazy: async () => ({ Component: (await loaders.DocumentDetailPage()).DocumentDetailPage }),
-      },
-      {
-        path: 'templates',
-        lazy: async () => ({ Component: (await loaders.TemplatesPage()).TemplatesPage }),
-      },
-      {
-        path: 'signatures',
-        lazy: async () => ({ Component: (await loaders.SignaturesPage()).SignaturesPage }),
-      },
-      {
-        path: 'analytics',
-        lazy: async () => ({ Component: (await loaders.AnalyticsPage()).AnalyticsPage }),
-      },
-      {
-        path: 'plans',
-        lazy: async () => ({ Component: (await loaders.PlansPage()).PlansPage }),
-      },
-      {
-        path: 'team',
-        lazy: async () => ({ Component: (await loaders.TeamPage()).TeamPage }),
-      },
-      {
-        path: 'compare',
-        lazy: async () => ({ Component: (await loaders.ComparePage()).ComparePage }),
-      },
-      {
-        path: 'archive',
-        lazy: async () => ({ Component: (await loaders.ArchivePage()).ArchivePage }),
-      },
-      {
-        path: 'settings',
-        lazy: async () => ({ Component: (await loaders.SettingsPage()).SettingsPage }),
-      },
-      {
-        path: '*',
-        lazy: async () => ({ Component: (await loaders.NotFoundPage()).NotFoundPage }),
+        element: (
+          <RequireAuth>
+            <AppShell />
+          </RequireAuth>
+        ),
+        children: [
+          {
+            path: 'chat',
+            lazy: async () => ({ Component: (await loaders.ChatPage()).ChatPage }),
+          },
+          {
+            path: 'chat/:sessionId',
+            lazy: async () => ({ Component: (await loaders.ChatPage()).ChatPage }),
+          },
+          {
+            path: 'chat/:sessionId/workspace',
+            lazy: async () => ({ Component: (await loaders.WorkspacePage()).WorkspacePage }),
+          },
+          {
+            path: 'workspace',
+            lazy: async () => ({ Component: (await loaders.WorkspacePage()).WorkspacePage }),
+          },
+          {
+            path: 'documents',
+            lazy: async () => ({ Component: (await loaders.DocumentsPage()).DocumentsPage }),
+          },
+          {
+            path: 'documents/:id',
+            lazy: async () => ({ Component: (await loaders.DocumentDetailPage()).DocumentDetailPage }),
+          },
+          {
+            path: 'templates',
+            lazy: async () => ({ Component: (await loaders.TemplatesPage()).TemplatesPage }),
+          },
+          {
+            path: 'signatures',
+            lazy: async () => ({ Component: (await loaders.SignaturesPage()).SignaturesPage }),
+          },
+          {
+            path: 'analytics',
+            lazy: async () => ({ Component: (await loaders.AnalyticsPage()).AnalyticsPage }),
+          },
+          {
+            path: 'plans',
+            lazy: async () => ({ Component: (await loaders.PlansPage()).PlansPage }),
+          },
+          {
+            path: 'team',
+            lazy: async () => ({ Component: (await loaders.TeamPage()).TeamPage }),
+          },
+          {
+            path: 'compare',
+            lazy: async () => ({ Component: (await loaders.ComparePage()).ComparePage }),
+          },
+          {
+            path: 'archive',
+            lazy: async () => ({ Component: (await loaders.ArchivePage()).ArchivePage }),
+          },
+          {
+            path: 'settings',
+            lazy: async () => ({ Component: (await loaders.SettingsPage()).SettingsPage }),
+          },
+          {
+            path: '*',
+            lazy: async () => ({ Component: (await loaders.NotFoundPage()).NotFoundPage }),
+          },
+        ],
       },
     ],
   },

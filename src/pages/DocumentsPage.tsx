@@ -7,6 +7,7 @@ import { SelectMenu } from '@/components/ui/SelectMenu';
 import { EmptyState, ErrorState } from '@/components/ui/States';
 import { useAsync } from '@/hooks/useAsync';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { usePageTitle } from '@/hooks/usePageTitle';
 import { documentsApi } from '@/api';
 import type { ContractStatus } from '@/types/domain';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -32,6 +33,7 @@ export function DocumentsPage() {
   const navigate = useNavigate();
   const { t } = useI18n();
   const isMobile = useMediaQuery('(max-width: 700px)');
+  usePageTitle(t('nav.documents'));
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('All');
   const [risk, setRisk] = useState('All');

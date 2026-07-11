@@ -13,6 +13,7 @@ import { hashPassword, verifyPassword } from '../lib/passwords.ts';
 import { asObject, requireEmail, requireString } from '../lib/validate.ts';
 import { escapeMailHtml, mailLayout, sendMail } from '../mail.ts';
 import { notify } from '../lib/notify.ts';
+import { deleteFile } from '../storage.ts';
 import { getUserByEmail, getUserById, signToken, toProfile, type UserRow } from '../plugins/auth.ts';
 
 const RATE_LIMIT = { rateLimit: { max: 10, timeWindow: '1 minute' } };
@@ -76,16 +77,12 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
       bodyEn: 'Upload your first contract for review',
     });
 
-    // Confirm the address before email-bound features (team invites) unlock.
     await sendVerificationMail(db, id, email, name);
-    await notify(db, id, 'alert', 'Подтвердите почту', 'Verify your email', {
-      bodyRu: `Мы отправили письмо на ${email}`,
-      bodyEn: `We sent an email to ${email}`,
-    });
 
-    const user = (await getUserById(db, id)) as UserRow;
+    // No session until the mailbox is proven — otherwise anyone could sign up
+    // with someone else's address and use the account under their email.
     reply.code(201);
-    return { token: signToken(app, user), user: toProfile(user) };
+    return { ok: true, verifyRequired: true, email };
   });
 
   // Verify the email by the token from the letter (public — works on any device).
@@ -97,7 +94,9 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
       [token],
     );
     if (!res.rows[0]) throw badRequest('Ссылка недействительна или уже использована');
-    return { ok: true };
+    // Owning the mailbox proves the email → sign the user in right away.
+    const user = (await getUserById(db, res.rows[0].id)) as UserRow;
+    return { ok: true, token: signToken(app, user), user: toProfile(user) };
   });
 
   // Logged-in user asks for the letter again.
@@ -126,6 +125,15 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
         );
       }
       throw unauthorized('Неверный email или пароль / Invalid email or password');
+    }
+    if (!user.email_verified) {
+      // Password is correct, but the mailbox was never proven — resend the
+      // confirmation link instead of opening the session.
+      await sendVerificationMail(db, user.id, user.email, user.name);
+      throw new HttpError(
+        403,
+        `Сначала подтвердите почту: новое письмо отправлено на ${user.email} / Verify your email first: a new link was sent to ${user.email}`,
+      );
     }
     return { token: signToken(app, user), user: toProfile(user) };
   });
@@ -217,7 +225,20 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
     if (confirm.toLowerCase() !== req.currentUser.email.toLowerCase()) {
       throw new HttpError(400, 'Подтверждение не совпадает с email аккаунта');
     }
+    // Remember where the uploaded bytes live BEFORE the CASCADE wipes the rows.
+    const files = await db.query<{ storage: 's3' | 'local' | 'supabase'; storage_key: string }>(
+      'SELECT storage, storage_key FROM uploads WHERE user_id = $1',
+      [req.currentUser.id],
+    );
     await db.query('DELETE FROM users WHERE id = $1', [req.currentUser.id]);
+    // Best effort: a failed storage delete must not keep the account alive.
+    for (const row of files.rows) {
+      try {
+        await deleteFile(row.storage, row.storage_key);
+      } catch (err) {
+        req.log.warn({ err, key: row.storage_key }, 'storage: delete failed');
+      }
+    }
     reply.code(204);
   });
 }

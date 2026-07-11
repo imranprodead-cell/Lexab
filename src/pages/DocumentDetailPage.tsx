@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { ErrorState, SkeletonRows } from '@/components/ui/States';
 import { SendForSignatureModal } from '@/components/workspace/SendForSignatureModal';
 import { useAsync, clearAsyncCache } from '@/hooks/useAsync';
+import { usePageTitle } from '@/hooks/usePageTitle';
 import { analysisApi, documentsApi, versionsApi } from '@/api';
 import { approvalsApi, type NewApprovalStep } from '@/api/approvals.api';
 import { billingApi } from '@/api/billing.api';
@@ -46,6 +47,7 @@ export function DocumentDetailPage() {
   const { data: versions, error: versionsError } = useAsync((signal) => versionsApi.list(id, signal), [id]);
   const approvals = useAsync((signal) => approvalsApi.forDocument(id, signal), [id]);
   const { data: limits } = useAsync((signal) => billingApi.limits(signal), []);
+  usePageTitle(doc?.name || t('nav.documents'));
 
   const flow = (approvals.data ?? [])[0] ?? null;
   const planAllowsApprovals = ['Pro', 'Business', 'Enterprise'].includes(limits?.plan ?? '');

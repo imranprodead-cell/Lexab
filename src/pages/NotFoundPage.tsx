@@ -1,32 +1,24 @@
 import { useNavigate } from 'react-router-dom';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
+import { usePageTitle } from '@/hooks/usePageTitle';
+import { useI18n } from '@/i18n/I18nProvider';
 import styles from './pages.module.css';
 
 /** 404 fallback for unknown routes. */
 export function NotFoundPage() {
   const navigate = useNavigate();
+  const { t } = useI18n();
+  usePageTitle(t('nf.title'));
+
   return (
     <div className={styles.page}>
-      <div
-        style={{
-          flex: 1,
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          gap: 16,
-          textAlign: 'center',
-          padding: 24,
-        }}
-      >
+      <div className={styles.nfWrap}>
         <Avatar size={48} />
-        <h1 style={{ fontSize: 26, fontWeight: 700, margin: '8px 0 0' }}>Page not found</h1>
-        <p style={{ color: 'var(--dim)', margin: 0, maxWidth: 360 }}>
-          We couldn&rsquo;t find that page. It may have been moved, or the link is out of date.
-        </p>
-        <Button variant="primary" onClick={() => navigate('/chat')}>
-          Back to chat
+        <h1 className={styles.nfTitle}>{t('nf.title')}</h1>
+        <p className={styles.nfBody}>{t('nf.body')}</p>
+        <Button variant="primary" className={styles.nfCta} onClick={() => navigate('/chat')}>
+          {t('nf.cta')}
         </Button>
       </div>
     </div>

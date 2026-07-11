@@ -4,6 +4,7 @@ import { Icon } from '@/components/icons/Icon';
 import { Button } from '@/components/ui/Button';
 import { EmptyState, ErrorState, SkeletonRows } from '@/components/ui/States';
 import { useAsync } from '@/hooks/useAsync';
+import { usePageTitle } from '@/hooks/usePageTitle';
 import { chatsApi } from '@/api/chats.api';
 import { useChatHistoryStore } from '@/store/useChatHistoryStore';
 import { useUIStore } from '@/store/useUIStore';
@@ -17,6 +18,7 @@ export function ArchivePage() {
   const pushToast = useUIStore((s) => s.pushToast);
   const reloadSidebar = useChatHistoryStore((s) => s.load);
   const { data, loading, error, reload } = useAsync((signal) => chatsApi.list(true, signal), []);
+  usePageTitle(t('archive.title'));
 
   const restore = async (id: string) => {
     await chatsApi.update(id, { archived: false });

@@ -96,3 +96,33 @@ export async function readFileBytes(storage: 's3' | 'local' | 'supabase', key: s
   const safe = path.basename(key);
   return fs.readFile(path.join(config.dataDir, 'uploads', safe));
 }
+
+/**
+ * Delete a stored file. Idempotent: an already-missing object is not an
+ * error, so callers can retry cleanup safely.
+ */
+export async function deleteFile(storage: 's3' | 'local' | 'supabase', key: string): Promise<void> {
+  if (storage === 'supabase') {
+    const { error } = await getSupabaseAdmin()
+      .storage.from(config.supabaseStorageBucket)
+      .remove([key]);
+    if (error) throw new Error(`Supabase Storage delete failed: ${error.message}`);
+    return;
+  }
+  if (storage === 's3') {
+    const { S3Client, DeleteObjectCommand } = await import('@aws-sdk/client-s3');
+    const client = new S3Client({
+      region: config.s3Region,
+      ...(config.s3Endpoint ? { endpoint: config.s3Endpoint, forcePathStyle: true } : {}),
+    });
+    await client.send(new DeleteObjectCommand({ Bucket: config.s3Bucket, Key: key }));
+    return;
+  }
+  // Keys are server-generated; sanitize anyway before touching the filesystem.
+  const safe = path.basename(key);
+  try {
+    await fs.unlink(path.join(config.dataDir, 'uploads', safe));
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+  }
+}

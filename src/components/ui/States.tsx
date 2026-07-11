@@ -1,6 +1,7 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { Icon, type IconName } from '@/components/icons/Icon';
 import { useI18n } from '@/i18n/I18nProvider';
+import { tStandalone } from '@/i18n/messages';
 import { Button } from './Button';
 import { Spinner } from './Spinner';
 import styles from './ui.module.css';
@@ -49,7 +50,7 @@ export function ErrorState({ message, onRetry }: { message: string; onRetry?: ()
 }
 
 /** Full-panel loading state. */
-export function LoadingState({ label = 'Loading…' }: { label?: string }) {
+export function LoadingState({ label = tStandalone('common.loading') }: { label?: string }) {
   return (
     <div className={styles.state}>
       <Spinner size={26} />

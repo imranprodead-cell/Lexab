@@ -8,14 +8,17 @@ import { authApi } from '@/api/auth.api';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
-import { CURRENT_USER } from '@/data/seed';
 import { useChatStore } from '@/store/useChatStore';
 import { useChatHistoryStore } from '@/store/useChatHistoryStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useI18n } from '@/i18n/I18nProvider';
 import { Icon } from '@/components/icons/Icon';
+import type { UserProfile } from '@/types/domain';
 import styles from './layout.module.css';
+
+/** Neutral placeholder shown in the rail while no user is signed in. */
+const EMPTY_PROFILE: UserProfile = { name: '—', initials: '·', firm: '', jurisdiction: '', email: '' };
 
 /**
  * Root layout: side rail + routed content. Loads the session list, wires global
@@ -51,7 +54,7 @@ export function AppShell() {
     void loadSessions();
   }, [loadSessions, token]);
 
-  const profile = authUser ?? CURRENT_USER;
+  const profile = authUser ?? EMPTY_PROFILE;
 
   const onNewReview = () => {
     resetChat();

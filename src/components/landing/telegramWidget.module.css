@@ -19,22 +19,36 @@
   pointer-events: none;
 }
 
-.tg {
+/* Shared anchor: both QR popovers position against this wrapper, so they
+   open in exactly the same spot no matter which pill is hovered. */
+.items {
   position: relative;
-}
-
-.tgBtn {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 7px;
+  gap: 12px;
+}
+
+.tg {
+  /* Intentionally not positioned — the popover anchors to .items above. */
+  position: static;
+}
+
+/* Compact 44px circles — same footprint as the back-to-top button, so the
+   whole dock reads as one tidy column. */
+.tgBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
   touch-action: manipulation;
-  padding: 13px 11px 11px;
-  border-radius: 999px;
+  color: #ffffff;
   background: linear-gradient(165deg, var(--accent), color-mix(in srgb, var(--accent) 60%, #3a2f80));
   border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
   text-decoration: none;
-  box-shadow: 0 10px 30px color-mix(in srgb, var(--accent) 28%, transparent);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 22%, transparent);
   transition: box-shadow var(--dur-mid) var(--ease), transform var(--dur-mid) var(--ease);
 }
 
@@ -42,32 +56,19 @@
 .tg:focus-within .tgBtn {
   transform: translateY(-1px);
   box-shadow:
-    0 14px 44px color-mix(in srgb, var(--accent) 55%, transparent),
-    0 0 0 5px color-mix(in srgb, var(--accent) 18%, transparent);
+    0 8px 26px color-mix(in srgb, var(--accent) 45%, transparent),
+    0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
 }
 
 .tgIcon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  background: #ffffff;
-  color: color-mix(in srgb, var(--accent) 80%, #1c1c22);
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.05);
 }
 
-.tgIcon svg {
+.planeSvg {
   /* Optically center the paper plane inside the circle. */
   transform: translate(-1px, 1px);
-}
-
-.tgLabel {
-  font-size: 11.5px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  color: #ffffff;
 }
 
 /* QR popover to the left of the pill */
@@ -189,14 +190,8 @@
     transform: none;
   }
   .tgBtn {
-    padding: 10px 9px 9px;
-  }
-  .tgIcon {
-    width: 34px;
-    height: 34px;
-  }
-  .tgLabel {
-    font-size: 10.5px;
+    width: 40px;
+    height: 40px;
   }
   .qrPop {
     width: 190px;

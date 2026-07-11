@@ -211,6 +211,27 @@
   line-height: 1.5;
 }
 
+/* "Confirmation letter sent" notice shown above the sign-in form after sign-up. */
+.verifySent {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--txt);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin: -2px 0 12px;
+}
+
+.verifySent svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--accent);
+}
+
 .form {
   display: flex;
   flex-direction: column;

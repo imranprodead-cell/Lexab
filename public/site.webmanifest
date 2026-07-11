@@ -1,0 +1,22 @@
+{
+  "name": "LexAI",
+  "short_name": "LexAI",
+  "description": "AI contract analysis with verifiable citations to legislation.",
+  "start_url": "/",
+  "display": "standalone",
+  "theme_color": "#101014",
+  "background_color": "#101014",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "sizes": "180x180",
+      "type": "image/png"
+    }
+  ]
+}

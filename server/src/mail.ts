@@ -72,34 +72,37 @@ export async function sendMail(input: MailInput): Promise<{ sent: boolean }> {
 export function mailLayout(title: string, bodyHtml: string, ctaLabel?: string, ctaUrl?: string): string {
   const button =
     ctaLabel && ctaUrl
-      ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px 0 4px;"><tr><td style="border-radius:12px;background:linear-gradient(135deg,#8b7cf6,#6a5ae0);">
-           <a href="${ctaUrl}" style="display:inline-block;padding:13px 30px;font-size:14px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:12px;">${ctaLabel}</a>
+      ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:26px 0 4px;"><tr><td style="border-radius:12px;background:linear-gradient(135deg,#8b7cf6,#6a5ae0);box-shadow:0 6px 16px rgba(107,90,224,0.25);">
+           <a href="${ctaUrl}" style="display:inline-block;padding:13px 28px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:12px;">${ctaLabel}</a>
          </td></tr></table>
-         <p style="font-size:11px;color:#9b95b3;margin:10px 0 0;word-break:break-all;">Если кнопка не работает, откройте ссылку: <a href="${ctaUrl}" style="color:#8b7cf6;">${ctaUrl}</a></p>`
+         <p style="font-size:12px;line-height:1.5;color:#9a9aa6;margin:12px 0 0;word-break:break-all;">Если кнопка не работает, откройте ссылку: <a href="${ctaUrl}" style="color:#8b7cf6;text-decoration:none;">${ctaUrl}</a></p>`
       : '';
   return `<!doctype html>
 <html lang="ru">
 <body style="margin:0;padding:0;background:#f4f2fb;">
+  <span style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#f4f2fb;opacity:0;">${title} — LexAI</span>
   <div style="padding:36px 16px 44px;font-family:'Instrument Sans',-apple-system,'Segoe UI',Roboto,Arial,sans-serif;">
     <div style="max-width:540px;margin:0 auto;">
 
-      <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto 20px;"><tr>
+      <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto 22px;"><tr>
         <td style="width:42px;height:42px;border-radius:13px;background:linear-gradient(135deg,#8b7cf6,#5f4fd4);text-align:center;vertical-align:middle;font-size:19px;line-height:42px;color:#ffffff;">&#9670;</td>
         <td style="padding-left:11px;">
-          <div style="font-size:18px;font-weight:700;color:#221d35;line-height:1.1;">LexAI</div>
+          <div style="font-size:18px;font-weight:700;letter-spacing:-0.01em;color:#221d35;line-height:1.1;">LexAI</div>
           <div style="font-size:11px;color:#9b95b3;letter-spacing:0.03em;">AI contract intelligence</div>
         </td>
       </tr></table>
 
-      <div style="background:#ffffff;border:1px solid #e6e3f2;border-radius:18px;padding:32px 34px;box-shadow:0 12px 32px rgba(107,90,224,0.08);">
-        <h1 style="margin:0 0 12px;font-size:20px;letter-spacing:-0.01em;color:#221d35;">${title}</h1>
-        <div style="font-size:14px;line-height:1.65;color:#5a5470;">${bodyHtml}</div>
+      <div style="background:#ffffff;border:1px solid #e9e6f4;border-radius:18px;padding:34px 36px;box-shadow:0 8px 26px rgba(107,90,224,0.06);">
+        <h1 style="margin:0 0 14px;font-size:22px;font-weight:700;letter-spacing:-0.01em;line-height:1.3;color:#221d35;">${title}</h1>
+        <div style="font-size:15px;line-height:1.6;color:#3a3a46;">${bodyHtml}</div>
         ${button}
       </div>
 
-      <p style="text-align:center;font-size:12px;line-height:1.6;color:#9b95b3;margin:20px 0 0;">
-        LexAI — AI contract intelligence<br/>
-        Поиск рисков · Готовые правки · Вопросы по договору
+      <div style="border-top:1px solid #e6e3f2;margin:28px 10px 0;font-size:0;line-height:0;">&nbsp;</div>
+      <p style="text-align:center;font-size:12px;line-height:1.8;color:#9b95b3;margin:14px 0 0;">
+        LexAI — интеллектуальный анализ контрактов<br/>
+        <a href="https://lexai.app/terms" style="color:#8b7cf6;text-decoration:none;">Условия использования</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://lexai.app/privacy" style="color:#8b7cf6;text-decoration:none;">Конфиденциальность</a><br/>
+        © 2026 LexAI
       </p>
     </div>
   </div>

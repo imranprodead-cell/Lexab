@@ -192,8 +192,8 @@ const SECURITY: { icon: IconName; title: Text2; text: Text2 }[] = [
     icon: 'eyeOff',
     title: { ru: 'Без обучения на ваших данных', en: 'No training on your data' },
     text: {
-      ru: 'Документы не используются для обучения моделей и не передаются третьим лицам. Анализ идёт через Anthropic API, который по своей политике не обучает модели на данных API.',
-      en: 'Your documents are not used to train models and are not shared with third parties. Analysis runs through the Anthropic API, whose policy is not to train models on API data.',
+      ru: 'Документы не используются для обучения моделей и не передаются третьим лицам. Условия наших ИИ-провайдеров исключают обучение моделей на переданных данных.',
+      en: 'Your documents are not used to train models and are not shared with third parties. Our AI providers’ terms preclude training models on submitted data.',
     },
   },
   {

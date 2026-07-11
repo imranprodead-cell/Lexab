@@ -10,6 +10,7 @@ import { useAsync, useDismissable } from '@/hooks/useAsync';
 import { templatesApi } from '@/api';
 import { COUNTRIES, flagUrl } from '@/data/countries';
 import { useUIStore } from '@/store/useUIStore';
+import { usePageTitle } from '@/hooks/usePageTitle';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { Template } from '@/types/domain';
 import styles from './pages.module.css';
@@ -45,6 +46,7 @@ function matchJurisdiction(text: string): string {
 /** Reusable clause/document library + AI contract generator. */
 export function TemplatesPage() {
   const { t, lang } = useI18n();
+  usePageTitle(t('tpl.title'));
   const pushToast = useUIStore((s) => s.pushToast);
   const [category, setCategory] = useState('All');
 
@@ -255,7 +257,7 @@ export function TemplatesPage() {
                     <TextField
                       label={t('tpl.term')}
                       name="term"
-                      placeholder="12 months"
+                      placeholder={t('tpl.termPh')}
                       value={term}
                       onChange={(e) => setTerm(e.target.value)}
                     />

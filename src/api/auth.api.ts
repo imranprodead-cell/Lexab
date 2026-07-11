@@ -12,8 +12,12 @@ export const authApi = {
     return http<AuthSession>('/auth/login', { method: 'POST', body: { email, password } });
   },
 
-  register(name: string, email: string, password: string): Promise<AuthSession> {
-    return http<AuthSession>('/auth/register', { method: 'POST', body: { name, email, password } });
+  /** Creates the account and sends a confirmation letter — no session until verified. */
+  register(name: string, email: string, password: string): Promise<{ ok: boolean; email: string }> {
+    return http<{ ok: boolean; email: string }>('/auth/register', {
+      method: 'POST',
+      body: { name, email, password },
+    });
   },
 
   logout(): Promise<void> {
@@ -47,9 +51,9 @@ export const authApi = {
     });
   },
 
-  /** Confirm the email address by the token from the letter. */
-  async verifyEmail(token: string): Promise<void> {
-    await http<void>('/auth/verify', { method: 'POST', body: { token } });
+  /** Confirm the email address by the token from the letter; returns a fresh session. */
+  async verifyEmail(token: string): Promise<AuthSession> {
+    return http<AuthSession>('/auth/verify', { method: 'POST', body: { token } });
   },
 
   /** Send the verification letter again (signed-in users). */

@@ -1,14 +1,14 @@
 /**
  * Authentication store.
  *
- * Real mode (VITE_USE_MOCK_API=false): login/register call the backend
- * (/auth/login, /auth/register) and persist the returned JWT + profile.
+ * Real mode (VITE_USE_MOCK_API=false): login calls the backend and persists
+ * the returned JWT + profile; register only creates the account — the session
+ * starts after the emailed confirmation link is clicked (see VerifyEmailPage).
  * Mock mode: any well-formed credentials succeed (original prototype behaviour).
  */
 import { create } from 'zustand';
 import { USE_MOCK } from '@/api/client';
 import { authApi } from '@/api/auth.api';
-import { CURRENT_USER } from '@/data/seed';
 import { clearAsyncCache } from '@/hooks/useAsync';
 import { useNotificationsStore } from '@/store/useNotificationsStore';
 import type { UserProfile } from '@/types/domain';
@@ -25,7 +25,8 @@ interface AuthState {
   token: string | null;
   status: 'idle' | 'loading';
   login: (email: string, password: string) => Promise<void>;
-  register: (name: string, email: string, password: string) => Promise<void>;
+  /** Resolves to 'verify-email' when the account awaits mailbox confirmation. */
+  register: (name: string, email: string, password: string) => Promise<'signed-in' | 'verify-email'>;
   /** Accept a ready-made session (e.g. returned by the Google OAuth callback). */
   adoptSession: (token: string, user: UserProfile) => void;
   updateProfile: (patch: Partial<UserProfile>) => void;
@@ -63,6 +64,11 @@ async function mockAuth(user: UserProfile): Promise<Session> {
   return { token: `mock_${Date.now()}`, user };
 }
 
+/** Mock-mode profile derived from the entered credentials — no seeded persona. */
+function mockProfile(name: string, email: string): UserProfile {
+  return { name, initials: initials(name), firm: 'LexAI', jurisdiction: 'United Kingdom', email };
+}
+
 const existing = loadSession();
 
 export const useAuthStore = create<AuthState>((set, get) => ({
@@ -74,7 +80,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ status: 'loading' });
     try {
       const session = USE_MOCK
-        ? await mockAuth({ ...CURRENT_USER, email })
+        ? await mockAuth(mockProfile(email.split('@')[0] || email, email))
         : await authApi.login(email, password);
       clearAsyncCache();
       useNotificationsStore.getState().reset();
@@ -89,13 +95,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   register: async (name, email, password) => {
     set({ status: 'loading' });
     try {
-      const session = USE_MOCK
-        ? await mockAuth({ ...CURRENT_USER, name, email, initials: initials(name), firm: 'LexAI' })
-        : await authApi.register(name, email, password);
-      clearAsyncCache();
-      useNotificationsStore.getState().reset();
-      persist(session);
-      set({ user: session.user, token: session.token, status: 'idle' });
+      if (USE_MOCK) {
+        const session = await mockAuth(mockProfile(name, email));
+        clearAsyncCache();
+        useNotificationsStore.getState().reset();
+        persist(session);
+        set({ user: session.user, token: session.token, status: 'idle' });
+        return 'signed-in';
+      }
+      // The account is created, but signing in requires the emailed link —
+      // otherwise anyone could register with someone else's address.
+      await authApi.register(name, email, password);
+      set({ status: 'idle' });
+      return 'verify-email';
     } catch (err) {
       set({ status: 'idle' });
       throw err;

@@ -3,6 +3,7 @@ import { Icon, type IconName } from '@/components/icons/Icon';
 import { toneColor } from '@/components/ui/Badge';
 import { ErrorState, SkeletonRows } from '@/components/ui/States';
 import { useAsync } from '@/hooks/useAsync';
+import { usePageTitle } from '@/hooks/usePageTitle';
 import { analyticsApi } from '@/api';
 import { useI18n } from '@/i18n/I18nProvider';
 import styles from './pages.module.css';
@@ -32,6 +33,7 @@ const SEVERITY_ICON: Record<string, IconName> = {
 export function AnalyticsPage() {
   const { t } = useI18n();
   const { data, loading, error, reload } = useAsync((signal) => analyticsApi.summary(signal), []);
+  usePageTitle(t('nav.analytics'));
 
   return (
     <div className={styles.page}>

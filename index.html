@@ -7,24 +7,135 @@
     <meta name="description" content="LexAI — AI contract intelligence platform." />
     <title>LexAI — Contract Intelligence</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="canonical" href="https://lexai.app/" />
+    <script>
+      // SPA: одна index.html на все маршруты — подставляем канонический URL
+      // текущей страницы (краулеры, исполняющие JS, увидят правильный).
+      (function () {
+        try {
+          var href = 'https://lexai.app' + (location.pathname === '/' ? '/' : location.pathname);
+          var c = document.querySelector('link[rel="canonical"]');
+          if (c) c.setAttribute('href', href);
+          var og = document.querySelector('meta[property="og:url"]');
+          if (og) og.setAttribute('content', href);
+        } catch (e) {}
+      })();
+    </script>
+    <link rel="manifest" href="/site.webmanifest" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <!-- Social preview card (Open Graph + Twitter) -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="LexAI" />
+    <meta property="og:url" content="https://lexai.app/" />
     <meta property="og:title" content="LexAI — AI contract intelligence" />
     <meta
       property="og:description"
       content="Risk review, tracked redlines and clause Q&A for your contracts — in minutes, not hours."
     />
-    <meta property="og:image" content="/og.png" />
+    <meta property="og:image" content="https://lexai.app/og.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
+    <meta
+      property="og:image:alt"
+      content="LexAI — contract review with verifiable citations to legislation"
+    />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:locale:alternate" content="ru_RU" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="LexAI — AI contract intelligence" />
     <meta
       name="twitter:description"
       content="Risk review, tracked redlines and clause Q&A for your contracts — in minutes, not hours."
     />
-    <meta name="twitter:image" content="/og.png" />
+    <meta name="twitter:image" content="https://lexai.app/og.png" />
+    <meta
+      name="twitter:image:alt"
+      content="LexAI — contract analysis with verifiable citations to the law"
+    />
+    <!-- Structured data for search engines (Organization + app + site). -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "Organization",
+            "@id": "https://lexai.app/#organization",
+            "name": "LexAI",
+            "url": "https://lexai.app/",
+            "logo": "https://lexai.app/favicon.svg",
+            "sameAs": ["https://t.me/MANAGER_CIVIS"]
+          },
+          {
+            "@type": "SoftwareApplication",
+            "@id": "https://lexai.app/#app",
+            "name": "LexAI",
+            "url": "https://lexai.app/",
+            "applicationCategory": "BusinessApplication",
+            "operatingSystem": "Web",
+            "description": "AI contract analysis with verifiable citations to legislation (UK and Uzbekistan): risk review, tracked redlines and clause Q&A.",
+            "publisher": { "@id": "https://lexai.app/#organization" },
+            "offers": [
+              {
+                "@type": "Offer",
+                "name": "Free",
+                "price": "0",
+                "priceCurrency": "USD",
+                "priceSpecification": {
+                  "@type": "UnitPriceSpecification",
+                  "price": "0",
+                  "priceCurrency": "USD",
+                  "unitText": "MONTH"
+                }
+              },
+              {
+                "@type": "Offer",
+                "name": "Standard",
+                "price": "15",
+                "priceCurrency": "USD",
+                "priceSpecification": {
+                  "@type": "UnitPriceSpecification",
+                  "price": "15",
+                  "priceCurrency": "USD",
+                  "unitText": "MONTH"
+                }
+              },
+              {
+                "@type": "Offer",
+                "name": "Pro",
+                "price": "50",
+                "priceCurrency": "USD",
+                "priceSpecification": {
+                  "@type": "UnitPriceSpecification",
+                  "price": "50",
+                  "priceCurrency": "USD",
+                  "unitText": "MONTH"
+                }
+              },
+              {
+                "@type": "Offer",
+                "name": "Business",
+                "price": "499",
+                "priceCurrency": "USD",
+                "priceSpecification": {
+                  "@type": "UnitPriceSpecification",
+                  "price": "499",
+                  "priceCurrency": "USD",
+                  "unitText": "MONTH"
+                }
+              }
+            ]
+          },
+          {
+            "@type": "WebSite",
+            "@id": "https://lexai.app/#website",
+            "name": "LexAI",
+            "url": "https://lexai.app/",
+            "inLanguage": ["ru", "en"],
+            "publisher": { "@id": "https://lexai.app/#organization" }
+          }
+        ]
+      }
+    </script>
     <!-- Apply the saved theme BEFORE first paint so full-page loads (e.g. the
          return from Google sign-in) don't flash white/dark for an instant. -->
     <script>
@@ -46,14 +157,14 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <!-- Fonts load async (media swap) so they never block first paint. -->
     <link
-      href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Inter:wght@500;600;700&family=Manrope:wght@400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700&display=swap"
       rel="stylesheet"
       media="print"
       onload="this.media='all'"
     />
     <noscript>
       <link
-        href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Inter:wght@500;600;700&family=Manrope:wght@400;500;600;700&display=swap"
+        href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700&display=swap"
         rel="stylesheet"
       />
     </noscript>
