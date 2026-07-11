@@ -83,6 +83,7 @@ export const MESSAGES: Dict = {
   'tpl.partyB': { ru: 'Сторона B (контрагент)', en: 'Party B (counterparty)' },
   'tpl.jurisdiction': { ru: 'Юрисдикция', en: 'Jurisdiction' },
   'tpl.term': { ru: 'Срок действия', en: 'Term' },
+  'tpl.termPh': { ru: 'например, 12 месяцев', en: 'e.g. 12 months' },
   'tpl.details': { ru: 'Особые условия (по желанию)', en: 'Special terms (optional)' },
   'tpl.genRun': { ru: 'Сгенерировать', en: 'Generate' },
   'tpl.genReady': { ru: 'Черновик готов', en: 'Draft ready' },
@@ -197,6 +198,10 @@ export const MESSAGES: Dict = {
   'sev.Medium': { ru: 'Средняя', en: 'Medium' },
   'sev.Low': { ru: 'Низкая', en: 'Low' },
 
+  // Citation verification badge (statute corpus)
+  'finding.verified': { ru: 'Проверено по базе законов', en: 'Verified against law database' },
+  'finding.unverified': { ru: 'Источник не подтверждён', en: 'Source not confirmed' },
+
   // Chat · analysis progress card
   'chat.an.workingTitle': { ru: 'Анализирую контракт', en: 'Analyzing contract' },
   'chat.an.doneTitle': { ru: 'Анализ завершён', en: 'Analysis complete' },
@@ -211,6 +216,39 @@ export const MESSAGES: Dict = {
   'chat.sum.top': { ru: 'Топ-{n} находок', en: 'Top {n} findings' },
   'chat.sum.followUp': { ru: 'Задать вопрос', en: 'Ask a follow-up' },
   'chat.thinking': { ru: 'LexAI думает…', en: 'LexAI is thinking…' },
+
+  // Chat · message actions (below assistant replies)
+  'chat.act.like': { ru: 'Хороший ответ', en: 'Good response' },
+  'chat.act.dislike': { ru: 'Плохой ответ', en: 'Bad response' },
+  'chat.act.copy': { ru: 'Копировать', en: 'Copy' },
+  'chat.act.copied': { ru: 'Скопировано', en: 'Copied' },
+  'chat.act.more': { ru: 'Ещё', en: 'More' },
+  'chat.act.speak': { ru: 'Прочитать вслух', en: 'Read aloud' },
+  'chat.act.speakStop': { ru: 'Остановить чтение', en: 'Stop reading' },
+  'chat.act.downloadTxt': { ru: 'Скачать как .txt', en: 'Download as .txt' },
+  'chat.act.thanks': { ru: 'Спасибо за отзыв', en: 'Thanks for the feedback' },
+
+  // Chat · ghost (incognito) mode
+  'ghost.enter': { ru: 'Режим призрака', en: 'Ghost mode' },
+  'ghost.warnTitle': { ru: 'Включить режим призрака?', en: 'Turn on ghost mode?' },
+  'ghost.warnBody': {
+    ru: 'Сообщения в этом режиме не сохраняются: закроете чат — переписка исчезнет. Лимиты тарифа и модель ИИ работают как обычно.',
+    en: 'Messages in this mode are not saved: close the chat and the conversation is gone. Plan limits and your AI model work as usual.',
+  },
+  'ghost.warnConfirm': { ru: 'Включить', en: 'Turn on' },
+  'ghost.warnCancel': { ru: 'Отмена', en: 'Cancel' },
+  'ghost.active': { ru: 'Режим призрака — сообщения не сохраняются', en: 'Ghost mode — messages are not saved' },
+  'ghost.exit': { ru: 'Выйти', en: 'Exit' },
+  'ghost.left': { ru: 'Режим призрака выключен', en: 'Ghost mode is off' },
+  'ghost.noFiles': { ru: 'В режиме призрака файлы недоступны', en: 'Files are unavailable in ghost mode' },
+
+  // Chat · Free-plan upgrade nudge above the composer
+  'chat.upsell.title': { ru: 'Больше возможностей с LexAI', en: 'Get more with LexAI' },
+  'chat.upsell.cta': { ru: 'Улучшить', en: 'Upgrade' },
+  'chat.limitReached': {
+    ru: 'Лимит ИИ-запросов вашего тарифа на этот месяц исчерпан. Чтобы продолжить, обновите тариф в разделе «Тарифы».',
+    en: 'Your plan’s monthly AI request limit is used up. Upgrade your plan on the Plans page to continue.',
+  },
 
   // Chat · offline fallback replies (no AI connection)
   'chat.mock.draft': {
@@ -401,6 +439,11 @@ export const MESSAGES: Dict = {
   'auth.resetHint': { ru: 'Укажите email — пришлём ссылку для сброса пароля.', en: "Enter your email — we'll send a reset link." },
   'auth.resetSend': { ru: 'Отправить ссылку', en: 'Send reset link' },
   'auth.resetSent': { ru: 'Если такой аккаунт существует — письмо со ссылкой уже в пути.', en: 'If that account exists, a reset link is on its way.' },
+  'auth.verifySentA': { ru: 'Аккаунт создан! Мы отправили письмо на ', en: "Account created! We've sent a link to " },
+  'auth.verifySentB': {
+    ru: ' — перейдите по ссылке из письма, чтобы подтвердить адрес и войти.',
+    en: ' — click the link in the letter to confirm your address and sign in.',
+  },
   'auth.backToSignIn': { ru: '← Назад ко входу', en: '← Back to sign in' },
   'auth.heroLine1': { ru: 'Анализируй контракты', en: 'Review contracts' },
   'auth.heroLine2': { ru: 'быстрее', en: 'faster' },
@@ -431,8 +474,8 @@ export const MESSAGES: Dict = {
     en: 'Measured on our golden test set · Uzbekistan law',
   },
   'auth.badgeVerified': { ru: 'Каждая цитата проверяется автоматически', en: 'Every citation is checked automatically' },
-  'auth.badgeSources': { ru: 'Источники: legislation.gov.uk · lex.uz', en: 'Sources: legislation.gov.uk · lex.uz' },
-  'auth.badgeClaude': { ru: 'Работает на Claude (Anthropic)', en: 'Powered by Claude (Anthropic)' },
+  'auth.badgeSources': { ru: 'Только официальные источники законов', en: 'Official law sources only' },
+  'auth.badgeAI': { ru: 'ИИ-модели последнего поколения', en: 'Latest-generation AI models' },
 
   // Landing (public /login page)
   'lang.switch': { ru: 'Язык интерфейса', en: 'Interface language' },
@@ -449,6 +492,7 @@ export const MESSAGES: Dict = {
   'landing.choosePlan': { ru: 'Выбрать план', en: 'Choose plan' },
   'landing.toTop': { ru: 'Наверх', en: 'Back to top' },
   'landing.tg.title': { ru: 'Свяжитесь с нами в Telegram', en: 'Contact us on Telegram' },
+  'landing.wa.title': { ru: 'Свяжитесь с нами в WhatsApp', en: 'Contact us on WhatsApp' },
   'landing.tg.scan': { ru: 'Наведите камеру на QR-код', en: 'Scan the QR code with your camera' },
 
   // Settings
@@ -778,6 +822,14 @@ export const MESSAGES: Dict = {
   },
   'error.retry': { ru: 'Повторить', en: 'Retry' },
   'error.reload': { ru: 'Перезагрузить', en: 'Reload' },
+
+  // 404
+  'nf.title': { ru: 'Страница не найдена', en: 'Page not found' },
+  'nf.body': {
+    ru: 'Такой страницы нет или она была перемещена.',
+    en: "We couldn't find that page — it may have been moved.",
+  },
+  'nf.cta': { ru: 'Вернуться в чат', en: 'Back to chat' },
 };
 
 /**

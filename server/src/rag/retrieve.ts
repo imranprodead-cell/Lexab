@@ -4,13 +4,13 @@
  * Pipeline: query rewriting (Haiku, 2-3 legal search queries) → per query
  * BM25/tsvector + dense vectors (when embedded) with HARD SQL filters
  * (jurisdiction + redaction in force on asOfDate) → reciprocal-rank fusion →
- * reranker slot (identity for now, cross-encoder later) → topK chunks with
- * full provenance.
+ * cross-encoder reranker (Voyage rerank-2.5-lite, fail-open) → topK chunks
+ * with full provenance.
  */
 import Anthropic from '@anthropic-ai/sdk';
 import { config } from '../config.ts';
 import type { Db } from '../db.ts';
-import { embeddingsEnabled, embedTexts, toVectorLiteral } from './embeddings.ts';
+import { embeddingsEnabled, embedTexts, rerankTexts, toVectorLiteral } from './embeddings.ts';
 import type { RetrieveParams, RetrievedChunk } from './types.ts';
 
 const REWRITE_SCHEMA = {
@@ -69,9 +69,15 @@ interface ChunkRow {
 
 const CHUNK_COLS = 'c.id, c.unit_id, c.document_id, c.jurisdiction, c.breadcrumb, c.context_summary, c.body, c.valid_from, c.valid_to, c.source_url';
 
-/** Reranker slot: identity for now; swap in a cross-encoder without touching callers. */
-async function rerank(_query: string, candidates: RetrievedChunk[]): Promise<RetrievedChunk[]> {
-  return candidates;
+/** Reranker slot: Voyage cross-encoder (rerank-2.5-lite) reorders the fused
+ *  candidates by semantic relevance; on any failure (no key, 429, timeout)
+ *  the RRF order stands — retrieval never breaks because of the reranker. */
+async function rerank(query: string, candidates: RetrievedChunk[]): Promise<RetrievedChunk[]> {
+  if (candidates.length < 2) return candidates;
+  const docs = candidates.map((c) => `${c.breadcrumb}\n${c.contextSummary}\n${c.body}`.slice(0, 2000));
+  const order = await rerankTexts(query, docs);
+  if (!order || order.length !== candidates.length) return candidates;
+  return order.map((i) => candidates[i]);
 }
 
 let embeddingColumnKnown: boolean | null = null;

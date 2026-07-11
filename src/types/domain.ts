@@ -25,6 +25,10 @@ export interface Finding {
   severity: Severity;
   title: string;
   citation: string;
+  /** legal_units id when the citation resolved against the statute corpus. */
+  unitId?: string | null;
+  /** True when citation validation could not confirm the source. */
+  unverified?: boolean;
 }
 
 /** A tracked change the AI proposes inside the document. */
@@ -70,6 +74,8 @@ export interface ChatMessage {
   analysisId?: string;
   /** True while an assistant message is still streaming in. */
   streaming?: boolean;
+  /** User's thumbs rating of an assistant reply. */
+  feedback?: 'up' | 'down' | null;
 }
 
 /** A saved review session shown in the sidebar, grouped by recency. */

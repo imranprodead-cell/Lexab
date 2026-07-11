@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Avatar } from '@/components/ui/Avatar';
 import { toneColor } from '@/components/ui/Badge';
-import { CitationChip } from '@/components/ui/CitationChip';
+import { CitationLine } from '@/components/ui/VerifiedBadge';
 import { IconButton } from '@/components/ui/Button';
 import { SkeletonRows } from '@/components/ui/States';
 import { ChatInput } from '@/components/chat/ChatInput';
@@ -14,6 +14,7 @@ import { exportDocx } from '@/lib/exportDocument';
 import { analysisApi } from '@/api';
 import { useChatStore } from '@/store/useChatStore';
 import { useUIStore } from '@/store/useUIStore';
+import { usePageTitle } from '@/hooks/usePageTitle';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { DocBlock } from '@/types/domain';
 import styles from '@/components/workspace/workspace.module.css';
@@ -36,6 +37,7 @@ export function WorkspacePage() {
   const updateDocument = useChatStore((s) => s.updateDocument);
   const reanalyze = useChatStore((s) => s.reanalyze);
   const pushToast = useUIStore((s) => s.pushToast);
+  usePageTitle(analysis?.fileName || t('ws.review'));
 
   const analysisReadOnly = () => useChatStore.getState().analysis?.canEdit === false;
   const [signOpen, setSignOpen] = useState(false);
@@ -112,7 +114,7 @@ export function WorkspacePage() {
                     <span className={styles.findingCardDot} style={{ background: toneColor(f.severity) }} />
                     <div style={{ minWidth: 0 }}>
                       <div className={styles.findingCardTitle}>{f.title}</div>
-                      <CitationChip citation={f.citation} />
+                      <CitationLine finding={f} />
                     </div>
                   </div>
                 ))}

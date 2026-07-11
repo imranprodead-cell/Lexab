@@ -352,6 +352,7 @@ export async function generateChatReply(
   jurisdiction?: string,
   plan?: string | null,
   historySummary?: string | null,
+  legalContext?: string | null,
 ): Promise<string> {
   const api = getClient();
   if (!api) {
@@ -384,6 +385,14 @@ export async function generateChatReply(
       system.push({
         type: 'text',
         text: `Summary of the earlier part of this conversation (rely on it as established context):\n${historySummary}`,
+      });
+    }
+    // Statute grounding (RAG): provisions retrieved for THIS question — they
+    // change every turn, so the block stays last, after the cache breakpoint.
+    if (legalContext) {
+      system.push({
+        type: 'text',
+        text: `Relevant provisions from LexAI's verified statute database (official sources; each starts with its [unit id]):\n<legal_context>\n${legalContext}\n</legal_context>\nWhen you cite legislation of this jurisdiction, cite ONLY provisions present in this legal context, with the exact article/section numbers shown. If none of them covers the question, say the database has no matching provision, then answer from general principles and note the citation is not verified. Never invent article numbers.`,
       });
     }
     // Retry on the default model only while nothing has streamed to the client

@@ -176,6 +176,14 @@ async function readSource(db: Db, req: FastifyRequest): Promise<AnalysisSource> 
       throw badRequest(`Unsupported file type. Allowed: ${ALLOWED_EXTENSIONS.join(', ')}`);
     }
     const buffer = await part.toBuffer();
+    // Optional law context sent alongside the file (multipart fields must
+    // precede the file part — later fields are not parsed by req.file()).
+    const jurisdictionField = (part.fields as Record<string, unknown> | undefined)?.jurisdiction as
+      | { value?: unknown }
+      | { value?: unknown }[]
+      | undefined;
+    const rawJurisdiction = Array.isArray(jurisdictionField) ? jurisdictionField[0]?.value : jurisdictionField?.value;
+    const jurisdiction = typeof rawJurisdiction === 'string' ? rawJurisdiction.slice(0, 60) : null;
     // Same bookkeeping as POST /uploads: the stored bytes count against the
     // plan's storage quota and show up in the usage numbers.
     await assertStorageAllowance(db, req.currentUser.id, buffer.length);
@@ -192,6 +200,7 @@ async function readSource(db: Db, req: FastifyRequest): Promise<AnalysisSource> 
       sizeBytes: buffer.length,
       text,
       pdf: fileExtension(fileName) === '.pdf' ? buffer : null,
+      jurisdiction,
     };
   }
 

@@ -44,7 +44,10 @@ interface SectionRow {
   jurisdiction: string;
 }
 
-async function generateContext(api: Anthropic, row: SectionRow): Promise<string> {
+async function generateContext(
+  api: Anthropic,
+  row: Pick<SectionRow, 'language' | 'breadcrumb' | 'heading' | 'text'>,
+): Promise<string> {
   try {
     const system =
       row.language === 'ru'
@@ -71,7 +74,7 @@ async function generateContext(api: Anthropic, row: SectionRow): Promise<string>
   }
 }
 
-async function buildChunks(db: Db, docsFilter: string[] | null, maxAnnotate: number): Promise<{ built: number }> {
+async function buildChunks(db: Db, docsFilter: string[] | null, maxAnnotate: number): Promise<{ built: number; annotated: number }> {
   const stale = await db.query<SectionRow>(
     `SELECT u.id, u.document_id, u.heading, u.breadcrumb, u.text, u.language,
             u.valid_from, u.valid_to, u.source_url, u.retrieved_at, u.sha256_checksum,
@@ -87,7 +90,7 @@ async function buildChunks(db: Db, docsFilter: string[] | null, maxAnnotate: num
   );
   if (!stale.rows.length) {
     console.log('[index] chunks up to date');
-    return { built: 0 };
+    return { built: 0, annotated: 0 };
   }
   console.log(`[index] building ${stale.rows.length} chunks (whole-section; AI context for up to ${maxAnnotate})…`);
   const api = config.anthropicApiKey ? new Anthropic({ apiKey: config.anthropicApiKey }) : null;
@@ -119,7 +122,39 @@ async function buildChunks(db: Db, docsFilter: string[] | null, maxAnnotate: num
     );
     if ((i / CONCURRENCY) % 10 === 0) console.log(`[index] ${Math.min(i + CONCURRENCY, stale.rows.length)}/${stale.rows.length}`);
   }
-  return { built };
+  return { built, annotated };
+}
+
+/** Enrichment pass: chunks that entered the index without an AI annotation
+ *  (over the --max-annotate budget of an earlier run) get one now. The
+ *  embedding is reset so the enriched text is re-vectorised. */
+async function enrichChunks(db: Db, docsFilter: string[] | null, maxAnnotate: number): Promise<{ enriched: number }> {
+  const api = config.anthropicApiKey ? new Anthropic({ apiKey: config.anthropicApiKey }) : null;
+  if (!api || maxAnnotate <= 0) return { enriched: 0 };
+  const rows = await db.query<{ id: string; breadcrumb: string; text: string; language: string; heading: string | null }>(
+    `SELECT c.id, c.breadcrumb, c.body AS text, c.language, u.heading
+     FROM chunks c JOIN legal_units u ON u.id = c.unit_id
+     WHERE c.context_summary = '' AND ($1::text[] IS NULL OR c.document_id = ANY($1))
+     ORDER BY c.document_id LIMIT $2`,
+    [docsFilter, maxAnnotate],
+  );
+  if (!rows.rows.length) return { enriched: 0 };
+  console.log(`[index] enriching ${rows.rows.length} chunks with AI context…`);
+  let enriched = 0;
+  const CONCURRENCY = 6;
+  for (let i = 0; i < rows.rows.length; i += CONCURRENCY) {
+    const batch = rows.rows.slice(i, i + CONCURRENCY);
+    await Promise.all(
+      batch.map(async (row) => {
+        const context = await generateContext(api, row);
+        if (!context) return; // failed annotation stays empty — retried next run
+        await db.query('UPDATE chunks SET context_summary = $2, embedding = NULL WHERE id = $1', [row.id, context]);
+        enriched++;
+      }),
+    );
+    if ((i / CONCURRENCY) % 10 === 0) console.log(`[index] enriched ${Math.min(i + CONCURRENCY, rows.rows.length)}/${rows.rows.length}`);
+  }
+  return { enriched };
 }
 
 async function embedChunks(db: Db): Promise<{ embedded: number }> {
@@ -162,7 +197,8 @@ async function main(): Promise<void> {
   const maxAnnotate = maxArg ? Number(maxArg.slice(15)) : Number.MAX_SAFE_INTEGER;
   const db = await getDb();
   await migrate(db);
-  const chunkStats = embedOnly ? { built: 0 } : await buildChunks(db, docsFilter, maxAnnotate);
+  const chunkStats = embedOnly ? { built: 0, annotated: 0 } : await buildChunks(db, docsFilter, maxAnnotate);
+  const enrichStats = embedOnly ? { enriched: 0 } : await enrichChunks(db, docsFilter, maxAnnotate - chunkStats.annotated);
   const embedStats = await embedChunks(db);
   const totals = await db.query<{ chunks: string; with_context: string; with_embedding: string }>(
     `SELECT count(*) AS chunks,
@@ -171,7 +207,7 @@ async function main(): Promise<void> {
      FROM chunks`,
   ).catch(async () => db.query(`SELECT count(*) AS chunks, count(*) FILTER (WHERE context_summary <> '') AS with_context, 0 AS with_embedding FROM chunks`));
   console.log(
-    `\n[index] done: +${chunkStats.built} chunks built, +${embedStats.embedded} embedded. Corpus: ${totals.rows[0].chunks} chunks, ${totals.rows[0].with_context} with context, ${totals.rows[0].with_embedding} with embeddings.`,
+    `\n[index] done: +${chunkStats.built} chunks built, +${enrichStats.enriched} enriched, +${embedStats.embedded} embedded. Corpus: ${totals.rows[0].chunks} chunks, ${totals.rows[0].with_context} with context, ${totals.rows[0].with_embedding} with embeddings.`,
   );
   await db.close();
 }

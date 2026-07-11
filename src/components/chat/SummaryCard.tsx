@@ -1,6 +1,6 @@
 import { Icon, type IconName } from '@/components/icons/Icon';
 import { Badge, toneColor } from '@/components/ui/Badge';
-import { CitationChip } from '@/components/ui/CitationChip';
+import { CitationLine } from '@/components/ui/VerifiedBadge';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Button } from '@/components/ui/Button';
 import { useStreamingText } from '@/hooks/useStreamingText';
@@ -60,7 +60,7 @@ export function SummaryCard({ analysis, onOpenWorkspace, onFollowUp }: SummaryCa
                     <span className={styles.findingTitle}>{f.title}</span>
                     <Badge color={f.severity}>{t(`sev.${f.severity}`)}</Badge>
                   </div>
-                  <CitationChip citation={f.citation} />
+                  <CitationLine finding={f} />
                 </div>
               </div>
             );

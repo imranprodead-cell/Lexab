@@ -60,3 +60,31 @@ export async function embedTexts(texts: string[], inputType: 'document' | 'query
 export function toVectorLiteral(embedding: number[]): string {
   return `[${embedding.join(',')}]`;
 }
+
+export const RERANK_MODEL = 'rerank-2.5-lite';
+
+/**
+ * Cross-encoder rerank via Voyage. Returns indices of `documents` in relevance
+ * order, or null on ANY failure (no key, 429, timeout, bad payload) — callers
+ * must keep their original order then. Single attempt with a hard timeout:
+ * this runs in the live request path of analyses and chat, a slow reranker
+ * must never block a reply.
+ */
+export async function rerankTexts(query: string, documents: string[], timeoutMs = 4000): Promise<number[] | null> {
+  if (!embeddingsEnabled() || documents.length < 2) return null;
+  try {
+    const res = await fetch('https://api.voyageai.com/v1/rerank', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${config.voyageApiKey}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ model: RERANK_MODEL, query: query.slice(0, 1500), documents }),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = (await res.json()) as { data?: { index: number; relevance_score: number }[] };
+    if (!Array.isArray(data.data) || data.data.length !== documents.length) return null;
+    return [...data.data].sort((a, b) => b.relevance_score - a.relevance_score).map((r) => r.index);
+  } catch (err) {
+    console.warn(`[rag] rerank skipped: ${(err as Error).message}`);
+    return null;
+  }
+}
