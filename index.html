@@ -142,12 +142,16 @@
       (function () {
         try {
           var prefs = JSON.parse(localStorage.getItem('lexai.ui.prefs') || '{}');
-          var theme = prefs.theme || 'light';
-          if (theme === 'system') {
-            theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-          }
+          // "system" is the standard look and intentionally equals light.
+          var theme = prefs.theme === 'dark' ? 'dark' : 'light';
           document.documentElement.setAttribute('data-theme', theme);
           document.documentElement.style.backgroundColor = theme === 'light' ? '#ffffff' : '#101014';
+          // Apply saved language + direction (Arabic is RTL) before first paint.
+          var lang = localStorage.getItem('lexai.lang');
+          if (lang) {
+            document.documentElement.setAttribute('lang', lang);
+            document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
+          }
         } catch (e) {
           /* first visit — defaults apply */
         }

@@ -16,6 +16,7 @@ import { billingRoutes } from './routes/billing.routes.ts';
 import { chatRoutes } from './routes/chats.routes.ts';
 import { compareRoutes } from './routes/compare.routes.ts';
 import { documentRoutes } from './routes/documents.routes.ts';
+import { feedbackRoutes } from './routes/feedback.routes.ts';
 import { googleRoutes } from './routes/google.routes.ts';
 import { inboundRoutes } from './routes/inbound.routes.ts';
 import { integrationRoutes } from './routes/integrations.routes.ts';
@@ -94,6 +95,7 @@ export async function buildApp(db: Db): Promise<FastifyInstance> {
       billingRoutes(api, db);
       teamRoutes(api, db);
       integrationRoutes(api, db);
+      feedbackRoutes(api, db);
     },
     { prefix: config.apiPrefix },
   );

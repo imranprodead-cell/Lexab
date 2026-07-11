@@ -26,68 +26,116 @@
 
 /* Side rail --------------------------------------------------------------- */
 .railSlot {
-  width: 64px;
+  width: 60px;
   flex-shrink: 0;
   position: relative;
   height: 100%;
+  transition: width var(--dur-mid) var(--ease);
+}
+/* Desktop: the open rail is docked and pushes content (reserves its width).
+   On phones the slot stays narrow and the open rail overlays as a drawer. */
+@media (min-width: 701px) {
+  .railSlotOpen {
+    width: 260px;
+  }
 }
 .rail {
   position: absolute;
   top: 0;
-  left: 0;
+  inset-inline-start: 0;
   bottom: 0;
-  width: 64px;
+  width: 60px;
   background: var(--panel);
-  border-right: 1px solid var(--border);
+  border-inline-end: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  padding: 16px 10px;
+  padding: 12px 10px;
   overflow: hidden;
   transition: width var(--dur-mid) var(--ease);
   z-index: 60;
 }
 .railOpen {
-  width: 272px;
+  width: 260px;
   box-shadow: var(--shadow-pop);
+}
+/* Docked on desktop — no floating shadow; the drawer shadow is mobile-only. */
+@media (min-width: 701px) {
+  .railOpen {
+    box-shadow: none;
+  }
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 12px;
-  height: 38px;
-  padding: 0 6px;
-  margin-bottom: 16px;
+  height: 40px;
+  padding: 0 2px;
+  margin-bottom: 10px;
 }
-.brandText {
-  opacity: 0;
-  transition: opacity var(--dur-fast);
-  white-space: nowrap;
+.brandLogo {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
 }
-.railOpen .brandText,
+/* Open: logo at the start, collapse toggle pushed to the far (inline-end) edge. */
+.collapseBtn {
+  margin-inline-start: auto;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+.collapseBtn:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+/* Collapsed: a single button — logo by default, sidebar icon on hover. */
+.brandToggle {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  transition: background var(--dur-fast);
+}
+.brandToggle:hover {
+  background: var(--hover);
+}
+.brandToggleIcon {
+  display: none;
+  color: var(--dim);
+}
+/* The logo swaps to the expand icon as soon as the cursor enters the collapsed
+   rail (anywhere over the strip), not only when hovering the logo itself. */
+.rail:hover .brandToggle .brandLogo {
+  display: none;
+}
+.rail:hover .brandToggle .brandToggleIcon {
+  display: flex;
+}
 .railOpen .navLabel,
 .railOpen .userText {
   opacity: 1;
-}
-.brandName {
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-}
-.brandSub {
-  font-size: 11px;
-  color: var(--mut);
-  font-family: var(--font-label);
-  letter-spacing: 0.02em;
 }
 
 .navItem {
   display: flex;
   align-items: center;
-  gap: 13px;
-  height: 40px;
-  padding: 0 12px;
-  border-radius: var(--r-lg);
+  gap: 11px;
+  height: 36px;
+  padding: 0 11px;
+  border-radius: var(--r-md);
   cursor: pointer;
   color: var(--dim);
   background: transparent;
@@ -121,7 +169,7 @@
   opacity: 0;
   transition: opacity var(--dur-fast);
   white-space: nowrap;
-  font-size: 14px;
+  font-size: 13.5px;
 }
 
 .newBtn {
@@ -225,7 +273,6 @@
 .topBar {
   height: 60px;
   flex-shrink: 0;
-  border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -269,7 +316,7 @@
   .mobileToggle {
     position: fixed;
     top: 12px;
-    left: 12px;
+    inset-inline-start: 12px;
     z-index: 62;
     width: 40px;
     height: 40px;
@@ -283,7 +330,34 @@
     cursor: pointer;
   }
   .topBar {
-    padding-left: 64px;
+    padding-inline-start: 64px;
+  }
+  /* Phone: the rail is an overlay drawer, not a docked column. It reserves no
+     layout width (page is full-width) and slides in from the inline-start edge;
+     closed = fully off-screen so the hamburger owns the corner alone. */
+  .railSlot,
+  .railSlotOpen {
+    width: 0;
+  }
+  .rail {
+    width: 264px;
+    transform: translateX(-100%);
+    box-shadow: none;
+    transition: transform var(--dur-mid) var(--ease);
+  }
+  .railOpen {
+    width: 264px;
+    transform: translateX(0);
+    box-shadow: var(--shadow-pop);
+  }
+}
+/* RTL: the drawer lives on the right, so it hides by sliding off to the right. */
+@media (max-width: 700px) {
+  :global([dir='rtl']) .rail {
+    transform: translateX(100%);
+  }
+  :global([dir='rtl']) .railOpen {
+    transform: translateX(0);
   }
 }
 
@@ -304,41 +378,11 @@
   }
 }
 
-/* Top-bar actions: upgrade + theme toggle + country selector ------------- */
+/* Top-bar actions: bell + settings menu + country selector --------------- */
 .topActions {
   display: flex;
   align-items: center;
   gap: 10px;
-}
-
-.upgrade {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-  padding: 6px 12px 6px 8px;
-  border-radius: 999px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--accent);
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 600;
-  transition: background var(--dur-fast), border-color var(--dur-fast);
-}
-.upgrade:hover {
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
-}
-.upgradeMark {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(150deg, var(--accent), color-mix(in srgb, var(--accent) 55%, transparent));
 }
 
 .themeToggle {
@@ -354,9 +398,326 @@
   background: transparent;
   transition: background var(--dur-fast), color var(--dur-fast);
 }
-.themeToggle:hover {
+.themeToggle:hover,
+.themeToggle[aria-expanded='true'] {
   background: color-mix(in srgb, var(--accent) 12%, transparent);
   color: var(--accent);
+}
+
+/* Settings menu (gear → theme row / language / feedback / plans) ---------- */
+.settings {
+  position: relative;
+}
+.settingsMenu {
+  position: absolute;
+  top: calc(100% + 8px);
+  inset-inline-end: 0;
+  width: 236px;
+  padding: 8px;
+  border-radius: 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-pop);
+  z-index: 90;
+  animation: lxsettingsin 0.16s var(--ease);
+}
+@keyframes lxsettingsin {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.settingsThemes {
+  display: flex;
+  gap: 6px;
+  padding: 2px 2px 4px;
+}
+.settingsThemeBtn {
+  flex: 1;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+  transition: background var(--dur-fast), color var(--dur-fast), border-color var(--dur-fast);
+}
+.settingsThemeBtn:hover {
+  background: var(--hover-2);
+  color: var(--text);
+}
+.settingsThemeBtnOn {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  color: var(--accent);
+}
+.settingsDivider {
+  height: 1px;
+  margin: 6px 4px;
+  background: var(--border);
+}
+.settingsItem {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: start;
+}
+.settingsItem:hover {
+  background: var(--hover-2);
+}
+.settingsItemAccent {
+  color: var(--accent);
+}
+.settingsItemLabel {
+  flex: 1;
+  min-width: 0;
+}
+.settingsItemHint {
+  font-family: var(--font-label);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: var(--mut);
+}
+.settingsChevron {
+  display: flex;
+  color: var(--mut);
+  transition: transform var(--dur-fast);
+}
+.settingsChevronOpen {
+  transform: rotate(180deg);
+}
+.settingsSubItem {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  padding-inline-start: 36px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: start;
+}
+.settingsSubItem:hover {
+  background: var(--hover-2);
+}
+.settingsSubItemOn {
+  color: var(--accent);
+}
+.settingsSubShort {
+  font-family: var(--font-label);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: var(--mut);
+  width: 22px;
+}
+.settingsSubItemOn .settingsSubShort {
+  color: var(--accent);
+}
+/* Feedback form (settings → «Обратная связь») ----------------------------- */
+.fbArea {
+  resize: vertical;
+  min-height: 130px;
+  border-radius: 14px;
+}
+.fbLabel {
+  margin: 16px 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.fbLabelDim {
+  font-weight: 500;
+  color: var(--mut);
+}
+.fbDrop {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 18px 12px;
+  border: 1.5px dashed var(--border);
+  border-radius: 14px;
+  background: transparent;
+  color: var(--dim);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color var(--dur-fast), color var(--dur-fast), background var(--dur-fast);
+}
+.fbDrop:hover,
+.fbDropOver {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+.fbThumbs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.fbThumb {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.fbThumbImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.fbThumbRemove {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: rgba(10, 10, 14, 0.65);
+  color: #fff;
+  cursor: pointer;
+}
+.fbSelectWrap {
+  position: relative;
+}
+.fbSelect {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 11px 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  text-align: start;
+  transition: border-color var(--dur-fast);
+}
+.fbSelect:hover,
+.fbSelect[aria-expanded='true'] {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.fbSelectPlaceholder {
+  color: var(--dim);
+}
+.fbSelectChevron {
+  display: flex;
+  color: var(--mut);
+  transform: rotate(90deg);
+  transition: transform var(--dur-fast);
+}
+.fbSelectChevronOpen {
+  transform: rotate(270deg);
+}
+.fbSelectMenu {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  padding: 6px;
+  border-radius: 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-pop);
+  z-index: 30;
+  animation: lxsettingsin 0.16s var(--ease);
+}
+.fbSelectItem {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 10px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13.5px;
+  cursor: pointer;
+  text-align: start;
+}
+.fbSelectItem:hover {
+  background: var(--hover-2);
+}
+.fbSelectItemOn {
+  color: var(--accent);
+}
+
+@media (pointer: coarse) {
+  .fbSelectItem {
+    padding-top: 13px;
+    padding-bottom: 13px;
+  }
+  .fbThumbRemove {
+    width: 26px;
+    height: 26px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fbSelectMenu {
+    animation: none;
+  }
+}
+
+/* Touch devices: 44px minimum targets inside the settings menu. */
+@media (pointer: coarse) {
+  .settingsThemeBtn {
+    height: 44px;
+  }
+  .settingsItem,
+  .settingsSubItem {
+    padding-top: 13px;
+    padding-bottom: 13px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settingsMenu {
+    animation: none;
+  }
+  .settingsChevron {
+    transition: none;
+  }
 }
 
 /* Country selector -------------------------------------------------------- */
@@ -405,7 +766,7 @@
 .countryMenu {
   position: absolute;
   top: calc(100% + 8px);
-  right: 0;
+  inset-inline-end: 0;
   width: 260px;
   padding: 6px;
   border-radius: 14px;
@@ -420,7 +781,7 @@
 }
 .countrySearchIcon {
   position: absolute;
-  left: 10px;
+  inset-inline-start: 10px;
   top: 50%;
   transform: translateY(-50%);
   color: var(--mut);
@@ -434,7 +795,8 @@
   background: var(--panel-2);
   border: 1px solid var(--border);
   border-radius: 9px;
-  padding: 8px 10px 8px 32px;
+  padding: 8px;
+  padding-inline-start: 32px;
   outline: none;
 }
 .countryList {
@@ -520,7 +882,7 @@
 .notifMenu {
   position: absolute;
   top: calc(100% + 8px);
-  right: 0;
+  inset-inline-end: 0;
   width: 320px;
   padding: 6px;
   border-radius: 14px;
@@ -723,7 +1085,7 @@
   font-size: 14px;
 }
 .paletteHint {
-  margin-left: auto;
+  margin-inline-start: auto;
   font-family: var(--font-label);
   font-size: 11px;
   color: var(--mut);
@@ -740,11 +1102,11 @@
   min-width: 0;
 }
 .recentRow:hover .recentItem {
-  padding-right: 32px;
+  padding-inline-end: 32px;
 }
 .recentMore {
   position: absolute;
-  right: 4px;
+  inset-inline-end: 4px;
   width: 24px;
   height: 24px;
   display: flex;
@@ -770,7 +1132,7 @@
 }
 .recentMenu {
   position: absolute;
-  right: 2px;
+  inset-inline-end: 2px;
   top: calc(100% + 2px);
   z-index: 80;
   min-width: 178px;
@@ -792,7 +1154,7 @@
   color: var(--text);
   font-family: inherit;
   font-size: 13px;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
 }
 .recentMenuItem:hover {

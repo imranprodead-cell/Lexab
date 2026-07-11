@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Icon, type IconName } from '@/components/icons/Icon';
 import { Avatar } from '@/components/ui/Avatar';
 import { useI18n } from '@/i18n/I18nProvider';
+import { pickText } from '@/i18n/messages';
 import { prefersReducedMotion, scrollBehavior } from '@/lib/scroll';
 import { LandingDemo, DEMO_NOTE } from './LandingDemo';
 import styles from './landing.module.css';
@@ -438,9 +439,9 @@ function Head({ id }: { id: keyof typeof HEADS }) {
   const head = HEADS[id];
   return (
     <div className={styles.head}>
-      <div className={styles.eyebrow}>{head.eyebrow[lang]}</div>
-      <h2 className={styles.title}>{head.title[lang]}</h2>
-      <p className={styles.sub}>{head.sub[lang]}</p>
+      <div className={styles.eyebrow}>{pickText(head.eyebrow, lang)}</div>
+      <h2 className={styles.title}>{pickText(head.title, lang)}</h2>
+      <p className={styles.sub}>{pickText(head.sub, lang)}</p>
     </div>
   );
 }
@@ -493,8 +494,8 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
                 <span className={styles.cardIcon}>
                   <Icon name={f.icon} size={19} />
                 </span>
-                <div className={styles.cardTitle}>{f.title[lang]}</div>
-                <div className={styles.cardText}>{f.text[lang]}</div>
+                <div className={styles.cardTitle}>{pickText(f.title, lang)}</div>
+                <div className={styles.cardText}>{pickText(f.text, lang)}</div>
               </div>
             ))}
           </div>
@@ -509,8 +510,8 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
             {STEPS.map((s, i) => (
               <div key={s.title.en} className={styles.step} data-reveal style={revealAt(i)}>
                 <div className={styles.stepNum}>{String(i + 1).padStart(2, '0')}</div>
-                <div className={styles.stepTitle}>{s.title[lang]}</div>
-                <div className={styles.stepText}>{s.text[lang]}</div>
+                <div className={styles.stepTitle}>{pickText(s.title, lang)}</div>
+                <div className={styles.stepText}>{pickText(s.text, lang)}</div>
               </div>
             ))}
           </div>
@@ -522,7 +523,7 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
         <div className={styles.inner}>
           <Head id="demo" />
           <LandingDemo />
-          <div className={styles.demoNote}>{DEMO_NOTE[lang]}</div>
+          <div className={styles.demoNote}>{pickText(DEMO_NOTE, lang)}</div>
           <div className={styles.centerCta}>
             <button type="button" className={styles.ctaPrimary} onClick={onStart}>
               {t('landing.startFree')}
@@ -541,8 +542,8 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
                 <span className={styles.cardIcon}>
                   <Icon name={s.icon} size={19} />
                 </span>
-                <div className={styles.cardTitle}>{s.title[lang]}</div>
-                <div className={styles.cardText}>{s.text[lang]}</div>
+                <div className={styles.cardTitle}>{pickText(s.title, lang)}</div>
+                <div className={styles.cardText}>{pickText(s.text, lang)}</div>
               </div>
             ))}
           </div>
@@ -560,8 +561,8 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
                   <Icon name={s.icon} size={17} />
                 </span>
                 <div>
-                  <div className={styles.cardTitle}>{s.title[lang]}</div>
-                  <div className={styles.cardText}>{s.text[lang]}</div>
+                  <div className={styles.cardTitle}>{pickText(s.title, lang)}</div>
+                  <div className={styles.cardText}>{pickText(s.text, lang)}</div>
                 </div>
               </div>
             ))}
@@ -618,12 +619,12 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
                 {yearly && p.monthly > 0 ? (
                   <div className={styles.planPriceNote}>{t('plans.yearlyNote')}</div>
                 ) : null}
-                <div className={styles.planTagline}>{p.tagline[lang]}</div>
+                <div className={styles.planTagline}>{pickText(p.tagline, lang)}</div>
                 <ul className={styles.planFeatures}>
                   {p.features.map((f) => (
                     <li key={f.en}>
                       <Icon name="check" size={13} className={styles.planCheck} />
-                      {f[lang]}
+                      {pickText(f, lang)}
                     </li>
                   ))}
                 </ul>
@@ -666,17 +667,17 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
           <div className={styles.faq}>
             {FAQ_GROUPS.map((group) => (
               <div key={group.title.en}>
-                <h3 className={styles.faqGroupTitle}>{group.title[lang]}</h3>
+                <h3 className={styles.faqGroupTitle}>{pickText(group.title, lang)}</h3>
                 {group.items.map((item) => (
                   <details key={item.q.en} className={styles.faqItem}>
                     <summary className={styles.faqQ}>
-                      {item.q[lang]}
+                      {pickText(item.q, lang)}
                       <span className={styles.faqChevron}>
                         <Icon name="chevron" size={15} />
                       </span>
                     </summary>
                     <div className={styles.faqA}>
-                      {item.a[lang]}
+                      {pickText(item.a, lang)}
                       {item.link ? (
                         <button
                           type="button"
@@ -687,7 +688,7 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
                               ?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' })
                           }
                         >
-                          {item.link.label[lang]} →
+                          {pickText(item.link.label, lang)} →
                         </button>
                       ) : null}
                     </div>
@@ -716,8 +717,8 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
           </div>
 
           {FOOTER_COLS.map((col) => (
-            <nav key={col.title.en} className={styles.footerCol} aria-label={col.title[lang]}>
-              <div className={styles.footerColTitle}>{col.title[lang]}</div>
+            <nav key={col.title.en} className={styles.footerCol} aria-label={pickText(col.title, lang)}>
+              <div className={styles.footerColTitle}>{pickText(col.title, lang)}</div>
               {col.links.map((l) =>
                 l.anchor ? (
                   <button
@@ -730,11 +731,11 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
                         ?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' })
                     }
                   >
-                    {l.label[lang]}
+                    {pickText(l.label, lang)}
                   </button>
                 ) : l.to ? (
                   <Link key={l.label.en} to={l.to} className={styles.footerLink}>
-                    {l.label[lang]}
+                    {pickText(l.label, lang)}
                   </Link>
                 ) : (
                   <a
@@ -744,7 +745,7 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
                     rel="noreferrer noopener"
                     className={styles.footerLink}
                   >
-                    {l.label[lang]}
+                    {pickText(l.label, lang)}
                   </a>
                 ),
               )}

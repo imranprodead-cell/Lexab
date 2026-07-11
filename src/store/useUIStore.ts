@@ -36,9 +36,14 @@ interface Prefs {
 
 interface UIState extends Prefs {
   railHovered: boolean;
+  /** Phone-only overlay drawer state — ephemeral, never persisted, so it
+   *  never inherits the desktop dock state when the viewport narrows. */
+  mobileNavOpen: boolean;
   toasts: Toast[];
   setRailHovered: (v: boolean) => void;
   toggleRailPinned: () => void;
+  setRailPinned: (v: boolean) => void;
+  setMobileNavOpen: (v: boolean) => void;
   setAccent: (hex: string) => void;
   setReduceMotion: (v: boolean) => void;
   setTheme: (t: Theme) => void;
@@ -74,7 +79,9 @@ function loadPrefs(): Prefs {
   const fallback: Prefs = {
     accent: ACCENT_OPTIONS[0],
     reduceMotion: false,
-    railPinned: false,
+    // Desktop: sidebar docked open on first visit; narrow screens start closed.
+    // Persisted the moment the user toggles it, so their choice sticks.
+    railPinned: typeof window !== 'undefined' ? window.innerWidth > 700 : true,
     theme: 'light',
     country: detectCountry(),
   };
@@ -101,14 +108,10 @@ const toastTimers = new Map<
   { timeout: ReturnType<typeof setTimeout> | null; expiresAt: number; remaining: number }
 >();
 
-/** Resolve the "system" preference to an actual palette via matchMedia. */
+/** Resolve the theme preference to an actual palette.
+ *  "system" is the standard look and intentionally equals light. */
 function resolveTheme(theme: Theme): 'dark' | 'light' {
-  if (theme === 'system') {
-    return typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches
-      ? 'dark'
-      : 'light';
-  }
-  return theme;
+  return theme === 'dark' ? 'dark' : 'light';
 }
 
 /** Apply theme prefs to the document root as CSS variables / data attrs. */
@@ -121,18 +124,6 @@ export function applyTheme(prefs: Pick<Prefs, 'accent' | 'reduceMotion' | 'theme
 
 const initial = loadPrefs();
 applyTheme(initial);
-
-// Re-apply on OS theme change while the user is on "system".
-if (typeof window !== 'undefined') {
-  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-    try {
-      const prefs = loadPrefs();
-      if (prefs.theme === 'system') applyTheme(prefs);
-    } catch {
-      /* ignore */
-    }
-  });
-}
 
 /** Pull just the persistable prefs out of state, with an optional override. */
 function snapshot(state: Prefs, override: Partial<Prefs> = {}): Prefs {
@@ -149,12 +140,21 @@ function snapshot(state: Prefs, override: Partial<Prefs> = {}): Prefs {
 export const useUIStore = create<UIState>((set, get) => ({
   ...initial,
   railHovered: false,
+  mobileNavOpen: false,
   toasts: [],
 
   setRailHovered: (v) => set({ railHovered: v }),
 
+  setMobileNavOpen: (mobileNavOpen) => set({ mobileNavOpen }),
+
   toggleRailPinned: () => {
     const railPinned = !get().railPinned;
+    set({ railPinned });
+    persist(snapshot(get(), { railPinned }));
+  },
+
+  setRailPinned: (railPinned) => {
+    if (get().railPinned === railPinned) return;
     set({ railPinned });
     persist(snapshot(get(), { railPinned }));
   },
@@ -178,11 +178,8 @@ export const useUIStore = create<UIState>((set, get) => ({
   },
 
   toggleTheme: () => {
-    // Binary toggle from the top bar: resolve current, flip to the opposite.
-    const current = get().theme === 'system'
-      ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
-      : get().theme;
-    const theme: Theme = current === 'dark' ? 'light' : 'dark';
+    // Binary toggle (command palette, auth page): flip to the opposite palette.
+    const theme: Theme = resolveTheme(get().theme) === 'dark' ? 'light' : 'dark';
     set({ theme });
     applyTheme({ accent: get().accent, reduceMotion: get().reduceMotion, theme });
     persist(snapshot(get(), { theme }));

@@ -10,10 +10,17 @@
  */
 import { config } from './config.ts';
 
+export interface MailAttachment {
+  filename: string;
+  /** Raw file bytes, base64-encoded (no data: prefix). */
+  content: string;
+}
+
 export interface MailInput {
   to: string;
   subject: string;
   html: string;
+  attachments?: MailAttachment[];
 }
 
 /** Escape user-provided values interpolated into email HTML. */
@@ -49,7 +56,13 @@ export async function sendMail(input: MailInput): Promise<{ sent: boolean }> {
         Authorization: `Bearer ${config.resendApiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ from: config.mailFrom, to: [to], subject, html }),
+      body: JSON.stringify({
+        from: config.mailFrom,
+        to: [to],
+        subject,
+        html,
+        ...(input.attachments?.length ? { attachments: input.attachments } : {}),
+      }),
     });
     if (!res.ok) {
       console.warn(`[mail] send failed (${res.status}): ${await res.text()}`);

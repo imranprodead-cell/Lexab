@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Icon } from '@/components/icons/Icon';
 import { LogoLoader } from '@/components/ui/LogoLoader';
 import { useI18n } from '@/i18n/I18nProvider';
+import { pickText } from '@/i18n/messages';
 import { prefersReducedMotion } from '@/lib/scroll';
 import styles from './landing.module.css';
 
@@ -58,7 +59,7 @@ export function LandingDemo() {
   const [step, setStep] = useState(STEP_REDLINE);
   const [fadingOut, setFadingOut] = useState(false);
 
-  const clause = DEMO.clauseText[lang];
+  const clause = pickText(DEMO.clauseText, lang);
 
   // Static frame for reduced motion / no IntersectionObserver support.
   useEffect(() => {
@@ -127,20 +128,20 @@ export function LandingDemo() {
     <div className={styles.demoWindow} data-reveal ref={rootRef}>
       {/* The full example for screen readers — the animated copy is decorative. */}
       <p className="sr-only">
-        {DEMO.clauseLabel[lang]}: {clause} — {DEMO.severity[lang]}: {DEMO.findingTitle[lang]}. {DEMO.findingText[lang]}{' '}
-        ({DEMO.citation}). {DEMO.note[lang]}
+        {pickText(DEMO.clauseLabel, lang)}: {clause} — {pickText(DEMO.severity, lang)}: {pickText(DEMO.findingTitle, lang)}. {pickText(DEMO.findingText, lang)}{' '}
+        ({DEMO.citation}). {pickText(DEMO.note, lang)}
       </p>
 
       <div className={styles.demoBar}>
         <span className={styles.demoDot} />
         <span className={styles.demoDot} />
         <span className={styles.demoDot} />
-        <span className={styles.demoBarTitle}>{DEMO.windowTitle[lang]}</span>
+        <span className={styles.demoBarTitle}>{pickText(DEMO.windowTitle, lang)}</span>
       </div>
 
       <div className={`${styles.demoBody} ${fadingOut ? styles.demoBodyOut : ''}`} aria-hidden="true">
         <div className={styles.demoClause}>
-          <div className={styles.demoClauseLabel}>{DEMO.clauseLabel[lang]}</div>
+          <div className={styles.demoClauseLabel}>{pickText(DEMO.clauseLabel, lang)}</div>
           <div className={styles.demoClauseText}>{typed}</div>
         </div>
 
@@ -157,25 +158,25 @@ export function LandingDemo() {
               <div className={styles.demoFindingHead}>
                 <span className={styles.demoSeverity}>
                   <Icon name="alert" size={13} />
-                  {DEMO.severity[lang]}
+                  {pickText(DEMO.severity, lang)}
                 </span>
                 {showCitation ? (
                   <span className={`${styles.demoCitation} ${animated ? styles.demoStepIn : ''}`}>
                     {DEMO.citation}
                     <span className={styles.demoVerified}>
                       <Icon name="check" size={12} />
-                      {DEMO.verified[lang]}
+                      {pickText(DEMO.verified, lang)}
                     </span>
                   </span>
                 ) : null}
               </div>
-              <div className={styles.demoFindingTitle}>{DEMO.findingTitle[lang]}</div>
-              <div className={styles.demoFindingText}>{DEMO.findingText[lang]}</div>
+              <div className={styles.demoFindingTitle}>{pickText(DEMO.findingTitle, lang)}</div>
+              <div className={styles.demoFindingText}>{pickText(DEMO.findingText, lang)}</div>
               {showRedline ? (
                 <div className={`${styles.demoRedline} ${animated ? styles.demoStepIn : ''}`}>
-                  <div className={styles.demoRedlineLabel}>{DEMO.redlineLabel[lang]}</div>
+                  <div className={styles.demoRedlineLabel}>{pickText(DEMO.redlineLabel, lang)}</div>
                   <div className={styles.demoRedlineText}>
-                    <del>{DEMO.redlineDel[lang]}</del> <ins>{DEMO.redlineIns[lang]}</ins>
+                    <del>{pickText(DEMO.redlineDel, lang)}</del> <ins>{pickText(DEMO.redlineIns, lang)}</ins>
                   </div>
                 </div>
               ) : null}

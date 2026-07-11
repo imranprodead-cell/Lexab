@@ -5,14 +5,54 @@
  * Adding a language = add a column to each entry. No runtime deps.
  */
 
-export type Language = 'ru' | 'en';
+import { EXTRA } from './translations';
 
-export const LANGUAGES: { code: Language; label: string; short: string }[] = [
-  { code: 'ru', label: 'Русский', short: 'RU' },
+export type Language = 'en' | 'ru' | 'ar' | 'de' | 'kk' | 'uz';
+
+/** Order matters: EN and RU stay first; the rest are the product's markets. */
+export const LANGUAGES: { code: Language; label: string; short: string; dir?: 'rtl' }[] = [
   { code: 'en', label: 'English', short: 'EN' },
+  { code: 'ru', label: 'Русский', short: 'RU' },
+  { code: 'ar', label: 'العربية', short: 'AR', dir: 'rtl' },
+  { code: 'de', label: 'Deutsch', short: 'DE' },
+  { code: 'kk', label: 'Қазақша', short: 'KK' },
+  { code: 'uz', label: 'Oʻzbekcha', short: 'UZ' },
 ];
 
+const LANGUAGE_CODES = LANGUAGES.map((l) => l.code);
+
+/** Narrow an arbitrary string to a supported Language. */
+export function isLanguage(value: unknown): value is Language {
+  return typeof value === 'string' && (LANGUAGE_CODES as string[]).includes(value);
+}
+
+/** True for right-to-left languages (Arabic) — drives the document `dir`. */
+export function isRtl(lang: Language): boolean {
+  return LANGUAGES.find((l) => l.code === lang)?.dir === 'rtl';
+}
+
 type Dict = Record<string, { ru: string; en: string }>;
+
+/**
+ * Pick the right string from an inline bilingual `{ ru, en }` literal (page
+ * copy, plan descriptions, …). Only RU has its own text; every other language
+ * falls back to English.
+ */
+export function pickText(entry: { ru: string; en: string }, lang: Language): string {
+  return lang === 'ru' ? entry.ru : entry.en;
+}
+
+/**
+ * Resolve a key for any language. RU/EN come from the base MESSAGES; the extra
+ * languages come from their translation map, falling back to English (then the
+ * raw key) when a string hasn't been translated yet.
+ */
+export function resolveMessage(key: string, lang: Language): string | undefined {
+  const entry = MESSAGES[key];
+  if (!entry) return undefined;
+  if (lang === 'ru' || lang === 'en') return entry[lang];
+  return EXTRA[lang]?.[key] ?? entry.en;
+}
 
 export const MESSAGES: Dict = {
   // Navigation
@@ -30,6 +70,8 @@ export const MESSAGES: Dict = {
   'rail.rename': { ru: 'Переименовать', en: 'Rename' },
   'rail.archive': { ru: 'Архивировать', en: 'Archive' },
   'rail.delete': { ru: 'Удалить', en: 'Delete' },
+  'rail.collapse': { ru: 'Свернуть панель', en: 'Collapse sidebar' },
+  'rail.expand': { ru: 'Развернуть панель', en: 'Expand sidebar' },
   'rail.archivedToast': { ru: 'Чат перемещён в архив.', en: 'Chat archived.' },
   'rail.deletedToast': { ru: 'Чат удалён.', en: 'Chat deleted.' },
 
@@ -192,6 +234,37 @@ export const MESSAGES: Dict = {
   'top.markAllRead': { ru: 'Отметить все', en: 'Mark all read' },
   'top.noNotifications': { ru: 'Пока нет уведомлений', en: 'No notifications yet' },
   'top.notifOpen': { ru: 'Открыть', en: 'Open' },
+  'top.settings': { ru: 'Настройки', en: 'Settings' },
+
+  // Settings menu (gear in the top bar)
+  'settings.themeGroup': { ru: 'Тема оформления', en: 'Appearance' },
+  'settings.theme.light': { ru: 'Светлая тема', en: 'Light theme' },
+  'settings.theme.dark': { ru: 'Тёмная тема', en: 'Dark theme' },
+  'settings.theme.standard': { ru: 'Стандартная тема', en: 'Standard theme' },
+  'settings.feedback': { ru: 'Обратная связь', en: 'Feedback' },
+  'settings.plans': { ru: 'Тарифы и оплата', en: 'Plans & billing' },
+
+  // Feedback form
+  'feedback.title': { ru: 'Обратная связь', en: 'Feedback' },
+  'feedback.placeholder': { ru: 'Дайте нам свой отзыв', en: 'Give us your feedback' },
+  'feedback.send': { ru: 'Отправить', en: 'Send' },
+  'feedback.sending': { ru: 'Отправляем…', en: 'Sending…' },
+  'feedback.sent': { ru: 'Спасибо! Мы получили ваш отзыв', en: 'Thank you! Feedback received' },
+  'feedback.attach': { ru: 'Вложения', en: 'Attachments' },
+  'feedback.attachHint': { ru: 'Перетащите изображения сюда или нажмите, чтобы выбрать', en: 'Drag images here or click to browse' },
+  'feedback.tooMany': { ru: 'Не больше 5 файлов', en: 'Up to 5 files' },
+  'feedback.tooBig': { ru: 'Файл слишком большой (до 2 МБ)', en: 'File is too large (2 MB max)' },
+  'feedback.tooLarge': { ru: 'Вложения не должны превышать 8 МБ', en: 'Attachments must total 8 MB or less' },
+  'feedback.imagesOnly': { ru: 'Только изображения (PNG, JPG, WebP, GIF)', en: 'Images only (PNG, JPG, WebP, GIF)' },
+  'feedback.type': { ru: 'Тип отзыва', en: 'Feedback type' },
+  'feedback.typeOptional': { ru: '(необязательно)', en: '(optional)' },
+  'feedback.typePlaceholder': { ru: 'Выберите тип отзыва', en: 'Choose feedback type' },
+  'fbcat.general': { ru: 'Общие замечания', en: 'General feedback' },
+  'fbcat.bug': { ru: 'Проблема или ошибка в работе', en: 'Bug or technical issue' },
+  'fbcat.legal': { ru: 'Неточность в правовой информации', en: 'Legal information inaccuracy' },
+  'fbcat.quality': { ru: 'Качество ответов ИИ', en: 'AI answer quality' },
+  'fbcat.feature': { ru: 'Предложение функции', en: 'Feature request' },
+  'fbcat.billing': { ru: 'Тарифы и оплата', en: 'Plans & billing' },
 
   // Finding severities (chat summary + analytics legend)
   'sev.High': { ru: 'Высокая', en: 'High' },
@@ -347,7 +420,7 @@ export const MESSAGES: Dict = {
   'chat.suggest.draft.body': { ru: 'Двусторонний, по праву Великобритании', en: 'Mutual, UK-governed' },
   'chat.suggest.compare.title': { ru: 'Сравнить версии', en: 'Compare versions' },
   'chat.suggest.compare.body': { ru: 'Различия двух черновиков по пунктам', en: 'Diff two drafts clause by clause' },
-  'chat.input.placeholder': { ru: 'Спросите LexAI или введите / для команд…', en: 'Ask LexAI, or type / for commands…' },
+  'chat.input.placeholder': { ru: 'Спросите LexAI…', en: 'Ask LexAI…' },
   'chat.disclaimer': {
     ru: 'LexAI может ошибаться. Проверяйте ссылки по первоисточникам.',
     en: 'LexAI can make mistakes. Verify citations against primary sources.',
@@ -840,14 +913,13 @@ export function tStandalone(key: string, params?: Record<string, string | number
   let lang: Language = 'ru';
   try {
     const stored = localStorage.getItem('lexai.lang');
-    if (stored === 'ru' || stored === 'en') lang = stored;
+    if (isLanguage(stored)) lang = stored;
     else if (typeof navigator !== 'undefined' && navigator.language.startsWith('en')) lang = 'en';
   } catch {
     /* default ru */
   }
-  const entry = MESSAGES[key];
-  if (!entry) return key;
-  let text = entry[lang];
-  if (params) text = text.replace(/\{(\w+)\}/g, (_, k: string) => String(params[k] ?? `{${k}}`));
-  return text;
+  const text = resolveMessage(key, lang);
+  if (text === undefined) return key;
+  if (!params) return text;
+  return text.replace(/\{(\w+)\}/g, (_, k: string) => String(params[k] ?? `{${k}}`));
 }

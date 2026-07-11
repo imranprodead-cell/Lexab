@@ -7,6 +7,7 @@ import { useAsync, clearAsyncCache } from '@/hooks/useAsync';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { useUIStore } from '@/store/useUIStore';
 import { useI18n } from '@/i18n/I18nProvider';
+import { pickText } from '@/i18n/messages';
 import styles from './pages.module.css';
 
 /** Yearly billing discount (also applied by POST /billing/checkout → Stripe). */
@@ -149,7 +150,7 @@ function PlanCard({
   const hasNumericPrice = plan.monthly !== undefined;
   const shownPrice = hasNumericPrice
     ? `$${yearly ? Math.round((plan.monthly as number) * (1 - YEARLY_DISCOUNT)) : plan.monthly}`
-    : plan.price[lang];
+    : pickText(plan.price, lang);
   const showDiscount = yearly && hasNumericPrice && (plan.monthly as number) > 0;
   const longPrice = shownPrice.length > 6;
 
@@ -194,7 +195,7 @@ function PlanCard({
           <span className={styles.planDot} style={{ background: plan.dot }} />
           {plan.name}
         </div>
-        <div className={styles.planTagline}>{plan.tagline[lang]}</div>
+        <div className={styles.planTagline}>{pickText(plan.tagline, lang)}</div>
       </div>
       <div className={styles.planPrice}>
         {showDiscount ? <span className={styles.planPriceOld}>${plan.monthly}</span> : null}
@@ -202,14 +203,14 @@ function PlanCard({
         {hasNumericPrice ? <span className={styles.planPer}>{t('plans.perMonth')}</span> : null}
       </div>
       {showDiscount ? <div className={styles.planPriceNote}>{t('plans.yearlyNote')}</div> : null}
-      {plan.inherits ? <div className={styles.planInherits}>{plan.inherits[lang]}</div> : null}
+      {plan.inherits ? <div className={styles.planInherits}>{pickText(plan.inherits, lang)}</div> : null}
       <div className={styles.planFeatures}>
         {plan.features.map((f) => (
           <div key={f.en} className={styles.planFeature}>
             <span className={styles.planCheck}>
               <Icon name="check" size={10} strokeWidth={2.6} />
             </span>
-            {f[lang]}
+            {pickText(f, lang)}
           </div>
         ))}
       </div>
@@ -218,7 +219,7 @@ function PlanCard({
         disabled={busy}
         onClick={buy}
       >
-        {busy ? t('plans.opening') : current ? t('plans.renew') : plan.cta[lang]}
+        {busy ? t('plans.opening') : current ? t('plans.renew') : pickText(plan.cta, lang)}
       </button>
     </div>
   );

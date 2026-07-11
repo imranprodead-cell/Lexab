@@ -3,6 +3,7 @@ import { Icon, type IconName } from '@/components/icons/Icon';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { useI18n } from '@/i18n/I18nProvider';
+import { pickText } from '@/i18n/messages';
 
 const STORAGE_KEY = 'lexai.onboarded';
 
@@ -97,8 +98,8 @@ export function OnboardingModal() {
         >
           <Icon name={current.icon} size={26} />
         </div>
-        <h3 style={{ fontSize: 18, fontWeight: 700, margin: '0 0 8px' }}>{current.title[lang]}</h3>
-        <p style={{ fontSize: 14, color: 'var(--dim)', lineHeight: 1.6, margin: 0 }}>{current.body[lang]}</p>
+        <h3 style={{ fontSize: 18, fontWeight: 700, margin: '0 0 8px' }}>{pickText(current.title, lang)}</h3>
+        <p style={{ fontSize: 14, color: 'var(--dim)', lineHeight: 1.6, margin: 0 }}>{pickText(current.body, lang)}</p>
         <div style={{ display: 'flex', gap: 6, justifyContent: 'center', marginTop: 22 }}>
           {STEPS.map((_, i) => (
             <span

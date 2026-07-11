@@ -115,10 +115,10 @@ export function NotificationBell() {
                   </span>
                   <div className={styles.notifText}>
                     <div className={styles.notifItemTitle}>
-                      {lang === 'en' && n.titleEn ? n.titleEn : n.title}
+                      {lang !== 'ru' && n.titleEn ? n.titleEn : n.title}
                     </div>
                     {n.body ? (
-                      <div className={styles.notifBody}>{lang === 'en' && n.bodyEn ? n.bodyEn : n.body}</div>
+                      <div className={styles.notifBody}>{lang !== 'ru' && n.bodyEn ? n.bodyEn : n.body}</div>
                     ) : null}
                     <div className={styles.notifTime}>{relativeTime(n.createdAt, lang, n.time)}</div>
                     {n.actionKind === 'team_invite' && n.actionData ? (

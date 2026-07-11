@@ -1,6 +1,7 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Avatar } from '@/components/ui/Avatar';
 import { useI18n } from '@/i18n/I18nProvider';
+import { pickText } from '@/i18n/messages';
 import styles from './pages.module.css';
 
 interface Section {
@@ -396,7 +397,7 @@ export function LegalPage({ kind }: { kind: 'terms' | 'privacy' }) {
             {sections.map((s) => (
               <li key={s.id} style={{ fontSize: 13.5, lineHeight: 1.5 }}>
                 <a href={`#${s.id}`} className={styles.legalLink} style={{ fontWeight: 500 }}>
-                  {s.h[lang]}
+                  {pickText(s.h, lang)}
                 </a>
               </li>
             ))}
@@ -404,10 +405,10 @@ export function LegalPage({ kind }: { kind: 'terms' | 'privacy' }) {
         </nav>
         {sections.map((s) => (
           <section key={s.id} id={s.id} style={{ scrollMarginTop: 24 }}>
-            <h2 className={styles.legalH2}>{s.h[lang]}</h2>
+            <h2 className={styles.legalH2}>{pickText(s.h, lang)}</h2>
             {s.p.map((p, i) => (
               <p key={i} className={styles.legalP}>
-                {p[lang]}
+                {pickText(p, lang)}
               </p>
             ))}
           </section>

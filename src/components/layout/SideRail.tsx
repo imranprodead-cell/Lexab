@@ -3,6 +3,7 @@ import { NavLink } from 'react-router-dom';
 import { Icon, type IconName } from '@/components/icons/Icon';
 import { Avatar, InitialsAvatar } from '@/components/ui/Avatar';
 import { useAsync, useDismissable } from '@/hooks/useAsync';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { billingApi } from '@/api/billing.api';
 import { useChatHistoryStore } from '@/store/useChatHistoryStore';
 import { useUIStore } from '@/store/useUIStore';
@@ -54,10 +55,19 @@ interface SideRailProps {
 }
 
 export function SideRail({ sessions, user, onNewReview, onLogout }: SideRailProps) {
-  const open = useUIStore((s) => s.railPinned || s.railHovered);
-  const setHovered = useUIStore((s) => s.setRailHovered);
+  // Desktop: docked open/closed by a persistent toggle (ChatGPT-style), state
+  // survives reloads. Phone: an ephemeral overlay drawer (separate state, so a
+  // narrowed desktop window never inherits the docked-open state).
+  const isMobile = useMediaQuery('(max-width: 700px)');
+  const railPinned = useUIStore((s) => s.railPinned);
+  const mobileNavOpen = useUIStore((s) => s.mobileNavOpen);
+  const toggleRail = useUIStore((s) => s.toggleRailPinned);
+  const setMobileNavOpen = useUIStore((s) => s.setMobileNavOpen);
   const pushToast = useUIStore((s) => s.pushToast);
   const { t, lang } = useI18n();
+
+  const open = isMobile ? mobileNavOpen : railPinned;
+  const toggleOpen = () => (isMobile ? setMobileNavOpen(!open) : toggleRail());
 
   const pinnedIds = useChatHistoryStore((s) => s.pinned);
   const togglePin = useChatHistoryStore((s) => s.togglePin);
@@ -68,9 +78,11 @@ export function SideRail({ sessions, user, onNewReview, onLogout }: SideRailProp
   // Real plan from billing (not a hardcoded label).
   const { data: limits } = useAsync((signal) => billingApi.limits(signal), []);
 
-  // Collapse the rail after a navigation click (unless the user pinned it) —
-  // the width transition plays the close animation.
-  const collapse = () => setHovered(false);
+  // On phones the open rail is an overlay drawer — close it after navigating.
+  // On desktop the docked rail stays open (like ChatGPT), so this is a no-op.
+  const collapse = () => {
+    if (isMobile) setMobileNavOpen(false);
+  };
 
   // Per-item "⋯" menu + inline rename state.
   const [menuFor, setMenuFor] = useState<string | null>(null);
@@ -187,19 +199,44 @@ export function SideRail({ sessions, user, onNewReview, onLogout }: SideRailProp
   };
 
   return (
-    <div className={styles.railSlot}>
-      <nav
-        className={`${styles.rail} ${open ? styles.railOpen : ''}`}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-        aria-label="Primary"
-      >
+    <div className={`${styles.railSlot} ${open ? styles.railSlotOpen : ''}`}>
+      <nav id="app-sidebar" className={`${styles.rail} ${open ? styles.railOpen : ''}`} aria-label="Primary">
         <div className={styles.brand}>
-          <Avatar size={30} />
-          <div className={styles.brandText}>
-            <div className={styles.brandName}>LexAI</div>
-            <div className={styles.brandSub}>{t('auth.tagline')}</div>
-          </div>
+          {open ? (
+            <>
+              <span className={styles.brandLogo}>
+                <Avatar size={28} />
+              </span>
+              <button
+                type="button"
+                className={styles.collapseBtn}
+                onClick={toggleOpen}
+                aria-label={t('rail.collapse')}
+                aria-expanded={true}
+                aria-controls="app-sidebar"
+                title={t('rail.collapse')}
+              >
+                <Icon name="sidebar" size={18} />
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              className={styles.brandToggle}
+              onClick={toggleOpen}
+              aria-label={t('rail.expand')}
+              aria-expanded={false}
+              aria-controls="app-sidebar"
+              title={t('rail.expand')}
+            >
+              <span className={styles.brandLogo}>
+                <Avatar size={28} />
+              </span>
+              <span className={styles.brandToggleIcon}>
+                <Icon name="sidebar" size={18} />
+              </span>
+            </button>
+          )}
         </div>
 
         <button
@@ -210,7 +247,7 @@ export function SideRail({ sessions, user, onNewReview, onLogout }: SideRailProp
           }}
         >
           <span className={styles.navIcon}>
-            <Icon name="plus" size={19} />
+            <Icon name="plus" size={18} />
           </span>
           <span className={styles.navLabel}>{t('nav.newReview')}</span>
         </button>
@@ -224,7 +261,7 @@ export function SideRail({ sessions, user, onNewReview, onLogout }: SideRailProp
               onClick={collapse}
             >
               <span className={styles.navIcon}>
-                <Icon name={n.icon} size={19} />
+                <Icon name={n.icon} size={18} />
               </span>
               <span className={styles.navLabel}>{t(n.key)}</span>
             </NavLink>
@@ -255,7 +292,7 @@ export function SideRail({ sessions, user, onNewReview, onLogout }: SideRailProp
             onClick={collapse}
           >
             <span className={styles.navIcon}>
-              <Icon name="settings" size={19} />
+              <Icon name="settings" size={18} />
             </span>
             <span className={styles.navLabel}>{t('nav.settings')}</span>
           </NavLink>
@@ -269,7 +306,7 @@ export function SideRail({ sessions, user, onNewReview, onLogout }: SideRailProp
             type="button"
           >
             <span className={styles.navIcon}>
-              <Icon name="logout" size={19} strokeWidth={1.9} />
+              <Icon name="logout" size={18} strokeWidth={1.9} />
             </span>
             <span className={styles.navLabel}>{t('auth.signOut')}</span>
           </button>

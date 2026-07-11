@@ -201,7 +201,7 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
             onClick={onAttach}
             className={styles.attachBtn}
           >
-            <Icon name="plus" size={22} />
+            <Icon name="plus" size={20} />
           </button>
 
           {onCloudImport ? (
@@ -212,7 +212,7 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
               onClick={onCloudImport}
               className={styles.attachBtn}
             >
-              <Icon name="cloud" size={20} />
+              <Icon name="cloud" size={18} />
             </button>
           ) : null}
 
@@ -237,7 +237,7 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
               style={{ color: voice.listening ? 'var(--accent)' : 'var(--dim)' }}
               data-listening={voice.listening ? 'true' : undefined}
             >
-              <Icon name="mic" size={20} />
+              <Icon name="mic" size={18} />
             </button>
           ) : null}
 
@@ -251,7 +251,7 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
               color: hasText ? 'var(--on-accent)' : 'var(--mut)',
             }}
           >
-            <Icon name="send" size={18} strokeWidth={2} />
+            <Icon name="send" size={16} strokeWidth={2} />
           </button>
         </GlassCard>
 

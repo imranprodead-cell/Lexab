@@ -42,8 +42,8 @@ export function AppShell() {
       .catch(() => pushToast(t('common.error'), 'error'));
   };
   const logout = useAuthStore((s) => s.logout);
-  const railPinned = useUIStore((s) => s.railPinned);
-  const toggleRailPinned = useUIStore((s) => s.toggleRailPinned);
+  const mobileNavOpen = useUIStore((s) => s.mobileNavOpen);
+  const setMobileNavOpen = useUIStore((s) => s.setMobileNavOpen);
   const isMobile = useMediaQuery('(max-width: 700px)');
   const sessions = useChatHistoryStore((s) => s.sessions);
   const loadSessions = useChatHistoryStore((s) => s.load);
@@ -69,11 +69,17 @@ export function AppShell() {
   return (
     <div className={styles.shell}>
       {isMobile ? (
-        <button className={styles.mobileToggle} aria-label="Menu" onClick={toggleRailPinned}>
+        <button
+          className={styles.mobileToggle}
+          aria-label="Menu"
+          aria-expanded={mobileNavOpen}
+          aria-controls="app-sidebar"
+          onClick={() => setMobileNavOpen(!mobileNavOpen)}
+        >
           <Icon name="menu" size={20} />
         </button>
       ) : null}
-      {isMobile && railPinned ? <div className={styles.scrim} onClick={toggleRailPinned} /> : null}
+      {isMobile && mobileNavOpen ? <div className={styles.scrim} onClick={() => setMobileNavOpen(false)} /> : null}
       <SideRail sessions={sessions} user={profile} onNewReview={onNewReview} onLogout={onLogout} />
       <div className={styles.main}>
         {authUser && authUser.emailVerified === false ? (

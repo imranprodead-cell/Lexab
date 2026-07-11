@@ -23,8 +23,13 @@ export function Modal({ open, title, onClose, children, footer, maxWidth = 460 }
     document.body.style.overflow = 'hidden';
     // Move keyboard focus into the dialog (remember where it came from),
     // so Tab lands on the dialog's controls instead of the page behind it.
+    // Prefer an explicit [data-autofocus] field (native autoFocus is defeated
+    // by this rAF), falling back to the dialog wrapper.
     const opener = document.activeElement as HTMLElement | null;
-    requestAnimationFrame(() => ref.current?.focus());
+    requestAnimationFrame(() => {
+      const target = ref.current?.querySelector<HTMLElement>('[data-autofocus]');
+      (target ?? ref.current)?.focus();
+    });
     return () => {
       document.body.style.overflow = prev;
       opener?.focus?.();
