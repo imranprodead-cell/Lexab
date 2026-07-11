@@ -135,7 +135,7 @@
   gap: 11px;
   height: 36px;
   padding: 0 11px;
-  border-radius: var(--r-md);
+  border-radius: 12px; /* softer, rounder highlight — like the reference */
   cursor: pointer;
   color: var(--dim);
   background: transparent;
@@ -144,17 +144,19 @@
   text-decoration: none;
   width: 100%;
 }
+/* Hover uses exactly the same neutral grey as the selected (pressed) state,
+   with no shadow — hover and active look identical. */
 .navItem:hover {
-  background: var(--hover);
+  background: var(--hover-2);
   color: var(--text);
 }
 .navItemActive {
   color: var(--text);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  border-color: color-mix(in srgb, var(--accent) 25%, transparent);
+  background: var(--hover-2);
+  border-color: transparent;
 }
 .navItemActive:hover {
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  background: var(--hover-2);
 }
 .navIcon {
   width: 20px;
@@ -163,7 +165,7 @@
   flex-shrink: 0;
 }
 .navItemActive .navIcon {
-  color: var(--accent);
+  color: var(--text);
 }
 .navLabel {
   opacity: 0;
@@ -172,15 +174,15 @@
   font-size: 13.5px;
 }
 
+/* "New chat" is a plain action row (no persistent fill) — otherwise it looks
+   selected alongside the active "Chat" nav item. It only greys on hover. */
 .newBtn {
   composes: navItem;
   color: var(--text);
-  background: var(--hover-2);
-  border: 1px solid var(--border);
   margin-bottom: 8px;
 }
 .newBtn:hover {
-  background: var(--hover-3);
+  background: var(--hover-2);
   color: var(--text);
 }
 
@@ -212,7 +214,7 @@
 .recentItem {
   display: block;
   padding: 7px 12px;
-  border-radius: 8px;
+  border-radius: 10px;
   font-size: 14px;
   color: var(--dim);
   cursor: pointer;
@@ -220,9 +222,10 @@
   overflow: hidden;
   text-overflow: ellipsis;
   text-decoration: none;
+  transition: background var(--dur-fast), color var(--dur-fast);
 }
 .recentItem:hover {
-  background: var(--hover);
+  background: var(--hover-2);
   color: var(--text);
 }
 
@@ -244,6 +247,139 @@
   height: 44px;
   padding: 0 8px;
   margin-top: 2px;
+}
+
+/* Profile popup (ChatGPT-style) anchored to the user card ------------------- */
+.userMenuWrap {
+  position: relative;
+}
+.userBtn {
+  width: 100%;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  border-radius: 12px;
+  transition: background var(--dur-fast);
+}
+.userBtn:hover {
+  background: var(--hover-2);
+}
+/* Portalled to <body> (the rail clips with overflow:hidden); position and
+   width come inline from the component. */
+.userMenu {
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow-pop);
+  animation: lxdropin 0.16s ease;
+}
+.userMenuHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  border-radius: 11px;
+  cursor: pointer;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  transition: background var(--dur-fast);
+}
+.userMenuHead:hover {
+  background: var(--hover-2);
+}
+.userMenuHeadText {
+  flex: 1;
+  min-width: 0;
+}
+.userMenuHeadName {
+  font-size: 13.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.userMenuHeadPlan {
+  font-size: 11.5px;
+  color: var(--mut);
+  margin-top: 1px;
+}
+.userMenuItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  border-radius: 11px;
+  cursor: pointer;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13.5px;
+  text-align: left;
+  transition: background var(--dur-fast);
+}
+.userMenuItem:hover,
+.userMenuItemOpen {
+  background: var(--hover-2);
+}
+.userMenuChevron {
+  margin-left: auto;
+  display: flex;
+  color: var(--mut);
+}
+.userMenuDivider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 4px;
+}
+.userMenuDanger {
+  color: var(--danger);
+}
+.userMenuDanger:hover {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+.userMenuSubWrap {
+  position: relative;
+}
+/* Help flyout: opens to the right and deliberately overflows past the rail
+   edge — same rounded panel styling as the parent menu. */
+.userMenuSub {
+  position: absolute;
+  left: calc(100% + 10px);
+  bottom: -6px;
+  z-index: 91;
+  width: 272px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow-pop);
+  animation: lxdropin 0.14s ease;
+}
+/* Phones: no room to the right of the drawer — the flyout opens above. */
+@media (max-width: 700px) {
+  .userMenuSub {
+    left: 0;
+    right: auto;
+    width: 100%;
+    bottom: calc(100% + 6px);
+  }
 }
 .userText {
   opacity: 0;
@@ -286,6 +422,120 @@
   font-size: 15px;
   font-weight: 600;
   letter-spacing: -0.01em;
+}
+
+/* Brand switcher ("LexAI ⌄") + its dropdown ---------------------------------- */
+.brandMenuWrap {
+  position: relative;
+}
+.brandMenuBtn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  margin-left: -9px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  border-radius: 10px;
+  transition: background var(--dur-fast);
+}
+.brandMenuBtn:hover {
+  background: var(--hover-2);
+}
+.brandMenuName {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+/* Same convention as the country picker: ⌄ closed, ^ open. */
+.brandMenuChevron {
+  display: flex;
+  color: var(--dim);
+  transform: rotate(90deg);
+  transition: transform var(--dur-fast);
+}
+.brandMenuChevronOpen {
+  transform: rotate(-90deg);
+}
+.brandMenu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 40;
+  width: 340px;
+  max-width: calc(100vw - 40px);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-pop);
+  animation: lxdropin 0.16s ease;
+}
+.brandMenuItem {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  border-radius: 12px;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text);
+}
+.brandMenuItemActive {
+  background: var(--hover-2);
+}
+.brandMenuIcon {
+  display: flex;
+  flex-shrink: 0;
+  color: var(--dim);
+  margin-top: 1px;
+  align-self: flex-start;
+}
+.brandMenuText {
+  flex: 1;
+  min-width: 0;
+}
+.brandMenuItemTitle {
+  font-size: 15px;
+  font-weight: 600;
+}
+.brandMenuItemDesc {
+  font-size: 13px;
+  color: var(--mut);
+  line-height: 1.35;
+  margin-top: 2px;
+}
+.brandUpgradeBtn {
+  flex-shrink: 0;
+  align-self: center;
+  padding: 7px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--font-label);
+  cursor: pointer;
+  transition: background var(--dur-fast), border-color var(--dur-fast);
+}
+.brandUpgradeBtn:hover {
+  background: var(--hover-2);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+.brandMenuCheck {
+  flex-shrink: 0;
+  align-self: center;
+  display: flex;
+  color: var(--text);
 }
 .modelChip {
   display: flex;
@@ -754,22 +1004,17 @@
   border: 1px solid var(--border);
   background: var(--panel-2);
 }
+/* Always-visible dropdown hint: points down (⌄) when closed — so the picker
+   reads as expandable before any hover — and flips up (^) while open. */
 .countryChevron {
   color: var(--mut);
   display: flex;
-  opacity: 0;
-  transform: translateY(2px);
-  transition: opacity 0.22s ease, transform 0.25s ease;
-}
-.countryTrigger:hover .countryChevron,
-.countryTrigger:focus-visible .countryChevron {
-  opacity: 1;
-  transform: translateY(0);
+  transform: rotate(90deg);
+  transition: transform 0.25s ease;
 }
 .countryTrigger .countryChevronOpen,
 .countryTrigger:hover .countryChevronOpen {
-  opacity: 1;
-  transform: rotate(180deg);
+  transform: rotate(-90deg);
 }
 .countryMenu {
   position: absolute;

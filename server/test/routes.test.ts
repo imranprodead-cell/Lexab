@@ -18,6 +18,9 @@ process.env.ANTHROPIC_API_KEY = '';
 process.env.LLM_FALLBACK = 'dev';
 process.env.JWT_SECRET = 'test-secret-that-is-definitely-long-enough-32+';
 process.env.SEED_DEMO_DATA = 'false';
+// Many users register from one loopback IP in this suite — lift the per-minute
+// auth cap so the rate limiter (still 10/min in production) doesn't throttle it.
+process.env.AUTH_RATE_LIMIT_MAX = '1000';
 
 const { getDb, migrate } = await import('../src/db.ts');
 const { buildApp } = await import('../src/app.ts');
@@ -52,6 +55,13 @@ async function makeUser(): Promise<{ email: string; token: string; id: string }>
 }
 
 const auth = (token: string) => ({ authorization: `Bearer ${token}` });
+
+/** A verified user whose plan includes the contract-generator feature. */
+async function makeProUser(): Promise<{ email: string; token: string; id: string }> {
+  const u = await makeUser();
+  await db.query("UPDATE subscriptions SET plan = 'Pro' WHERE user_id = $1", [u.id]);
+  return u;
+}
 
 describe('security headers', () => {
   it('helmet sets CSP, HSTS, nosniff, frame lock', async () => {
@@ -143,5 +153,84 @@ describe('feedback validation', () => {
     assert.equal(proto.statusCode, 400, 'prototype key must not bypass the allowlist');
     const good = await app.inject({ method: 'POST', url: '/api/feedback', headers: auth(token), payload: { message: 'hello there', category: 'legal' } });
     assert.equal(good.statusCode, 204);
+  });
+});
+
+describe('saved templates (personal library)', () => {
+  it('saves, lists, isolates per user, and deletes', async () => {
+    const a = await makeUser();
+    const b = await makeUser();
+
+    const save = await app.inject({
+      method: 'POST',
+      url: '/api/templates/saved',
+      headers: auth(a.token),
+      payload: { title: 'My NDA', content: 'NDA BODY TEXT', sourceTemplateId: 't1', jurisdiction: 'English law' },
+    });
+    assert.equal(save.statusCode, 201, save.body);
+    const saved = JSON.parse(save.body);
+    assert.equal(saved.content, 'NDA BODY TEXT');
+    assert.ok(saved.id);
+
+    const list = await app.inject({ method: 'GET', url: '/api/templates/saved', headers: auth(a.token) });
+    assert.equal(JSON.parse(list.body).length, 1);
+
+    // Isolation: another user sees none and cannot delete someone else's.
+    const otherList = await app.inject({ method: 'GET', url: '/api/templates/saved', headers: auth(b.token) });
+    assert.equal(JSON.parse(otherList.body).length, 0, 'saved templates must be per-user');
+    const crossDelete = await app.inject({ method: 'DELETE', url: `/api/templates/saved/${saved.id}`, headers: auth(b.token) });
+    assert.equal(crossDelete.statusCode, 404, 'a foreign id must not delete');
+
+    const del = await app.inject({ method: 'DELETE', url: `/api/templates/saved/${saved.id}`, headers: auth(a.token) });
+    assert.equal(del.statusCode, 204);
+    const after = await app.inject({ method: 'GET', url: '/api/templates/saved', headers: auth(a.token) });
+    assert.equal(JSON.parse(after.body).length, 0);
+  });
+
+  it('rejects an empty title', async () => {
+    const { token } = await makeUser();
+    const res = await app.inject({ method: 'POST', url: '/api/templates/saved', headers: auth(token), payload: { title: '', content: 'x' } });
+    assert.equal(res.statusCode, 400);
+  });
+});
+
+describe('contract draft (chat → editable sheet)', () => {
+  it('generates a block document, persists it, and stays editable', async () => {
+    const { token } = await makeProUser();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/analysis/draft',
+      headers: auth(token),
+      payload: { prompt: 'Consulting agreement between Acme and Beta for 6 months', jurisdiction: 'English law' },
+    });
+    assert.equal(res.statusCode, 201, res.body);
+    const an = JSON.parse(res.body);
+    assert.ok(an.id, 'draft persisted with an id');
+    assert.ok(Array.isArray(an.document) && an.document.length >= 4, 'draft has document blocks');
+    assert.ok(an.document.some((x: { type: string }) => x.type === 'heading'), 'has headings');
+    assert.ok(an.document.some((x: { type: string }) => x.type === 'paragraph'), 'has paragraphs');
+    assert.equal(an.findings.length, 0, 'a clean draft has no findings');
+    assert.equal(an.redlines.length, 0, 'a clean draft has no redlines');
+    assert.ok(typeof an.summary === 'string' && an.summary.length > 0);
+
+    // Editable in the workspace: PATCH the document, then read it back.
+    const edited = [
+      { type: 'heading', text: '1.  Edited by hand' },
+      { type: 'paragraph', segments: ['Replaced clause text.'] },
+    ];
+    const patch = await app.inject({ method: 'PATCH', url: `/api/analysis/${an.id}/document`, headers: auth(token), payload: { document: edited } });
+    assert.ok(patch.statusCode === 200 || patch.statusCode === 204, patch.body);
+    const reread = await app.inject({ method: 'GET', url: `/api/analysis/${an.id}`, headers: auth(token) });
+    assert.equal(JSON.parse(reread.body).document[0].text, '1.  Edited by hand', 'edit persisted');
+
+    // Surfaces on the Documents page.
+    const docs = await app.inject({ method: 'GET', url: '/api/documents', headers: auth(token) });
+    assert.ok(JSON.parse(docs.body).some((d: { name: string }) => d.name === an.fileName), 'draft shows in documents');
+  });
+
+  it('is gated to plans that include the contract generator (Free → 402)', async () => {
+    const { token } = await makeUser(); // Free plan
+    const res = await app.inject({ method: 'POST', url: '/api/analysis/draft', headers: auth(token), payload: { prompt: 'A short NDA' } });
+    assert.equal(res.statusCode, 402, 'Free plan must be told to upgrade');
   });
 });

@@ -96,6 +96,16 @@ export interface Template {
   clauses: number;
 }
 
+/** A generated contract the user chose to keep in their personal library. */
+export interface SavedTemplate {
+  id: string;
+  title: string;
+  content: string;
+  sourceTemplateId?: string;
+  jurisdiction?: string;
+  createdAt: string;
+}
+
 export type SignatureStatus = 'Draft' | 'Sent' | 'Viewed' | 'Completed' | 'Declined';
 
 export interface SignatureRecipient {

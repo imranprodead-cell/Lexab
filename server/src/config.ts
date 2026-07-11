@@ -31,6 +31,9 @@ export const config = {
   port: Number(env('PORT', '8080')),
   host: env('HOST', '0.0.0.0'),
   apiPrefix: env('API_PREFIX', '/api'),
+  /** Per-minute cap on sensitive auth routes (register/login/verify). Raised only
+   *  in the test harness, where many users register from one loopback IP. */
+  authRateLimitMax: Number(env('AUTH_RATE_LIMIT_MAX', '10')),
   corsOrigins: env('CORS_ORIGIN', 'http://localhost:5173,http://127.0.0.1:5173')
     .split(',')
     .map((s) => s.trim())

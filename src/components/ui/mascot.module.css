@@ -1,0 +1,84 @@
+/* Animated scales-with-a-face mascot (brand loader).
+   Keyframes are defined locally: CSS Modules hashes animation names, so
+   referencing keyframes from global.css would never resolve after build. */
+
+.mascot {
+  display: block;
+  flex-shrink: 0;
+  /* Default theme is dark — lift the body colour so the mascot reads on a
+     dark background; the light theme gets the original deep purple. */
+  --m-body: #7e6cae;
+  --m-gold: #d3a24c;
+  --m-paper: #ffffff;
+}
+:global(html[data-theme='light']) .mascot {
+  --m-body: #3b2a5a;
+}
+
+.rock {
+  transform-box: view-box;
+  transform-origin: 100px 92px;
+  animation: lxRock 6s ease-in-out infinite;
+}
+.bob {
+  transform-box: view-box;
+  transform-origin: 100px 82px;
+  animation: lxBob 6s ease-in-out infinite;
+}
+.blink {
+  transform-box: view-box;
+  transform-origin: 100px 50px;
+  animation: lxBlink 5.5s ease-in-out infinite;
+}
+.tassel {
+  transform-box: view-box;
+  transform-origin: 100px 22px;
+  animation: lxTassel 6s ease-in-out infinite;
+}
+
+@keyframes lxRock {
+  0%,
+  100% {
+    transform: rotate(-3.5deg);
+  }
+  50% {
+    transform: rotate(3.5deg);
+  }
+}
+@keyframes lxBob {
+  0%,
+  100% {
+    transform: rotate(-2.6deg);
+  }
+  50% {
+    transform: rotate(2.6deg);
+  }
+}
+@keyframes lxBlink {
+  0%,
+  90%,
+  100% {
+    transform: scaleY(1);
+  }
+  95% {
+    transform: scaleY(0.1);
+  }
+}
+@keyframes lxTassel {
+  0%,
+  100% {
+    transform: rotate(2.5deg);
+  }
+  50% {
+    transform: rotate(-2.5deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rock,
+  .bob,
+  .blink,
+  .tassel {
+    animation: none;
+  }
+}

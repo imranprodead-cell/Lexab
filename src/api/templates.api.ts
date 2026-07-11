@@ -1,8 +1,12 @@
 /** Templates API — the reusable clause/document library. */
-import type { Template } from '@/types/domain';
+import type { SavedTemplate, Template } from '@/types/domain';
 import { USE_MOCK, http } from './client';
 import { db } from './mock/db';
 import { clone, delay } from './util';
+
+/** In-memory personal library for mock mode (real mode persists on the server). */
+let mockSaved: SavedTemplate[] = [];
+let mockSavedSeq = 0;
 
 export const templatesApi = {
   async list(category?: string, signal?: AbortSignal): Promise<Template[]> {
@@ -32,5 +36,47 @@ export const templatesApi = {
       };
     }
     return http<{ title: string; content: string }>(`/templates/${id}/generate`, { method: 'POST', body: fields });
+  },
+
+  /** The user's personal library of saved generated contracts. */
+  async listSaved(signal?: AbortSignal): Promise<SavedTemplate[]> {
+    if (USE_MOCK) {
+      await delay(40);
+      return clone(mockSaved);
+    }
+    return http<SavedTemplate[]>('/templates/saved', { signal });
+  },
+
+  /** Keep a generated draft in the personal library. */
+  async saveDraft(input: {
+    title: string;
+    content: string;
+    sourceTemplateId?: string;
+    jurisdiction?: string;
+  }): Promise<SavedTemplate> {
+    if (USE_MOCK) {
+      await delay(120);
+      const saved: SavedTemplate = {
+        id: `st_mock_${++mockSavedSeq}`,
+        title: input.title,
+        content: input.content,
+        ...(input.sourceTemplateId ? { sourceTemplateId: input.sourceTemplateId } : {}),
+        ...(input.jurisdiction ? { jurisdiction: input.jurisdiction } : {}),
+        createdAt: new Date().toISOString(),
+      };
+      mockSaved = [saved, ...mockSaved];
+      return clone(saved);
+    }
+    return http<SavedTemplate>('/templates/saved', { method: 'POST', body: input });
+  },
+
+  /** Remove a saved template from the personal library. */
+  async removeSaved(id: string): Promise<void> {
+    if (USE_MOCK) {
+      await delay(80);
+      mockSaved = mockSaved.filter((s) => s.id !== id);
+      return;
+    }
+    await http(`/templates/saved/${id}`, { method: 'DELETE' });
   },
 };

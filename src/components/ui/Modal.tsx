@@ -52,7 +52,7 @@ export function Modal({ open, title, onClose, children, footer, maxWidth = 460 }
       >
         <header className={styles.modalHeader}>
           <span className={styles.modalTitle}>{title}</span>
-          <button className={styles.iconBtn} style={{ width: 32, height: 32 }} onClick={onClose} aria-label="Close dialog">
+          <button className={styles.modalClose} onClick={onClose} aria-label="Close dialog">
             <Icon name="x" size={16} />
           </button>
         </header>

@@ -13,7 +13,13 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { config } from './config.ts';
 import { serviceUnavailable } from './lib/errors.ts';
-import { fallbackAnalysis, fallbackChatReply, fallbackCompare, fallbackTemplateDraft } from './fallback.ts';
+import {
+  fallbackAnalysis,
+  fallbackChatReply,
+  fallbackCompare,
+  fallbackContractDraft,
+  fallbackTemplateDraft,
+} from './fallback.ts';
 import type { RetrievedChunk } from './rag/types.ts';
 import type { DocBlock, Finding, Redline, Severity } from './types.ts';
 
@@ -634,6 +640,115 @@ Additional requirements: ${fields.details || '—'}`,
       return fallbackTemplateDraft(templateName, fields);
     }
     console.error(`[llm] template generation failed (failing loud, no fabrication): ${(err as Error).message}`);
+    throw serviceUnavailable(LLM_UNAVAILABLE);
+  }
+}
+
+// ── Contract drafting from a free-text prompt (chat → editable sheet) ─────────
+export interface ContractDraft {
+  title: string;
+  summary: string;
+  document: DocBlock[];
+}
+
+const DRAFT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['title', 'summary', 'document'],
+  properties: {
+    title: { type: 'string', description: 'Short document title, e.g. "Service Agreement".' },
+    summary: { type: 'string', description: '1–2 sentence plain-language description of the drafted contract.' },
+    document: {
+      type: 'array',
+      description: 'The full contract as ordered blocks: numbered clause headings each followed by its paragraph(s).',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['type'],
+        properties: {
+          type: { type: 'string', enum: ['heading', 'paragraph'] },
+          text: { type: 'string', description: 'Heading text (headings only), e.g. "5.  Termination".' },
+          segments: {
+            type: 'array',
+            description: 'Paragraph text as one or more plain strings (paragraphs only).',
+            items: { type: 'string' },
+          },
+        },
+      },
+    },
+  },
+} as const;
+
+const DRAFT_SYSTEM = `You are LexAI, a senior commercial contracts lawyer. Draft a COMPLETE, ready-to-review contract from the user's request.
+Structure it as ordered blocks: numbered clause headings ("1.  Parties", "2.  Term", …), each followed by one or more paragraph blocks.
+Include the operative and boilerplate clauses appropriate to the contract type and jurisdiction (parties, term, obligations, payment, confidentiality, liability, termination, governing law, notices, entire agreement, signatures).
+Write in the same language as the user's request (default: English). Leave party-specific gaps as [ ... ] placeholders.
+Do NOT fabricate statutory citations or quote specific legislation section numbers — a governing-law clause names the jurisdiction only. This is a contract to be edited by the user, not legal advice.`;
+
+/** Clamp model output to a well-formed ContractDraft (never trust raw JSON). */
+function normalizeDraft(raw: unknown): ContractDraft {
+  const obj = (raw ?? {}) as Record<string, unknown>;
+  const rawBlocks = Array.isArray(obj.document) ? obj.document : [];
+  const document: DocBlock[] = [];
+  for (const b of rawBlocks) {
+    const block = (b ?? {}) as Record<string, unknown>;
+    if (block.type === 'heading') {
+      const text = typeof block.text === 'string' ? block.text : '';
+      if (text.trim()) document.push({ type: 'heading', text });
+    } else if (block.type === 'paragraph') {
+      const segs = Array.isArray(block.segments)
+        ? block.segments.filter((s): s is string => typeof s === 'string')
+        : typeof block.text === 'string'
+          ? [block.text]
+          : [];
+      if (segs.join('').trim()) document.push({ type: 'paragraph', segments: segs });
+    }
+  }
+  const title = typeof obj.title === 'string' && obj.title.trim() ? obj.title.trim() : 'Draft contract';
+  const summary = typeof obj.summary === 'string' ? obj.summary.trim() : '';
+  return { title: title.slice(0, 200), summary: summary.slice(0, 2000), document };
+}
+
+export async function generateContractDraft(
+  prompt: string,
+  jurisdiction?: string | null,
+  plan?: string | null,
+): Promise<ContractDraft> {
+  const api = getClient();
+  if (!api) {
+    if (llmFallbackAllowed()) return fallbackContractDraft(prompt, jurisdiction);
+    throw serviceUnavailable(LLM_UNAVAILABLE);
+  }
+  try {
+    return await withModelRetry(modelForPlan(plan), async (model) => {
+      const stream = startStream(api, {
+        op: 'draft',
+        model,
+        maxTokens: 16000,
+        system: DRAFT_SYSTEM,
+        schema: DRAFT_SCHEMA as unknown as Record<string, unknown>,
+        messages: [
+          {
+            role: 'user',
+            content: `${jurisdiction ? `Governing jurisdiction: ${jurisdiction}\n\n` : ''}Draft this contract:\n${prompt}`,
+          },
+        ],
+      });
+      const message = await stream.finalMessage();
+      logUsage('draft', model, message);
+      if (message.stop_reason === 'refusal') throw new Error('model refused the request');
+      const text = textOf(message);
+      if (!text) throw new Error('no text block in response');
+      const draft = normalizeDraft(JSON.parse(text));
+      if (!draft.document.length) throw new Error('draft had no usable blocks');
+      return draft;
+    });
+  } catch (err) {
+    if (llmFallbackAllowed()) {
+      console.warn(`[llm] draft generation failed, using dev fallback: ${(err as Error).message}`);
+      return fallbackContractDraft(prompt, jurisdiction);
+    }
+    console.error(`[llm] draft generation failed (failing loud, no fabrication): ${(err as Error).message}`);
     throw serviceUnavailable(LLM_UNAVAILABLE);
   }
 }

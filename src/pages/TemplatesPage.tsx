@@ -12,7 +12,7 @@ import { COUNTRIES, flagUrl } from '@/data/countries';
 import { useUIStore } from '@/store/useUIStore';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { useI18n } from '@/i18n/I18nProvider';
-import type { Template } from '@/types/domain';
+import type { SavedTemplate, Template } from '@/types/domain';
 import styles from './pages.module.css';
 
 /** Jurisdictions offered in the generator — real flag images, full aspect. */
@@ -74,6 +74,12 @@ export function TemplatesPage() {
   const [details, setDetails] = useState('');
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState<{ title: string; content: string } | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  // Personal saved-template library (per user).
+  const { data: savedData, reload: reloadSaved } = useAsync((signal) => templatesApi.listSaved(signal), []);
+  const saved = useMemo(() => savedData ?? [], [savedData]);
+  const [viewSaved, setViewSaved] = useState<SavedTemplate | null>(null);
 
   const countryName = (code: string) =>
     lang === 'ru'
@@ -120,29 +126,58 @@ export function TemplatesPage() {
     }
   };
 
-  const downloadDraft = () => {
-    if (!draft) return;
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${draft.title}</title></head><body><pre style="font-family:Georgia,serif;font-size:12pt;white-space:pre-wrap;">${draft.content
+  const downloadContent = (title: string, content: string) => {
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title></head><body><pre style="font-family:Georgia,serif;font-size:12pt;white-space:pre-wrap;">${content
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')}</pre></body></html>`;
     const blob = new Blob([html], { type: 'application/msword' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${draft.title.replace(/[^\wа-яА-ЯёЁ -]+/g, '').slice(0, 80)}.doc`;
+    a.download = `${title.replace(/[^\wа-яА-ЯёЁ -]+/g, '').slice(0, 80) || 'contract'}.doc`;
     document.body.appendChild(a);
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
   };
 
-  const copyDraft = async () => {
-    if (!draft) return;
+  const copyContent = async (content: string) => {
     try {
-      await navigator.clipboard.writeText(draft.content);
+      await navigator.clipboard.writeText(content);
       pushToast(t('tpl.copied'), 'success');
     } catch {
       pushToast(t('common.error'), 'error');
+    }
+  };
+
+  /** Keep the current generated draft in the personal library. */
+  const saveDraftAsTemplate = async () => {
+    if (!draft || saving) return;
+    setSaving(true);
+    try {
+      await templatesApi.saveDraft({
+        title: draft.title,
+        content: draft.content,
+        sourceTemplateId: tpl?.id,
+        jurisdiction: selectedJuris.law,
+      });
+      pushToast(t('tpl.savedToast'), 'success');
+      reloadSaved();
+    } catch (err) {
+      pushToast(err instanceof Error ? err.message : t('common.error'), 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const removeSaved = async (id: string) => {
+    try {
+      await templatesApi.removeSaved(id);
+      pushToast(t('tpl.deletedToast'), 'default');
+      if (viewSaved?.id === id) setViewSaved(null);
+      reloadSaved();
+    } catch (err) {
+      pushToast(err instanceof Error ? err.message : t('common.error'), 'error');
     }
   };
 
@@ -155,6 +190,43 @@ export function TemplatesPage() {
             <h1 className={styles.pageTitle}>{t('tpl.title')}</h1>
             <p className={styles.pageSub}>{t('tpl.sub')}</p>
           </div>
+
+          {saved.length > 0 ? (
+            <div style={{ marginBottom: 28 }}>
+              <h2 className={styles.sectionTitle}>{t('tpl.mySaved')}</h2>
+              <div className={styles.grid}>
+                {saved.map((s) => (
+                  <div
+                    key={s.id}
+                    className={`${styles.card} ${styles.savedCard}`}
+                    onClick={() => setViewSaved(s)}
+                  >
+                    <button
+                      type="button"
+                      className={styles.savedDelete}
+                      aria-label={t('tpl.delete')}
+                      title={t('tpl.delete')}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void removeSaved(s.id);
+                      }}
+                    >
+                      <Icon name="trash" size={15} />
+                    </button>
+                    <div className={styles.cardIcon}>
+                      <Icon name="docs" size={20} />
+                    </div>
+                    <div className={styles.cardTitle}>{s.title}</div>
+                    {s.jurisdiction ? <div className={styles.savedMeta}>{s.jurisdiction}</div> : null}
+                    <div className={styles.cardCta}>
+                      <Icon name="eye" size={14} />
+                      {t('tpl.view')}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           <div className={styles.toolbar}>
             <SelectMenu
@@ -279,15 +351,39 @@ export function TemplatesPage() {
                 <pre className={styles.draftPreview}>{draft.content}</pre>
                 <div className={styles.modalActions}>
                   <Button onClick={close}>{t('common.close')}</Button>
-                  <Button icon="download" onClick={downloadDraft}>
+                  <Button icon="download" onClick={() => downloadContent(draft.title, draft.content)}>
                     {t('tpl.download')}
                   </Button>
-                  <Button variant="primary" icon="docs" onClick={() => void copyDraft()}>
+                  <Button icon="docs" onClick={() => void copyContent(draft.content)}>
                     {t('tpl.copy')}
+                  </Button>
+                  <Button variant="primary" icon="check" disabled={saving} onClick={() => void saveDraftAsTemplate()}>
+                    {saving ? t('common.loading') : t('tpl.saveAsTemplate')}
                   </Button>
                 </div>
               </>
             )}
+          </GlassCard>
+        </div>
+      ) : null}
+
+      {viewSaved ? (
+        <div className={styles.modalOverlay} onMouseDown={(e) => e.target === e.currentTarget && setViewSaved(null)}>
+          <GlassCard className={styles.modalCard} style={{ maxWidth: 680 }}>
+            <h2 className={styles.modalTitle}>{viewSaved.title}</h2>
+            <pre className={styles.draftPreview}>{viewSaved.content}</pre>
+            <div className={styles.modalActions}>
+              <Button onClick={() => setViewSaved(null)}>{t('common.close')}</Button>
+              <Button icon="trash" onClick={() => void removeSaved(viewSaved.id)}>
+                {t('tpl.delete')}
+              </Button>
+              <Button icon="download" onClick={() => downloadContent(viewSaved.title, viewSaved.content)}>
+                {t('tpl.download')}
+              </Button>
+              <Button variant="primary" icon="docs" onClick={() => void copyContent(viewSaved.content)}>
+                {t('tpl.copy')}
+              </Button>
+            </div>
           </GlassCard>
         </div>
       ) : null}

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type DragEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { TopBarActions } from '@/components/layout/TopBarActions';
+import { BrandMenu } from '@/components/layout/BrandMenu';
 import { Icon } from '@/components/icons/Icon';
 import { WelcomeScreen } from '@/components/chat/WelcomeScreen';
 import { UserFileBubble } from '@/components/chat/UserFileBubble';
@@ -12,10 +13,11 @@ import { CloudImportModal } from '@/components/chat/CloudImportModal';
 import { MessageActions } from '@/components/chat/MessageActions';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
-import { LogoLoader } from '@/components/ui/LogoLoader';
+import { ScalesMascot } from '@/components/ui/ScalesMascot';
 import { Modal } from '@/components/ui/Modal';
 import { ErrorState } from '@/components/ui/States';
 import { billingApi } from '@/api/billing.api';
+import { analysisApi } from '@/api/analysis.api';
 import { useAsync } from '@/hooks/useAsync';
 import { useChatStore } from '@/store/useChatStore';
 import { useChatHistoryStore } from '@/store/useChatHistoryStore';
@@ -23,6 +25,7 @@ import { useUIStore } from '@/store/useUIStore';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { useI18n } from '@/i18n/I18nProvider';
 import { formatFileSize } from '@/lib/format';
+import { COUNTRIES } from '@/data/countries';
 import type { ChatMessage } from '@/types/domain';
 import chat from '@/components/chat/chat.module.css';
 
@@ -51,13 +54,18 @@ export function ChatPage() {
   const enterGhost = useChatStore((s) => s.enterGhost);
   const exitGhost = useChatStore((s) => s.exitGhost);
   const setFeedback = useChatStore((s) => s.setFeedback);
+  const adoptAnalysis = useChatStore((s) => s.adoptAnalysis);
   const addSession = useChatHistoryStore((s) => s.addSession);
 
   const pushToast = useUIStore((s) => s.pushToast);
+  const country = useUIStore((s) => s.country);
   const threadRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
   const [cloudOpen, setCloudOpen] = useState(false);
   const [ghostConfirm, setGhostConfirm] = useState(false);
+  const [draftOpen, setDraftOpen] = useState(false);
+  const [draftPrompt, setDraftPrompt] = useState('');
+  const [drafting, setDrafting] = useState(false);
 
   // The Free-plan upsell above the composer (hidden on every paid plan).
   const { data: limits } = useAsync((signal) => billingApi.limits(signal), []);
@@ -76,6 +84,29 @@ export function ChatPage() {
   }, [phase, activeStep, analysis, messages]);
 
   const openWorkspace = () => navigate(sessionId ? `/chat/${sessionId}/workspace` : '/workspace');
+
+  // Feature B: draft a contract from a prompt, then open it as an editable sheet.
+  // With no prompt yet we just open the capture modal; with a prompt we generate,
+  // adopt the result into the workspace store, and navigate to the sheet.
+  const runDraft = async (prompt: string) => {
+    const text = prompt.trim();
+    setDraftPrompt(text);
+    setDraftOpen(true);
+    if (!text) return;
+    setDrafting(true);
+    try {
+      const law = COUNTRIES.find((c) => c.code === country)?.law;
+      const result = await analysisApi.draft(text, law);
+      adoptAnalysis(result);
+      setDraftOpen(false);
+      setDraftPrompt('');
+      openWorkspace();
+    } catch (err) {
+      pushToast(err instanceof Error ? err.message : t('common.error'), 'error');
+    } finally {
+      setDrafting(false);
+    }
+  };
 
   const setServerSession = useChatStore((s) => s.setServerSession);
 
@@ -131,10 +162,10 @@ export function ChatPage() {
         <div className={`${chat.msgUserBubble} ${chat.textIn}`}>{m.text}</div>
       </div>
     ) : m.streaming && !m.text ? (
-      // Waiting for the first token: the brand logo inside an infinite
-      // progress ring instead of a blinking cursor.
+      // Waiting for the first token: the animated scales mascot ponders the
+      // question instead of a blinking cursor.
       <div key={m.id} className={chat.msgAssistant}>
-        <LogoLoader size={30} />
+        <ScalesMascot size={46} />
         <div className={`${chat.msgAssistantText} ${chat.thinkingText}`}>{t('chat.thinking')}</div>
       </div>
     ) : (
@@ -158,7 +189,7 @@ export function ChatPage() {
       style={{ position: 'relative' }}
     >
       <TopBar
-        title={ghost ? t('ghost.enter') : t('nav.newReview')}
+        title={ghost ? t('ghost.enter') : <BrandMenu />}
         right={
           <div className={chat.topRight}>
             <button
@@ -199,7 +230,7 @@ export function ChatPage() {
         ) : (
           <WelcomeScreen
             onAnalyze={() => pushToast(t('chat.attachFirst'), 'default')}
-            onDraft={() => sendMessage('/draft ')}
+            onDraft={() => void runDraft('')}
             onCompare={() => navigate('/compare')}
           />
         )
@@ -241,7 +272,12 @@ export function ChatPage() {
         onAnalyze={() => pushToast(ghost ? t('ghost.noFiles') : t('chat.attachFirst'), 'default')}
         onFile={ghost ? undefined : (file) => handleFile(file)}
         onCloudImport={ghost ? undefined : () => setCloudOpen(true)}
-        onSend={(text) => (text.trim().toLowerCase().startsWith('/compare') ? navigate('/compare') : sendMessage(text))}
+        onSend={(text) => {
+          const lower = text.trim().toLowerCase();
+          if (lower.startsWith('/compare')) return navigate('/compare');
+          if (lower.startsWith('/draft')) return void runDraft(text.trim().replace(/^\/draft\s*/i, ''));
+          return sendMessage(text);
+        }}
         banner={
           isFree ? (
             <div className={chat.upsellBar}>
@@ -282,6 +318,61 @@ export function ChatPage() {
         }
       >
         <p className={chat.ghostWarnBody}>{t('ghost.warnBody')}</p>
+      </Modal>
+
+      <Modal
+        open={draftOpen}
+        title={t('chat.draft.title')}
+        onClose={() => {
+          if (!drafting) setDraftOpen(false);
+        }}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setDraftOpen(false)} disabled={drafting}>
+              {t('common.cancel')}
+            </Button>
+            <Button
+              variant="primary"
+              icon="pen"
+              onClick={() => void runDraft(draftPrompt)}
+              disabled={drafting || !draftPrompt.trim()}
+            >
+              {drafting ? t('chat.draft.generating') : t('chat.draft.generate')}
+            </Button>
+          </>
+        }
+      >
+        {drafting ? (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '24px 0' }}>
+            <ScalesMascot size={96} />
+            <div style={{ color: 'var(--dim)', fontSize: 14 }}>{t('chat.draft.generating')}</div>
+          </div>
+        ) : (
+          <>
+            <textarea
+              value={draftPrompt}
+              onChange={(e) => setDraftPrompt(e.target.value)}
+              placeholder={t('chat.draft.placeholder')}
+              rows={4}
+              autoFocus
+              style={{
+                width: '100%',
+                resize: 'vertical',
+                minHeight: 96,
+                padding: '12px 14px',
+                borderRadius: 'var(--r-md)',
+                border: '1px solid var(--border)',
+                background: 'var(--panel-2)',
+                color: 'var(--text)',
+                font: 'inherit',
+                fontSize: 15,
+                lineHeight: 1.5,
+                outline: 'none',
+              }}
+            />
+            <p style={{ marginTop: 10, fontSize: 13, color: 'var(--mut)', lineHeight: 1.5 }}>{t('chat.draft.hint')}</p>
+          </>
+        )}
       </Modal>
 
       <CloudImportModal

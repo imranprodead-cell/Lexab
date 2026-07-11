@@ -2,7 +2,6 @@ import { useEffect } from 'react';
 import { RouterProvider } from 'react-router-dom';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
-import { LoadingState } from '@/components/ui/States';
 import { prefetchAllPages, router } from '@/router/routes';
 
 export default function App() {
@@ -16,11 +15,9 @@ export default function App() {
       <I18nProvider>
         <RouterProvider
           router={router}
-          fallbackElement={
-            <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}>
-              <LoadingState />
-            </div>
-          }
+          // The first-load gap lasts a few hundred ms — anything animated here
+          // only flashes, so the fallback stays intentionally blank.
+          fallbackElement={<div style={{ minHeight: '100vh' }} />}
         />
       </I18nProvider>
     </ErrorBoundary>

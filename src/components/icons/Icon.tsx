@@ -6,7 +6,14 @@ import type { CSSProperties, ReactNode } from 'react';
  * Each entry is the SVG geometry (paths / rects / circles) for that glyph.
  */
 const GEOMETRY: Record<string, ReactNode> = {
-  chat: <path d="M21 15a2 2 0 0 1-2 2H8l-4 4V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z" />,
+  /* Softer 3px corner radius — the sharp 2px corners read as harsh at 18px. */
+  chat: <path d="M21 15a3 3 0 0 1-3 3H8l-4 4V6a3 3 0 0 1 3-3h11a3 3 0 0 1 3 3z" />,
+  compose: (
+    <>
+      <path d="M12 3H6a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3h12a3 3 0 0 0 3-3v-7" />
+      <path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4Z" />
+    </>
+  ),
   docs: (
     <>
       <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
@@ -111,6 +118,13 @@ const GEOMETRY: Record<string, ReactNode> = {
       <circle cx="5" cy="12" r="1" />
       <circle cx="12" cy="12" r="1" />
       <circle cx="19" cy="12" r="1" />
+    </>
+  ),
+  help: (
+    <>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+      <path d="M12 17h.01" />
     </>
   ),
   pin: (
@@ -236,7 +250,7 @@ const GEOMETRY: Record<string, ReactNode> = {
   ),
   copy: (
     <>
-      <rect x="8" y="8" width="14" height="14" rx="2" />
+      <rect x="8" y="8" width="14" height="14" rx="3.5" />
       <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
     </>
   ),

@@ -11,7 +11,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Db } from '../db.ts';
 import { ALLOWED_EXTENSIONS, assertValidFileContent, extractText, fileExtension, MAX_UPLOAD_BYTES } from '../extract.ts';
 import { badRequest, HttpError, notFound } from '../lib/errors.ts';
-import { assertDocumentAllowance, assertStorageAllowance, bumpUsage, releaseAiRequest, reserveAiRequest } from '../lib/limits.ts';
+import { assertDocumentAllowance, assertFeature, assertStorageAllowance, bumpUsage, releaseAiRequest, reserveAiRequest, withAiRequest } from '../lib/limits.ts';
 import { notify } from '../lib/notify.ts';
 import { assertCanEdit, resolveAnalysisAccess, resolveDocumentAccess } from '../lib/teamAccess.ts';
 import { formatSize } from '../lib/format.ts';
@@ -19,7 +19,7 @@ import { buildSimplePdf } from '../lib/pdf.ts';
 import { newId } from '../lib/ids.ts';
 import { openSSE, wantsSSE } from '../lib/sse.ts';
 import { asObject, optionalString, requireOneOf, requireString } from '../lib/validate.ts';
-import { generateAnalysis, type GeneratedAnalysis } from '../llm.ts';
+import { generateAnalysis, generateContractDraft, type GeneratedAnalysis } from '../llm.ts';
 import { jurisdictionCode, retrieveLegalContext } from '../rag/retrieve.ts';
 import type { RetrievedChunk } from '../rag/types.ts';
 import { validateFindings } from '../rag/validate-citations.ts';
@@ -348,6 +348,44 @@ export async function persistAnalysis(
 }
 
 export function analysisRoutes(app: FastifyInstance, db: Db): void {
+  // POST /analysis/draft — generate a fresh contract from a free-text prompt and
+  // persist it as an analysis, so it opens directly in the editable workspace
+  // sheet (edit / review / download). Fails loud if the AI is unavailable.
+  app.post('/analysis/draft', { preHandler: [app.authenticateReal], config: RATE_LIMIT }, async (req, reply) => {
+    await assertFeature(db, req.currentUser.id, 'templates');
+    const body = asObject(req.body);
+    const prompt = requireString(body, 'prompt', { min: 1, max: 4000 });
+    const jurisdiction = optionalString(body, 'jurisdiction')?.slice(0, 120) || null;
+
+    // Atomic AI reservation right before the model call; released on failure.
+    const draft = await withAiRequest(db, req.currentUser.id, (plan) => generateContractDraft(prompt, jurisdiction, plan));
+
+    const draftText = draft.document
+      .map((b) => (b.type === 'heading' ? (b.text ?? '') : (b.segments ?? []).join('')))
+      .join('\n\n');
+    const sizeBytes = Buffer.byteLength(draftText, 'utf8');
+    const gen: GeneratedAnalysis = {
+      summary: draft.summary,
+      riskScore: 0,
+      riskLevel: 'Low',
+      clausesReviewed: draft.document.filter((b) => b.type === 'heading').length,
+      findings: [],
+      redlines: [],
+      document: draft.document,
+    };
+    const source: AnalysisSource = {
+      fileName: draft.title,
+      fileSizeLabel: formatSize(sizeBytes),
+      sizeBytes,
+      text: draftText,
+      pdf: null,
+      jurisdiction,
+    };
+    const result = await persistAnalysis(db, req.currentUser.id, source, gen);
+    reply.code(201);
+    return result;
+  });
+
   app.post('/analysis', { preHandler: [app.authenticateReal], config: RATE_LIMIT }, async (req, reply) => {
     // Plan limits: document allowance when this file would create a NEW
     // document row, then an atomic AI reservation just before the model call.

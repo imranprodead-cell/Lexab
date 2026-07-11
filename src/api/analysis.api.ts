@@ -40,6 +40,15 @@ export const analysisApi = {
     return http<AnalysisResult>(`/analysis/${id}`, { signal });
   },
 
+  /** Generate a fresh contract from a prompt; returns it as an editable analysis. */
+  async draft(prompt: string, jurisdiction?: string): Promise<AnalysisResult> {
+    if (USE_MOCK) {
+      await delay(1500);
+      return { ...clone(db.analysis), id: `an_draft_${Date.now()}`, fileName: prompt.slice(0, 60) || 'Draft contract' };
+    }
+    return http<AnalysisResult>('/analysis/draft', { method: 'POST', body: { prompt, jurisdiction } });
+  },
+
   /** Re-run the AI review against the current draft of an existing analysis. */
   async reanalyze(analysisId: string, jurisdiction?: string): Promise<AnalysisResult> {
     if (USE_MOCK) {

@@ -4,7 +4,8 @@
  * frontend seed, parameterised by file name so repeated runs feel plausible.
  */
 import crypto from 'node:crypto';
-import type { CompareResult, GeneratedAnalysis, TemplateFields } from './llm.ts';
+import type { CompareResult, ContractDraft, GeneratedAnalysis, TemplateFields } from './llm.ts';
+import type { DocBlock } from './types.ts';
 
 function hashInt(input: string): number {
   return crypto.createHash('sha256').update(input).digest().readUInt32BE(0);
@@ -167,4 +168,38 @@ SIGNED by the duly authorised representatives of the parties.
 
 —
 Черновик сгенерирован в демо-режиме. Подключите ANTHROPIC_API_KEY на сервере, чтобы получать полные договоры, составленные ИИ под ваши условия.`;
+}
+
+/** Deterministic contract draft (blocks) used when no LLM is configured. */
+export function fallbackContractDraft(prompt: string, jurisdiction?: string | null): ContractDraft {
+  const law = jurisdiction || 'England and Wales';
+  const ask = prompt.trim();
+  const H = (text: string): DocBlock => ({ type: 'heading', text });
+  const P = (text: string): DocBlock => ({ type: 'paragraph', segments: [text] });
+  return {
+    title: ask.slice(0, 60) || 'Draft contract',
+    summary:
+      `Черновик договора по запросу «${ask.slice(0, 120)}». Демо-режим: подключите ANTHROPIC_API_KEY на ` +
+      'сервере, чтобы ИИ составлял полный договор под ваши условия.',
+    document: [
+      H('1.  Стороны'),
+      P('Настоящий договор заключён между [Сторона A] и [Сторона B] (совместно — «Стороны»).'),
+      H('2.  Предмет'),
+      P(`Стороны договорились о следующем: ${ask.slice(0, 200) || '[предмет договора]'}.`),
+      H('3.  Срок'),
+      P('Договор вступает в силу с даты подписания и действует 12 (двенадцать) месяцев, если не расторгнут ранее.'),
+      H('4.  Обязательства сторон'),
+      P('Каждая Сторона обязуется добросовестно исполнять свои обязательства в соответствии с применимым правом.'),
+      H('5.  Конфиденциальность'),
+      P('Стороны сохраняют конфиденциальность непубличной информации и используют её только для целей договора.'),
+      H('6.  Ответственность'),
+      P('Ответственность Сторон ограничивается прямым документально подтверждённым ущербом в пределах, допускаемых применимым правом.'),
+      H('7.  Расторжение'),
+      P('Любая Сторона вправе расторгнуть договор, направив письменное уведомление за один (1) месяц.'),
+      H('8.  Применимое право'),
+      P(`Договор регулируется правом ${law}; споры разрешаются в компетентных судах соответствующей юрисдикции.`),
+      H('9.  Заключительные положения'),
+      P('Настоящий договор составляет полное соглашение Сторон. Изменения оформляются письменно и подписываются обеими Сторонами.'),
+    ],
+  };
 }

@@ -265,6 +265,25 @@
   font-size: 16px;
   font-weight: 600;
 }
+/* Borderless close — just the glyph, no square outline around it. */
+.modalClose {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: transparent;
+  border: none;
+  color: var(--dim);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+.modalClose:hover {
+  background: var(--hover);
+  color: var(--text);
+}
 .modalBody {
   padding: 20px;
   overflow-y: auto;

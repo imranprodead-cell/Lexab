@@ -41,7 +41,6 @@ export function AppShell() {
       .then(() => pushToast(t('verify.resent'), 'success'))
       .catch(() => pushToast(t('common.error'), 'error'));
   };
-  const logout = useAuthStore((s) => s.logout);
   const mobileNavOpen = useUIStore((s) => s.mobileNavOpen);
   const setMobileNavOpen = useUIStore((s) => s.setMobileNavOpen);
   const isMobile = useMediaQuery('(max-width: 700px)');
@@ -61,11 +60,6 @@ export function AppShell() {
     navigate('/chat');
   };
 
-  const onLogout = () => {
-    logout();
-    navigate('/login', { replace: true });
-  };
-
   return (
     <div className={styles.shell}>
       {isMobile ? (
@@ -80,7 +74,7 @@ export function AppShell() {
         </button>
       ) : null}
       {isMobile && mobileNavOpen ? <div className={styles.scrim} onClick={() => setMobileNavOpen(false)} /> : null}
-      <SideRail sessions={sessions} user={profile} onNewReview={onNewReview} onLogout={onLogout} />
+      <SideRail sessions={sessions} user={profile} onNewReview={onNewReview} />
       <div className={styles.main}>
         {authUser && authUser.emailVerified === false ? (
           <div className={styles.verifyBanner} role="status">

@@ -16,7 +16,7 @@ import { notify } from '../lib/notify.ts';
 import { deleteFile } from '../storage.ts';
 import { getUserByEmail, getUserById, signToken, toProfile, type UserRow } from '../plugins/auth.ts';
 
-const RATE_LIMIT = { rateLimit: { max: 10, timeWindow: '1 minute' } };
+const RATE_LIMIT = { rateLimit: { max: config.authRateLimitMax, timeWindow: '1 minute' } };
 
 function initialsOf(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);

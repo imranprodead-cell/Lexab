@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { Icon, type IconName } from '@/components/icons/Icon';
-import { Avatar, InitialsAvatar } from '@/components/ui/Avatar';
+import { Avatar } from '@/components/ui/Avatar';
+import { UserMenu } from './UserMenu';
 import { useAsync, useDismissable } from '@/hooks/useAsync';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { billingApi } from '@/api/billing.api';
@@ -51,10 +52,9 @@ interface SideRailProps {
   sessions: ChatSession[];
   user: { name: string; firm: string; jurisdiction: string; initials: string; avatarUrl?: string };
   onNewReview: () => void;
-  onLogout: () => void;
 }
 
-export function SideRail({ sessions, user, onNewReview, onLogout }: SideRailProps) {
+export function SideRail({ sessions, user, onNewReview }: SideRailProps) {
   // Desktop: docked open/closed by a persistent toggle (ChatGPT-style), state
   // survives reloads. Phone: an ephemeral overlay drawer (separate state, so a
   // narrowed desktop window never inherits the docked-open state).
@@ -247,9 +247,9 @@ export function SideRail({ sessions, user, onNewReview, onLogout }: SideRailProp
           }}
         >
           <span className={styles.navIcon}>
-            <Icon name="plus" size={18} />
+            <Icon name="compose" size={18} />
           </span>
-          <span className={styles.navLabel}>{t('nav.newReview')}</span>
+          <span className={styles.navLabel}>{t('nav.newChat')}</span>
         </button>
 
         <div className={styles.navGroup}>
@@ -297,30 +297,7 @@ export function SideRail({ sessions, user, onNewReview, onLogout }: SideRailProp
             <span className={styles.navLabel}>{t('nav.settings')}</span>
           </NavLink>
 
-          <button
-            className={`${styles.navItem} ${styles.signOut}`}
-            onClick={() => {
-              collapse();
-              onLogout();
-            }}
-            type="button"
-          >
-            <span className={styles.navIcon}>
-              <Icon name="logout" size={18} strokeWidth={1.9} />
-            </span>
-            <span className={styles.navLabel}>{t('auth.signOut')}</span>
-          </button>
-
-          <NavLink to="/settings" className={styles.user} onClick={collapse} aria-label={t('nav.settings')}>
-            <InitialsAvatar initials={user.initials} src={user.avatarUrl} />
-            <div className={styles.userText}>
-              <div className={styles.userName}>{user.name}</div>
-              <div className={styles.userPlan}>
-                <Icon name="diamond" size={11} color="var(--accent)" strokeWidth={2} />
-                {limits?.plan ?? '…'}
-              </div>
-            </div>
-          </NavLink>
+          <UserMenu user={user} plan={limits?.plan} onNavigated={collapse} />
         </div>
       </nav>
     </div>

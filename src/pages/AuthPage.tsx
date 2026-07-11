@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Avatar } from '@/components/ui/Avatar';
+import { ScalesMascot } from '@/components/ui/ScalesMascot';
 import { Button } from '@/components/ui/Button';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { LanguageMenu } from '@/components/ui/LanguageMenu';
@@ -225,8 +226,8 @@ export function AuthPage() {
 
   const scrollToSection = (id: string) => {
     document.getElementById(id)?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
-    // Keep the section address shareable without polluting history.
-    window.history.replaceState(null, '', `#${id}`);
+    // Deliberately NOT written into the URL: a stored `#features` would make
+    // the next visit open mid-page instead of on the sign-in hero.
   };
 
   /** Landing CTAs: back to the top of the page with the sign-up form open. */
@@ -237,13 +238,18 @@ export function AuthPage() {
     rootRef.current?.scrollTo({ top: 0, behavior: scrollBehavior() });
   };
 
-  // Deep link: /login#plans etc. opens scrolled to that section.
+  // Opening the site always starts at the top — the sign-in hero — never
+  // mid-page. A leftover section anchor (e.g. #features from an old link)
+  // is stripped so the browser can't jump there; the user scrolls himself.
+  // The Google OAuth return hash (#session=…) is left untouched.
   useEffect(() => {
     if (finishing) return;
     const id = window.location.hash.slice(1);
-    if (!id || !NAV_SECTIONS.some((s) => s.id === id)) return;
+    if (id && NAV_SECTIONS.some((s) => s.id === id)) {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
     requestAnimationFrame(() => {
-      document.getElementById(id)?.scrollIntoView({ behavior: 'auto', block: 'start' });
+      rootRef.current?.scrollTo({ top: 0, behavior: 'auto' });
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -271,7 +277,7 @@ export function AuthPage() {
     return (
       <div className={`${styles.auth} ${styles.finishScreen}`}>
         <div className={styles.finishInner}>
-          <Avatar size={56} />
+          <ScalesMascot size={116} />
           <div className={styles.finishText}>{t('auth.signingIn')}</div>
           <div className={styles.finishBar}>
             <div />

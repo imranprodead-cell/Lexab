@@ -5,10 +5,32 @@
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../db.ts';
 import { notFound } from '../lib/errors.ts';
+import { toIso } from '../lib/format.ts';
+import { newId } from '../lib/ids.ts';
 import { assertFeature, withAiRequest } from '../lib/limits.ts';
 import { asObject, optionalString, requireString } from '../lib/validate.ts';
 import { generateTemplateDraft } from '../llm.ts';
-import type { Template } from '../types.ts';
+import type { SavedTemplate, Template } from '../types.ts';
+
+interface SavedRow {
+  id: string;
+  title: string;
+  content: string;
+  source_template_id: string | null;
+  jurisdiction: string | null;
+  created_at: Date | string;
+}
+
+function toSaved(row: SavedRow): SavedTemplate {
+  return {
+    id: row.id,
+    title: row.title,
+    content: row.content,
+    ...(row.source_template_id ? { sourceTemplateId: row.source_template_id } : {}),
+    ...(row.jurisdiction ? { jurisdiction: row.jurisdiction } : {}),
+    createdAt: toIso(row.created_at),
+  };
+}
 
 export function templateRoutes(app: FastifyInstance, db: Db): void {
   app.get('/templates', { preHandler: [app.authenticate] }, async (req): Promise<Template[]> => {
@@ -54,4 +76,43 @@ export function templateRoutes(app: FastifyInstance, db: Db): void {
       return { title: `${template.name} — ${fields.partyA} / ${fields.partyB}`, content };
     },
   );
+
+  // ── Personal saved-template library (per user) ──────────────────────────────
+  app.get('/templates/saved', { preHandler: [app.authenticate] }, async (req): Promise<SavedTemplate[]> => {
+    const res = await db.query<SavedRow>(
+      `SELECT id, title, content, source_template_id, jurisdiction, created_at
+       FROM saved_templates WHERE user_id = $1 ORDER BY created_at DESC`,
+      [req.currentUser.id],
+    );
+    return res.rows.map(toSaved);
+  });
+
+  app.post('/templates/saved', { preHandler: [app.authenticateReal] }, async (req, reply): Promise<SavedTemplate> => {
+    const body = asObject(req.body);
+    const title = requireString(body, 'title', { min: 1, max: 300 });
+    const content = requireString(body, 'content', { min: 1, max: 100_000 });
+    const sourceTemplateId = optionalString(body, 'sourceTemplateId')?.slice(0, 60) ?? null;
+    const jurisdiction = optionalString(body, 'jurisdiction')?.slice(0, 120) ?? null;
+    const id = newId('st');
+    const res = await db.query<SavedRow>(
+      `INSERT INTO saved_templates (id, user_id, title, content, source_template_id, jurisdiction)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       RETURNING id, title, content, source_template_id, jurisdiction, created_at`,
+      [id, req.currentUser.id, title, content, sourceTemplateId, jurisdiction],
+    );
+    reply.code(201);
+    return toSaved(res.rows[0]);
+  });
+
+  app.delete('/templates/saved/:id', { preHandler: [app.authenticateReal] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    // Ownership is enforced by the WHERE clause — a foreign id deletes nothing.
+    // RETURNING lets us detect "not found" on both the Postgres and PGlite adapters.
+    const res = await db.query<{ id: string }>(
+      'DELETE FROM saved_templates WHERE id = $1 AND user_id = $2 RETURNING id',
+      [id, req.currentUser.id],
+    );
+    if (!res.rows[0]) throw notFound('Saved template not found');
+    reply.code(204);
+  });
 }
