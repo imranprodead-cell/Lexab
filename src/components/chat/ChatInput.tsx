@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Icon } from '@/components/icons/Icon';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { useVoiceInput } from '@/hooks/useVoiceInput';
@@ -44,15 +44,19 @@ interface ChatInputProps {
   onCloudImport?: () => void;
   /** Storage slot for the unsent draft (chat and workspace keep separate drafts). */
   draftKey?: string;
+  /** Ghost mode: never touch localStorage — the draft dies with the canvas. */
+  ephemeral?: boolean;
+  /** Optional slot rendered above the input bar (e.g. the Free-plan upsell). */
+  banner?: ReactNode;
 }
 
 /**
  * The chat composer: auto-growing textarea, attach button, and slash-command
  * autocomplete with full keyboard control (↑/↓ to move, ↵ to pick, Esc to close).
  */
-export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudImport, draftKey = 'chat' }: ChatInputProps) {
+export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudImport, draftKey = 'chat', ephemeral = false, banner }: ChatInputProps) {
   const { t } = useI18n();
-  const [value, setValue] = useState(() => loadDraft(draftKey));
+  const [value, setValue] = useState(() => (ephemeral ? '' : loadDraft(draftKey)));
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashIndex, setSlashIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -76,7 +80,7 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
   const applyValue = useCallback(
     (next: string) => {
       setValue(next);
-      saveDraft(draftKey, next);
+      if (!ephemeral) saveDraft(draftKey, next);
       setSlashOpen(next.startsWith('/') && !next.includes(' '));
       setSlashIndex(0);
       const ta = textareaRef.current;
@@ -85,7 +89,7 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
         ta.style.height = `${Math.min(120, ta.scrollHeight)}px`;
       }
     },
-    [draftKey],
+    [draftKey, ephemeral],
   );
 
   const pushToast = useUIStore((s) => s.pushToast);
@@ -110,7 +114,7 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
 
   const clearValue = () => {
     setValue('');
-    saveDraft(draftKey, '');
+    if (!ephemeral) saveDraft(draftKey, '');
   };
 
   const pick = (command: Command) => {
@@ -175,6 +179,8 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
         {slashOpen ? (
           <SlashMenu commands={filtered} activeIndex={slashIndex} onHover={setSlashIndex} onPick={pick} />
         ) : null}
+
+        {banner}
 
         <GlassCard className={styles.inputBar}>
           <input

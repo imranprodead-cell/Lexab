@@ -12,6 +12,7 @@ import { create } from 'zustand';
 import { USE_MOCK, analysisApi } from '@/api';
 import { chatsApi } from '@/api/chats.api';
 import { uploadsApi } from '@/api/uploads.api';
+import { ApiError } from '@/api/util';
 import { COUNTRIES } from '@/data/countries';
 import { ANALYSIS_STEPS } from '@/data/seed';
 import { tStandalone } from '@/i18n/messages';
@@ -52,6 +53,14 @@ interface ChatState {
   steps: string[];
   /** Backend chat session id (created lazily on the first real-API message). */
   serverSessionId: string | null;
+  /** Ghost (incognito) mode: the conversation lives only in this tab's memory. */
+  ghost: boolean;
+
+  /** Enter ghost mode: the current canvas is stashed and restored on exit. */
+  enterGhost: () => void;
+  exitGhost: () => void;
+  /** Thumbs rating on an assistant reply (optimistic; persisted outside ghost). */
+  setFeedback: (messageId: string, value: 'up' | 'down' | null) => void;
 
   startAnalysis: (file: { name: string; size: string }, rawFile?: File) => Promise<void>;
   sendMessage: (text: string) => void;
@@ -73,11 +82,29 @@ interface ChatState {
 }
 
 let stepTimers: ReturnType<typeof setTimeout>[] = [];
-let streamTimer: ReturnType<typeof setInterval> | null = null;
 function clearStepTimers() {
   stepTimers.forEach(clearTimeout);
   stepTimers = [];
 }
+
+/** Per-message typewriter timers + their full texts: a late or concurrent
+ *  reply must never kill another message's animation. */
+const streamTimers = new Map<string, ReturnType<typeof setInterval>>();
+const streamFullTexts = new Map<string, string>();
+
+/** Canvas generation counter: bumped on every canvas switch (ghost in/out,
+ *  session load, reset). In-flight completions compare their captured epoch
+ *  and drop their result instead of leaking it into the new canvas. */
+let canvasEpoch = 0;
+
+/** Canvas snapshot taken when entering ghost mode, restored on exit. */
+let ghostStash: {
+  phase: ChatPhase;
+  messages: ChatMessage[];
+  analysis: AnalysisResult | null;
+  activeStep: number;
+  serverSessionId: string | null;
+} | null = null;
 
 export const useChatStore = create<ChatState>((set, get) => {
   /** Once both the analysis and the server session exist, tie them together so
@@ -90,9 +117,11 @@ export const useChatStore = create<ChatState>((set, get) => {
 
   /** Reveal `full` a few characters at a time inside the assistant bubble. */
   const streamIn = (assistantId: string, full: string) => {
-    if (streamTimer) clearInterval(streamTimer);
+    const existing = streamTimers.get(assistantId);
+    if (existing) clearInterval(existing);
+    streamFullTexts.set(assistantId, full);
     let i = 0;
-    streamTimer = setInterval(() => {
+    const timer = setInterval(() => {
       i = Math.min(full.length, i + 3);
       const done = i >= full.length;
       set((s) => ({
@@ -100,11 +129,31 @@ export const useChatStore = create<ChatState>((set, get) => {
           m.id === assistantId ? { ...m, text: full.slice(0, i), streaming: !done } : m,
         ),
       }));
-      if (done && streamTimer) {
-        clearInterval(streamTimer);
-        streamTimer = null;
+      if (done) {
+        clearInterval(timer);
+        streamTimers.delete(assistantId);
+        streamFullTexts.delete(assistantId);
       }
     }, 16);
+    streamTimers.set(assistantId, timer);
+  };
+
+  /** Fast-forward every animating reply to its full text and drop reply
+   *  placeholders whose request never returned. Runs on every canvas switch
+   *  and before each outgoing message — nothing may stay streaming:true. */
+  const finishActiveStreams = () => {
+    const fulls = new Map(streamFullTexts);
+    for (const timer of streamTimers.values()) clearInterval(timer);
+    streamTimers.clear();
+    streamFullTexts.clear();
+    set((s) => ({
+      messages: s.messages.flatMap((m) => {
+        if (!m.streaming) return [m];
+        const full = fulls.get(m.id);
+        if (full !== undefined) return [{ ...m, streaming: false, text: full }];
+        return m.text ? [{ ...m, streaming: false }] : []; // reply never arrived
+      }),
+    }));
   };
 
   return {
@@ -115,9 +164,55 @@ export const useChatStore = create<ChatState>((set, get) => {
   error: null,
   steps: ANALYSIS_STEPS,
   serverSessionId: null,
+  ghost: false,
+
+  enterGhost: () => {
+    // No mode switch while an analysis is in flight — its completion would
+    // land in the wrong canvas and the restored spinner would never resolve.
+    if (get().ghost || get().phase === 'analyzing') return;
+    clearStepTimers();
+    finishActiveStreams();
+    canvasEpoch++;
+    const { phase, messages, analysis, activeStep, serverSessionId } = get();
+    ghostStash = { phase, messages, analysis, activeStep, serverSessionId };
+    set({ ghost: true, phase: 'idle', messages: [], analysis: null, activeStep: -1, error: null, serverSessionId: null });
+  },
+
+  exitGhost: () => {
+    if (!get().ghost) return;
+    clearStepTimers();
+    finishActiveStreams();
+    canvasEpoch++;
+    const restored = ghostStash;
+    ghostStash = null;
+    set({
+      ghost: false,
+      phase: restored?.phase ?? 'idle',
+      messages: restored?.messages ?? [],
+      analysis: restored?.analysis ?? null,
+      activeStep: restored?.activeStep ?? -1,
+      error: null,
+      serverSessionId: restored?.serverSessionId ?? null,
+    });
+  },
+
+  setFeedback: (messageId, value) => {
+    const prev = get().messages.find((m) => m.id === messageId)?.feedback ?? null;
+    set((s) => ({ messages: s.messages.map((m) => (m.id === messageId ? { ...m, feedback: value } : m)) }));
+    const sessionId = get().serverSessionId;
+    // Local-only rating: ghost/mock conversations and fallback replies whose
+    // local ids (a_… / gm_…) the server never saw — a POST would only 404.
+    if (get().ghost || USE_MOCK || !sessionId || messageId.startsWith('a_') || messageId.startsWith('gm_')) return;
+    void chatsApi.setFeedback(sessionId, messageId, value).catch(() => {
+      // Roll back only if the user has not changed the rating again meanwhile.
+      set((s) => ({ messages: s.messages.map((m) => (m.id === messageId && m.feedback === value ? { ...m, feedback: prev } : m)) }));
+      useUIStore.getState().pushToast(tStandalone('common.error'), 'error');
+    });
+  },
 
   startAnalysis: async (file, rawFile) => {
-    if (get().phase === 'analyzing') return;
+    if (get().phase === 'analyzing' || get().ghost) return; // no files in ghost mode
+    const epoch = canvasEpoch;
     clearStepTimers();
 
     const userMessage: ChatMessage = {
@@ -156,6 +251,7 @@ export const useChatStore = create<ChatState>((set, get) => {
         fileSize: file.size,
         jurisdiction: defaultLaw(),
       });
+      if (epoch !== canvasEpoch) return; // canvas switched meanwhile — drop
       clearStepTimers();
       set({
         phase: 'analyzed',
@@ -164,6 +260,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       });
       tryLinkAnalysis();
     } catch (err) {
+      if (epoch !== canvasEpoch) return;
       clearStepTimers();
       set({
         phase: 'error',
@@ -175,13 +272,28 @@ export const useChatStore = create<ChatState>((set, get) => {
 
   reset: () => {
     clearStepTimers();
-    if (streamTimer) clearInterval(streamTimer);
-    set({ phase: 'idle', messages: [], analysis: null, activeStep: -1, error: null, serverSessionId: null });
+    finishActiveStreams();
+    canvasEpoch++;
+    ghostStash = null;
+    set({ phase: 'idle', messages: [], analysis: null, activeStep: -1, error: null, serverSessionId: null, ghost: false });
   },
 
   sendMessage: (text) => {
     const trimmed = text.trim();
     if (!trimmed) return;
+    const epoch = canvasEpoch;
+    // Fast-forward the previous reply's animation: history must carry its
+    // full text and no message may linger in streaming state.
+    finishActiveStreams();
+
+    // Ghost mode: history is carried by the client, so capture the turns
+    // BEFORE the new pair is appended.
+    const ghostHistory = get().ghost
+      ? get()
+          .messages.filter((m) => m.kind === 'text' && m.text && !m.streaming)
+          .slice(-10)
+          .map((m) => ({ role: m.role, text: m.text as string }))
+      : [];
 
     const userMessage: ChatMessage = {
       id: `u_${Date.now()}`,
@@ -209,6 +321,32 @@ export const useChatStore = create<ChatState>((set, get) => {
       return;
     }
 
+    // A declined plan limit must surface as a limit, not masquerade as an
+    // AI reply; any other failure degrades to the canned reply.
+    const failReply = (err: unknown) => {
+      if (err instanceof ApiError && err.status === 402) {
+        streamIn(assistantId, tStandalone('chat.limitReached'));
+        useUIStore.getState().pushToast(err.message, 'error');
+        return;
+      }
+      streamIn(assistantId, mockReply(trimmed));
+    };
+
+    // Ghost mode: same AI, same limits — no session, nothing persisted.
+    if (get().ghost) {
+      void (async () => {
+        try {
+          const reply = await chatsApi.sendGhostMessage(trimmed, ghostHistory, defaultLaw());
+          if (epoch !== canvasEpoch) return; // canvas switched — drop the late reply
+          streamIn(assistantId, reply.text ?? '');
+        } catch (err) {
+          if (epoch !== canvasEpoch) return;
+          failReply(err);
+        }
+      })();
+      return;
+    }
+
     // Real backend: ensure a server-side chat session, then ask the AI.
     void (async () => {
       try {
@@ -216,26 +354,37 @@ export const useChatStore = create<ChatState>((set, get) => {
         if (!sessionId) {
           const title = get().analysis?.fileName ?? trimmed.slice(0, 60);
           const session = await chatsApi.create(title);
+          if (epoch !== canvasEpoch) return;
           sessionId = session.id;
           set({ serverSessionId: sessionId });
           refreshHistory(); // the new chat shows up in the sidebar right away
         }
         // Ground the reply in the contract being reviewed (document Q&A).
         const reply = await chatsApi.sendMessage(sessionId, trimmed, get().analysis?.id, defaultLaw());
-        streamIn(assistantId, reply.text ?? '');
+        if (epoch !== canvasEpoch) return; // canvas switched — drop the late reply
+        // Adopt the server-side message id so follow-up actions (thumbs
+        // rating) address the persisted row, not the temporary local id.
+        set((s) => ({ messages: s.messages.map((m) => (m.id === assistantId ? { ...m, id: reply.id } : m)) }));
+        streamIn(reply.id, reply.text ?? '');
         refreshHistory(); // bump the session to the top (updated_at changed)
-      } catch {
-        // Network/AI failure — degrade to the canned reply so the chat stays alive.
-        streamIn(assistantId, mockReply(trimmed));
+      } catch (err) {
+        if (epoch !== canvasEpoch) return;
+        failReply(err);
       }
     })();
   },
 
   loadSession: async (sessionId) => {
     if (USE_MOCK) return;
+    // Opening a saved session leaves ghost mode (its stash is superseded).
+    if (get().ghost) {
+      ghostStash = null;
+      set({ ghost: false });
+    }
     if (get().serverSessionId === sessionId) return; // already showing this one
     clearStepTimers();
-    if (streamTimer) clearInterval(streamTimer);
+    finishActiveStreams();
+    canvasEpoch++;
     try {
       const messages = await chatsApi.messages(sessionId);
       const analysisRef = [...messages].reverse().find((m) => m.analysisId)?.analysisId;
@@ -256,6 +405,7 @@ export const useChatStore = create<ChatState>((set, get) => {
   },
 
   setServerSession: (id) => {
+    if (get().ghost) return; // a late session id must not leak into ghost state
     set({ serverSessionId: id });
     tryLinkAnalysis();
   },
@@ -263,8 +413,11 @@ export const useChatStore = create<ChatState>((set, get) => {
   // Documents page → "Open workspace": show that document's own analysis.
   adoptAnalysis: (analysis) => {
     clearStepTimers();
-    if (streamTimer) clearInterval(streamTimer);
+    finishActiveStreams();
+    canvasEpoch++;
+    ghostStash = null;
     set({
+      ghost: false,
       phase: 'analyzed',
       messages: [
         {

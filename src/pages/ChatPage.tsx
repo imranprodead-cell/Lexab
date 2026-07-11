@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type DragEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
+import { TopBarActions } from '@/components/layout/TopBarActions';
 import { Icon } from '@/components/icons/Icon';
 import { WelcomeScreen } from '@/components/chat/WelcomeScreen';
 import { UserFileBubble } from '@/components/chat/UserFileBubble';
@@ -8,12 +9,18 @@ import { AnalysisCard } from '@/components/chat/AnalysisCard';
 import { SummaryCard } from '@/components/chat/SummaryCard';
 import { ChatInput } from '@/components/chat/ChatInput';
 import { CloudImportModal } from '@/components/chat/CloudImportModal';
+import { MessageActions } from '@/components/chat/MessageActions';
 import { Avatar } from '@/components/ui/Avatar';
+import { Button } from '@/components/ui/Button';
 import { LogoLoader } from '@/components/ui/LogoLoader';
+import { Modal } from '@/components/ui/Modal';
 import { ErrorState } from '@/components/ui/States';
+import { billingApi } from '@/api/billing.api';
+import { useAsync } from '@/hooks/useAsync';
 import { useChatStore } from '@/store/useChatStore';
 import { useChatHistoryStore } from '@/store/useChatHistoryStore';
 import { useUIStore } from '@/store/useUIStore';
+import { usePageTitle } from '@/hooks/usePageTitle';
 import { useI18n } from '@/i18n/I18nProvider';
 import { formatFileSize } from '@/lib/format';
 import type { ChatMessage } from '@/types/domain';
@@ -29,6 +36,7 @@ export function ChatPage() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
   const { t } = useI18n();
+  usePageTitle(t('nav.chat'));
 
   const phase = useChatStore((s) => s.phase);
   const messages = useChatStore((s) => s.messages);
@@ -39,12 +47,21 @@ export function ChatPage() {
   const startAnalysis = useChatStore((s) => s.startAnalysis);
   const sendMessage = useChatStore((s) => s.sendMessage);
   const loadSession = useChatStore((s) => s.loadSession);
+  const ghost = useChatStore((s) => s.ghost);
+  const enterGhost = useChatStore((s) => s.enterGhost);
+  const exitGhost = useChatStore((s) => s.exitGhost);
+  const setFeedback = useChatStore((s) => s.setFeedback);
   const addSession = useChatHistoryStore((s) => s.addSession);
 
   const pushToast = useUIStore((s) => s.pushToast);
   const threadRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
   const [cloudOpen, setCloudOpen] = useState(false);
+  const [ghostConfirm, setGhostConfirm] = useState(false);
+
+  // The Free-plan upsell above the composer (hidden on every paid plan).
+  const { data: limits } = useAsync((signal) => billingApi.limits(signal), []);
+  const isFree = limits?.plan === 'Free';
 
   // Opening a previous session from the sidebar restores its conversation
   // (from the server in real mode; the demo state in mock mode).
@@ -72,6 +89,10 @@ export function ChatPage() {
   };
 
   const handleFile = (file: File) => {
+    if (ghost) {
+      pushToast(t('ghost.noFiles'), 'default');
+      return;
+    }
     if (!ACCEPTED.test(file.name)) {
       pushToast(t('chat.fileTypes'), 'error');
       return;
@@ -93,7 +114,12 @@ export function ChatPage() {
 
   const onDragOver = (e: DragEvent) => {
     e.preventDefault();
-    if (!dragging) setDragging(true);
+    if (!dragging && !ghost) setDragging(true);
+  };
+
+  const onExitGhost = () => {
+    exitGhost();
+    pushToast(t('ghost.left'), 'default');
   };
 
   const fileMessage = messages.find((m) => m.kind === 'file');
@@ -114,7 +140,10 @@ export function ChatPage() {
     ) : (
       <div key={m.id} className={chat.msgAssistant}>
         <Avatar size={30} />
-        <div className={`${chat.msgAssistantText} ${chat.textIn}`}>{m.text}</div>
+        <div className={chat.msgAssistantBody}>
+          <div className={`${chat.msgAssistantText} ${chat.textIn}`}>{m.text}</div>
+          {!m.streaming && m.text ? <MessageActions message={m} onFeedback={setFeedback} /> : null}
+        </div>
       </div>
     );
 
@@ -128,14 +157,52 @@ export function ChatPage() {
       onDrop={onDrop}
       style={{ position: 'relative' }}
     >
-      <TopBar title={t('nav.newReview')} />
+      <TopBar
+        title={ghost ? t('ghost.enter') : t('nav.newReview')}
+        right={
+          <div className={chat.topRight}>
+            <button
+              type="button"
+              className={`${chat.ghostToggle} ${ghost ? chat.ghostToggleOn : ''}`}
+              aria-label={t('ghost.enter')}
+              aria-pressed={ghost}
+              title={t('ghost.enter')}
+              disabled={phase === 'analyzing'}
+              onClick={() => (ghost ? onExitGhost() : setGhostConfirm(true))}
+            >
+              <Icon name="ghost" size={18} />
+            </button>
+            <TopBarActions />
+          </div>
+        }
+      />
+
+      {ghost ? (
+        <div className={chat.ghostBanner} role="status">
+          <Icon name="ghost" size={15} />
+          <span className={chat.ghostBannerText}>{t('ghost.active')}</span>
+          <button type="button" className={chat.ghostExitBtn} onClick={onExitGhost}>
+            {t('ghost.exit')}
+          </button>
+        </div>
+      ) : null}
 
       {phase === 'idle' && messages.length === 0 ? (
-        <WelcomeScreen
-          onAnalyze={() => pushToast(t('chat.attachFirst'), 'default')}
-          onDraft={() => sendMessage('/draft ')}
-          onCompare={() => navigate('/compare')}
-        />
+        ghost ? (
+          <div className={chat.ghostEmpty}>
+            <div className={chat.ghostEmptyIcon}>
+              <Icon name="ghost" size={26} />
+            </div>
+            <div className={chat.ghostEmptyTitle}>{t('ghost.enter')}</div>
+            <p className={chat.ghostEmptyBody}>{t('ghost.warnBody')}</p>
+          </div>
+        ) : (
+          <WelcomeScreen
+            onAnalyze={() => pushToast(t('chat.attachFirst'), 'default')}
+            onDraft={() => sendMessage('/draft ')}
+            onCompare={() => navigate('/compare')}
+          />
+        )
       ) : (
         <div className={`${chat.thread} scroll`} ref={threadRef}>
           <div className={chat.threadInner}>
@@ -169,11 +236,53 @@ export function ChatPage() {
       )}
 
       <ChatInput
-        onAnalyze={() => pushToast(t('chat.attachFirst'), 'default')}
-        onFile={(file) => handleFile(file)}
-        onCloudImport={() => setCloudOpen(true)}
+        key={ghost ? 'ghost' : 'chat'}
+        ephemeral={ghost}
+        onAnalyze={() => pushToast(ghost ? t('ghost.noFiles') : t('chat.attachFirst'), 'default')}
+        onFile={ghost ? undefined : (file) => handleFile(file)}
+        onCloudImport={ghost ? undefined : () => setCloudOpen(true)}
         onSend={(text) => (text.trim().toLowerCase().startsWith('/compare') ? navigate('/compare') : sendMessage(text))}
+        banner={
+          isFree ? (
+            <div className={chat.upsellBar}>
+              <span className={chat.upsellText}>
+                <Icon name="diamond" size={14} color="var(--accent)" />
+                {t('chat.upsell.title')}
+              </span>
+              <button type="button" className={chat.upsellBtn} onClick={() => navigate('/plans')}>
+                {t('chat.upsell.cta')}
+              </button>
+            </div>
+          ) : null
+        }
       />
+
+      <Modal
+        open={ghostConfirm}
+        title={t('ghost.warnTitle')}
+        onClose={() => setGhostConfirm(false)}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setGhostConfirm(false)}>
+              {t('ghost.warnCancel')}
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                enterGhost();
+                setGhostConfirm(false);
+                // Leave the saved-session URL: a remount would reload that
+                // session and silently kick the user out of ghost mode.
+                if (sessionId) navigate('/chat');
+              }}
+            >
+              {t('ghost.warnConfirm')}
+            </Button>
+          </>
+        }
+      >
+        <p className={chat.ghostWarnBody}>{t('ghost.warnBody')}</p>
+      </Modal>
 
       <CloudImportModal
         open={cloudOpen}

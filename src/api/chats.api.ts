@@ -75,4 +75,30 @@ export const chatsApi = {
       body: { text, ...(analysisId ? { analysisId } : {}), ...(jurisdiction ? { jurisdiction } : {}) },
     });
   },
+
+  /** Ghost (incognito) chat: same AI, same limits — nothing stored. The
+   *  client carries the conversation and sends the recent turns each time. */
+  async sendGhostMessage(
+    text: string,
+    history: { role: 'user' | 'assistant'; text: string }[],
+    jurisdiction?: string,
+  ): Promise<ChatMessage> {
+    if (USE_MOCK) {
+      await delay(400);
+      return { id: `gm_${Date.now()}`, role: 'assistant', kind: 'text', text: 'Ghost reply (mock).' };
+    }
+    return http<ChatMessage>('/chats/ghost/messages', {
+      method: 'POST',
+      body: { text, history, ...(jurisdiction ? { jurisdiction } : {}) },
+    });
+  },
+
+  /** Rate an assistant reply (thumbs up / down); `null` clears the rating. */
+  async setFeedback(sessionId: string, messageId: string, value: 'up' | 'down' | null): Promise<void> {
+    if (USE_MOCK) {
+      await delay(60);
+      return;
+    }
+    await http(`/chats/${sessionId}/messages/${messageId}/feedback`, { method: 'POST', body: { value } });
+  },
 };

@@ -55,6 +55,8 @@ export interface ChatMessage {
   text?: string;
   file?: { name: string; size: string };
   analysisId?: string;
+  /** User's thumbs rating of an assistant reply. */
+  feedback?: 'up' | 'down' | null;
 }
 
 export interface ChatSession {

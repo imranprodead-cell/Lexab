@@ -21,16 +21,30 @@ export function Modal({ open, title, onClose, children, footer, maxWidth = 460 }
     if (!open) return;
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
+    // Move keyboard focus into the dialog (remember where it came from),
+    // so Tab lands on the dialog's controls instead of the page behind it.
+    const opener = document.activeElement as HTMLElement | null;
+    requestAnimationFrame(() => ref.current?.focus());
     return () => {
       document.body.style.overflow = prev;
+      opener?.focus?.();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   if (!open) return null;
 
   return createPortal(
     <div className={styles.overlay} role="presentation">
-      <div className={styles.modal} style={{ maxWidth }} role="dialog" aria-modal="true" aria-label={title} ref={ref}>
+      <div
+        className={styles.modal}
+        style={{ maxWidth, outline: 'none' }}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        tabIndex={-1}
+        ref={ref}
+      >
         <header className={styles.modalHeader}>
           <span className={styles.modalTitle}>{title}</span>
           <button className={styles.iconBtn} style={{ width: 32, height: 32 }} onClick={onClose} aria-label="Close dialog">

@@ -16,7 +16,11 @@ import { newId } from '../lib/ids.ts';
 import { openSSE, wantsSSE } from '../lib/sse.ts';
 import { asObject, requireString } from '../lib/validate.ts';
 import { generateChatReply, generateHistorySummary, type ChatTurn } from '../llm.ts';
+import { jurisdictionCode, retrieveLegalContext } from '../rag/retrieve.ts';
 import type { ChatMessage, ChatSession } from '../types.ts';
+
+/** Same per-user throttle as the other AI routes (analysis, compare). */
+const RATE_LIMIT = { rateLimit: { max: 10, timeWindow: '1 minute' } };
 
 interface SessionRow {
   id: string;
@@ -98,6 +102,7 @@ interface MessageRow {
   file_name: string | null;
   file_size: string | null;
   analysis_id: string | null;
+  feedback?: 'up' | 'down' | null;
 }
 
 function toChatMessage(row: MessageRow): ChatMessage {
@@ -108,6 +113,7 @@ function toChatMessage(row: MessageRow): ChatMessage {
     ...(row.text !== null ? { text: row.text } : {}),
     ...(row.file_name !== null ? { file: { name: row.file_name, size: row.file_size ?? '' } } : {}),
     ...(row.analysis_id !== null ? { analysisId: row.analysis_id } : {}),
+    ...(row.feedback ? { feedback: row.feedback } : {}),
   };
 }
 
@@ -188,7 +194,7 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
     const { id } = req.params as { id: string };
     await requireSession(req.currentUser.id, id);
     const res = await db.query<MessageRow>(
-      `SELECT id, role, kind, text, file_name, file_size, analysis_id
+      `SELECT id, role, kind, text, file_name, file_size, analysis_id, feedback
        FROM chat_messages WHERE session_id = $1 ORDER BY created_at`,
       [id],
     );
@@ -228,11 +234,87 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
     }
     reply.code(201);
     const res = await db.query<MessageRow>(
-      `SELECT id, role, kind, text, file_name, file_size, analysis_id
+      `SELECT id, role, kind, text, file_name, file_size, analysis_id, feedback
        FROM chat_messages WHERE session_id = $1 ORDER BY created_at`,
       [sessionId],
     );
     return res.rows.map(toChatMessage);
+  });
+
+  // Thumbs rating on an assistant reply; value null clears the rating.
+  app.post('/chats/:id/messages/:messageId/feedback', { preHandler: [app.authenticateReal] }, async (req) => {
+    const { id: sessionId, messageId } = req.params as { id: string; messageId: string };
+    await requireSession(req.currentUser.id, sessionId);
+    const body = asObject(req.body);
+    const value = body.value === 'up' || body.value === 'down' ? body.value : null;
+    const res = await db.query<{ id: string }>(
+      `UPDATE chat_messages SET feedback = $3 WHERE id = $1 AND session_id = $2 AND role = 'assistant' RETURNING id`,
+      [messageId, sessionId, value],
+    );
+    if (!res.rows[0]) throw notFound('Message not found');
+    return { ok: true, feedback: value };
+  });
+
+  /**
+   * Ghost (incognito) chat: the AI answers exactly like the normal chat —
+   * same per-plan model, same RAG grounding, same plan limits and usage
+   * counters — but NOTHING is written to the database. The client keeps the
+   * conversation in memory and sends the recent turns with every request.
+   * (Static "ghost" segment wins over the parametric /chats/:id/messages.)
+   */
+  app.post('/chats/ghost/messages', { preHandler: [app.authenticateReal], config: RATE_LIMIT }, async (req, reply) => {
+    const plan = await assertAiAllowance(db, req.currentUser.id);
+    const body = asObject(req.body);
+    const text = requireString(body, 'text', { min: 1, max: 20_000 });
+    const jurisdiction = typeof body.jurisdiction === 'string' ? body.jurisdiction.slice(0, 60) : undefined;
+
+    // Client-held history (never persisted): validate shape and cap size.
+    const rawHistory = Array.isArray(body.history) ? body.history.slice(-HISTORY_MAX_TURNS) : [];
+    const turns: ChatTurn[] = [];
+    for (const item of rawHistory) {
+      if (typeof item !== 'object' || item === null) continue;
+      const { role, text: turnText } = item as { role?: unknown; text?: unknown };
+      if ((role === 'user' || role === 'assistant') && typeof turnText === 'string' && turnText.trim()) {
+        turns.push({ role, text: turnText.slice(0, 20_000) });
+      }
+    }
+    const { recent } = splitHistory(turns);
+
+    // Same statute grounding as the normal chat (non-fatal on failure).
+    let legalContext: string | undefined;
+    const ghostCorpus = jurisdictionCode(jurisdiction);
+    if (ghostCorpus) {
+      try {
+        const hits = await retrieveLegalContext(db, { query: text, jurisdiction: ghostCorpus, topK: 5 });
+        if (hits.length) {
+          legalContext = hits.map((h) => `[${h.unitId}] ${h.breadcrumb}\n${h.body.slice(0, 900)}`).join('\n---\n');
+        }
+      } catch (err) {
+        req.log.warn(err, 'ghost chat RAG retrieval failed');
+      }
+    }
+
+    const finishGhost = async (replyText: string): Promise<ChatMessage> => {
+      await bumpUsage(db, req.currentUser.id, { ai: 1 }); // limits apply in ghost mode too
+      return { id: newId('gm'), role: 'assistant', kind: 'text', text: replyText };
+    };
+
+    if (wantsSSE(req)) {
+      const sse = openSSE(req, reply);
+      try {
+        const replyText = await generateChatReply(recent, text, (delta) => sse.send('token', { text: delta }), undefined, jurisdiction, plan, null, legalContext);
+        sse.send('done', await finishGhost(replyText));
+      } catch (err) {
+        req.log.error(err, 'ghost chat reply failed');
+        sse.send('error', { message: 'Failed to generate a reply' });
+      } finally {
+        sse.close();
+      }
+      return reply;
+    }
+
+    const replyText = await generateChatReply(recent, text, undefined, undefined, jurisdiction, plan, null, legalContext);
+    return finishGhost(replyText);
   });
 
   app.post('/chats/:id/messages', { preHandler: [app.authenticateReal] }, async (req, reply) => {
@@ -283,6 +365,22 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
       ]);
     }
 
+    // Statute grounding (RAG): for jurisdictions with a legal corpus, retrieve
+    // the provisions most relevant to the question and hand them to the model.
+    // Non-fatal: on any failure the chat simply answers without the corpus.
+    let legalContext: string | undefined;
+    const corpus = jurisdictionCode(jurisdiction);
+    if (corpus) {
+      try {
+        const hits = await retrieveLegalContext(db, { query: text, jurisdiction: corpus, topK: 5 });
+        if (hits.length) {
+          legalContext = hits.map((h) => `[${h.unitId}] ${h.breadcrumb}\n${h.body.slice(0, 900)}`).join('\n---\n');
+        }
+      } catch (err) {
+        req.log.warn(err, 'chat RAG retrieval failed');
+      }
+    }
+
     const finish = async (replyText: string): Promise<ChatMessage> => {
       const messageId = newId('m');
       await db.query(
@@ -297,7 +395,7 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
     if (wantsSSE(req)) {
       const sse = openSSE(req, reply);
       try {
-        const replyText = await generateChatReply(recent, text, (delta) => sse.send('token', { text: delta }), docContext, jurisdiction, plan, summary);
+        const replyText = await generateChatReply(recent, text, (delta) => sse.send('token', { text: delta }), docContext, jurisdiction, plan, summary, legalContext);
         const message = await finish(replyText);
         sse.send('done', message);
       } catch (err) {
@@ -309,7 +407,7 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
       return reply;
     }
 
-    const replyText = await generateChatReply(recent, text, undefined, docContext, jurisdiction, plan, summary);
+    const replyText = await generateChatReply(recent, text, undefined, docContext, jurisdiction, plan, summary, legalContext);
     return finish(replyText);
   });
 }
