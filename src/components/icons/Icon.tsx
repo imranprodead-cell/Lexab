@@ -191,6 +191,12 @@ const GEOMETRY: Record<string, ReactNode> = {
       <path d="M3 18h18" />
     </>
   ),
+  menuAlt: (
+    <>
+      <path d="M4 9h16" />
+      <path d="M4 15h9" />
+    </>
+  ),
   users: (
     <>
       <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />

@@ -76,7 +76,7 @@ export function AppShell() {
           aria-controls="app-sidebar"
           onClick={() => setMobileNavOpen(!mobileNavOpen)}
         >
-          <Icon name="menu" size={20} />
+          <Icon name="menuAlt" size={22} strokeWidth={2.2} />
         </button>
       ) : null}
       {isMobile && mobileNavOpen ? <div className={styles.scrim} onClick={() => setMobileNavOpen(false)} /> : null}

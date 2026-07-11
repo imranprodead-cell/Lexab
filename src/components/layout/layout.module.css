@@ -315,19 +315,27 @@
 @media (max-width: 700px) {
   .mobileToggle {
     position: fixed;
-    top: 12px;
-    inset-inline-start: 12px;
+    top: 14px;
+    inset-inline-start: 14px;
     z-index: 62;
-    width: 40px;
-    height: 40px;
-    border-radius: 12px;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
     background: var(--panel);
     border: 1px solid var(--border);
-    color: var(--text);
+    color: var(--dim);
     cursor: pointer;
+    box-shadow: 0 4px 14px -4px rgba(0, 0, 0, 0.18), 0 1px 3px rgba(0, 0, 0, 0.08);
+    transition: background var(--dur-fast), color var(--dur-fast), box-shadow var(--dur-fast);
+  }
+  .mobileToggle:hover,
+  .mobileToggle:active {
+    color: var(--text);
+    background: var(--hover);
+    box-shadow: 0 6px 18px -4px rgba(0, 0, 0, 0.22), 0 1px 3px rgba(0, 0, 0, 0.1);
   }
   .topBar {
     padding-inline-start: 64px;
