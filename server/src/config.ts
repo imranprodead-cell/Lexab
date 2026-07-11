@@ -1,8 +1,30 @@
 import path from 'node:path';
+import crypto from 'node:crypto';
 
 function env(name: string, fallback = ''): string {
   const v = process.env[name];
   return v === undefined || v === '' ? fallback : v;
+}
+
+/**
+ * Resolve a safe JWT signing secret. A weak/absent/default secret would let
+ * anyone forge tokens for any user, so:
+ *  - production: refuse to start unless a strong secret (≥32 chars) is set;
+ *  - dev: never fall back to the publicly known default — mint a RANDOM
+ *    ephemeral secret for this run (tokens reset on restart) and warn.
+ */
+function resolveJwtSecret(): string {
+  const provided = env('JWT_SECRET');
+  const weak = !provided || provided === 'change-me-in-production' || provided.length < 32;
+  if (!weak) return provided;
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('JWT_SECRET must be set to a strong value (at least 32 characters) in production');
+  }
+  console.warn(
+    '[config] JWT_SECRET is unset or weak — using a random ephemeral secret for this dev run ' +
+      '(all sessions reset on restart). Set a strong JWT_SECRET for stable sessions.',
+  );
+  return crypto.randomBytes(48).toString('base64url');
 }
 
 export const config = {
@@ -19,13 +41,21 @@ export const config = {
   databaseUrl: env('DATABASE_URL'),
   dataDir: path.resolve(env('DATA_DIR', './data')),
 
-  jwtSecret: env('JWT_SECRET', 'change-me-in-production'),
+  jwtSecret: resolveJwtSecret(),
   jwtExpiresIn: env('JWT_EXPIRES_IN', '12h'),
-  /** "demo": unauthenticated requests act as the seeded demo user. */
+  /** Password for the opt-in seeded demo account (only when SEED_DEMO_DATA=true). */
   seedDemoPassword: env('SEED_DEMO_PASSWORD', 'lexai-demo'),
 
   anthropicApiKey: env('ANTHROPIC_API_KEY'),
   anthropicModel: env('ANTHROPIC_MODEL', 'claude-opus-4-8'),
+  /**
+   * Deterministic offline fallbacks when the model is unavailable. The mock is
+   * enabled ONLY by the explicit value 'dev' (for local offline development);
+   * any other value — including the default — fails loud (503) so a legal
+   * product never fabricates analysis or citations. Deliberately independent of
+   * NODE_ENV (which is never set here) so a keyless deploy can't silently mock.
+   */
+  llmFallback: env('LLM_FALLBACK', 'off').toLowerCase(),
   /** Per-plan Claude model: better plan → smarter model (see llm.ts modelForPlan). */
   planModels: {
     Free: env('ANTHROPIC_MODEL_FREE', 'claude-haiku-4-5'),
@@ -53,6 +83,13 @@ export const config = {
   msClientSecret: env('MS_CLIENT_SECRET'),
   dropboxAppKey: env('DROPBOX_APP_KEY'),
   dropboxAppSecret: env('DROPBOX_APP_SECRET'),
+
+  /* Dropbox Sign (HelloSign) — real e-signatures. When DROPBOX_SIGN_API_KEY is
+   * set, /signatures sends via the provider (legally-weighted, audit trail,
+   * signed PDF). Empty = fall back to the in-app typed-name simulation.
+   * DROPBOX_SIGN_TEST_MODE=1 uses the free sandbox (non-legally-binding). */
+  dropboxSignApiKey: env('DROPBOX_SIGN_API_KEY'),
+  dropboxSignTestMode: env('DROPBOX_SIGN_TEST_MODE', '1') === '1',
 
   supabaseUrl: env('SUPABASE_URL'),
   supabaseAnonKey: env('SUPABASE_ANON_KEY'),
@@ -95,6 +132,3 @@ export function isOriginAllowed(origin: string): boolean {
   return !config.corsExplicit && LOCALHOST_ORIGIN.test(origin);
 }
 
-if (config.jwtSecret === 'change-me-in-production' && process.env.NODE_ENV === 'production') {
-  throw new Error('JWT_SECRET must be set in production');
-}

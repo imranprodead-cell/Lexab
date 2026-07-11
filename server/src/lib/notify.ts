@@ -1,5 +1,5 @@
 /** Insert a bilingual in-app notification (RU primary + EN variant). */
-import type { Db } from '../db.ts';
+import type { Queryable } from '../db.ts';
 import { newId } from './ids.ts';
 
 export type NotificationIcon = 'esign' | 'check' | 'alert' | 'docs';
@@ -13,7 +13,7 @@ export interface NotifyOptions {
 }
 
 export async function notify(
-  db: Db,
+  db: Queryable,
   userId: string,
   icon: NotificationIcon,
   titleRu: string,

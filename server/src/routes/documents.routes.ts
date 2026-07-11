@@ -212,10 +212,15 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
     );
     // Analyses reference the document with ON DELETE SET NULL — remove them
     // explicitly (findings/redlines cascade), then the document (versions cascade),
-    // then the stored uploads so the storage quota is freed.
-    await db.query('DELETE FROM analyses WHERE document_id = $1 AND user_id = $2', [id, req.currentUser.id]);
-    await db.query('DELETE FROM documents WHERE id = $1', [id]);
-    await db.query('DELETE FROM uploads WHERE user_id = $1 AND file_name = $2', [req.currentUser.id, doc.name]);
+    // then the stored uploads so the storage quota is freed. All atomic: a
+    // partial delete never leaves dangling analyses or orphaned uploads.
+    // NOTE: uploads are still matched by (user_id, file_name); a stable
+    // document_id link is a documented follow-up (filename→id migration).
+    await db.withTx(async (tx) => {
+      await tx.query('DELETE FROM analyses WHERE document_id = $1 AND user_id = $2', [id, req.currentUser.id]);
+      await tx.query('DELETE FROM documents WHERE id = $1', [id]);
+      await tx.query('DELETE FROM uploads WHERE user_id = $1 AND file_name = $2', [req.currentUser.id, doc.name]);
+    });
     // Best effort: a failed storage delete must not resurrect the DB rows.
     for (const row of files.rows) {
       try {

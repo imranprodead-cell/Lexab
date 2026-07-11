@@ -12,3 +12,4 @@ export class HttpError extends Error {
 export const badRequest = (message: string) => new HttpError(400, message);
 export const unauthorized = (message = 'Not authenticated') => new HttpError(401, message);
 export const notFound = (message = 'Not found') => new HttpError(404, message);
+export const serviceUnavailable = (message = 'Service temporarily unavailable') => new HttpError(503, message);

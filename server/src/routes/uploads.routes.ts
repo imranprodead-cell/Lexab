@@ -8,7 +8,7 @@ import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { config } from '../config.ts';
 import type { Db } from '../db.ts';
-import { ALLOWED_EXTENSIONS, extractText, fileExtension, MAX_UPLOAD_BYTES } from '../extract.ts';
+import { ALLOWED_EXTENSIONS, assertValidFileContent, extractText, fileExtension, MAX_UPLOAD_BYTES } from '../extract.ts';
 import { badRequest, notFound } from '../lib/errors.ts';
 import { assertStorageAllowance } from '../lib/limits.ts';
 import { formatSize } from '../lib/format.ts';
@@ -43,6 +43,7 @@ export function uploadRoutes(app: FastifyInstance, db: Db): void {
       } catch {
         throw badRequest('File exceeds the 10 MB limit');
       }
+      assertValidFileContent(buffer, fileName);
 
       await assertStorageAllowance(db, req.currentUser.id, buffer.length);
       const stored = await saveFile(buffer, fileName, part.mimetype);

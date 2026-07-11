@@ -68,7 +68,7 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
     const ta = textareaRef.current;
     if (ta && ta.value) {
       ta.style.height = 'auto';
-      ta.style.height = `${Math.min(120, ta.scrollHeight)}px`;
+      ta.style.height = `${Math.min(200, ta.scrollHeight)}px`;
     }
   }, []);
 
@@ -86,7 +86,7 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
       const ta = textareaRef.current;
       if (ta) {
         ta.style.height = 'auto';
-        ta.style.height = `${Math.min(120, ta.scrollHeight)}px`;
+        ta.style.height = `${Math.min(200, ta.scrollHeight)}px`;
       }
     },
     [draftKey, ephemeral],
@@ -182,6 +182,8 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
 
         {banner}
 
+        {/* Two-row composer: the text scrolls on top while the controls stay
+            on a fixed bottom row — the buttons never drift down as text grows. */}
         <GlassCard className={styles.inputBar}>
           <input
             ref={fileInputRef}
@@ -194,27 +196,6 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
               e.target.value = ''; // allow re-selecting the same file
             }}
           />
-          <button
-            type="button"
-            title={t('chat.attach')}
-            aria-label={t('chat.attach')}
-            onClick={onAttach}
-            className={styles.attachBtn}
-          >
-            <Icon name="plus" size={20} />
-          </button>
-
-          {onCloudImport ? (
-            <button
-              type="button"
-              title={t('cloud.title')}
-              aria-label={t('cloud.title')}
-              onClick={onCloudImport}
-              className={styles.attachBtn}
-            >
-              <Icon name="cloud" size={18} />
-            </button>
-          ) : null}
 
           <textarea
             ref={textareaRef}
@@ -227,32 +208,60 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
             aria-label="Message LexAI"
           />
 
-          {voice.supported ? (
-            <button
-              type="button"
-              className={styles.micBtn}
-              aria-label={voice.listening ? t('chat.micStop') : t('chat.micStart')}
-              title={voice.listening ? t('chat.micStop') : t('chat.micStart')}
-              onClick={onMic}
-              style={{ color: voice.listening ? 'var(--accent)' : 'var(--dim)' }}
-              data-listening={voice.listening ? 'true' : undefined}
-            >
-              <Icon name="mic" size={18} />
-            </button>
-          ) : null}
+          <div className={styles.inputControls}>
+            <div className={styles.inputControlsGroup}>
+              <button
+                type="button"
+                title={t('chat.attach')}
+                aria-label={t('chat.attach')}
+                onClick={onAttach}
+                className={styles.attachBtn}
+              >
+                <Icon name="plus" size={20} />
+              </button>
 
-          <button
-            type="button"
-            className={styles.sendBtn}
-            aria-label={t('chat.sendLabel')}
-            onClick={submit}
-            style={{
-              background: hasText ? 'var(--accent)' : 'var(--hover-2)',
-              color: hasText ? 'var(--on-accent)' : 'var(--mut)',
-            }}
-          >
-            <Icon name="send" size={16} strokeWidth={2} />
-          </button>
+              {onCloudImport ? (
+                <button
+                  type="button"
+                  title={t('cloud.title')}
+                  aria-label={t('cloud.title')}
+                  onClick={onCloudImport}
+                  className={styles.attachBtn}
+                >
+                  <Icon name="cloud" size={18} />
+                </button>
+              ) : null}
+            </div>
+
+            <div className={styles.inputControlsGroup}>
+              {voice.supported ? (
+                <button
+                  type="button"
+                  className={styles.micBtn}
+                  aria-label={voice.listening ? t('chat.micStop') : t('chat.micStart')}
+                  title={voice.listening ? t('chat.micStop') : t('chat.micStart')}
+                  onClick={onMic}
+                  style={{ color: voice.listening ? 'var(--accent)' : 'var(--dim)' }}
+                  data-listening={voice.listening ? 'true' : undefined}
+                >
+                  <Icon name="mic" size={18} />
+                </button>
+              ) : null}
+
+              <button
+                type="button"
+                className={styles.sendBtn}
+                aria-label={t('chat.sendLabel')}
+                onClick={submit}
+                style={{
+                  background: hasText ? 'var(--accent)' : 'var(--hover-2)',
+                  color: hasText ? 'var(--on-accent)' : 'var(--mut)',
+                }}
+              >
+                <Icon name="send" size={16} strokeWidth={2} />
+              </button>
+            </div>
+          </div>
         </GlassCard>
 
         <div className={styles.disclaimer}>{t('chat.disclaimer')}</div>

@@ -12,7 +12,18 @@ export const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api';
 
 // Mock mode is OPT-IN: without the env var the app talks to the real backend.
 // (A fresh deploy that forgets the var must never silently show demo data.)
-export const USE_MOCK = import.meta.env.VITE_USE_MOCK_API === 'true';
+// Mocks accept ANY credentials, so they are FORCED OFF in a production build
+// unless a second explicit flag is set — a stray VITE_USE_MOCK_API must never
+// ship open login.
+const mockRequested = import.meta.env.VITE_USE_MOCK_API === 'true';
+export const USE_MOCK =
+  mockRequested && (!import.meta.env.PROD || import.meta.env.VITE_ALLOW_MOCK_IN_PROD === 'true');
+if (mockRequested && !USE_MOCK) {
+  console.error(
+    '[client] VITE_USE_MOCK_API=true was ignored in this production build (it would expose open login). ' +
+      'Set VITE_ALLOW_MOCK_IN_PROD=true only if a mock demo build is truly intended.',
+  );
+}
 
 interface HttpOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';

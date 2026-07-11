@@ -105,13 +105,25 @@ export const useNotificationsStore = create<NotificationsState>((set, get) => {
     },
 
     markAllRead: () => {
+      // Optimistic, but roll the badge back if the server rejects — don't let
+      // the unread count silently drift out of sync with the server.
+      const wasUnread = new Set(get().items.filter((n) => !n.read).map((n) => n.id));
       apply(get().items.map((n) => ({ ...n, read: true })));
-      if (!USE_MOCK) void notificationsApi.markRead().catch(() => undefined);
+      if (!USE_MOCK && wasUnread.size) {
+        void notificationsApi.markRead().catch(() => {
+          apply(get().items.map((n) => (wasUnread.has(n.id) ? { ...n, read: false } : n)));
+        });
+      }
     },
 
     markRead: (id) => {
+      const wasUnread = get().items.some((n) => n.id === id && !n.read);
       apply(get().items.map((n) => (n.id === id ? { ...n, read: true } : n)));
-      if (!USE_MOCK) void notificationsApi.markRead(id).catch(() => undefined);
+      if (!USE_MOCK && wasUnread) {
+        void notificationsApi.markRead(id).catch(() => {
+          apply(get().items.map((n) => (n.id === id ? { ...n, read: false } : n)));
+        });
+      }
     },
 
     add: (n) => apply([{ ...n, id: `n_${Date.now()}`, read: false, time: 'Только что' }, ...get().items]),

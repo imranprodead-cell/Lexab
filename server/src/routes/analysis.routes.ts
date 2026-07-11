@@ -9,9 +9,9 @@
  */
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Db } from '../db.ts';
-import { ALLOWED_EXTENSIONS, extractText, fileExtension, MAX_UPLOAD_BYTES } from '../extract.ts';
-import { badRequest, notFound } from '../lib/errors.ts';
-import { assertAiAllowance, assertDocumentAllowance, assertStorageAllowance, bumpUsage } from '../lib/limits.ts';
+import { ALLOWED_EXTENSIONS, assertValidFileContent, extractText, fileExtension, MAX_UPLOAD_BYTES } from '../extract.ts';
+import { badRequest, HttpError, notFound } from '../lib/errors.ts';
+import { assertDocumentAllowance, assertStorageAllowance, bumpUsage, releaseAiRequest, reserveAiRequest } from '../lib/limits.ts';
 import { notify } from '../lib/notify.ts';
 import { assertCanEdit, resolveAnalysisAccess, resolveDocumentAccess } from '../lib/teamAccess.ts';
 import { formatSize } from '../lib/format.ts';
@@ -176,6 +176,7 @@ async function readSource(db: Db, req: FastifyRequest): Promise<AnalysisSource> 
       throw badRequest(`Unsupported file type. Allowed: ${ALLOWED_EXTENSIONS.join(', ')}`);
     }
     const buffer = await part.toBuffer();
+    assertValidFileContent(buffer, fileName);
     // Optional law context sent alongside the file (multipart fields must
     // precede the file part — later fields are not parsed by req.file()).
     const jurisdictionField = (part.fields as Record<string, unknown> | undefined)?.jurisdiction as
@@ -233,86 +234,92 @@ export async function persistAnalysis(
 ): Promise<AnalysisResult> {
   const analysisId = newId('an');
 
-  // Upsert the document row backing the Documents page.
-  const existingDoc = await db.query<{ id: string }>(
-    'SELECT id FROM documents WHERE user_id = $1 AND name = $2 ORDER BY updated_at DESC LIMIT 1',
-    [userId, source.fileName],
-  );
-  let documentId: string;
-  if (existingDoc.rows[0]) {
-    documentId = existingDoc.rows[0].id;
-    await db.query(
-      `UPDATE documents SET status = 'In review', risk = $2, size_bytes = GREATEST(size_bytes, $3),
-              jurisdiction = COALESCE($4, jurisdiction), updated_at = now() WHERE id = $1`,
-      [documentId, gen.riskLevel, source.sizeBytes, source.jurisdiction ?? null],
+  // All of the review's rows (document, versions, analysis, findings, redlines,
+  // stats) commit together or not at all — a mid-write failure never leaves a
+  // half-saved analysis. Notifications are non-critical and run after commit.
+  await db.withTx(async (tx) => {
+    // Upsert the document row backing the Documents page.
+    const existingDoc = await tx.query<{ id: string }>(
+      'SELECT id FROM documents WHERE user_id = $1 AND name = $2 ORDER BY updated_at DESC LIMIT 1',
+      [userId, source.fileName],
     );
-  } else {
-    documentId = newId('d');
-    await db.query(
-      `INSERT INTO documents (id, user_id, name, counterparty, status, risk, jurisdiction, size_bytes)
-       VALUES ($1, $2, $3, '—', 'In review', $4, $5, $6)`,
-      [documentId, userId, source.fileName, gen.riskLevel, source.jurisdiction ?? '—', source.sizeBytes],
-    );
-    await bumpUsage(db, userId, { docs: 1 });
-    await db.query(
+    let documentId: string;
+    if (existingDoc.rows[0]) {
+      documentId = existingDoc.rows[0].id;
+      await tx.query(
+        `UPDATE documents SET status = 'In review', risk = $2, size_bytes = GREATEST(size_bytes, $3),
+                jurisdiction = COALESCE($4, jurisdiction), updated_at = now() WHERE id = $1`,
+        [documentId, gen.riskLevel, source.sizeBytes, source.jurisdiction ?? null],
+      );
+    } else {
+      documentId = newId('d');
+      await tx.query(
+        `INSERT INTO documents (id, user_id, name, counterparty, status, risk, jurisdiction, size_bytes)
+         VALUES ($1, $2, $3, '—', 'In review', $4, $5, $6)`,
+        [documentId, userId, source.fileName, gen.riskLevel, source.jurisdiction ?? '—', source.sizeBytes],
+      );
+      await bumpUsage(tx, userId, { docs: 1 });
+      await tx.query(
+        `INSERT INTO document_versions (id, document_id, label, author, note)
+         VALUES ($1, $2, 'v1 — original', 'Upload', 'Initial draft received.')`,
+        [newId('v'), documentId],
+      );
+    }
+    await tx.query(
       `INSERT INTO document_versions (id, document_id, label, author, note)
-       VALUES ($1, $2, 'v1 — original', 'Upload', 'Initial draft received.')`,
-      [newId('v'), documentId],
+       VALUES ($1, $2, 'AI review', 'LexAI', $3)`,
+      [newId('v'), documentId, `Risk score ${gen.riskScore}/100 — ${gen.findings.length} findings.`],
     );
-  }
-  await db.query(
-    `INSERT INTO document_versions (id, document_id, label, author, note)
-     VALUES ($1, $2, 'AI review', 'LexAI', $3)`,
-    [newId('v'), documentId, `Risk score ${gen.riskScore}/100 — ${gen.findings.length} findings.`],
-  );
 
-  await db.query(
-    `INSERT INTO analyses (id, user_id, document_id, file_name, file_size, summary, risk_score, risk_level, clauses_reviewed, document_blocks)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-    [
-      analysisId,
-      userId,
-      documentId,
-      source.fileName,
-      source.fileSizeLabel,
-      gen.summary,
+    await tx.query(
+      `INSERT INTO analyses (id, user_id, document_id, file_name, file_size, summary, risk_score, risk_level, clauses_reviewed, document_blocks)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [
+        analysisId,
+        userId,
+        documentId,
+        source.fileName,
+        source.fileSizeLabel,
+        gen.summary,
+        gen.riskScore,
+        gen.riskLevel,
+        gen.clausesReviewed,
+        JSON.stringify(gen.document),
+      ],
+    );
+    for (let i = 0; i < gen.findings.length; i++) {
+      const f = gen.findings[i];
+      await tx.query(
+        'INSERT INTO findings (analysis_id, id, ord, severity, title, citation, unit_id, unverified) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+        [analysisId, `f${i + 1}`, i, f.severity, f.title, f.citation, f.unitId ?? null, f.unverified ?? false],
+      );
+    }
+    for (let i = 0; i < gen.redlines.length; i++) {
+      const r = gen.redlines[i];
+      await tx.query(
+        `INSERT INTO redlines (analysis_id, id, ord, del_text, ins_text, severity, status)
+         VALUES ($1, $2, $3, $4, $5, $6, 'pending')`,
+        [analysisId, r.id, i, r.delText, r.insText, r.severity],
+      );
+    }
+
+    // Analytics + usage are attributed to whoever ran the review (the requester
+    // for shared team documents) — their allowance was checked, their stats move.
+    await tx.query('INSERT INTO review_events (id, user_id, risk_score) VALUES ($1, $2, $3)', [
+      newId('re'),
+      chargeUserId,
       gen.riskScore,
-      gen.riskLevel,
-      gen.clausesReviewed,
-      JSON.stringify(gen.document),
-    ],
-  );
-  for (let i = 0; i < gen.findings.length; i++) {
-    const f = gen.findings[i];
-    await db.query(
-      'INSERT INTO findings (analysis_id, id, ord, severity, title, citation, unit_id, unverified) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
-      [analysisId, `f${i + 1}`, i, f.severity, f.title, f.citation, f.unitId ?? null, f.unverified ?? false],
+    ]);
+    const bump = { High: 0, Medium: 0, Low: 0 };
+    for (const f of gen.findings) bump[f.severity]++;
+    await tx.query(
+      `UPDATE user_stats SET findings_high = findings_high + $2, findings_medium = findings_medium + $3,
+       findings_low = findings_low + $4, hours_saved_minutes = hours_saved_minutes + 90 WHERE user_id = $1`,
+      [chargeUserId, bump.High, bump.Medium, bump.Low],
     );
-  }
-  for (let i = 0; i < gen.redlines.length; i++) {
-    const r = gen.redlines[i];
-    await db.query(
-      `INSERT INTO redlines (analysis_id, id, ord, del_text, ins_text, severity, status)
-       VALUES ($1, $2, $3, $4, $5, $6, 'pending')`,
-      [analysisId, r.id, i, r.delText, r.insText, r.severity],
-    );
-  }
+    // AI usage is counted by the caller's reservation (reserveAiRequest), not here.
+  });
 
-  // Analytics + usage are attributed to whoever ran the review (the requester
-  // for shared team documents) — their allowance was checked, their stats move.
-  await db.query('INSERT INTO review_events (id, user_id, risk_score) VALUES ($1, $2, $3)', [
-    newId('re'),
-    chargeUserId,
-    gen.riskScore,
-  ]);
-  const bump = { High: 0, Medium: 0, Low: 0 };
-  for (const f of gen.findings) bump[f.severity]++;
-  await db.query(
-    `UPDATE user_stats SET findings_high = findings_high + $2, findings_medium = findings_medium + $3,
-     findings_low = findings_low + $4, hours_saved_minutes = hours_saved_minutes + 90 WHERE user_id = $1`,
-    [chargeUserId, bump.High, bump.Medium, bump.Low],
-  );
-  await bumpUsage(db, chargeUserId, { ai: 1 });
   await notify(db, userId, 'check', 'Анализ готов', 'Analysis ready', {
     bodyRu: source.fileName,
     bodyEn: source.fileName,
@@ -342,14 +349,14 @@ export async function persistAnalysis(
 
 export function analysisRoutes(app: FastifyInstance, db: Db): void {
   app.post('/analysis', { preHandler: [app.authenticateReal], config: RATE_LIMIT }, async (req, reply) => {
-    // Plan limits: AI allowance always; document allowance when this file
-    // would create a NEW document row.
-    const plan = await assertAiAllowance(db, req.currentUser.id);
+    // Plan limits: document allowance when this file would create a NEW
+    // document row, then an atomic AI reservation just before the model call.
     const source = await readSource(db, req);
 
     // RAG: pull the provisions in force for the user's jurisdiction and
     // validate every citation afterwards (unverified findings get demoted).
     const corpus = jurisdictionCode(source.jurisdiction);
+    let retrievalFailed = false;
     const legalContext: RetrievedChunk[] = corpus
       ? await retrieveLegalContext(db, {
           query: (source.text ?? source.fileName).slice(0, 2500),
@@ -357,16 +364,30 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
           topK: 10,
         }).catch((err) => {
           req.log.warn(`legal retrieval failed: ${(err as Error).message}`);
+          retrievalFailed = true;
           return [];
         })
       : [];
-    const withValidation = async (gen: GeneratedAnalysis): Promise<GeneratedAnalysis> =>
-      legalContext.length ? { ...gen, findings: await validateFindings(db, gen.findings, undefined, corpus ?? 'UK') } : gen;
+    const withValidation = async (gen: GeneratedAnalysis): Promise<GeneratedAnalysis> => {
+      if (legalContext.length) return { ...gen, findings: await validateFindings(db, gen.findings, undefined, corpus ?? 'UK') };
+      // A jurisdiction with a law base whose check couldn't run must NOT look
+      // verified — flag every citation as unconfirmed rather than silently
+      // presenting model output as grounded.
+      if (retrievalFailed) return { ...gen, findings: gen.findings.map((f) => ({ ...f, unverified: true })) };
+      return gen;
+    };
     const existingDoc = await db.query(
       'SELECT 1 FROM documents WHERE user_id = $1 AND name = $2 LIMIT 1',
       [req.currentUser.id, source.fileName],
     );
     if (!existingDoc.rows[0]) await assertDocumentAllowance(db, req.currentUser.id);
+
+    // Reserve one AI request atomically (402 if over limit); released below if
+    // the model fails, and counted post-hoc only for unlimited plans.
+    const { plan, reserved } = await reserveAiRequest(db, req.currentUser.id);
+    const countOnSuccess = async () => {
+      if (!reserved) await bumpUsage(db, req.currentUser.id, { ai: 1 });
+    };
 
     if (wantsSSE(req)) {
       const sse = openSSE(req, reply);
@@ -378,21 +399,32 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
         );
         sse.send('step', { index: 2, label: ANALYSIS_STEPS[2] });
         const result = await persistAnalysis(db, source.ownerUserId ?? req.currentUser.id, source, gen, req.currentUser.id);
+        await countOnSuccess();
         sse.send('result', result);
       } catch (err) {
+        if (reserved) await releaseAiRequest(db, req.currentUser.id); // model failed — give the unit back
         req.log.error(err, 'analysis failed');
-        sse.send('error', { message: 'Analysis failed. Please try again.' });
+        // Forward our own user-safe message (e.g. AI-unavailable); hide internals otherwise.
+        const message = err instanceof HttpError ? err.message : 'Analysis failed. Please try again.';
+        sse.send('error', { message });
       } finally {
         sse.close();
       }
       return reply;
     }
 
-    const gen = await withValidation(
-      await generateAnalysis({ fileName: source.fileName, text: source.text, pdf: source.pdf, jurisdiction: source.jurisdiction, plan, legalContext }),
-    );
-    reply.code(201);
-    return persistAnalysis(db, source.ownerUserId ?? req.currentUser.id, source, gen, req.currentUser.id);
+    try {
+      const gen = await withValidation(
+        await generateAnalysis({ fileName: source.fileName, text: source.text, pdf: source.pdf, jurisdiction: source.jurisdiction, plan, legalContext }),
+      );
+      const result = await persistAnalysis(db, source.ownerUserId ?? req.currentUser.id, source, gen, req.currentUser.id);
+      await countOnSuccess();
+      reply.code(201);
+      return result;
+    } catch (err) {
+      if (reserved) await releaseAiRequest(db, req.currentUser.id);
+      throw err;
+    }
   });
 
   app.get('/analysis/:id', { preHandler: [app.authenticate] }, async (req) => {

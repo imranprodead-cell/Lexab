@@ -4,10 +4,9 @@
  * Tokens carry { sub: userId, tv: tokenVersion }. Logout bumps the user's
  * token_version, invalidating all previously issued tokens.
  *
- * AUTH_MODE=demo (local development): a missing/invalid token resolves to the
- * seeded demo user, so the shipped frontend — whose auth store is still the
- * localStorage mock — works against the real backend without UI changes.
- * AUTH_MODE=required (production): a missing/invalid token is a 401.
+ * A missing or invalid token is always a 401 — there is NO demo-user fallback.
+ * `authenticate` and `authenticateReal` behave identically except for the error
+ * message; both require a valid signed token for a real, existing user.
  */
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { config } from '../config.ts';

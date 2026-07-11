@@ -705,11 +705,23 @@
 }
 .inputBar {
   display: flex;
-  align-items: flex-end;
-  gap: 6px;
-  padding: 6px 6px 6px 10px;
-  border-radius: 999px;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px 8px 14px;
+  border-radius: 24px;
   background: var(--surface-translucent);
+}
+/* Controls sit on their own fixed bottom row — they stay put no matter how
+   long the message grows (the text scrolls above them). */
+.inputControls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.inputControlsGroup {
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 .attachBtn {
   width: 34px;
@@ -748,7 +760,7 @@
   animation: lxpulse 1.2s ease-in-out infinite;
 }
 .textarea {
-  flex: 1;
+  width: 100%;
   resize: none;
   border: none;
   outline: none;
@@ -757,8 +769,8 @@
   font-family: inherit;
   font-size: 15px;
   line-height: 1.45;
-  padding: 6.5px 2px;
-  max-height: 120px;
+  padding: 5px 4px 3px;
+  max-height: 200px;
   min-width: 0;
 }
 .sendBtn {

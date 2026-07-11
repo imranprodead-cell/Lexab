@@ -13,6 +13,8 @@ const de: Record<string, string> = {
   "nav.team": "Team",
   "nav.newReview": "Neue Prüfung",
   "rail.pinnedGroup": "Angeheftet",
+  "rail.collapse": "Seitenleiste einklappen",
+  "rail.expand": "Seitenleiste ausklappen",
   "rail.pin": "Anheften",
   "rail.unpin": "Lösen",
   "rail.rename": "Umbenennen",

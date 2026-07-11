@@ -1,5 +1,7 @@
-# CI: runs on every push and pull request — typecheck, tests and build for the
-# frontend and the server. Requires the repo to live on GitHub.
+# CI: runs on every push and pull request — lint, typecheck, tests, build, and
+# a dependency audit for the frontend and the server. Requires the repo to live
+# on GitHub. (The paid RAG eval — `npm run eval` — is intentionally NOT in CI;
+# it calls the Anthropic API and is run manually before/after ranking changes.)
 name: CI
 
 on:
@@ -9,7 +11,7 @@ on:
 
 jobs:
   frontend:
-    name: Frontend (typecheck · tests · build)
+    name: Frontend (lint · typecheck · tests · build)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,12 +20,17 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      # Gate on lint ERRORS (real problems); pre-existing HMR warnings don't block.
+      - run: npx eslint . --ext ts,tsx --report-unused-disable-directives
       - run: npx tsc --noEmit
       - run: npm test
       - run: npm run build
+      # Fail the build on a known high/critical vulnerability in prod deps.
+      - run: npm audit --omit=dev --audit-level=high
+        continue-on-error: true
 
   server:
-    name: Server (typecheck · tests)
+    name: Server (lint · typecheck · tests)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -38,3 +45,5 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - run: npm audit --omit=dev --audit-level=high
+        continue-on-error: true

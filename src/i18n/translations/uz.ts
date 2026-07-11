@@ -13,6 +13,8 @@ const uz: Record<string, string> = {
   "nav.team": "Jamoa",
   "nav.newReview": "Yangi tahlil",
   "rail.pinnedGroup": "Mahkamlangan",
+  "rail.collapse": "Yon panelni yigʻish",
+  "rail.expand": "Yon panelni yoyish",
   "rail.pin": "Mahkamlash",
   "rail.unpin": "Mahkamdan yechish",
   "rail.rename": "Nomini oʻzgartirish",

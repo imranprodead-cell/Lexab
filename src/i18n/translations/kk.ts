@@ -13,6 +13,8 @@ const kk: Record<string, string> = {
   "nav.team": "Команда",
   "nav.newReview": "Жаңа талдау",
   "rail.pinnedGroup": "Бекітілген",
+  "rail.collapse": "Бүйір панельді жию",
+  "rail.expand": "Бүйір панельді жаю",
   "rail.pin": "Бекіту",
   "rail.unpin": "Босату",
   "rail.rename": "Атын өзгерту",

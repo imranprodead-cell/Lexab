@@ -4,7 +4,7 @@
  * does NOT free up quota. AI endpoints call the assert* helpers BEFORE doing
  * any work, and bump* helpers after the work is persisted.
  */
-import type { Db } from '../db.ts';
+import type { Db, Queryable } from '../db.ts';
 import { HttpError } from './errors.ts';
 
 /** null = unlimited. Mirrors the Plans page. */
@@ -41,7 +41,7 @@ export async function monthlyUsage(db: Db, userId: string): Promise<MonthlyUsage
 }
 
 /** Increment this month's counters (called AFTER the work is persisted). */
-export async function bumpUsage(db: Db, userId: string, delta: { ai?: number; docs?: number }): Promise<void> {
+export async function bumpUsage(db: Queryable, userId: string, delta: { ai?: number; docs?: number }): Promise<void> {
   await db.query(
     `INSERT INTO usage_counters (user_id, month, ai_requests, docs_created)
      VALUES ($1, date_trunc('month', now())::date, $2, $3)
@@ -105,21 +105,61 @@ export async function assertFeature(db: Db, userId: string, feature: PlanFeature
   );
 }
 
-/** 402 when the user has no AI allowance left this month. Returns the plan
- *  so callers can pick the Claude model for it without a second query. */
-export async function assertAiAllowance(db: Db, userId: string): Promise<string> {
+/**
+ * Atomically reserve ONE AI request for this month, rejecting (402) when the
+ * plan limit is already reached. The increment-if-under-limit runs as a single
+ * SQL statement, so concurrent requests can't both slip past a check-then-bump
+ * gap (the old TOCTOU). Returns the plan and whether a unit was actually
+ * reserved — unlimited plans don't reserve and are counted post-hoc instead.
+ * Pair every `reserved: true` with `releaseAiRequest` if the work then fails.
+ */
+export async function reserveAiRequest(db: Db, userId: string): Promise<{ plan: string; reserved: boolean }> {
   const plan = await planFor(db, userId);
   const limit = (PLAN_LIMITS[plan] ?? PLAN_LIMITS.Free).ai;
-  if (limit !== null) {
-    const { aiRequests } = await monthlyUsage(db, userId);
-    if (aiRequests >= limit) {
-      throw new HttpError(
-        402,
-        `Лимит ИИ-запросов тарифа ${plan} исчерпан (${aiRequests}/${limit} в этом месяце). ${upgradeHint}`,
-      );
-    }
+  if (limit === null) return { plan, reserved: false };
+  const res = await db.query<{ ai_requests: number | string }>(
+    `INSERT INTO usage_counters (user_id, month, ai_requests, docs_created)
+     VALUES ($1, date_trunc('month', now())::date, 1, 0)
+     ON CONFLICT (user_id, month)
+     DO UPDATE SET ai_requests = usage_counters.ai_requests + 1
+       WHERE usage_counters.ai_requests < $2
+     RETURNING ai_requests`,
+    [userId, limit],
+  );
+  if (res.rows.length === 0) {
+    throw new HttpError(
+      402,
+      `Лимит ИИ-запросов тарифа ${plan} исчерпан (${limit}/${limit} в этом месяце). ${upgradeHint}`,
+    );
   }
-  return plan;
+  return { plan, reserved: true };
+}
+
+/** Give a reserved AI unit back when the work failed (never drops below zero). */
+export async function releaseAiRequest(db: Db, userId: string): Promise<void> {
+  await db.query(
+    `UPDATE usage_counters SET ai_requests = GREATEST(ai_requests - 1, 0)
+     WHERE user_id = $1 AND month = date_trunc('month', now())::date`,
+    [userId],
+  );
+}
+
+/**
+ * Run AI work with an atomic monthly reservation: reserve → work → on success
+ * count unlimited plans post-hoc (limited plans were already counted by the
+ * reservation); on failure, release the reservation so a failed/unavailable
+ * model never consumes the user's allowance.
+ */
+export async function withAiRequest<T>(db: Db, userId: string, work: (plan: string) => Promise<T>): Promise<T> {
+  const { plan, reserved } = await reserveAiRequest(db, userId);
+  try {
+    const result = await work(plan);
+    if (!reserved) await bumpUsage(db, userId, { ai: 1 });
+    return result;
+  } catch (err) {
+    if (reserved) await releaseAiRequest(db, userId);
+    throw err;
+  }
 }
 
 /** 402 when creating one more document would exceed the monthly quota. */

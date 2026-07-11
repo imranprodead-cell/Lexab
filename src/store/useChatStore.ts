@@ -321,15 +321,18 @@ export const useChatStore = create<ChatState>((set, get) => {
       return;
     }
 
-    // A declined plan limit must surface as a limit, not masquerade as an
-    // AI reply; any other failure degrades to the canned reply.
+    // A declined plan limit surfaces as a limit; any other failure surfaces as
+    // an honest error — never a fabricated legal answer (a canned reply would
+    // masquerade as real AI output in a legal product).
     const failReply = (err: unknown) => {
       if (err instanceof ApiError && err.status === 402) {
         streamIn(assistantId, tStandalone('chat.limitReached'));
         useUIStore.getState().pushToast(err.message, 'error');
         return;
       }
-      streamIn(assistantId, mockReply(trimmed));
+      const message = err instanceof ApiError && err.message ? err.message : tStandalone('chat.error');
+      streamIn(assistantId, tStandalone('chat.error'));
+      useUIStore.getState().pushToast(message, 'error');
     };
 
     // Ghost mode: same AI, same limits — no session, nothing persisted.

@@ -13,12 +13,21 @@ export interface QueryResult<T = Record<string, unknown>> {
   rows: T[];
 }
 
-export interface Db {
+/** The subset every helper needs — satisfied by both `Db` and a transaction. */
+export interface Queryable {
   query<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<QueryResult<T>>;
+}
+
+export interface Db extends Queryable {
   /** Run a multi-statement SQL script (migrations). */
   exec(sql: string): Promise<void>;
   close(): Promise<void>;
   kind: 'postgres' | 'pglite';
+  /**
+   * Run `fn` inside a single transaction: every write commits together, or
+   * all roll back if `fn` throws — so a multi-step write can't leave orphans.
+   */
+  withTx<T>(fn: (tx: Queryable) => Promise<T>): Promise<T>;
 }
 
 let dbPromise: Promise<Db> | null = null;
@@ -48,6 +57,26 @@ async function createDb(): Promise<Db> {
       exec: async (sql) => {
         await pool.query(sql);
       },
+      withTx: async (fn) => {
+        const client = await pool.connect();
+        try {
+          await client.query('BEGIN');
+          const result = await fn({
+            query: async (sql, params) => ({ rows: (await client.query(sql, params as never[])).rows }),
+          });
+          await client.query('COMMIT');
+          return result;
+        } catch (err) {
+          try {
+            await client.query('ROLLBACK');
+          } catch {
+            /* connection already broken */
+          }
+          throw err;
+        } finally {
+          client.release();
+        }
+      },
       close: () => pool.end(),
     };
   }
@@ -65,6 +94,10 @@ async function createDb(): Promise<Db> {
     exec: async (sql) => {
       await lite.exec(sql);
     },
+    withTx: async (fn) =>
+      lite.transaction(async (tx) =>
+        fn({ query: async (sql, params) => ({ rows: (await tx.query(sql, params as never[])).rows as never[] }) }),
+      ),
     close: () => lite.close(),
   };
 }

@@ -1,5 +1,6 @@
 /** Fastify app assembly: plugins, error shape, and all routes under API_PREFIX. */
 import cors from '@fastify/cors';
+import helmet from '@fastify/helmet';
 import jwt from '@fastify/jwt';
 import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
@@ -32,6 +33,29 @@ export async function buildApp(db: Db): Promise<FastifyInstance> {
   const app = Fastify({
     logger: { level: process.env.LOG_LEVEL ?? 'info' },
     bodyLimit: 12 * 1024 * 1024, // avatar data-URLs + JSON payloads
+    // Behind a trusted reverse proxy/CDN, honour X-Forwarded-For so req.ip is
+    // the real client. Off by default (direct exposure must not trust a
+    // spoofable header); set TRUST_PROXY=true (or a hop count) in that deploy.
+    trustProxy: process.env.TRUST_PROXY === 'true' ? true : Number(process.env.TRUST_PROXY) || false,
+  });
+
+  // Security headers. This is a JSON API (the SPA is served separately), so the
+  // CSP is a hard lock — it never serves a document that loads scripts/styles.
+  // CORP is cross-origin because the frontend runs on its own origin and access
+  // is already gated by CORS below.
+  await app.register(helmet, {
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'none'"],
+        frameAncestors: ["'none'"],
+        baseUri: ["'none'"],
+        formAction: ["'none'"],
+      },
+    },
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+    crossOriginEmbedderPolicy: false,
+    hsts: { maxAge: 15_552_000, includeSubDomains: true }, // 180 days
+    referrerPolicy: { policy: 'no-referrer' },
   });
 
   await app.register(cors, {
@@ -46,6 +70,23 @@ export async function buildApp(db: Db): Promise<FastifyInstance> {
     global: true,
     max: 300, // generous global ceiling; sensitive routes override to 10–20/min
     timeWindow: '1 minute',
+    // Key authenticated requests by user id (so users behind one shared IP /
+    // NAT aren't throttled together, and rotating IPs can't multiply an
+    // account's budget); fall back to IP otherwise. The token is VERIFIED here —
+    // an unverified `sub` would let an attacker rotate a forged claim to dodge
+    // the per-IP brute-force limit on /auth/login etc.
+    keyGenerator: (req) => {
+      const auth = req.headers.authorization;
+      if (auth?.startsWith('Bearer ')) {
+        try {
+          const payload = app.jwt.verify<{ sub?: string }>(auth.slice(7));
+          if (payload.sub) return `u:${payload.sub}`;
+        } catch {
+          /* invalid/expired token — fall through to IP */
+        }
+      }
+      return req.ip;
+    },
   });
 
   // Uniform error shape: non-2xx + { message } (what the frontend surfaces).

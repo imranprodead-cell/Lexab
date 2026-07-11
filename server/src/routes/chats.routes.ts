@@ -8,8 +8,8 @@
  */
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../db.ts';
-import { badRequest, notFound } from '../lib/errors.ts';
-import { assertAiAllowance, bumpUsage } from '../lib/limits.ts';
+import { badRequest, HttpError, notFound } from '../lib/errors.ts';
+import { bumpUsage, releaseAiRequest, reserveAiRequest, withAiRequest } from '../lib/limits.ts';
 import { resolveAnalysisAccess } from '../lib/teamAccess.ts';
 import { toIso } from '../lib/format.ts';
 import { newId } from '../lib/ids.ts';
@@ -263,7 +263,6 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
    * (Static "ghost" segment wins over the parametric /chats/:id/messages.)
    */
   app.post('/chats/ghost/messages', { preHandler: [app.authenticateReal], config: RATE_LIMIT }, async (req, reply) => {
-    const plan = await assertAiAllowance(db, req.currentUser.id);
     const body = asObject(req.body);
     const text = requireString(body, 'text', { min: 1, max: 20_000 });
     const jurisdiction = typeof body.jurisdiction === 'string' ? body.jurisdiction.slice(0, 60) : undefined;
@@ -294,121 +293,149 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
       }
     }
 
-    const finishGhost = async (replyText: string): Promise<ChatMessage> => {
-      await bumpUsage(db, req.currentUser.id, { ai: 1 }); // limits apply in ghost mode too
-      return { id: newId('gm'), role: 'assistant', kind: 'text', text: replyText };
-    };
+    // Ghost writes nothing to the DB, but AI limits still apply: the atomic
+    // reservation (in withAiRequest) is released if the model fails.
+    const finishGhost = (replyText: string): ChatMessage => ({
+      id: newId('gm'),
+      role: 'assistant',
+      kind: 'text',
+      text: replyText,
+    });
 
     if (wantsSSE(req)) {
       const sse = openSSE(req, reply);
       try {
-        const replyText = await generateChatReply(recent, text, (delta) => sse.send('token', { text: delta }), undefined, jurisdiction, plan, null, legalContext);
-        sse.send('done', await finishGhost(replyText));
+        const msg = await withAiRequest(db, req.currentUser.id, (plan) =>
+          generateChatReply(recent, text, (delta) => sse.send('token', { text: delta }), undefined, jurisdiction, plan, null, legalContext).then(finishGhost),
+        );
+        sse.send('done', msg);
       } catch (err) {
         req.log.error(err, 'ghost chat reply failed');
-        sse.send('error', { message: 'Failed to generate a reply' });
+        sse.send('error', { message: err instanceof HttpError ? err.message : 'Failed to generate a reply' });
       } finally {
         sse.close();
       }
       return reply;
     }
 
-    const replyText = await generateChatReply(recent, text, undefined, undefined, jurisdiction, plan, null, legalContext);
-    return finishGhost(replyText);
+    return withAiRequest(db, req.currentUser.id, (plan) =>
+      generateChatReply(recent, text, undefined, undefined, jurisdiction, plan, null, legalContext).then(finishGhost),
+    );
   });
 
   app.post('/chats/:id/messages', { preHandler: [app.authenticateReal] }, async (req, reply) => {
     const { id: sessionId } = req.params as { id: string };
     await requireSession(req.currentUser.id, sessionId);
-    const plan = await assertAiAllowance(db, req.currentUser.id);
-    const body = asObject(req.body);
-    const text = requireString(body, 'text', { min: 1, max: 20_000 });
-    // Document Q&A: when the client passes the analysis it is looking at,
-    // the reply is grounded in that contract.
-    const analysisId = typeof body.analysisId === 'string' ? body.analysisId : undefined;
-    const docContext = analysisId ? await buildAnalysisContext(db, req.currentUser.id, analysisId) : undefined;
-    // Default legal context from the user's country selector (e.g. "German law").
-    const jurisdiction = typeof body.jurisdiction === 'string' ? body.jurisdiction.slice(0, 60) : undefined;
-
-    // Persist the user's message.
-    await db.query(
-      `INSERT INTO chat_messages (id, session_id, role, kind, text) VALUES ($1, $2, 'user', 'text', $3)`,
-      [newId('m'), sessionId, text],
-    );
-
-    // Conversation history for the model (text turns only).
-    const historyRes = await db.query<{ role: 'user' | 'assistant'; text: string | null }>(
-      `SELECT role, text FROM chat_messages
-       WHERE session_id = $1 AND kind = 'text' AND text IS NOT NULL
-       ORDER BY created_at`,
-      [sessionId],
-    );
-    const turns = historyRes.rows.filter((r) => r.text).map((r): ChatTurn => ({ role: r.role, text: r.text as string }));
-    const history = turns.slice(0, -1); // last turn is the message we just stored
-
-    // Context window: the last ~10 turns go to the model verbatim (fewer when
-    // they are long); everything older lives in a rolling summary on the
-    // session, updated incrementally as turns fall out of the window.
-    const { recent, older } = splitHistory(history);
-    const sessRow = await db.query<{ context_summary: string | null; summary_covers: number }>(
-      'SELECT context_summary, summary_covers FROM chat_sessions WHERE id = $1',
-      [sessionId],
-    );
-    let summary = sessRow.rows[0]?.context_summary ?? null;
-    const covers = Number(sessRow.rows[0]?.summary_covers ?? 0);
-    if (older.length > covers) {
-      summary = await generateHistorySummary(summary, older.slice(covers));
-      await db.query('UPDATE chat_sessions SET context_summary = $2, summary_covers = $3 WHERE id = $1', [
-        sessionId,
-        summary,
-        older.length,
-      ]);
-    }
-
-    // Statute grounding (RAG): for jurisdictions with a legal corpus, retrieve
-    // the provisions most relevant to the question and hand them to the model.
-    // Non-fatal: on any failure the chat simply answers without the corpus.
-    let legalContext: string | undefined;
-    const corpus = jurisdictionCode(jurisdiction);
-    if (corpus) {
-      try {
-        const hits = await retrieveLegalContext(db, { query: text, jurisdiction: corpus, topK: 5 });
-        if (hits.length) {
-          legalContext = hits.map((h) => `[${h.unitId}] ${h.breadcrumb}\n${h.body.slice(0, 900)}`).join('\n---\n');
-        }
-      } catch (err) {
-        req.log.warn(err, 'chat RAG retrieval failed');
+    // Atomically reserve the AI unit up front (fail fast before persisting the
+    // user's message). EVERYTHING after the reservation runs under a guard that
+    // gives the unit back on ANY failure — a bad body, a transient DB error, or
+    // the model itself — so a failed request never permanently burns allowance.
+    const { plan, reserved } = await reserveAiRequest(db, req.currentUser.id);
+    let released = false;
+    const release = async () => {
+      if (reserved && !released) {
+        released = true;
+        await releaseAiRequest(db, req.currentUser.id);
       }
-    }
-
-    const finish = async (replyText: string): Promise<ChatMessage> => {
-      const messageId = newId('m');
-      await db.query(
-        `INSERT INTO chat_messages (id, session_id, role, kind, text) VALUES ($1, $2, 'assistant', 'text', $3)`,
-        [messageId, sessionId, replyText],
-      );
-      await db.query('UPDATE chat_sessions SET updated_at = now() WHERE id = $1', [sessionId]);
-      await bumpUsage(db, req.currentUser.id, { ai: 1 });
-      return { id: messageId, role: 'assistant', kind: 'text', text: replyText };
     };
 
-    if (wantsSSE(req)) {
-      const sse = openSSE(req, reply);
-      try {
-        const replyText = await generateChatReply(recent, text, (delta) => sse.send('token', { text: delta }), docContext, jurisdiction, plan, summary, legalContext);
-        const message = await finish(replyText);
-        sse.send('done', message);
-      } catch (err) {
-        req.log.error(err, 'chat reply failed');
-        sse.send('error', { message: 'Failed to generate a reply' });
-      } finally {
-        sse.close();
-      }
-      return reply;
-    }
+    try {
+      const body = asObject(req.body);
+      const text = requireString(body, 'text', { min: 1, max: 20_000 });
+      // Document Q&A: when the client passes the analysis it is looking at,
+      // the reply is grounded in that contract.
+      const analysisId = typeof body.analysisId === 'string' ? body.analysisId : undefined;
+      const docContext = analysisId ? await buildAnalysisContext(db, req.currentUser.id, analysisId) : undefined;
+      // Default legal context from the user's country selector (e.g. "German law").
+      const jurisdiction = typeof body.jurisdiction === 'string' ? body.jurisdiction.slice(0, 60) : undefined;
 
-    const replyText = await generateChatReply(recent, text, undefined, docContext, jurisdiction, plan, summary, legalContext);
-    return finish(replyText);
+      // Persist the user's message.
+      await db.query(
+        `INSERT INTO chat_messages (id, session_id, role, kind, text) VALUES ($1, $2, 'user', 'text', $3)`,
+        [newId('m'), sessionId, text],
+      );
+
+      // Conversation history for the model (text turns only).
+      const historyRes = await db.query<{ role: 'user' | 'assistant'; text: string | null }>(
+        `SELECT role, text FROM chat_messages
+         WHERE session_id = $1 AND kind = 'text' AND text IS NOT NULL
+         ORDER BY created_at`,
+        [sessionId],
+      );
+      const turns = historyRes.rows.filter((r) => r.text).map((r): ChatTurn => ({ role: r.role, text: r.text as string }));
+      const history = turns.slice(0, -1); // last turn is the message we just stored
+
+      // Context window: the last ~10 turns go to the model verbatim (fewer when
+      // they are long); everything older lives in a rolling summary on the
+      // session, updated incrementally as turns fall out of the window.
+      const { recent, older } = splitHistory(history);
+      const sessRow = await db.query<{ context_summary: string | null; summary_covers: number }>(
+        'SELECT context_summary, summary_covers FROM chat_sessions WHERE id = $1',
+        [sessionId],
+      );
+      let summary = sessRow.rows[0]?.context_summary ?? null;
+      const covers = Number(sessRow.rows[0]?.summary_covers ?? 0);
+      if (older.length > covers) {
+        summary = await generateHistorySummary(summary, older.slice(covers));
+        await db.query('UPDATE chat_sessions SET context_summary = $2, summary_covers = $3 WHERE id = $1', [
+          sessionId,
+          summary,
+          older.length,
+        ]);
+      }
+
+      // Statute grounding (RAG): for jurisdictions with a legal corpus, retrieve
+      // the provisions most relevant to the question and hand them to the model.
+      // Non-fatal: on any failure the chat simply answers without the corpus.
+      let legalContext: string | undefined;
+      const corpus = jurisdictionCode(jurisdiction);
+      if (corpus) {
+        try {
+          const hits = await retrieveLegalContext(db, { query: text, jurisdiction: corpus, topK: 5 });
+          if (hits.length) {
+            legalContext = hits.map((h) => `[${h.unitId}] ${h.breadcrumb}\n${h.body.slice(0, 900)}`).join('\n---\n');
+          }
+        } catch (err) {
+          req.log.warn(err, 'chat RAG retrieval failed');
+        }
+      }
+
+      const finish = async (replyText: string): Promise<ChatMessage> => {
+        const messageId = newId('m');
+        await db.query(
+          `INSERT INTO chat_messages (id, session_id, role, kind, text) VALUES ($1, $2, 'assistant', 'text', $3)`,
+          [messageId, sessionId, replyText],
+        );
+        await db.query('UPDATE chat_sessions SET updated_at = now() WHERE id = $1', [sessionId]);
+        // Limited plans were already counted by the reservation; count unlimited
+        // plans post-hoc for analytics.
+        if (!reserved) await bumpUsage(db, req.currentUser.id, { ai: 1 });
+        return { id: messageId, role: 'assistant', kind: 'text', text: replyText };
+      };
+
+      if (wantsSSE(req)) {
+        const sse = openSSE(req, reply);
+        try {
+          const replyText = await generateChatReply(recent, text, (delta) => sse.send('token', { text: delta }), docContext, jurisdiction, plan, summary, legalContext);
+          const message = await finish(replyText);
+          sse.send('done', message);
+        } catch (err) {
+          await release(); // model/DB failed — give the unit back
+          req.log.error(err, 'chat reply failed');
+          const message = err instanceof HttpError ? err.message : 'Failed to generate a reply';
+          sse.send('error', { message });
+        } finally {
+          sse.close();
+        }
+        return reply;
+      }
+
+      const replyText = await generateChatReply(recent, text, undefined, docContext, jurisdiction, plan, summary, legalContext);
+      return await finish(replyText);
+    } catch (err) {
+      await release(); // any failure after the reservation returns the unit
+      throw err;
+    }
   });
 }
 

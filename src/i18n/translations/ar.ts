@@ -13,6 +13,8 @@ const ar: Record<string, string> = {
   "nav.team": "الفريق",
   "nav.newReview": "مراجعة جديدة",
   "rail.pinnedGroup": "المثبَّتة",
+  "rail.collapse": "طيّ الشريط الجانبي",
+  "rail.expand": "توسيع الشريط الجانبي",
   "rail.pin": "تثبيت",
   "rail.unpin": "إلغاء التثبيت",
   "rail.rename": "إعادة تسمية",

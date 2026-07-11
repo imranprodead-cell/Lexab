@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { fallbackAnalysis, fallbackChatReply, fallbackCompare, fallbackTemplateDraft } from '../src/fallback.ts';
-import { ALLOWED_EXTENSIONS, fileExtension } from '../src/extract.ts';
+import { ALLOWED_EXTENSIONS, fileExtension, verifyFileSignature } from '../src/extract.ts';
 import { formatSize, relativeTimeRu } from '../src/lib/format.ts';
 import { newId } from '../src/lib/ids.ts';
 import { hashPassword, verifyPassword } from '../src/lib/passwords.ts';
@@ -106,4 +106,21 @@ test('storage: local deleteFile is idempotent and stays inside uploads/', async 
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
+});
+
+test('verifyFileSignature: real files pass, spoofed/renamed files fail', () => {
+  // Real magic bytes.
+  assert.equal(verifyFileSignature(Buffer.from('%PDF-1.7\n...'), 'a.pdf'), true);
+  assert.equal(verifyFileSignature(Buffer.from([0x50, 0x4b, 0x03, 0x04, 1, 2, 3, 4]), 'a.docx'), true);
+  assert.equal(verifyFileSignature(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]), 'a.doc'), true);
+  assert.equal(verifyFileSignature(Buffer.from('just plain text'), 'a.txt'), true);
+  // UTF-16 text (BOM + NUL bytes) is valid, not a binary payload.
+  assert.equal(verifyFileSignature(Buffer.from([0xff, 0xfe, 0x68, 0x00, 0x69, 0x00]), 'utf16.txt'), true);
+  // A PDF with a leading UTF-8 BOM still passes (readers scan for %PDF).
+  assert.equal(verifyFileSignature(Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from('%PDF-1.5')]), 'bom.pdf'), true);
+  // Spoofed: an executable renamed to .pdf, and a binary renamed to .txt.
+  assert.equal(verifyFileSignature(Buffer.from([0x4d, 0x5a, 0x90, 0x00]), 'evil.pdf'), false);
+  assert.equal(verifyFileSignature(Buffer.from([0x68, 0x69, 0x00, 0x00]), 'evil.txt'), false); // NUL → binary
+  // Empty file is never valid.
+  assert.equal(verifyFileSignature(Buffer.alloc(0), 'a.pdf'), false);
 });

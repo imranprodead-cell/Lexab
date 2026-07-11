@@ -12,6 +12,7 @@
  */
 import Anthropic from '@anthropic-ai/sdk';
 import { config } from './config.ts';
+import { serviceUnavailable } from './lib/errors.ts';
 import { fallbackAnalysis, fallbackChatReply, fallbackCompare, fallbackTemplateDraft } from './fallback.ts';
 import type { RetrievedChunk } from './rag/types.ts';
 import type { DocBlock, Finding, Redline, Severity } from './types.ts';
@@ -22,6 +23,23 @@ function getClient(): Anthropic | null {
   if (!client) client = new Anthropic({ apiKey: config.anthropicApiKey });
   return client;
 }
+
+/**
+ * Whether a deterministic offline fallback may stand in for a real model
+ * response. A legal product must NEVER fabricate analysis or citations, so the
+ * mock is gated behind one EXPLICIT opt-in — `LLM_FALLBACK=dev` — and nothing
+ * else. In particular it does NOT depend on NODE_ENV (which the project never
+ * sets), so a keyless production deploy fails loud (503) instead of silently
+ * fabricating and persisting invented legal content. Local offline dev sets
+ * LLM_FALLBACK=dev to get the deterministic mocks.
+ */
+function llmFallbackAllowed(): boolean {
+  return config.llmFallback === 'dev';
+}
+
+/** User-facing message when the model is unavailable and we won't fabricate. */
+const LLM_UNAVAILABLE =
+  'ИИ временно недоступен — попробуйте позже. / The AI is temporarily unavailable — please try again.';
 
 /** Plan → model. Unknown or missing plan falls back to the global default model. */
 export function modelForPlan(plan?: string | null): string {
@@ -219,7 +237,10 @@ Keep it tight: 3–6 findings, 2–5 redlines, and one heading+paragraph pair pe
 
 export async function generateAnalysis(input: AnalysisInput): Promise<GeneratedAnalysis> {
   const api = getClient();
-  if (!api) return fallbackAnalysis(input.fileName, input.jurisdiction);
+  if (!api) {
+    if (llmFallbackAllowed()) return fallbackAnalysis(input.fileName, input.jurisdiction);
+    throw serviceUnavailable(LLM_UNAVAILABLE);
+  }
 
   try {
     const content: Anthropic.Beta.BetaContentBlockParam[] = [];
@@ -270,8 +291,12 @@ export async function generateAnalysis(input: AnalysisInput): Promise<GeneratedA
       return normalizeGenerated(JSON.parse(text));
     });
   } catch (err) {
-    console.warn(`[llm] analysis generation failed, using fallback: ${(err as Error).message}`);
-    return fallbackAnalysis(input.fileName, input.jurisdiction);
+    if (llmFallbackAllowed()) {
+      console.warn(`[llm] analysis generation failed, using dev fallback: ${(err as Error).message}`);
+      return fallbackAnalysis(input.fileName, input.jurisdiction);
+    }
+    console.error(`[llm] analysis generation failed (failing loud, no fabrication): ${(err as Error).message}`);
+    throw serviceUnavailable(LLM_UNAVAILABLE);
   }
 }
 
@@ -356,6 +381,7 @@ export async function generateChatReply(
 ): Promise<string> {
   const api = getClient();
   if (!api) {
+    if (!llmFallbackAllowed()) throw serviceUnavailable(LLM_UNAVAILABLE);
     const reply = fallbackChatReply(userText, Boolean(docContext));
     onToken?.(reply);
     return reply;
@@ -422,7 +448,11 @@ export async function generateChatReply(
       return await runChat(config.anthropicModel);
     }
   } catch (err) {
-    console.warn(`[llm] chat generation failed, using fallback: ${(err as Error).message}`);
+    if (!llmFallbackAllowed()) {
+      console.error(`[llm] chat generation failed (failing loud, no fabrication): ${(err as Error).message}`);
+      throw serviceUnavailable(LLM_UNAVAILABLE);
+    }
+    console.warn(`[llm] chat generation failed, using dev fallback: ${(err as Error).message}`);
     const reply = fallbackChatReply(userText, Boolean(docContext));
     onToken?.(reply);
     return reply;
@@ -514,7 +544,10 @@ export async function generateCompare(
   plan?: string | null,
 ): Promise<CompareResult> {
   const api = getClient();
-  if (!api) return fallbackCompare();
+  if (!api) {
+    if (llmFallbackAllowed()) return fallbackCompare();
+    throw serviceUnavailable(LLM_UNAVAILABLE);
+  }
   try {
     return await withModelRetry(modelForPlan(plan), async (model) => {
       const stream = startStream(api, {
@@ -540,8 +573,12 @@ export async function generateCompare(
       return { summary: parsed.summary, changes: parsed.changes.slice(0, 12) };
     });
   } catch (err) {
-    console.warn(`[llm] compare failed, using fallback: ${(err as Error).message}`);
-    return fallbackCompare();
+    if (llmFallbackAllowed()) {
+      console.warn(`[llm] compare failed, using dev fallback: ${(err as Error).message}`);
+      return fallbackCompare();
+    }
+    console.error(`[llm] compare failed (failing loud, no fabrication): ${(err as Error).message}`);
+    throw serviceUnavailable(LLM_UNAVAILABLE);
   }
 }
 
@@ -562,7 +599,10 @@ export async function generateTemplateDraft(
   plan?: string | null,
 ): Promise<string> {
   const api = getClient();
-  if (!api) return fallbackTemplateDraft(templateName, fields);
+  if (!api) {
+    if (llmFallbackAllowed()) return fallbackTemplateDraft(templateName, fields);
+    throw serviceUnavailable(LLM_UNAVAILABLE);
+  }
   try {
     return await withModelRetry(modelForPlan(plan), async (model) => {
       const stream = startStream(api, {
@@ -589,7 +629,11 @@ Additional requirements: ${fields.details || '—'}`,
       return textOf(message).trim();
     });
   } catch (err) {
-    console.warn(`[llm] template generation failed, using fallback: ${(err as Error).message}`);
-    return fallbackTemplateDraft(templateName, fields);
+    if (llmFallbackAllowed()) {
+      console.warn(`[llm] template generation failed, using dev fallback: ${(err as Error).message}`);
+      return fallbackTemplateDraft(templateName, fields);
+    }
+    console.error(`[llm] template generation failed (failing loud, no fabrication): ${(err as Error).message}`);
+    throw serviceUnavailable(LLM_UNAVAILABLE);
   }
 }

@@ -65,13 +65,17 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
 
     const id = newId('u');
     const passwordHash = await hashPassword(password);
-    await db.query(
-      `INSERT INTO users (id, email, password_hash, name, initials, firm, jurisdiction)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [id, email, passwordHash, name, initialsOf(name), 'LexAI', 'United Kingdom'],
-    );
-    await db.query(`INSERT INTO subscriptions (user_id, plan, status) VALUES ($1, 'Free', 'active')`, [id]);
-    await db.query(`INSERT INTO user_stats (user_id) VALUES ($1)`, [id]);
+    // The account row and its Free subscription + stats commit together, so a
+    // partial failure can't leave a user without a plan or a stats row.
+    await db.withTx(async (tx) => {
+      await tx.query(
+        `INSERT INTO users (id, email, password_hash, name, initials, firm, jurisdiction)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [id, email, passwordHash, name, initialsOf(name), 'LexAI', 'United Kingdom'],
+      );
+      await tx.query(`INSERT INTO subscriptions (user_id, plan, status) VALUES ($1, 'Free', 'active')`, [id]);
+      await tx.query(`INSERT INTO user_stats (user_id) VALUES ($1)`, [id]);
+    });
     await notify(db, id, 'docs', 'Добро пожаловать в LexAI!', 'Welcome to LexAI!', {
       bodyRu: 'Загрузите первый контракт для анализа',
       bodyEn: 'Upload your first contract for review',

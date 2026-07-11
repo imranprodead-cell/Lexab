@@ -322,6 +322,10 @@ export const MESSAGES: Dict = {
     ru: 'Лимит ИИ-запросов вашего тарифа на этот месяц исчерпан. Чтобы продолжить, обновите тариф в разделе «Тарифы».',
     en: 'Your plan’s monthly AI request limit is used up. Upgrade your plan on the Plans page to continue.',
   },
+  'chat.error': {
+    ru: 'Не удалось получить ответ ИИ. Попробуйте ещё раз чуть позже.',
+    en: 'Couldn’t get an AI reply. Please try again in a moment.',
+  },
 
   // Chat · offline fallback replies (no AI connection)
   'chat.mock.draft': {

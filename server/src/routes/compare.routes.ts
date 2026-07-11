@@ -8,9 +8,9 @@
  */
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../db.ts';
-import { ALLOWED_EXTENSIONS, extractText, fileExtension, MAX_UPLOAD_BYTES } from '../extract.ts';
+import { ALLOWED_EXTENSIONS, assertValidFileContent, extractText, fileExtension, MAX_UPLOAD_BYTES } from '../extract.ts';
 import { badRequest } from '../lib/errors.ts';
-import { assertAiAllowance, assertFeature, bumpUsage } from '../lib/limits.ts';
+import { assertFeature, withAiRequest } from '../lib/limits.ts';
 import { generateCompare, type CompareResult } from '../llm.ts';
 
 const RATE_LIMIT = { rateLimit: { max: 10, timeWindow: '1 minute' } };
@@ -18,7 +18,6 @@ const RATE_LIMIT = { rateLimit: { max: 10, timeWindow: '1 minute' } };
 export function compareRoutes(app: FastifyInstance, db: Db): void {
   app.post('/compare', { preHandler: [app.authenticateReal], config: RATE_LIMIT }, async (req): Promise<CompareResult & { fileA: string; fileB: string }> => {
     await assertFeature(db, req.currentUser.id, 'compare');
-    const plan = await assertAiAllowance(db, req.currentUser.id);
     if (!req.isMultipart()) throw badRequest('Expected multipart/form-data with "fileA" and "fileB"');
 
     const files: { field: string; name: string; text: string | null }[] = [];
@@ -29,20 +28,26 @@ export function compareRoutes(app: FastifyInstance, db: Db): void {
         throw badRequest(`Unsupported file type "${name}". Allowed: ${ALLOWED_EXTENSIONS.join(', ')}`);
       }
       const buffer = await part.toBuffer();
+      assertValidFileContent(buffer, name);
       files.push({ field: part.fieldname, name, text: await extractText(buffer, name) });
     }
 
     const a = files.find((f) => f.field === 'fileA') ?? files[0];
     const b = files.find((f) => f.field === 'fileB') ?? files[1];
     if (!a || !b) throw badRequest('Attach both versions: "fileA" (older) and "fileB" (newer)');
-    if (!a.text || !b.text) {
+    const textA = a.text;
+    const textB = b.text;
+    if (!textA || !textB) {
       throw badRequest(
         'Не удалось прочитать текст из одного из файлов. Для сравнения подходят DOCX, TXT и цифровые PDF (не сканы).',
       );
     }
 
-    await bumpUsage(db, req.currentUser.id, { ai: 1 });
-    const result = await generateCompare(a.text, b.text, a.name, b.name, plan);
+    // Atomic reservation right before the model call: it's released if the
+    // model fails, so a failed/unavailable model never consumes the allowance.
+    const result = await withAiRequest(db, req.currentUser.id, (plan) =>
+      generateCompare(textA, textB, a.name, b.name, plan),
+    );
     return { ...result, fileA: a.name, fileB: b.name };
   });
 }
