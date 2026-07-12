@@ -77,9 +77,17 @@ export function inboundRoutes(app: FastifyInstance, db: Db): void {
           text,
           pdf: fileExtension(fileName) === '.pdf' ? buffer : null,
         };
-        const gen = await generateAnalysis({ fileName, text: source.text, pdf: source.pdf, plan });
-        const analysis = await persistAnalysis(db, user.id, source, gen);
-        results.push({ fileName, analysisId: analysis.id });
+        // Per-attachment isolation: one bad file (e.g. a scanned PDF that the
+        // Free-plan DeepSeek path honestly rejects with 422) must not abort
+        // the rest of the batch — report it like the other per-file errors.
+        try {
+          const gen = await generateAnalysis({ fileName, text: source.text, pdf: source.pdf, plan });
+          const analysis = await persistAnalysis(db, user.id, source, gen);
+          results.push({ fileName, analysisId: analysis.id });
+        } catch (err) {
+          req.log.warn(err, `inbound: analysis failed for ${fileName}`);
+          results.push({ fileName, error: err instanceof Error ? err.message : 'analysis failed' });
+        }
       }
 
       return reply.code(201).send({ status: 'processed', results });

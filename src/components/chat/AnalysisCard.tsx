@@ -51,8 +51,11 @@ export function AnalysisCard({ steps, activeStep, done }: AnalysisCardProps) {
                 ) : (
                   <span className={`${styles.stepIndicator} ${styles.stepPending}`} />
                 )}
+                {/* key={state}: the label remounts with a soft fade when its
+                    state flips — no mid-transition ghosting/overlap. */}
                 <span
-                  className={`${styles.stepLabel} ${state === 'pending' ? styles.stepLabelPending : ''} ${
+                  key={state}
+                  className={`${styles.stepLabel} ${styles.stepLabelIn} ${state === 'pending' ? styles.stepLabelPending : ''} ${
                     state === 'active' ? styles.stepLabelActive : ''
                   }`}
                 >

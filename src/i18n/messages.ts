@@ -447,6 +447,27 @@ export const MESSAGES: Dict = {
     en: 'The AI drafts the contract and opens it as a sheet — edit it by hand, review, and download.',
   },
   'chat.draft.generate': { ru: 'Создать', en: 'Create' },
+  'cloud.linkPh': { ru: 'Или вставьте ссылку на файл Google Drive…', en: 'Or paste a Google Drive file link…' },
+  'cloud.linkImport': { ru: 'Импорт', en: 'Import' },
+  'cloud.linkHint': {
+    ru: 'Работает без сторонних cookies: откройте файлу доступ «Все, у кого есть ссылка» и вставьте её сюда.',
+    en: 'Works without third-party cookies: set the file to “Anyone with the link” and paste the link here.',
+  },
+  'chat.expand': { ru: 'Развернуть', en: 'Expand' },
+  'chat.collapse': { ru: 'Свернуть', en: 'Collapse' },
+  'chat.ask.explain': {
+    ru: 'Объясни находку «{title}» — чем это грозит и что делать?',
+    en: 'Explain the finding “{title}” — what is the risk and what should I do?',
+  },
+  'chat.ask.fix': {
+    ru: 'Как безопасно переформулировать самые рискованные пункты?',
+    en: 'How do I safely rewrite the riskiest clauses?',
+  },
+  'chat.ask.next': {
+    ru: 'Какие шаги предпринять в первую очередь по итогам анализа?',
+    en: 'What should I do first based on this analysis?',
+  },
+  'chat.ask.other': { ru: 'Другое — задам свой вопрос…', en: 'Other — I’ll type my own question…' },
   'chat.draft.generating': { ru: 'Составляю договор…', en: 'Drafting the contract…' },
   'chat.suggest.compare.title': { ru: 'Сравнить версии', en: 'Compare versions' },
   'chat.suggest.compare.body': { ru: 'Различия двух черновиков по пунктам', en: 'Diff two drafts clause by clause' },

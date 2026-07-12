@@ -168,6 +168,38 @@
   white-space: pre-wrap;
   word-break: break-word;
 }
+/* Long user messages collapse to a preview with an inline "Expand ⌄" link. */
+.bubbleClampText {
+  max-height: 168px;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 60%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 60%, transparent 100%);
+}
+.bubbleMore {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0;
+}
+.bubbleMore:hover {
+  color: var(--accent);
+}
+.bubbleMoreChevron {
+  display: flex;
+  transform: rotate(90deg); /* base chevron points right → down */
+  transition: transform var(--dur-fast);
+}
+.bubbleMoreChevronOpen {
+  transform: rotate(-90deg);
+}
 .msgAssistant {
   display: flex;
   gap: 14px;
@@ -382,14 +414,16 @@
   color: var(--dim);
 }
 
-/* Free-plan upsell above the composer -------------------------------------- */
+/* Free-plan upsell above the composer: a slim rounded strip tucked UNDER the
+   composer pill (photo-reference look) — its extra bottom padding hides
+   behind the input card, so the two read as one connected element. */
 .upsellBar {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 10px;
-  padding: 8px 10px 8px 14px;
-  border-radius: 14px;
+  margin-bottom: -18px; /* tucked under the composer pill */
+  padding: 7px 12px 26px 16px; /* the bottom 18px is hidden behind the pill */
+  border-radius: 22px;
   background: var(--hover);
   border: 1px solid var(--border);
   animation: lxfadeq 0.2s ease;
@@ -409,8 +443,8 @@
 }
 .upsellBtn {
   flex-shrink: 0;
-  padding: 7px 16px;
-  min-height: 32px;
+  padding: 4px 14px;
+  min-height: 26px;
   border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--panel);
@@ -515,7 +549,10 @@
 }
 .stepLabelActive {
   font-weight: 600;
-  animation: lxpulse 1.4s ease-in-out infinite;
+}
+/* Soft fade-slide when a step label changes state (no mid-blink ghosting). */
+.stepLabelIn {
+  animation: lxTextIn 0.35s ease both;
 }
 .doneList {
   display: flex;
@@ -686,6 +723,56 @@
   flex-wrap: wrap;
 }
 
+/* "Ask a question" picker: document-specific questions + "Other…" ---------- */
+.askWrap {
+  position: relative;
+}
+.askMenu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 40;
+  width: 360px;
+  max-width: calc(100vw - 48px);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-pop);
+  animation: lxfadeq 0.16s ease;
+}
+.askItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 11px;
+  border: none;
+  background: transparent;
+  border-radius: 10px;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13.5px;
+  line-height: 1.45;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-fast);
+}
+.askItem:hover {
+  background: var(--hover-2);
+}
+.askItemOther {
+  color: var(--dim);
+}
+.askDivider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 4px;
+}
+
 /* Composer ---------------------------------------------------------------- */
 .composer {
   flex-shrink: 0;
@@ -704,6 +791,8 @@
   max-width: none;
 }
 .inputBar {
+  position: relative;
+  z-index: 1; /* sits on top of the tucked upsell strip */
   display: flex;
   align-items: flex-end; /* buttons anchor to the bottom row as the text grows */
   gap: 4px;

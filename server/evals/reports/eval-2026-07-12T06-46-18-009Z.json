@@ -1,0 +1,21 @@
+{
+  "at": "2026-07-12T06:30:42.089Z",
+  "model": "deepseek-v4-pro",
+  "golden": "uk-contract-law.jsonl",
+  "questions": 18,
+  "retrieval": {
+    "hit@5": 0.944,
+    "hit@10": 1,
+    "recall@10": 0.972
+  },
+  "baseline": {
+    "findings": 27,
+    "citationPrecision": 0.815,
+    "unverifiedShare": 0.185
+  },
+  "rag": {
+    "findings": 24,
+    "citationPrecision": 1,
+    "unverifiedShare": 0
+  }
+}

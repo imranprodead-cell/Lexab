@@ -68,4 +68,9 @@ export const integrationsApi = {
   importFile(provider: CloudProvider, fileId: string, name: string): Promise<CloudImportResult> {
     return http<CloudImportResult>(`/integrations/${provider}/import`, { method: 'POST', body: { fileId, name } });
   },
+
+  /** Cookie-free Google Drive fallback: import a pasted share link. */
+  importByLink(url: string): Promise<CloudImportResult> {
+    return http<CloudImportResult>('/integrations/google-drive/import-link', { method: 'POST', body: { url } });
+  },
 };

@@ -27,6 +27,16 @@ function resolveJwtSecret(): string {
   return crypto.randomBytes(48).toString('base64url');
 }
 
+/* ── DeepSeek (OpenAI-compatible API) — the cheap model for the Free plan ────
+   DEEPSEEK_BASE_URL may point at the official api.deepseek.com or at a
+   western host serving the open weights (Together / Fireworks / Nebius /
+   Azure) — recommended for a legal product, so client documents never leave
+   the chosen jurisdiction. DeepSeek is used for the Free plan ONLY when its
+   key is configured; otherwise Free stays on Haiku. */
+const deepseekApiKey = env('DEEPSEEK_API_KEY');
+const deepseekModel = env('DEEPSEEK_MODEL', 'deepseek-v4-pro');
+const freeModel = env('MODEL_FREE', deepseekApiKey ? deepseekModel : 'claude-haiku-4-5');
+
 export const config = {
   port: Number(env('PORT', '8080')),
   host: env('HOST', '0.0.0.0'),
@@ -51,6 +61,10 @@ export const config = {
 
   anthropicApiKey: env('ANTHROPIC_API_KEY'),
   anthropicModel: env('ANTHROPIC_MODEL', 'claude-opus-4-8'),
+
+  deepseekApiKey,
+  deepseekBaseUrl: env('DEEPSEEK_BASE_URL', 'https://api.deepseek.com'),
+  deepseekModel,
   /**
    * Deterministic offline fallbacks when the model is unavailable. The mock is
    * enabled ONLY by the explicit value 'dev' (for local offline development);
@@ -59,9 +73,11 @@ export const config = {
    * NODE_ENV (which is never set here) so a keyless deploy can't silently mock.
    */
   llmFallback: env('LLM_FALLBACK', 'off').toLowerCase(),
-  /** Per-plan Claude model: better plan → smarter model (see llm.ts modelForPlan). */
+  /** Per-plan model: better plan → smarter model (see llm.ts modelForPlan).
+   *  Models prefixed "deepseek" route to the DeepSeek client, everything else
+   *  to Anthropic. Free defaults to DeepSeek when DEEPSEEK_API_KEY is set. */
   planModels: {
-    Free: env('ANTHROPIC_MODEL_FREE', 'claude-haiku-4-5'),
+    Free: env('ANTHROPIC_MODEL_FREE', freeModel),
     Standard: env('ANTHROPIC_MODEL_STANDARD', 'claude-sonnet-5'),
     Pro: env('ANTHROPIC_MODEL_PRO', 'claude-opus-4-8'),
     Business: env('ANTHROPIC_MODEL_BUSINESS', 'claude-fable-5'),

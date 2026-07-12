@@ -277,8 +277,12 @@ const PRIVACY: Section[] = [
     h: { ru: '6. ИИ и обучение моделей', en: '6. AI and model training' },
     p: [
       {
-        ru: 'Текст ваших документов передаётся провайдеру ИИ-моделей только для выполнения анализа. По условиям использования провайдера данные, переданные через API, не используются для обучения моделей.',
-        en: 'The text of your documents is sent to the AI model provider only to perform the analysis. Under the provider’s terms, data submitted via the API is not used to train models.',
+        ru: 'Текст ваших документов передаётся провайдеру ИИ-моделей только для выполнения анализа. На платных тарифах по условиям использования провайдера данные, переданные через API, не используются для обучения моделей.',
+        en: 'The text of your documents is sent to the AI model provider only to perform the analysis. On paid plans, under the provider’s terms, data submitted via the API is not used to train models.',
+      },
+      {
+        ru: 'На бесплатном тарифе запросы к ИИ могут обрабатываться дополнительным сторонним поставщиком ИИ-инфраструктуры, в том числе на серверах за пределами вашей юрисдикции, и по его условиям могут использоваться для улучшения его сервисов. Если для ваших документов это критично, используйте платные тарифы. Актуальный перечень категорий субобработчиков предоставляется по запросу на privacy@lexai.app.',
+        en: 'On the Free plan, AI requests may be processed by an additional third-party AI infrastructure provider, including on servers outside your jurisdiction, and under its terms may be used to improve its services. If this matters for your documents, use a paid plan. The current list of subprocessor categories is available on request at privacy@lexai.app.',
       },
       {
         ru: 'Отдельный сервис векторного поиска применяется для индексации базы официальных текстов законов и поиска по ней: при анализе договора фрагмент его текста может передаваться этому сервису как поисковый запрос для подбора релевантных норм. Целые документы туда не загружаются и не хранятся там.',

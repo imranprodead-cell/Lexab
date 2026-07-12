@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { Icon, type IconName } from '@/components/icons/Icon';
+import { useDismissable } from '@/hooks/useAsync';
 import { Badge, toneColor } from '@/components/ui/Badge';
 import { CitationLine } from '@/components/ui/VerifiedBadge';
 import { GlassCard } from '@/components/ui/GlassCard';
@@ -19,13 +21,26 @@ const SEVERITY_ICON: Record<string, IconName> = {
 interface SummaryCardProps {
   analysis: AnalysisResult;
   onOpenWorkspace: () => void;
-  onFollowUp: () => void;
+  /** Send one of the suggested document questions to the chat. */
+  onAsk: (question: string) => void;
+  /** "Other…": the user types their own question in the composer. */
+  onAskCustom: () => void;
 }
 
 /** Post-analysis report: streaming summary, risk gauge, top findings, actions. */
-export function SummaryCard({ analysis, onOpenWorkspace, onFollowUp }: SummaryCardProps) {
+export function SummaryCard({ analysis, onOpenWorkspace, onAsk, onAskCustom }: SummaryCardProps) {
   const { t } = useI18n();
   const { visible } = useStreamingText(analysis.summary);
+
+  // "Ask a question" opens a picker with questions tailored to THIS document
+  // (built from its top findings) instead of firing a canned message.
+  const [askOpen, setAskOpen] = useState(false);
+  const askRef = useDismissable<HTMLDivElement>(() => setAskOpen(false), askOpen);
+  const questions = [
+    ...analysis.findings.slice(0, 2).map((f) => t('chat.ask.explain', { title: f.title })),
+    t('chat.ask.fix'),
+    t('chat.ask.next'),
+  ];
 
   return (
     <GlassCard className={styles.summary}>
@@ -72,9 +87,42 @@ export function SummaryCard({ analysis, onOpenWorkspace, onFollowUp }: SummaryCa
         <Button variant="primary" icon="layout" iconRight="chevron" onClick={onOpenWorkspace}>
           {t('analysis.openWorkspace')}
         </Button>
-        <Button variant="secondary" onClick={onFollowUp}>
-          {t('chat.sum.followUp')}
-        </Button>
+        <div className={styles.askWrap} ref={askRef}>
+          <Button variant="secondary" onClick={() => setAskOpen((v) => !v)}>
+            {t('chat.sum.followUp')}
+          </Button>
+          {askOpen ? (
+            <div className={styles.askMenu} role="menu">
+              {questions.map((q) => (
+                <button
+                  key={q}
+                  type="button"
+                  role="menuitem"
+                  className={styles.askItem}
+                  onClick={() => {
+                    setAskOpen(false);
+                    onAsk(q);
+                  }}
+                >
+                  {q}
+                </button>
+              ))}
+              <div className={styles.askDivider} />
+              <button
+                type="button"
+                role="menuitem"
+                className={`${styles.askItem} ${styles.askItemOther}`}
+                onClick={() => {
+                  setAskOpen(false);
+                  onAskCustom();
+                }}
+              >
+                <Icon name="pen" size={15} />
+                {t('chat.ask.other')}
+              </button>
+            </div>
+          ) : null}
+        </div>
       </div>
     </GlassCard>
   );

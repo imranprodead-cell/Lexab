@@ -53,6 +53,8 @@ interface ChatState {
   steps: string[];
   /** Backend chat session id (created lazily on the first real-API message). */
   serverSessionId: string | null;
+  /** A saved session is being fetched (uncached open) — show a skeleton. */
+  sessionLoading: boolean;
   /** Ghost (incognito) mode: the conversation lives only in this tab's memory. */
   ghost: boolean;
 
@@ -96,6 +98,15 @@ const streamFullTexts = new Map<string, string>();
  *  session load, reset). In-flight completions compare their captured epoch
  *  and drop their result instead of leaking it into the new canvas. */
 let canvasEpoch = 0;
+
+/** Replies still in flight, keyed by server session id. Lets the user leave a
+ *  chat mid-generation and find the reply streaming in when they come back —
+ *  the model keeps working in the background instead of the answer vanishing. */
+const pendingReplies = new Map<string, string>(); // sessionId → placeholder message id
+
+/** Last known conversation per session (stale-while-revalidate): reopening a
+ *  chat paints instantly from this cache while fresh data loads behind it. */
+const sessionCache = new Map<string, { messages: ChatMessage[]; analysis: AnalysisResult | null }>();
 
 /** Canvas snapshot taken when entering ghost mode, restored on exit. */
 let ghostStash: {
@@ -164,6 +175,7 @@ export const useChatStore = create<ChatState>((set, get) => {
   error: null,
   steps: ANALYSIS_STEPS,
   serverSessionId: null,
+  sessionLoading: false,
   ghost: false,
 
   enterGhost: () => {
@@ -246,12 +258,28 @@ export const useChatStore = create<ChatState>((set, get) => {
           useUIStore.getState().pushToast(tStandalone('chat.uploadFailed'), 'error');
         }
       }
+      const sessionAtCall = get().serverSessionId;
       const result = await analysisApi.analyze({
         fileName: file.name,
         fileSize: file.size,
         jurisdiction: defaultLaw(),
       });
-      if (epoch !== canvasEpoch) return; // canvas switched meanwhile — drop
+      // Persist the session↔analysis link NO MATTER which canvas is visible —
+      // otherwise an analysis finished in the background is never restorable
+      // and its sidebar chat opens empty. (Idempotent server-side.)
+      const linkSid = sessionAtCall ?? get().serverSessionId;
+      if (linkSid && !USE_MOCK) void chatsApi.linkAnalysis(linkSid, result.id).catch(() => undefined);
+      if (epoch !== canvasEpoch) {
+        // Canvas switched while analysing. If the user came back to the same
+        // session, adopt the finished result; otherwise it stays persisted
+        // server-side and is restored when the session is reopened.
+        if (sessionAtCall && get().serverSessionId === sessionAtCall) {
+          clearStepTimers();
+          set({ phase: 'analyzed', analysis: result, activeStep: ANALYSIS_STEPS.length, error: null });
+          tryLinkAnalysis();
+        }
+        return;
+      }
       clearStepTimers();
       set({
         phase: 'analyzed',
@@ -262,6 +290,18 @@ export const useChatStore = create<ChatState>((set, get) => {
     } catch (err) {
       if (epoch !== canvasEpoch) return;
       clearStepTimers();
+      // The sidebar session was created optimistically FOR this analysis. If
+      // nothing was ever persisted into it (no text messages), remove it —
+      // otherwise a failed/limited analysis leaves a dead chat that opens empty.
+      const deadSid = get().serverSessionId;
+      const hasText = get().messages.some((m) => m.kind === 'text');
+      if (deadSid && !hasText && !USE_MOCK) {
+        set({ serverSessionId: null });
+        void chatsApi
+          .remove(deadSid)
+          .then(() => refreshHistory())
+          .catch(() => undefined);
+      }
       set({
         phase: 'error',
         error: err instanceof Error ? err.message : 'Analysis failed. Please try again.',
@@ -363,16 +403,42 @@ export const useChatStore = create<ChatState>((set, get) => {
           refreshHistory(); // the new chat shows up in the sidebar right away
         }
         // Ground the reply in the contract being reviewed (document Q&A).
+        pendingReplies.set(sessionId, assistantId);
         const reply = await chatsApi.sendMessage(sessionId, trimmed, get().analysis?.id, defaultLaw());
-        if (epoch !== canvasEpoch) return; // canvas switched — drop the late reply
-        // Adopt the server-side message id so follow-up actions (thumbs
-        // rating) address the persisted row, not the temporary local id.
-        set((s) => ({ messages: s.messages.map((m) => (m.id === assistantId ? { ...m, id: reply.id } : m)) }));
-        streamIn(reply.id, reply.text ?? '');
+        pendingReplies.delete(sessionId);
+        if (epoch === canvasEpoch) {
+          // Adopt the server-side message id so follow-up actions (thumbs
+          // rating) address the persisted row, not the temporary local id.
+          set((s) => ({ messages: s.messages.map((m) => (m.id === assistantId ? { ...m, id: reply.id } : m)) }));
+          streamIn(reply.id, reply.text ?? '');
+        } else if (get().serverSessionId === sessionId) {
+          // The user left and came back to this chat while the model worked:
+          // reuse the placeholder loadSession restored (or append one) and
+          // stream the finished reply into it.
+          set((s) => {
+            if (s.messages.some((m) => m.id === assistantId)) {
+              return { messages: s.messages.map((m) => (m.id === assistantId ? { ...m, id: reply.id } : m)) };
+            }
+            return {
+              messages: [
+                ...s.messages,
+                { id: reply.id, role: 'assistant' as const, kind: 'text' as const, text: '', streaming: true },
+              ],
+            };
+          });
+          streamIn(reply.id, reply.text ?? '');
+        }
+        // Another canvas is open: nothing to draw — the reply is persisted
+        // server-side and appears when that chat is reopened.
         refreshHistory(); // bump the session to the top (updated_at changed)
       } catch (err) {
-        if (epoch !== canvasEpoch) return;
-        failReply(err);
+        const sid = get().serverSessionId;
+        for (const [k, v] of pendingReplies) if (v === assistantId) pendingReplies.delete(k);
+        if (epoch === canvasEpoch) {
+          failReply(err);
+        } else if (sid && get().messages.some((m) => m.id === assistantId)) {
+          failReply(err); // restored placeholder — resolve it honestly
+        }
       }
     })();
   },
@@ -387,23 +453,61 @@ export const useChatStore = create<ChatState>((set, get) => {
     if (get().serverSessionId === sessionId) return; // already showing this one
     clearStepTimers();
     finishActiveStreams();
+    // Snapshot the canvas we're leaving, so coming back paints instantly.
+    const leaving = get();
+    if (leaving.serverSessionId && leaving.messages.length) {
+      sessionCache.set(leaving.serverSessionId, { messages: leaving.messages, analysis: leaving.analysis });
+    }
     canvasEpoch++;
+    const epoch = canvasEpoch;
+
+    // A reply for this session may still be generating in the background —
+    // restore its "thinking" placeholder so the stream lands visibly.
+    const withPending = (msgs: ChatMessage[]): ChatMessage[] => {
+      const pendingId = pendingReplies.get(sessionId);
+      return pendingId && !msgs.some((m) => m.id === pendingId)
+        ? [...msgs, { id: pendingId, role: 'assistant' as const, kind: 'text' as const, text: '', streaming: true }]
+        : msgs;
+    };
+
+    // Paint IMMEDIATELY: the cached conversation if we have one (revalidated
+    // below), otherwise an empty canvas with a loading skeleton — the click
+    // must never feel dead while the network round-trips run.
+    const cached = sessionCache.get(sessionId);
+    set({
+      phase: cached ? 'analyzed' : 'idle',
+      messages: cached ? withPending(cached.messages) : [],
+      analysis: cached?.analysis ?? null,
+      activeStep: cached?.analysis ? ANALYSIS_STEPS.length : -1,
+      error: null,
+      serverSessionId: sessionId,
+      sessionLoading: !cached,
+    });
+
     try {
       const messages = await chatsApi.messages(sessionId);
+      if (epoch !== canvasEpoch) return;
+      // Stage 1: the conversation shows as soon as it arrives — the analysis
+      // card (a second round-trip) attaches right after.
+      set({
+        phase: messages.length ? 'analyzed' : 'idle',
+        messages: withPending(messages),
+        sessionLoading: false,
+      });
       const analysisRef = [...messages].reverse().find((m) => m.analysisId)?.analysisId;
       const analysis = analysisRef ? await analysisApi.get(analysisRef).catch(() => null) : null;
+      sessionCache.set(sessionId, { messages, analysis });
+      if (epoch !== canvasEpoch) return;
       set({
         phase: messages.length || analysis ? 'analyzed' : 'idle',
-        messages,
         analysis,
         activeStep: analysis ? ANALYSIS_STEPS.length : -1,
-        error: null,
-        serverSessionId: sessionId,
       });
     } catch {
+      if (epoch !== canvasEpoch) return;
       // Session unknown to the server — show an empty canvas instead of
       // someone else's demo contract.
-      set({ phase: 'idle', messages: [], analysis: null, activeStep: -1, error: null, serverSessionId: null });
+      set({ phase: 'idle', messages: [], analysis: null, activeStep: -1, error: null, serverSessionId: null, sessionLoading: false });
     }
   },
 

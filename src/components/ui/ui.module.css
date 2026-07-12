@@ -692,21 +692,22 @@
   }
 }
 
-/* Toast action button ("Undo") on the right edge of a toast. */
+/* Toast action button ("Undo") on the right edge of a toast — a quiet grey
+   pill, not an accent CTA (it undoes, it doesn't promote). */
 .toastAction {
   flex: none;
   font-family: inherit;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
   padding: 5px 12px;
-  border: none;
+  border: 1px solid var(--border);
   border-radius: 999px;
-  background: var(--accent);
-  color: var(--on-accent);
+  background: var(--hover-2);
+  color: var(--text);
   cursor: pointer;
-  transition: filter 0.15s ease;
+  transition: background 0.15s ease, border-color 0.15s ease;
 }
 
 .toastAction:hover {
-  filter: brightness(1.08);
+  background: var(--hover-3);
 }

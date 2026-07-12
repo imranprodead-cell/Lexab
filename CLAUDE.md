@@ -9,8 +9,11 @@ Legal AI SaaS: анализ договоров с привязкой к зако
 - Бэкенд: Fastify 5, Node 24 c нативным запуском TS (`server/`), порт 8080.
 - База: Supabase Postgres + pgvector (миграции `server/migrations/*.sql`,
   применяются автоматически при старте сервера).
-- ИИ: Anthropic API; модель зависит от тарифа (`server/src/config.ts` →
-  `planModels`); эмбеддинги — Voyage AI `voyage-law-2`.
+- ИИ: модель зависит от тарифа (`server/src/config.ts` → `planModels`).
+  Платные планы — Anthropic API; Free — DeepSeek (OpenAI-совместимый клиент,
+  включается ключом `DEEPSEEK_API_KEY`, id модели с «deepseek» маршрутизируется
+  в него — `server/src/llm.ts`), при сбое ретрай на Anthropic. Эмбеддинги —
+  Voyage AI `voyage-law-2` (RAG-поиск от генеративной модели не зависит).
 
 ## Запуск
 

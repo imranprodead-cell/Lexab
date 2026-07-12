@@ -15,6 +15,7 @@ import path from 'node:path';
 process.env.DATABASE_URL = '';
 process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'lexai-test-'));
 process.env.ANTHROPIC_API_KEY = '';
+process.env.DEEPSEEK_API_KEY = ''; // an ambient key must not make "no network" tests hit the real API
 process.env.LLM_FALLBACK = 'dev';
 process.env.JWT_SECRET = 'test-secret-that-is-definitely-long-enough-32+';
 process.env.SEED_DEMO_DATA = 'false';

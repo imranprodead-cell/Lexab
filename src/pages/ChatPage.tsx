@@ -15,7 +15,7 @@ import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { ScalesMascot } from '@/components/ui/ScalesMascot';
 import { Modal } from '@/components/ui/Modal';
-import { ErrorState } from '@/components/ui/States';
+import { ErrorState, SkeletonRows } from '@/components/ui/States';
 import { billingApi } from '@/api/billing.api';
 import { analysisApi } from '@/api/analysis.api';
 import { useAsync } from '@/hooks/useAsync';
@@ -30,6 +30,25 @@ import type { ChatMessage } from '@/types/domain';
 import chat from '@/components/chat/chat.module.css';
 
 const ACCEPTED = /\.(pdf|docx?|txt)$/i;
+
+/** User message bubble; long texts collapse with an inline "Expand ⌄" link. */
+function UserBubble({ text }: { text: string }) {
+  const { t } = useI18n();
+  const [expanded, setExpanded] = useState(false);
+  const long = text.length > 550 || text.split('\n').length > 8;
+  if (!long) return <div className={`${chat.msgUserBubble} ${chat.textIn}`}>{text}</div>;
+  return (
+    <div className={`${chat.msgUserBubble} ${chat.textIn}`}>
+      <div className={expanded ? undefined : chat.bubbleClampText}>{text}</div>
+      <button type="button" className={chat.bubbleMore} onClick={() => setExpanded((v) => !v)}>
+        {expanded ? t('chat.collapse') : t('chat.expand')}
+        <span className={`${chat.bubbleMoreChevron} ${expanded ? chat.bubbleMoreChevronOpen : ''}`}>
+          <Icon name="chevron" size={14} />
+        </span>
+      </button>
+    </div>
+  );
+}
 
 /**
  * The conversational canvas: welcome → streaming analysis → follow-up chat.
@@ -54,6 +73,7 @@ export function ChatPage() {
   const enterGhost = useChatStore((s) => s.enterGhost);
   const exitGhost = useChatStore((s) => s.exitGhost);
   const setFeedback = useChatStore((s) => s.setFeedback);
+  const sessionLoading = useChatStore((s) => s.sessionLoading);
   const adoptAnalysis = useChatStore((s) => s.adoptAnalysis);
   const addSession = useChatHistoryStore((s) => s.addSession);
 
@@ -78,10 +98,53 @@ export function ChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
+  // ── Scroll behaviour (ChatGPT-style) ──────────────────────────────────────
+  // A newly sent user message pins to the TOP of the viewport (the reply and
+  // the "thinking" mascot grow just below it), and during streaming the chat
+  // auto-follows only while the user is already at the bottom — scrolling up
+  // to read is never hijacked.
+  const stickRef = useRef(false);
+  const prevIdsRef = useRef('');
+  const anchorRef = useRef<string | null>(null);
+  const [tailPad, setTailPad] = useState(0);
+
+  const onThreadScroll = () => {
+    const el = threadRef.current;
+    if (!el) return;
+    stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+  };
+
   useEffect(() => {
     const el = threadRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [phase, activeStep, analysis, messages]);
+    if (!el) return;
+    const ids = messages.map((m) => m.id).join(',');
+    const prevIds = prevIdsRef.current;
+    const appended = ids !== prevIds && ids.startsWith(prevIds) && (prevIds !== '' || messages.length <= 3);
+    prevIdsRef.current = ids;
+    const lastUser = [...messages].reverse().find((m) => m.role === 'user');
+
+    if (lastUser && lastUser.id !== anchorRef.current) {
+      anchorRef.current = lastUser.id;
+      if (appended) {
+        // Just sent: reserve room below, then pin the message to the top.
+        setTailPad(Math.max(0, el.clientHeight - 150));
+        stickRef.current = false;
+        requestAnimationFrame(() => {
+          const node = el.querySelector<HTMLElement>(`[data-mid="${lastUser.id}"]`);
+          if (node) {
+            const top = node.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop;
+            el.scrollTo({ top: Math.max(0, top - 10) });
+          }
+        });
+        return;
+      }
+      // Whole conversation replaced (opened a saved session): classic bottom.
+      setTailPad(0);
+      el.scrollTop = el.scrollHeight;
+      return;
+    }
+    if (stickRef.current) el.scrollTop = el.scrollHeight;
+  }, [messages, phase, activeStep, analysis]);
 
   const openWorkspace = () => navigate(sessionId ? `/chat/${sessionId}/workspace` : '/workspace');
 
@@ -158,8 +221,8 @@ export function ChatPage() {
 
   const renderText = (m: ChatMessage) =>
     m.role === 'user' ? (
-      <div key={m.id} className={chat.msgUser}>
-        <div className={`${chat.msgUserBubble} ${chat.textIn}`}>{m.text}</div>
+      <div key={m.id} className={chat.msgUser} data-mid={m.id}>
+        <UserBubble text={m.text ?? ''} />
       </div>
     ) : m.streaming && !m.text ? (
       // Waiting for the first token: the animated scales mascot ponders the
@@ -218,7 +281,15 @@ export function ChatPage() {
         </div>
       ) : null}
 
-      {phase === 'idle' && messages.length === 0 ? (
+      {sessionLoading && messages.length === 0 ? (
+        // Opening a saved chat: instant skeleton while the messages load —
+        // the click must never look like nothing happened.
+        <div className={`${chat.thread} scroll`}>
+          <div className={chat.threadInner} style={{ paddingTop: 18 }}>
+            <SkeletonRows rows={4} height={52} />
+          </div>
+        </div>
+      ) : phase === 'idle' && messages.length === 0 ? (
         ghost ? (
           <div className={chat.ghostEmpty}>
             <div className={chat.ghostEmptyIcon}>
@@ -235,9 +306,13 @@ export function ChatPage() {
           />
         )
       ) : (
-        <div className={`${chat.thread} scroll`} ref={threadRef}>
-          <div className={chat.threadInner}>
-            {fileMessage?.file ? <UserFileBubble name={fileMessage.file.name} size={fileMessage.file.size} /> : null}
+        <div className={`${chat.thread} scroll`} ref={threadRef} onScroll={onThreadScroll}>
+          <div className={chat.threadInner} style={{ paddingBottom: tailPad }}>
+            {fileMessage?.file ? (
+              <div data-mid={fileMessage.id}>
+                <UserFileBubble name={fileMessage.file.name} size={fileMessage.file.size} />
+              </div>
+            ) : null}
 
             {fileMessage || phase === 'analyzing' || phase === 'error' ? (
               <div className={chat.aiRow}>
@@ -252,7 +327,10 @@ export function ChatPage() {
                         <SummaryCard
                           analysis={analysis}
                           onOpenWorkspace={openWorkspace}
-                          onFollowUp={() => sendMessage(t('chat.followUp'))}
+                          onAsk={(q) => sendMessage(q)}
+                          onAskCustom={() =>
+                            document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message LexAI"]')?.focus()
+                          }
                         />
                       ) : null}
                     </>

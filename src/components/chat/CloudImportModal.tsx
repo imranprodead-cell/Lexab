@@ -39,6 +39,7 @@ export function CloudImportModal({ open, onClose, onImported }: CloudImportModal
   const [files, setFiles] = useState<CloudFile[] | null>(null);
   const [listError, setListError] = useState<string | null>(null);
   const [importing, setImporting] = useState<string | null>(null);
+  const [driveLink, setDriveLink] = useState('');
 
   const active = provider ?? connected[0]?.provider ?? null;
 
@@ -48,9 +49,10 @@ export function CloudImportModal({ open, onClose, onImported }: CloudImportModal
   }, [search]);
 
   // (Re)load the file list when the modal opens / tab or search changes.
-  // Google Drive skips this: files are chosen in Google's own picker instead.
+  // All providers (Google Drive included) browse via OUR server — Google's
+  // embedded picker needed third-party cookies and broke in Safari/incognito.
   useEffect(() => {
-    if (!open || !active || active === 'google-drive') return;
+    if (!open || !active) return;
     let alive = true;
     setFiles(null);
     setListError(null);
@@ -68,7 +70,8 @@ export function CloudImportModal({ open, onClose, onImported }: CloudImportModal
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, active, debounced]);
 
-  // Google Drive: open Google's picker; the app only sees the picked file.
+  // Google Drive, primary path: Google's own picker (drive.file scope — the
+  // app only ever sees the files the user picks; free tier, no verification).
   const pickFromDrive = async () => {
     if (importing) return;
     setImporting('__picker');
@@ -84,6 +87,24 @@ export function CloudImportModal({ open, onClose, onImported }: CloudImportModal
       // Google Docs are exported to .docx on import — reflect that in the name.
       const name = picked.mimeType === GDOC_MIME && !/\.docx$/i.test(picked.name) ? `${picked.name}.docx` : picked.name;
       const res = await integrationsApi.importFile('google-drive', picked.id, name);
+      onClose();
+      onImported({ name: res.fileName, size: res.fileSize });
+    } catch (err) {
+      pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
+    } finally {
+      setImporting(null);
+    }
+  };
+
+  // Fallback that needs no third-party cookies (Safari/incognito): the user
+  // pastes an "anyone with the link" URL and we fetch it server-side.
+  const importDriveLink = async () => {
+    const url = driveLink.trim();
+    if (!url || importing) return;
+    setImporting('__link');
+    try {
+      const res = await integrationsApi.importByLink(url);
+      setDriveLink('');
       onClose();
       onImported({ name: res.fileName, size: res.fileSize });
     } catch (err) {
@@ -149,19 +170,29 @@ export function CloudImportModal({ open, onClose, onImported }: CloudImportModal
           </div>
 
           {active === 'google-drive' ? (
-            <div className={styles.cloudEmpty} style={{ paddingTop: 18 }}>
-              <p style={{ margin: '0 0 14px' }}>{t('cloud.driveHint')}</p>
+            <div className={styles.drivePickBlock}>
               <Button variant="primary" disabled={importing !== null} onClick={() => void pickFromDrive()}>
                 <BrandLogo provider="google-drive" size={16} />
                 {importing === '__picker' ? t('common.loading') : t('cloud.drivePick')}
               </Button>
+              <div className={styles.driveLinkRow}>
+                <TextField
+                  placeholder={t('cloud.linkPh')}
+                  value={driveLink}
+                  onChange={(e) => setDriveLink(e.target.value)}
+                />
+                <Button disabled={importing !== null || !driveLink.trim()} onClick={() => void importDriveLink()}>
+                  {importing === '__link' ? t('common.loading') : t('cloud.linkImport')}
+                </Button>
+              </div>
+              <p className={styles.driveLinkHint}>{t('cloud.linkHint')}</p>
             </div>
-          ) : (
-            <>
+          ) : null}
+
           <TextField
             placeholder={t('cloud.search')}
             value={search}
-            autoFocus
+            autoFocus={active !== 'google-drive'}
             onChange={(e) => setSearch(e.target.value)}
           />
 
@@ -194,8 +225,6 @@ export function CloudImportModal({ open, onClose, onImported }: CloudImportModal
               ))
             )}
           </div>
-            </>
-          )}
         </>
       )}
     </Modal>

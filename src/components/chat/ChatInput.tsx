@@ -115,6 +115,9 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
   const clearValue = () => {
     setValue('');
     if (!ephemeral) saveDraft(draftKey, '');
+    // Collapse back to a single line — a tall textarea must not stay tall
+    // (deformed pill) after the long message it held was sent or cleared.
+    if (textareaRef.current) textareaRef.current.style.height = 'auto';
   };
 
   const pick = (command: Command) => {

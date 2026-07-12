@@ -376,7 +376,8 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
       let summary = sessRow.rows[0]?.context_summary ?? null;
       const covers = Number(sessRow.rows[0]?.summary_covers ?? 0);
       if (older.length > covers) {
-        summary = await generateHistorySummary(summary, older.slice(covers));
+        // Plan passed through: paid-plan chats must summarize on Anthropic only.
+        summary = await generateHistorySummary(summary, older.slice(covers), plan);
         await db.query('UPDATE chat_sessions SET context_summary = $2, summary_covers = $3 WHERE id = $1', [
           sessionId,
           summary,

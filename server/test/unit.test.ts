@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { fallbackAnalysis, fallbackChatReply, fallbackCompare, fallbackTemplateDraft } from '../src/fallback.ts';
+import { extractJsonObject, isDeepSeekModel } from '../src/llm.ts';
 import { ALLOWED_EXTENSIONS, fileExtension, verifyFileSignature } from '../src/extract.ts';
 import { formatSize, relativeTimeRu } from '../src/lib/format.ts';
 import { newId } from '../src/lib/ids.ts';
@@ -123,4 +124,43 @@ test('verifyFileSignature: real files pass, spoofed/renamed files fail', () => {
   assert.equal(verifyFileSignature(Buffer.from([0x68, 0x69, 0x00, 0x00]), 'evil.txt'), false); // NUL → binary
   // Empty file is never valid.
   assert.equal(verifyFileSignature(Buffer.alloc(0), 'a.pdf'), false);
+});
+
+test('llm provider routing: models route by id, not by config', () => {
+  assert.equal(isDeepSeekModel('deepseek-v4-pro'), true);
+  assert.equal(isDeepSeekModel('deepseek-chat'), true);
+  assert.equal(isDeepSeekModel('deepseek-ai/DeepSeek-V3.2'), true); // western-host ids
+  assert.equal(isDeepSeekModel('claude-haiku-4-5'), false);
+  assert.equal(isDeepSeekModel('claude-opus-4-8'), false);
+  assert.equal(isDeepSeekModel('claude-fable-5'), false);
+});
+
+test('extractJsonObject: plain, fenced, prose-wrapped and broken JSON', () => {
+  assert.deepEqual(extractJsonObject('{"a":1}'), { a: 1 });
+  assert.deepEqual(extractJsonObject('```json\n{"a":1}\n```'), { a: 1 });
+  assert.deepEqual(extractJsonObject('Here is the result:\n{"a":{"b":[1,2]}}'), { a: { b: [1, 2] } });
+  assert.throws(() => extractJsonObject('no json here'));
+  assert.throws(() => extractJsonObject('{"broken": '));
+});
+
+test('parseDriveLink: file/doc/open/uc forms, junk rejected', async () => {
+  const { parseDriveLink, filenameFromDisposition } = await import('../src/lib/driveLink.ts');
+  assert.deepEqual(parseDriveLink('https://drive.google.com/file/d/1AbC_dEf-234567890/view?usp=sharing'), {
+    id: '1AbC_dEf-234567890',
+    kind: 'file',
+  });
+  assert.deepEqual(parseDriveLink('https://drive.google.com/open?id=1AbC_dEf-234567890'), {
+    id: '1AbC_dEf-234567890',
+    kind: 'file',
+  });
+  assert.deepEqual(parseDriveLink('https://docs.google.com/document/d/1AbC_dEf-234567890/edit'), {
+    id: '1AbC_dEf-234567890',
+    kind: 'doc',
+  });
+  assert.equal(parseDriveLink('https://evil.example.com/file/d/1AbC_dEf-234567890'), null);
+  assert.equal(parseDriveLink('not a url'), null);
+  assert.equal(parseDriveLink('https://drive.google.com/drive/my-drive'), null);
+  assert.equal(filenameFromDisposition('attachment; filename="NDA v2.pdf"'), 'NDA v2.pdf');
+  assert.equal(filenameFromDisposition("attachment; filename*=UTF-8''%D0%94%D0%BE%D0%B3.pdf"), 'Дог.pdf');
+  assert.equal(filenameFromDisposition(null), null);
 });

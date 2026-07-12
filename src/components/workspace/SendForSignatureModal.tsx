@@ -54,9 +54,11 @@ export function SendForSignatureModal({ open, documentName, onClose, onSent }: S
       setRecipients([{ name: '', email: '' }]);
       setErrors({});
       onSent();
-    } catch {
+    } catch (err) {
       setSubmitting(false);
-      setErrors({ 0: t('sign.errSend') });
+      // Surface the server's own explanation (e.g. "E-signatures are available
+      // on Pro/Business plans") instead of a generic "try again".
+      setErrors({ 0: err instanceof Error && err.message ? err.message : t('sign.errSend') });
     }
   };
 

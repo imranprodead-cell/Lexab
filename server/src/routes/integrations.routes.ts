@@ -17,7 +17,8 @@ import crypto from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { config } from '../config.ts';
 import type { Db } from '../db.ts';
-import { ALLOWED_EXTENSIONS, extractText, fileExtension, MAX_UPLOAD_BYTES } from '../extract.ts';
+import { ALLOWED_EXTENSIONS, assertValidFileContent, extractText, fileExtension, MAX_UPLOAD_BYTES } from '../extract.ts';
+import { filenameFromDisposition, parseDriveLink } from '../lib/driveLink.ts';
 import { badRequest, HttpError, notFound } from '../lib/errors.ts';
 import { formatSize } from '../lib/format.ts';
 import { newId } from '../lib/ids.ts';
@@ -52,8 +53,10 @@ function providerConfig(provider: Provider): ProviderConfig {
             client_id: config.googleDriveClientId,
             redirect_uri: redirectUri,
             response_type: 'code',
-            // drive.file — the app only ever sees files the user picks in the
-            // Google Picker. Non-restricted scope: free to publish, no CASA.
+            // drive.file — the app only ever sees files the user explicitly
+            // picks (Google Picker) or imports by link. Non-restricted scope:
+            // free to publish, no paid CASA verification. Deliberate product
+            // decision — do not widen to drive.readonly.
             scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.email',
             access_type: 'offline',
             prompt: 'consent',
@@ -485,6 +488,91 @@ export function integrationRoutes(app: FastifyInstance, db: Db): void {
 
       const row = await ensureAccessToken(db, req.currentUser.id, provider);
       const buffer = await downloadFile(provider, row.access_token, fileId);
+      await assertStorageAllowance(db, req.currentUser.id, buffer.length);
+
+      const mime = ext === '.pdf' ? 'application/pdf' : ext === '.docx' ? DOCX_MIME : 'text/plain';
+      const stored = await saveFile(buffer, name, mime);
+      const text = await extractText(buffer, name);
+      const id = newId('up');
+      await db.query(
+        `INSERT INTO uploads (id, user_id, file_name, size_bytes, mime, storage, storage_key, url, extracted_text)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [id, req.currentUser.id, name, buffer.length, mime, stored.storage, stored.key, stored.url, text],
+      );
+
+      reply.code(201);
+      return { id, fileName: name, fileSize: formatSize(buffer.length), url: stored.url };
+    },
+  );
+
+  // Cookie-free Google Drive fallback: import by a pasted share link. Keeps
+  // the drive.file philosophy (only files the user explicitly chose): first a
+  // token attempt (previously picked files), then the public
+  // "anyone with the link" download. No Google verification required.
+  app.post(
+    '/integrations/google-drive/import-link',
+    { preHandler: [app.authenticateReal], config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
+    async (req, reply) => {
+      const body = asObject(req.body);
+      const link = parseDriveLink(requireString(body, 'url', { min: 10, max: 2000 }));
+      if (!link) {
+        throw badRequest('Не похоже на ссылку Google Drive / Google Docs. / Not a Google Drive / Docs link.');
+      }
+
+      let buffer: Buffer | null = null;
+      let name: string | null = null;
+
+      // 1) Authenticated attempt — works for files already picked/imported.
+      try {
+        const row = await ensureAccessToken(db, req.currentUser.id, 'google-drive');
+        const headers = { Authorization: `Bearer ${row.access_token}` };
+        if (link.kind === 'doc') {
+          const r = await fetch(
+            `https://www.googleapis.com/drive/v3/files/${link.id}/export?mimeType=${encodeURIComponent(DOCX_MIME)}`,
+            { headers },
+          );
+          if (r.ok) buffer = Buffer.from(await r.arrayBuffer());
+        } else {
+          const meta = await fetch(`https://www.googleapis.com/drive/v3/files/${link.id}?fields=name`, { headers });
+          if (meta.ok) name = ((await meta.json()) as { name?: string }).name ?? null;
+          const r = await fetch(`https://www.googleapis.com/drive/v3/files/${link.id}?alt=media`, { headers });
+          if (r.ok) buffer = Buffer.from(await r.arrayBuffer());
+        }
+      } catch {
+        /* Drive not connected — the public path below still works. */
+      }
+
+      // 2) Public "anyone with the link" download.
+      if (!buffer || buffer.length === 0) {
+        const publicUrl =
+          link.kind === 'doc'
+            ? `https://docs.google.com/document/d/${link.id}/export?format=docx`
+            : `https://drive.google.com/uc?export=download&id=${link.id}`;
+        const r = await fetch(publicUrl, { redirect: 'follow' });
+        const type = r.headers.get('content-type') ?? '';
+        // An HTML body is Google's sign-in / error page, not the file.
+        if (r.ok && !type.includes('text/html')) {
+          buffer = Buffer.from(await r.arrayBuffer());
+          name ??= filenameFromDisposition(r.headers.get('content-disposition'));
+        }
+      }
+
+      if (!buffer || buffer.length === 0) {
+        throw badRequest(
+          'Файл недоступен. Откройте в Google Drive доступ «Все, у кого есть ссылка» и попробуйте снова. / ' +
+            'File not accessible — set link sharing to “Anyone with the link” and retry.',
+        );
+      }
+      if (buffer.length > MAX_UPLOAD_BYTES) throw badRequest('Файл больше 10 МБ. / File is over 10 MB.');
+
+      name ??= link.kind === 'doc' ? `google-doc-${link.id.slice(0, 8)}.docx` : `drive-${link.id.slice(0, 8)}.pdf`;
+      if (link.kind === 'doc' && !/\.docx$/i.test(name)) name += '.docx';
+      const ext = fileExtension(name);
+      if (!ALLOWED_EXTENSIONS.includes(ext)) {
+        throw badRequest(`Неподдерживаемый тип файла. Можно: ${ALLOWED_EXTENSIONS.join(', ')}`);
+      }
+      // Magic-byte check — also rejects any interstitial page that slipped through.
+      assertValidFileContent(buffer, name);
       await assertStorageAllowance(db, req.currentUser.id, buffer.length);
 
       const mime = ext === '.pdf' ? 'application/pdf' : ext === '.docx' ? DOCX_MIME : 'text/plain';

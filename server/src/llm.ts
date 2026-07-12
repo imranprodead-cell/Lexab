@@ -11,8 +11,9 @@
  * still works end-to-end.
  */
 import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 import { config } from './config.ts';
-import { serviceUnavailable } from './lib/errors.ts';
+import { HttpError, serviceUnavailable } from './lib/errors.ts';
 import {
   fallbackAnalysis,
   fallbackChatReply,
@@ -28,6 +29,101 @@ function getClient(): Anthropic | null {
   if (!config.anthropicApiKey) return null;
   if (!client) client = new Anthropic({ apiKey: config.anthropicApiKey });
   return client;
+}
+
+/* ── DeepSeek (OpenAI-compatible) — the cheap Free-plan model ─────────────────
+   Models whose id contains "deepseek" route here; everything else stays on
+   Anthropic. DEEPSEEK_BASE_URL may point at api.deepseek.com or at a western
+   host serving the open weights (recommended for confidentiality). */
+
+let dsClient: OpenAI | null = null;
+function getDeepseek(): OpenAI | null {
+  if (!config.deepseekApiKey) return null;
+  if (!dsClient) dsClient = new OpenAI({ apiKey: config.deepseekApiKey, baseURL: config.deepseekBaseUrl });
+  return dsClient;
+}
+
+/** Which provider serves this model id. */
+export function isDeepSeekModel(model: string): boolean {
+  return model.toLowerCase().includes('deepseek');
+}
+
+/** At least one generation provider is configured. */
+function hasAnyLlm(): boolean {
+  return Boolean(config.anthropicApiKey || config.deepseekApiKey);
+}
+
+/** Honest 422 when DeepSeek gets a file with no extractable text (a scan). */
+const SCAN_NEEDS_TEXT =
+  'Из этого файла не удалось извлечь текст (похоже, PDF-скан). Загрузите DOCX/TXT или PDF с текстовым слоем. / ' +
+  'No machine-readable text in this file (likely a scanned PDF). Upload a DOCX/TXT or a text-layer PDF.';
+
+/**
+ * DeepSeek returns JSON via `json_object` mode (no server-side schema
+ * enforcement), so the model may wrap it in fences or prose — cut out the
+ * outermost object before parsing. Exported for unit tests.
+ */
+export function extractJsonObject(text: string): unknown {
+  const cleaned = text
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/, '');
+  const start = cleaned.indexOf('{');
+  const end = cleaned.lastIndexOf('}');
+  if (start === -1 || end <= start) throw new Error('no JSON object in model response');
+  return JSON.parse(cleaned.slice(start, end + 1));
+}
+
+interface DeepseekCall {
+  op: string;
+  model: string;
+  maxTokens: number;
+  system: string;
+  messages: { role: 'user' | 'assistant'; content: string }[];
+  /** JSON output: json_object mode + the schema embedded in the system prompt. */
+  schema?: Record<string, unknown>;
+  /** Streaming: fires per text delta (chat). */
+  onToken?: (delta: string) => void;
+}
+
+/** One DeepSeek chat-completions call (streamed or not); returns the full text. */
+async function runDeepseek(call: DeepseekCall): Promise<string> {
+  const api = getDeepseek();
+  if (!api) throw new Error('DEEPSEEK_API_KEY is not set');
+  const system = call.schema
+    ? `${call.system}\n\nReturn ONLY one valid JSON object that conforms to this JSON Schema — no markdown fences, no commentary before or after:\n${JSON.stringify(call.schema)}`
+    : call.system;
+  const params = {
+    model: call.model,
+    max_tokens: Math.min(call.maxTokens, 8000),
+    messages: [{ role: 'system' as const, content: system }, ...call.messages],
+    ...(call.schema ? { response_format: { type: 'json_object' as const } } : {}),
+  };
+
+  if (call.onToken) {
+    const stream = await api.chat.completions.create({ ...params, stream: true });
+    let full = '';
+    for await (const chunk of stream) {
+      const delta = chunk.choices[0]?.delta?.content ?? '';
+      if (delta) {
+        full += delta;
+        call.onToken(delta);
+      }
+    }
+    if (!full.trim()) throw new Error('empty response');
+    console.log(`[llm] ${call.op}: ${call.model} (DeepSeek, streamed ${full.length} chars)`);
+    return full;
+  }
+
+  const res = await api.chat.completions.create(params);
+  const text = res.choices[0]?.message?.content ?? '';
+  const u = res.usage as (typeof res.usage & { prompt_cache_hit_tokens?: number }) | undefined;
+  console.log(
+    `[llm] ${call.op}: ${call.model} (DeepSeek), in ${u?.prompt_tokens ?? '?'} / out ${u?.completion_tokens ?? '?'} tokens` +
+      (u?.prompt_cache_hit_tokens ? `, cache hit ${u.prompt_cache_hit_tokens}` : ''),
+  );
+  if (!text.trim()) throw new Error('empty response');
+  return text;
 }
 
 /**
@@ -111,6 +207,9 @@ async function withModelRetry<T>(model: string, run: (model: string) => Promise<
   try {
     return await run(model);
   } catch (err) {
+    // A deliberate user-facing error (e.g. scanned PDF on the DeepSeek path)
+    // is not a model outage — surface it instead of retrying elsewhere.
+    if (err instanceof HttpError) throw err;
     if (model === config.anthropicModel) throw err;
     console.warn(`[llm] ${model} failed (${(err as Error).message}); retrying on ${config.anthropicModel}`);
     return run(config.anthropicModel);
@@ -241,45 +340,69 @@ Produce tracked redlines: quote the exact problematic wording as delText, and pr
 Reproduce ONLY the clauses that contain redlines in the document array: a heading block (numbered, e.g. "5.  Termination") followed by a paragraph block whose segments interleave the surrounding original text with a single {redlineId} slot where the change belongs. Every redline id must appear in exactly one slot and every slot must reference an existing redline.
 Keep it tight: 3–6 findings, 2–5 redlines, and one heading+paragraph pair per redline.`;
 
+/** User-prompt text for the analysis request — shared by both providers. */
+function buildAnalysisPrompt(input: AnalysisInput, text: string | null): string {
+  const jurisdictionNote = input.jurisdiction
+    ? `\n\nThe user's default jurisdiction is ${input.jurisdiction}. Review under that law (and cite its statutes/case law) unless the contract explicitly states a different governing law.`
+    : '';
+  // RAG: verified provisions from the official corpus. Findings that rest on
+  // one of them must reference it via unitId — the citation validator then
+  // confirms or demotes each finding (rule enforced in code, see Этап 4).
+  const contextNote = input.legalContext?.length
+    ? `\n\nLEGAL CONTEXT — verified provisions from official sources. When a finding relies on one of them, set its unitId to the id in square brackets. Never invent ids; use "" when none of these provisions applies.\n` +
+      input.legalContext
+        .map((c) => `[${c.unitId}] ${c.breadcrumb}\n${c.body.slice(0, 900)}`)
+        .join('\n---\n')
+    : '';
+  return (
+    (text
+      ? `File name: ${input.fileName}\n\nContract text:\n<<<\n${text}\n>>>`
+      : `File name: ${input.fileName}\n\nNo machine-readable text could be extracted from this file. Infer the contract type from the file name and produce a realistic, jurisdiction-appropriate risk review of a typical contract of that type.`) +
+    jurisdictionNote +
+    contextNote
+  );
+}
+
 export async function generateAnalysis(input: AnalysisInput): Promise<GeneratedAnalysis> {
-  const api = getClient();
-  if (!api) {
+  if (!hasAnyLlm()) {
     if (llmFallbackAllowed()) return fallbackAnalysis(input.fileName, input.jurisdiction);
     throw serviceUnavailable(LLM_UNAVAILABLE);
   }
 
   try {
-    const content: Anthropic.Beta.BetaContentBlockParam[] = [];
-    if (input.pdf) {
-      content.push({
-        type: 'document',
-        source: { type: 'base64', media_type: 'application/pdf', data: input.pdf.toString('base64') },
-      });
-    }
-    const text = input.text?.slice(0, 150_000);
-    const jurisdictionNote = input.jurisdiction
-      ? `\n\nThe user's default jurisdiction is ${input.jurisdiction}. Review under that law (and cite its statutes/case law) unless the contract explicitly states a different governing law.`
-      : '';
-    // RAG: verified provisions from the official corpus. Findings that rest on
-    // one of them must reference it via unitId — the citation validator then
-    // confirms or demotes each finding (rule enforced in code, see Этап 4).
-    const contextNote = input.legalContext?.length
-      ? `\n\nLEGAL CONTEXT — verified provisions from official sources. When a finding relies on one of them, set its unitId to the id in square brackets. Never invent ids; use "" when none of these provisions applies.\n` +
-        input.legalContext
-          .map((c) => `[${c.unitId}] ${c.breadcrumb}\n${c.body.slice(0, 900)}`)
-          .join('\n---\n')
-      : '';
-    content.push({
-      type: 'text',
-      text:
-        (text
-          ? `File name: ${input.fileName}\n\nContract text:\n<<<\n${text}\n>>>`
-          : `File name: ${input.fileName}\n\nNo machine-readable text could be extracted from this file. Infer the contract type from the file name and produce a realistic, jurisdiction-appropriate risk review of a typical contract of that type.`) +
-        jurisdictionNote +
-        contextNote,
-    });
+    const text = input.text?.slice(0, 150_000) ?? null;
+    const prompt = buildAnalysisPrompt(input, text);
 
     return await withModelRetry(modelForPlan(input.plan), async (model) => {
+      // ── DeepSeek path (Free plan): text-only. No visual PDF reading, so a
+      // scan without a text layer fails honestly instead of fabricating.
+      if (isDeepSeekModel(model)) {
+        if (!text?.trim()) throw new HttpError(422, SCAN_NEEDS_TEXT);
+        const raw = await runDeepseek({
+          op: 'analysis',
+          model,
+          maxTokens: 8000,
+          system: ANALYSIS_SYSTEM,
+          schema: ANALYSIS_SCHEMA as unknown as Record<string, unknown>,
+          messages: [{ role: 'user', content: prompt }],
+        });
+        const parsed = extractJsonObject(raw) as GeneratedAnalysis;
+        assertAnalysisShape(parsed); // malformed JSON → throw → retry on Anthropic
+        return normalizeGenerated(parsed);
+      }
+
+      // ── Anthropic path: native PDF blocks (scans read visually).
+      const api = getClient();
+      if (!api) throw new Error('ANTHROPIC_API_KEY is not set');
+      const content: Anthropic.Beta.BetaContentBlockParam[] = [];
+      if (input.pdf) {
+        content.push({
+          type: 'document',
+          source: { type: 'base64', media_type: 'application/pdf', data: input.pdf.toString('base64') },
+        });
+      }
+      content.push({ type: 'text', text: prompt });
+
       const stream = startStream(api, {
         op: 'analysis',
         model,
@@ -292,11 +415,14 @@ export async function generateAnalysis(input: AnalysisInput): Promise<GeneratedA
       logUsage('analysis', model, message);
       if (message.stop_reason === 'refusal') throw new Error('model refused the request');
 
-      const text = textOf(message);
-      if (!text) throw new Error('no text block in response');
-      return normalizeGenerated(JSON.parse(text));
+      const out = textOf(message);
+      if (!out) throw new Error('no text block in response');
+      return normalizeGenerated(JSON.parse(out));
     });
   } catch (err) {
+    // Deliberate user-facing errors (scanned PDF) surface as-is — even the dev
+    // fallback must not paper over them with a fabricated review.
+    if (err instanceof HttpError && err.status < 500) throw err;
     if (llmFallbackAllowed()) {
       console.warn(`[llm] analysis generation failed, using dev fallback: ${(err as Error).message}`);
       return fallbackAnalysis(input.fileName, input.jurisdiction);
@@ -304,6 +430,31 @@ export async function generateAnalysis(input: AnalysisInput): Promise<GeneratedA
     console.error(`[llm] analysis generation failed (failing loud, no fabrication): ${(err as Error).message}`);
     throw serviceUnavailable(LLM_UNAVAILABLE);
   }
+}
+
+/**
+ * Strict shape check for JSON coming from DeepSeek (json_object mode enforces
+ * only syntax — the schema lives in the prompt, unlike Anthropic's server-side
+ * structured outputs). A malformed object must throw HERE, inside the retry
+ * closure, so the cross-provider retry fires — otherwise NaN/undefined would
+ * survive normalization and only explode later at the NOT NULL database layer.
+ */
+function assertAnalysisShape(raw: GeneratedAnalysis): void {
+  const bad = (what: string): never => {
+    throw new Error(`malformed analysis JSON from model: ${what}`);
+  };
+  if (typeof raw.summary !== 'string' || !raw.summary.trim()) bad('summary');
+  if (!Number.isFinite(raw.riskScore)) bad('riskScore');
+  if (!Number.isFinite(raw.clausesReviewed)) bad('clausesReviewed');
+  if (!Array.isArray(raw.findings)) bad('findings');
+  for (const f of raw.findings) {
+    if (typeof f?.title !== 'string' || typeof f?.citation !== 'string') bad('finding item');
+  }
+  if (!Array.isArray(raw.redlines)) bad('redlines');
+  for (const r of raw.redlines) {
+    if (typeof r?.delText !== 'string' || typeof r?.insText !== 'string') bad('redline item');
+  }
+  if (!Array.isArray(raw.document)) bad('document');
 }
 
 /** Clamp and cross-check the model output before it becomes an API response. */
@@ -385,8 +536,7 @@ export async function generateChatReply(
   historySummary?: string | null,
   legalContext?: string | null,
 ): Promise<string> {
-  const api = getClient();
-  if (!api) {
+  if (!hasAnyLlm()) {
     if (!llmFallbackAllowed()) throw serviceUnavailable(LLM_UNAVAILABLE);
     const reply = fallbackChatReply(userText, Boolean(docContext));
     onToken?.(reply);
@@ -394,7 +544,7 @@ export async function generateChatReply(
   }
 
   try {
-    const messages: Anthropic.Beta.BetaMessageParam[] = [
+    const turns: { role: 'user' | 'assistant'; content: string }[] = [
       ...history.slice(-12).map((t) => ({ role: t.role, content: t.text })),
       { role: 'user' as const, content: userText },
     ];
@@ -431,9 +581,29 @@ export async function generateChatReply(
     // yet — a mid-stream retry would duplicate the visible reply.
     let streamed = false;
     const runChat = async (model: string): Promise<string> => {
+      // ── DeepSeek path: same system content flattened to one string (its API
+      // has no cache-control blocks — DeepSeek caches context automatically).
+      if (isDeepSeekModel(model)) {
+        return runDeepseek({
+          op: 'chat',
+          model,
+          maxTokens: 4096,
+          system: system.map((b) => b.text).join('\n\n'),
+          messages: turns,
+          onToken: onToken
+            ? (delta) => {
+                streamed = true;
+                onToken(delta);
+              }
+            : undefined,
+        });
+      }
+
+      const api = getClient();
+      if (!api) throw new Error('ANTHROPIC_API_KEY is not set');
       // effort 'medium': visibly faster replies at no extra cost — chat answers
       // are short and grounded, they don't need deep deliberation.
-      const stream = startStream(api, { op: 'chat', model, maxTokens: 4096, system, messages, effort: 'medium' });
+      const stream = startStream(api, { op: 'chat', model, maxTokens: 4096, system, messages: turns, effort: 'medium' });
       if (onToken) {
         stream.on('text', (delta) => {
           streamed = true;
@@ -465,35 +635,56 @@ export async function generateChatReply(
   }
 }
 
+const SUMMARY_SYSTEM =
+  'You maintain a running summary of a legal-assistant chat. Merge the previous summary with the new turns into ONE updated summary of at most 120 words, in the language of the conversation. Keep only what matters for future turns: document names, key facts and figures, legal positions taken, decisions made, open questions, user preferences. Output the summary only — no preamble.';
+
 /**
  * Rolling summary of older chat turns (context-window management): the last
  * ~10 messages reach the model verbatim, everything older is folded into one
- * short summary. Always runs on Haiku — fast and costs a fraction of a cent.
+ * short summary. Costs a fraction of a cent: Free-plan chats summarize on the
+ * Free model (DeepSeek when configured), while PAID plans stay pinned to
+ * Anthropic Haiku — a paying customer's conversation must never flow to a
+ * second provider just because the operator enabled DeepSeek for Free.
  * Non-fatal: on any failure the previous summary is kept.
  */
-export async function generateHistorySummary(prevSummary: string | null, dropped: ChatTurn[]): Promise<string | null> {
-  const api = getClient();
-  if (!api || dropped.length === 0) return prevSummary;
+export async function generateHistorySummary(
+  prevSummary: string | null,
+  dropped: ChatTurn[],
+  plan?: string | null,
+): Promise<string | null> {
+  if (!hasAnyLlm() || dropped.length === 0) return prevSummary;
+  const model = plan === 'Free' ? (config.planModels.Free ?? 'claude-haiku-4-5') : 'claude-haiku-4-5';
   try {
     const convo = dropped
       .map((t) => `${t.role === 'user' ? 'User' : 'LexAI'}: ${t.text}`)
       .join('\n')
       .slice(0, 30_000);
-    const stream = api.beta.messages.stream({
-      model: 'claude-haiku-4-5',
-      max_tokens: 500,
-      system:
-        'You maintain a running summary of a legal-assistant chat. Merge the previous summary with the new turns into ONE updated summary of at most 120 words, in the language of the conversation. Keep only what matters for future turns: document names, key facts and figures, legal positions taken, decisions made, open questions, user preferences. Output the summary only — no preamble.',
-      messages: [
-        {
-          role: 'user',
-          content: `${prevSummary ? `Previous summary:\n${prevSummary}\n\n` : ''}New turns to fold in:\n${convo}`,
-        },
-      ],
-    });
-    const message = await stream.finalMessage();
-    logUsage('history-summary', 'claude-haiku-4-5', message);
-    const text = textOf(message).trim();
+    const userContent = `${prevSummary ? `Previous summary:\n${prevSummary}\n\n` : ''}New turns to fold in:\n${convo}`;
+
+    let text: string;
+    if (isDeepSeekModel(model)) {
+      text = (
+        await runDeepseek({
+          op: 'history-summary',
+          model,
+          maxTokens: 500,
+          system: SUMMARY_SYSTEM,
+          messages: [{ role: 'user', content: userContent }],
+        })
+      ).trim();
+    } else {
+      const api = getClient();
+      if (!api) return prevSummary; // summary model unavailable — non-fatal
+      const stream = api.beta.messages.stream({
+        model,
+        max_tokens: 500,
+        system: SUMMARY_SYSTEM,
+        messages: [{ role: 'user', content: userContent }],
+      });
+      const message = await stream.finalMessage();
+      logUsage('history-summary', model, message);
+      text = textOf(message).trim();
+    }
     return text || prevSummary;
   } catch (err) {
     console.warn(`[llm] history summary failed (keeping previous): ${(err as Error).message}`);
@@ -542,6 +733,9 @@ const COMPARE_SCHEMA = {
   },
 } as const;
 
+const COMPARE_SYSTEM =
+  'You are LexAI, a senior contracts lawyer comparing two versions of the same contract. Identify every clause that was added, removed, or materially modified. Quote the clause text (trim to the relevant part, ≤ 60 words each side). Assess how each change shifts legal risk. Report 3–10 changes, most material first.';
+
 export async function generateCompare(
   textA: string,
   textB: string,
@@ -549,26 +743,53 @@ export async function generateCompare(
   nameB: string,
   plan?: string | null,
 ): Promise<CompareResult> {
-  const api = getClient();
-  if (!api) {
+  if (!hasAnyLlm()) {
     if (llmFallbackAllowed()) return fallbackCompare();
     throw serviceUnavailable(LLM_UNAVAILABLE);
   }
   try {
+    const userContent = `Version A (${nameA}):\n<<<\n${textA.slice(0, 60_000)}\n>>>\n\nVersion B (${nameB}):\n<<<\n${textB.slice(0, 60_000)}\n>>>`;
+
     return await withModelRetry(modelForPlan(plan), async (model) => {
+      if (isDeepSeekModel(model)) {
+        const raw = await runDeepseek({
+          op: 'compare',
+          model,
+          maxTokens: 8000,
+          system: COMPARE_SYSTEM,
+          schema: COMPARE_SCHEMA as unknown as Record<string, unknown>,
+          messages: [{ role: 'user', content: userContent }],
+        });
+        const parsed = extractJsonObject(raw) as CompareResult;
+        if (typeof parsed.summary !== 'string' || !Array.isArray(parsed.changes)) {
+          throw new Error('malformed compare JSON');
+        }
+        // Per-item shape check: the frontend diffs before/after with .split(),
+        // so an undefined field would crash the results render.
+        for (const c of parsed.changes) {
+          if (
+            typeof c?.heading !== 'string' ||
+            typeof c?.before !== 'string' ||
+            typeof c?.after !== 'string' ||
+            typeof c?.comment !== 'string' ||
+            !['added', 'removed', 'modified'].includes(c?.kind) ||
+            !SEVERITY.includes(c?.severity)
+          ) {
+            throw new Error('malformed compare change item');
+          }
+        }
+        return { summary: parsed.summary, changes: parsed.changes.slice(0, 12) };
+      }
+
+      const api = getClient();
+      if (!api) throw new Error('ANTHROPIC_API_KEY is not set');
       const stream = startStream(api, {
         op: 'compare',
         model,
         maxTokens: 16000,
-        system:
-          'You are LexAI, a senior contracts lawyer comparing two versions of the same contract. Identify every clause that was added, removed, or materially modified. Quote the clause text (trim to the relevant part, ≤ 60 words each side). Assess how each change shifts legal risk. Report 3–10 changes, most material first.',
+        system: COMPARE_SYSTEM,
         schema: COMPARE_SCHEMA as unknown as Record<string, unknown>,
-        messages: [
-          {
-            role: 'user',
-            content: `Version A (${nameA}):\n<<<\n${textA.slice(0, 60_000)}\n>>>\n\nVersion B (${nameB}):\n<<<\n${textB.slice(0, 60_000)}\n>>>`,
-          },
-        ],
+        messages: [{ role: 'user', content: userContent }],
       });
       const message = await stream.finalMessage();
       logUsage('compare', model, message);
@@ -598,36 +819,47 @@ export interface TemplateFields {
   details: string;
 }
 
+const TEMPLATE_SYSTEM =
+  'You are LexAI, a senior commercial contracts lawyer. Draft a complete, professionally structured contract from the given template type. Use numbered clauses with headings, defined terms, and jurisdiction-appropriate boilerplate (governing law, notices, entire agreement). Write in the language of the user-provided details (default: English). Output plain text only — no markdown syntax.';
+
 export async function generateTemplateDraft(
   templateName: string,
   templateDescription: string,
   fields: TemplateFields,
   plan?: string | null,
 ): Promise<string> {
-  const api = getClient();
-  if (!api) {
+  if (!hasAnyLlm()) {
     if (llmFallbackAllowed()) return fallbackTemplateDraft(templateName, fields);
     throw serviceUnavailable(LLM_UNAVAILABLE);
   }
   try {
-    return await withModelRetry(modelForPlan(plan), async (model) => {
-      const stream = startStream(api, {
-        op: 'template',
-        model,
-        maxTokens: 16000,
-        system:
-          'You are LexAI, a senior commercial contracts lawyer. Draft a complete, professionally structured contract from the given template type. Use numbered clauses with headings, defined terms, and jurisdiction-appropriate boilerplate (governing law, notices, entire agreement). Write in the language of the user-provided details (default: English). Output plain text only — no markdown syntax.',
-        messages: [
-          {
-            role: 'user',
-            content: `Template: ${templateName} — ${templateDescription}
+    const userContent = `Template: ${templateName} — ${templateDescription}
 Party A: ${fields.partyA}
 Party B: ${fields.partyB}
 Governing jurisdiction: ${fields.jurisdiction}
 Term / duration: ${fields.term}
-Additional requirements: ${fields.details || '—'}`,
-          },
-        ],
+Additional requirements: ${fields.details || '—'}`;
+
+    return await withModelRetry(modelForPlan(plan), async (model) => {
+      if (isDeepSeekModel(model)) {
+        const raw = await runDeepseek({
+          op: 'template',
+          model,
+          maxTokens: 8000,
+          system: TEMPLATE_SYSTEM,
+          messages: [{ role: 'user', content: userContent }],
+        });
+        return raw.trim();
+      }
+
+      const api = getClient();
+      if (!api) throw new Error('ANTHROPIC_API_KEY is not set');
+      const stream = startStream(api, {
+        op: 'template',
+        model,
+        maxTokens: 16000,
+        system: TEMPLATE_SYSTEM,
+        messages: [{ role: 'user', content: userContent }],
       });
       const message = await stream.finalMessage();
       logUsage('template', model, message);
@@ -714,25 +946,37 @@ export async function generateContractDraft(
   jurisdiction?: string | null,
   plan?: string | null,
 ): Promise<ContractDraft> {
-  const api = getClient();
-  if (!api) {
+  if (!hasAnyLlm()) {
     if (llmFallbackAllowed()) return fallbackContractDraft(prompt, jurisdiction);
     throw serviceUnavailable(LLM_UNAVAILABLE);
   }
   try {
+    const userContent = `${jurisdiction ? `Governing jurisdiction: ${jurisdiction}\n\n` : ''}Draft this contract:\n${prompt}`;
+
     return await withModelRetry(modelForPlan(plan), async (model) => {
+      if (isDeepSeekModel(model)) {
+        const raw = await runDeepseek({
+          op: 'draft',
+          model,
+          maxTokens: 8000,
+          system: DRAFT_SYSTEM,
+          schema: DRAFT_SCHEMA as unknown as Record<string, unknown>,
+          messages: [{ role: 'user', content: userContent }],
+        });
+        const draft = normalizeDraft(extractJsonObject(raw));
+        if (!draft.document.length) throw new Error('draft had no usable blocks');
+        return draft;
+      }
+
+      const api = getClient();
+      if (!api) throw new Error('ANTHROPIC_API_KEY is not set');
       const stream = startStream(api, {
         op: 'draft',
         model,
         maxTokens: 16000,
         system: DRAFT_SYSTEM,
         schema: DRAFT_SCHEMA as unknown as Record<string, unknown>,
-        messages: [
-          {
-            role: 'user',
-            content: `${jurisdiction ? `Governing jurisdiction: ${jurisdiction}\n\n` : ''}Draft this contract:\n${prompt}`,
-          },
-        ],
+        messages: [{ role: 'user', content: userContent }],
       });
       const message = await stream.finalMessage();
       logUsage('draft', model, message);

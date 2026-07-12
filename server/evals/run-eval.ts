@@ -21,8 +21,10 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 import { config } from '../src/config.ts';
 import { getDb, migrate, type Db } from '../src/db.ts';
+import { extractJsonObject, isDeepSeekModel } from '../src/llm.ts';
 import { resolveCitationText, retrieveLegalContext } from '../src/rag/retrieve.ts';
 import { validateFindings } from '../src/rag/validate-citations.ts';
 import type { Finding } from '../src/types.ts';
@@ -82,6 +84,33 @@ async function askModel(
   contextBlock: string | null,
   jurisdiction: string,
 ): Promise<{ title: string; citation: string; unitId?: string }[]> {
+  // DeepSeek path (same routing rule as the product, see src/llm.ts): JSON via
+  // json_object mode with the schema embedded in the system prompt.
+  if (isDeepSeekModel(model)) {
+    if (!config.deepseekApiKey) throw new Error('DEEPSEEK_API_KEY is not set');
+    const ds = new OpenAI({ apiKey: config.deepseekApiKey, baseURL: config.deepseekBaseUrl });
+    const res = await ds.chat.completions.create({
+      model,
+      max_tokens: 2000,
+      response_format: { type: 'json_object' },
+      messages: [
+        {
+          role: 'system',
+          content:
+            (ASK_SYSTEM[jurisdiction] ?? ASK_SYSTEM.UK) +
+            (contextBlock
+              ? ' Use ONLY the provisions in LEGAL CONTEXT for citations and set unitId to the id in square brackets ("" if none applies). Never invent ids.'
+              : '') +
+            `\nReturn ONLY one valid JSON object matching this JSON Schema — no fences, no commentary:\n${JSON.stringify(FINDINGS_SCHEMA(Boolean(contextBlock)))}`,
+        },
+        { role: 'user', content: contextBlock ? `${question}\n\nLEGAL CONTEXT:\n${contextBlock}` : question },
+      ],
+    });
+    const raw = res.choices[0]?.message?.content ?? '';
+    const parsed = extractJsonObject(raw) as { findings?: { title: string; citation: string; unitId?: string }[] };
+    return Array.isArray(parsed.findings) ? parsed.findings : [];
+  }
+
   const msg = await api.beta.messages.create({
     model,
     max_tokens: 2000,
