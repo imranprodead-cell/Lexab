@@ -60,4 +60,9 @@ export const authApi = {
   async resendVerify(): Promise<void> {
     await http<void>('/auth/verify/resend', { method: 'POST', body: {} });
   },
+
+  /** Exchange the one-time code from the Google callback (#code=) for a session. */
+  async exchangeGoogleCode(code: string): Promise<AuthSession> {
+    return http<AuthSession>('/auth/google/exchange', { method: 'POST', body: { code } });
+  },
 };

@@ -7,8 +7,8 @@ import type { Db } from '../../db.ts';
 import type { LegalUnit } from '../types.ts';
 
 export interface ParsedDocument {
-  docId: string; // deterministic: ld_uk_ukpga-1979-54 / ld_uz_111181
-  jurisdiction: 'UK' | 'UZ' | 'KZ';
+  docId: string; // deterministic: ld_uk_ukpga-1979-54 / ld_uz_111181 / ld_de_bgb
+  jurisdiction: 'UK' | 'UZ' | 'KZ' | 'DE' | 'US' | 'CA';
   officialSourceId: string;
   docType: 'act' | 'code' | 'regulation';
   title: string;

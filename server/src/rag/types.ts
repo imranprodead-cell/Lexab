@@ -1,6 +1,6 @@
 /** Legal RAG corpus types — mirror of migrations/014_rag_corpus.sql. */
 
-export type JurisdictionCode = 'UK' | 'UZ' | 'KZ';
+export type JurisdictionCode = 'UK' | 'UZ' | 'KZ' | 'DE' | 'US' | 'CA';
 
 export interface LegalDocument {
   id: string;

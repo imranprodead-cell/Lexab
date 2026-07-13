@@ -287,6 +287,10 @@ export function approvalRoutes(app: FastifyInstance, db: Db): void {
     const { token } = req.params as { token: string };
     const row = await findStepByToken(token);
     if (!row) throw notFound('Ссылка недействительна или маршрут отменён');
+    // Stop serving the document once the workflow is no longer active — a
+    // cancelled/completed/rejected flow must not keep exposing the contract to
+    // whoever holds (or forwarded) the link. Mirrors the POST guard below.
+    if (row.flow_status !== 'active') throw notFound('Ссылка недействительна или маршрут завершён');
 
     const steps = await flowSteps(db, row.flow_id);
     return {
@@ -316,10 +320,14 @@ export function approvalRoutes(app: FastifyInstance, db: Db): void {
       throw badRequest(row.status === 'waiting' ? 'Сейчас очередь предыдущего согласующего' : 'Решение по этому шагу уже принято');
     }
 
-    await db.query(
-      `UPDATE approval_steps SET status = $2, decided_at = now(), comment = $3 WHERE id = $1`,
+    // Atomic single-shot: the `AND status = 'pending'` guard collapses two
+    // concurrent decisions (e.g. approve + reject racing) into one — only the
+    // winner runs the branch below, so the chain can't double-advance.
+    const decided = await db.query(
+      `UPDATE approval_steps SET status = $2, decided_at = now(), comment = $3 WHERE id = $1 AND status = 'pending' RETURNING id`,
       [row.id, decision, comment],
     );
+    if (decided.rows.length === 0) throw badRequest('Решение по этому шагу уже принято');
 
     if (decision === 'rejected') {
       await db.query(`UPDATE approval_flows SET status = 'rejected' WHERE id = $1`, [row.flow_id]);

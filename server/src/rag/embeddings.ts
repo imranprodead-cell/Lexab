@@ -66,25 +66,40 @@ export const RERANK_MODEL = 'rerank-2.5-lite';
 /**
  * Cross-encoder rerank via Voyage. Returns indices of `documents` in relevance
  * order, or null on ANY failure (no key, 429, timeout, bad payload) — callers
- * must keep their original order then. Single attempt with a hard timeout:
- * this runs in the live request path of analyses and chat, a slow reranker
- * must never block a reply.
+ * must keep their original order then.
+ *
+ * By default this is a single attempt with a hard timeout: it runs in the live
+ * request path of analyses and chat, where a slow reranker must never block a
+ * reply. RERANK_MAX_RETRIES (default 0) opts into 429 backoff — used by the
+ * eval harness, whose back-to-back queries otherwise exhaust the Voyage
+ * free-tier rerank RPM and the metric then reflects RRF, not the real pipeline.
  */
+const RERANK_MAX_RETRIES = Math.max(0, Number(process.env.RERANK_MAX_RETRIES ?? 0));
+
 export async function rerankTexts(query: string, documents: string[], timeoutMs = 4000): Promise<number[] | null> {
   if (!embeddingsEnabled() || documents.length < 2) return null;
-  try {
-    const res = await fetch('https://api.voyageai.com/v1/rerank', {
-      method: 'POST',
-      headers: { authorization: `Bearer ${config.voyageApiKey}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ model: RERANK_MODEL, query: query.slice(0, 1500), documents }),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = (await res.json()) as { data?: { index: number; relevance_score: number }[] };
-    if (!Array.isArray(data.data) || data.data.length !== documents.length) return null;
-    return [...data.data].sort((a, b) => b.relevance_score - a.relevance_score).map((r) => r.index);
-  } catch (err) {
-    console.warn(`[rag] rerank skipped: ${(err as Error).message}`);
-    return null;
+  for (let attempt = 0; attempt <= RERANK_MAX_RETRIES; attempt++) {
+    try {
+      const res = await fetch('https://api.voyageai.com/v1/rerank', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${config.voyageApiKey}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ model: RERANK_MODEL, query: query.slice(0, 1500), documents }),
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (res.status === 429 && attempt < RERANK_MAX_RETRIES) throw new Error('HTTP 429 (retryable)');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = (await res.json()) as { data?: { index: number; relevance_score: number }[] };
+      if (!Array.isArray(data.data) || data.data.length !== documents.length) return null;
+      return [...data.data].sort((a, b) => b.relevance_score - a.relevance_score).map((r) => r.index);
+    } catch (err) {
+      const msg = (err as Error).message;
+      if (msg.includes('retryable')) {
+        await sleep(22_000); // Voyage free tier ~3 rerank req/min
+        continue;
+      }
+      console.warn(`[rag] rerank skipped: ${msg}`);
+      return null;
+    }
   }
+  return null;
 }

@@ -143,6 +143,85 @@ describe('authorization / IDOR', () => {
     const asOther = await app.inject({ method: 'GET', url: `/api/analysis/${analysisId}`, headers: auth(b.token) });
     assert.equal(asOther.statusCode, 404, "another user must not read it");
   });
+
+  it('GET /files/:key requires auth and enforces ownership', async () => {
+    const owner = await makeUser();
+    const other = await makeUser();
+    const key = 'k0123456789abcdef__contract.pdf';
+    const dir = path.join(process.env.DATA_DIR as string, 'uploads');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, key), Buffer.from('%PDF-1.4 test bytes'));
+    await db.query(
+      `INSERT INTO uploads (id, user_id, file_name, size_bytes, mime, storage, storage_key, url, extracted_text)
+       VALUES ($1, $2, $3, $4, $5, 'local', $6, $7, $8)`,
+      ['up_filetest', owner.id, 'contract.pdf', 19, 'application/pdf', key, `/api/files/${key}`, 'x'],
+    );
+
+    const anon = await app.inject({ method: 'GET', url: `/api/files/${key}` });
+    assert.equal(anon.statusCode, 401, 'no token → 401');
+    const foreign = await app.inject({ method: 'GET', url: `/api/files/${key}`, headers: auth(other.token) });
+    assert.equal(foreign.statusCode, 404, "another user must not download it");
+    const asOwner = await app.inject({ method: 'GET', url: `/api/files/${key}`, headers: auth(owner.token) });
+    assert.equal(asOwner.statusCode, 200, asOwner.body);
+  });
+});
+
+describe('login does not disclose which emails have accounts', () => {
+  it('unknown email and wrong password give the identical 401', async () => {
+    const u = await makeUser();
+    const wrong = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email: u.email, password: 'definitely-wrong' } });
+    const unknown = await app.inject({
+      method: 'POST',
+      url: '/api/auth/login',
+      payload: { email: `ghost_${Date.now()}@test.local`, password: 'definitely-wrong' },
+    });
+    assert.equal(wrong.statusCode, 401);
+    assert.equal(unknown.statusCode, 401);
+    assert.equal(JSON.parse(wrong.body).message, JSON.parse(unknown.body).message, 'same message → no enumeration');
+  });
+});
+
+describe('Google one-time login code', () => {
+  it('exchanges once, then the code is spent (single-use)', async () => {
+    const u = await makeUser();
+    const code = `testcode_${Date.now()}_${counter++}`;
+    await db.query('INSERT INTO login_codes (code, user_id) VALUES ($1, $2)', [code, u.id]);
+    const first = await app.inject({ method: 'POST', url: '/api/auth/google/exchange', payload: { code } });
+    assert.equal(first.statusCode, 200, first.body);
+    assert.ok(JSON.parse(first.body).token, 'exchange returns a session token');
+    const second = await app.inject({ method: 'POST', url: '/api/auth/google/exchange', payload: { code } });
+    assert.equal(second.statusCode, 400, 'a spent code must not work again');
+  });
+});
+
+describe('changing email requires re-verification', () => {
+  it('flips email_verified to false and blocks a taken address', async () => {
+    const u = await makeUser();
+    const other = await makeUser();
+    const newEmail = `moved_${Date.now()}_${counter++}@test.local`;
+    const res = await app.inject({ method: 'PATCH', url: '/api/me', headers: auth(u.token), payload: { email: newEmail } });
+    assert.equal(res.statusCode, 200, res.body);
+    const row = await db.query<{ email: string; email_verified: boolean }>(
+      'SELECT email, email_verified FROM users WHERE id = $1',
+      [u.id],
+    );
+    assert.equal(row.rows[0].email, newEmail);
+    assert.equal(row.rows[0].email_verified, false, 'a new address must be unverified');
+    const clash = await app.inject({ method: 'PATCH', url: '/api/me', headers: auth(u.token), payload: { email: other.email } });
+    assert.equal(clash.statusCode, 409, 'cannot take another account\'s email');
+  });
+});
+
+describe('registration does not reveal whether an email exists', () => {
+  it('a duplicate registration responds like a fresh one (no 409, no second account)', async () => {
+    const email = `dup_${Date.now()}_${counter++}@test.local`;
+    const first = await app.inject({ method: 'POST', url: '/api/auth/register', payload: { name: 'A', email, password: 'Passw0rd!123' } });
+    assert.equal(first.statusCode, 201, first.body);
+    const second = await app.inject({ method: 'POST', url: '/api/auth/register', payload: { name: 'B', email, password: 'Passw0rd!123' } });
+    assert.equal(second.statusCode, 201, 'a duplicate must not return 409 — that would be an existence oracle');
+    const rows = await db.query<{ c: string | number }>('SELECT count(*) AS c FROM users WHERE lower(email) = lower($1)', [email]);
+    assert.equal(Number(rows.rows[0].c), 1, 'no duplicate account is created');
+  });
 });
 
 describe('feedback validation', () => {

@@ -3,17 +3,30 @@
  * contracts@your-domain and it appears in LexAI, analysed").
  *
  * Provider-agnostic JSON shape (map your provider's inbound webhook to it):
- *   { "from": "user@firm.com", "subject": "...",
+ *   { "from": "user@firm.com", "subject": "...", "timestamp": 1700000000,
+ *     "spf": "pass", "dkim": "pass",
  *     "attachments": [{ "filename": "NDA.pdf", "contentBase64": "..." }] }
  *
- * Security: enabled only when INBOUND_EMAIL_TOKEN is set; the provider must
- * send it in the `X-Inbound-Token` header. The sender must match a registered
- * user's email — otherwise the message is acknowledged and dropped.
+ * Security (defence in depth):
+ *  - Enabled only when INBOUND_EMAIL_TOKEN is set; provider sends it as the
+ *    `X-Inbound-Token` header (compared in constant time).
+ *  - If INBOUND_EMAIL_SIGNING_SECRET is set, every call must carry a valid
+ *    `X-Inbound-Signature` = HMAC-SHA256(`${timestamp}.${from}.${sha256(contents)}`)
+ *    within a 5-minute window — so a LEAKED static token alone can't inject a
+ *    document under a spoofed sender, and captured calls can't be replayed with
+ *    swapped attachments.
+ *  - If INBOUND_REQUIRE_SPF_DKIM=true, the provider-asserted DMARC result must
+ *    be "pass" (DMARC is what enforces header-From alignment) — the routing
+ *    `from` is only trusted after that.
+ *  - Each attachment's bytes are validated against its extension.
+ * The sender must match a registered user's email — otherwise the message is
+ * acknowledged and dropped.
  */
+import crypto from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { config } from '../config.ts';
 import type { Db } from '../db.ts';
-import { ALLOWED_EXTENSIONS, extractText, fileExtension, MAX_UPLOAD_BYTES } from '../extract.ts';
+import { ALLOWED_EXTENSIONS, extractText, fileExtension, MAX_UPLOAD_BYTES, verifyFileSignature } from '../extract.ts';
 import { badRequest, notFound, unauthorized } from '../lib/errors.ts';
 import { formatSize } from '../lib/format.ts';
 import { newId } from '../lib/ids.ts';
@@ -24,13 +37,26 @@ import { getUserByEmail } from '../plugins/auth.ts';
 import { saveFile } from '../storage.ts';
 import { persistAnalysis } from './analysis.routes.ts';
 
+function headerStr(v: string | string[] | undefined): string {
+  return Array.isArray(v) ? (v[0] ?? '') : (v ?? '');
+}
+function safeEqual(a: string, b: string): boolean {
+  const ba = Buffer.from(a);
+  const bb = Buffer.from(b);
+  return ba.length === bb.length && crypto.timingSafeEqual(ba, bb);
+}
+function authResultPass(v: unknown): boolean {
+  return typeof v === 'string' && v.trim().toLowerCase() === 'pass';
+}
+
 export function inboundRoutes(app: FastifyInstance, db: Db): void {
   app.post(
     '/inbound/email',
     { config: { rateLimit: { max: 30, timeWindow: '1 minute' } } },
     async (req, reply) => {
       if (!config.inboundEmailToken) throw notFound('Inbound e-mail is not enabled');
-      if (req.headers['x-inbound-token'] !== config.inboundEmailToken) {
+      // Constant-time token compare — no timing oracle on the shared secret.
+      if (!safeEqual(headerStr(req.headers['x-inbound-token']), config.inboundEmailToken)) {
         throw unauthorized('Invalid inbound token');
       }
 
@@ -39,6 +65,34 @@ export function inboundRoutes(app: FastifyInstance, db: Db): void {
       const attachments = body.attachments;
       if (!Array.isArray(attachments) || attachments.length === 0) {
         throw badRequest('No attachments in the message');
+      }
+
+      // Optional HMAC signature: proves the request came from OUR provider
+      // mapping (not just someone who learned the static token) and pins it to
+      // this sender + payload inside a 5-minute window (anti-spoof + anti-replay).
+      if (config.inboundEmailSigningSecret) {
+        const sig = headerStr(req.headers['x-inbound-signature']);
+        const ts = Number(body.timestamp);
+        if (!sig || !Number.isFinite(ts)) throw unauthorized('Missing inbound signature');
+        if (Math.abs(Math.floor(Date.now() / 1000) - ts) > 300) throw unauthorized('Inbound signature expired');
+        const contentSha = crypto
+          .createHash('sha256')
+          .update(attachments.map((a) => String(a?.contentBase64 ?? '')).join('\n'))
+          .digest('hex');
+        const expected = crypto
+          .createHmac('sha256', config.inboundEmailSigningSecret)
+          .update(`${ts}.${from}.${contentSha}`)
+          .digest('hex');
+        if (!safeEqual(sig, expected)) throw unauthorized('Bad inbound signature');
+      }
+
+      // Optional sender-authentication gate. Require DMARC pass specifically —
+      // it is the only result that guarantees the *header From* (which we route
+      // on) is aligned with an authenticated domain. SPF authenticates only the
+      // envelope sender, and DKIM only proves *some* domain signed it, so either
+      // alone would let an attacker forge From: victim@firm.com.
+      if (config.inboundRequireAuth && !authResultPass(body.dmarc)) {
+        throw unauthorized('Sender authentication (DMARC alignment) did not pass');
       }
 
       const user = await getUserByEmail(db, from);
@@ -59,6 +113,12 @@ export function inboundRoutes(app: FastifyInstance, db: Db): void {
         const buffer = Buffer.from(requireString(att, 'contentBase64', { min: 4 }), 'base64');
         if (buffer.length === 0 || buffer.length > MAX_UPLOAD_BYTES) {
           results.push({ fileName, error: 'empty or over 10 MB' });
+          continue;
+        }
+        // Bytes must match the declared extension — a renamed binary/script must
+        // never be stored as a "contract".
+        if (!verifyFileSignature(buffer, fileName)) {
+          results.push({ fileName, error: 'content does not match file type' });
           continue;
         }
 

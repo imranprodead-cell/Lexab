@@ -23,6 +23,8 @@ interface RecipientRow {
   signed_at: Date | string | null;
   document_name: string;
   status: string;
+  content_snapshot: string | null;
+  document_id: string | null;
   owner_id: string;
   owner_name: string;
   owner_firm: string;
@@ -32,18 +34,25 @@ interface RecipientRow {
 async function findByToken(db: Db, token: string): Promise<RecipientRow | null> {
   const res = await db.query<RecipientRow>(
     `SELECT r.ord AS id, r.request_id, r.name, r.email, r.signed, r.signed_at,
-            q.document_name, q.status, u.id AS owner_id, u.name AS owner_name, u.firm AS owner_firm, u.email AS owner_email
+            q.document_name, q.status, q.content_snapshot, q.document_id,
+            u.id AS owner_id, u.name AS owner_name, u.firm AS owner_firm, u.email AS owner_email
      FROM signature_recipients r
      JOIN signature_requests q ON q.id = r.request_id
      JOIN users u ON u.id = q.user_id
-     WHERE r.token = $1`,
+     WHERE r.token = $1 AND q.created_at > now() - interval '30 days'`,
     [token],
   );
   return res.rows[0] ?? null;
 }
 
-/** Latest analysed text of the owner's document, redlines applied. */
-async function documentText(db: Db, ownerId: string, fileName: string): Promise<string | null> {
+/**
+ * Render the owner's document text (redlines applied) for signing. Captured
+ * ONCE at request creation into signature_requests.content_snapshot; the
+ * GET/POST handlers serve that frozen snapshot so a signer can't be shown one
+ * text and recorded as signing another. This live renderer is the fallback for
+ * requests created before snapshots existed.
+ */
+export async function renderSignableText(db: Db, ownerId: string, fileName: string): Promise<string | null> {
   const a = await db.query<{ id: string; document_blocks: DocBlock[] | string }>(
     `SELECT id, document_blocks FROM analyses
      WHERE user_id = $1 AND file_name = $2 ORDER BY created_at DESC LIMIT 1`,
@@ -98,7 +107,7 @@ export function signRoutes(app: FastifyInstance, db: Db): void {
       recipient: { name: row.name, email: row.email },
       signed: row.signed,
       signedAt: row.signed_at ? toIso(row.signed_at) : null,
-      documentText: await documentText(db, row.owner_id, row.document_name),
+      documentText: row.content_snapshot ?? (await renderSignableText(db, row.owner_id, row.document_name)),
     };
   });
 
@@ -111,10 +120,16 @@ export function signRoutes(app: FastifyInstance, db: Db): void {
     if (!row) throw notFound('Ссылка недействительна или запрос отозван');
     if (row.signed) throw badRequest('Документ уже подписан этой ссылкой');
 
-    await db.query(
-      `UPDATE signature_recipients SET signed = true, signed_at = now(), signature_name = $2 WHERE token = $1`,
+    // Atomic single-shot claim: the `AND signed = false` guard makes two
+    // concurrent POSTs for the same token collapse to one — only the request
+    // that flips the row proceeds; the loser gets 0 rows and stops, so the
+    // completion side effects (emails/notifications) can't fire twice.
+    const claimed = await db.query(
+      `UPDATE signature_recipients SET signed = true, signed_at = now(), signature_name = $2
+       WHERE token = $1 AND signed = false RETURNING ord`,
       [token, name],
     );
+    if (claimed.rows.length === 0) throw badRequest('Документ уже подписан этой ссылкой');
 
     const left = await db.query<{ count: string | number }>(
       'SELECT count(*) AS count FROM signature_recipients WHERE request_id = $1 AND signed = false',
@@ -123,11 +138,16 @@ export function signRoutes(app: FastifyInstance, db: Db): void {
     const remaining = Number(left.rows[0]?.count ?? 0);
     if (remaining === 0) {
       await db.query(`UPDATE signature_requests SET status = 'Completed' WHERE id = $1`, [row.request_id]);
-      // The contract itself is now fully signed — reflect it on the Documents page.
-      await db.query(
-        `UPDATE documents SET status = 'Signed', updated_at = now() WHERE user_id = $1 AND name = $2`,
-        [row.owner_id, row.document_name],
-      );
+      // Mark THIS document signed — by id when the request is bound to one, so a
+      // different document that merely shares the name isn't touched.
+      if (row.document_id) {
+        await db.query(`UPDATE documents SET status = 'Signed', updated_at = now() WHERE id = $1`, [row.document_id]);
+      } else {
+        await db.query(
+          `UPDATE documents SET status = 'Signed', updated_at = now() WHERE user_id = $1 AND name = $2`,
+          [row.owner_id, row.document_name],
+        );
+      }
       await notify(db, row.owner_id, 'esign', 'Все подписи получены', 'All signatures collected', {
         bodyRu: `${row.document_name} · последняя подпись: ${name}`,
         bodyEn: `${row.document_name} · last signed by ${name}`,
@@ -153,8 +173,9 @@ export function signRoutes(app: FastifyInstance, db: Db): void {
       });
     }
 
-    // Signer's copy: confirmation + the document text they agreed to.
-    const text = await documentText(db, row.owner_id, row.document_name);
+    // Signer's copy: confirmation + the EXACT text they agreed to (the frozen
+    // snapshot, not a possibly-since-edited live render).
+    const text = row.content_snapshot ?? (await renderSignableText(db, row.owner_id, row.document_name));
     const docHtml = text
       ? `<div style="margin-top:14px;padding:16px 18px;border:1px solid #e6e3f2;border-radius:12px;background:#faf9fe;font-family:Georgia,serif;font-size:13px;line-height:1.7;white-space:pre-wrap;color:#3b3552;">${escapeMailHtml(text.slice(0, 20000))}</div>`
       : '';

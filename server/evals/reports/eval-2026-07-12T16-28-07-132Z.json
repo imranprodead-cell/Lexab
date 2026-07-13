@@ -1,0 +1,21 @@
+{
+  "at": "2026-07-12T16:13:13.184Z",
+  "model": "deepseek-v4-pro",
+  "golden": "kz-contract-law.jsonl",
+  "questions": 14,
+  "retrieval": {
+    "hit@5": 0.857,
+    "hit@10": 1,
+    "recall@10": 0.964
+  },
+  "baseline": {
+    "findings": 29,
+    "citationPrecision": 0.586,
+    "unverifiedShare": 0.414
+  },
+  "rag": {
+    "findings": 29,
+    "citationPrecision": 1,
+    "unverifiedShare": 0
+  }
+}

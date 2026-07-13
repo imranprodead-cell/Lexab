@@ -22,9 +22,9 @@ import { filenameFromDisposition, parseDriveLink } from '../lib/driveLink.ts';
 import { badRequest, HttpError, notFound } from '../lib/errors.ts';
 import { formatSize } from '../lib/format.ts';
 import { newId } from '../lib/ids.ts';
-import { assertStorageAllowance } from '../lib/limits.ts';
+import { assertStorageAllowance, withStorageReservation } from '../lib/limits.ts';
 import { asObject, requireString } from '../lib/validate.ts';
-import { saveFile } from '../storage.ts';
+import { deleteFile, saveFile } from '../storage.ts';
 
 type Provider = 'google-drive' | 'microsoft' | 'dropbox';
 const PROVIDERS: Provider[] = ['google-drive', 'microsoft', 'dropbox'];
@@ -304,6 +304,35 @@ async function listFiles(provider: Provider, accessToken: string, search: string
     }));
 }
 
+/**
+ * Read an HTTP response body into a Buffer WITHOUT ever buffering more than
+ * `max` bytes: rejects up front on an oversized Content-Length, and streams the
+ * body while counting, aborting the moment the running total crosses the cap.
+ * Prevents a provider-hosted multi-GB file from OOM-ing the process (the old
+ * `res.arrayBuffer()` buffered the whole body before any size check).
+ */
+async function readBodyCapped(res: Response, max: number): Promise<Buffer> {
+  const declared = Number(res.headers.get('content-length'));
+  if (Number.isFinite(declared) && declared > max) {
+    throw badRequest('Файл больше 10 МБ — уменьшите его или загрузите вручную');
+  }
+  if (!res.body) return Buffer.alloc(0);
+  const reader = res.body.getReader();
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > max) {
+      await reader.cancel().catch(() => {});
+      throw badRequest('Файл больше 10 МБ — уменьшите его или загрузите вручную');
+    }
+    chunks.push(Buffer.from(value));
+  }
+  return Buffer.concat(chunks);
+}
+
 async function downloadFile(provider: Provider, accessToken: string, fileId: string): Promise<Buffer> {
   let res: Response;
   if (provider === 'google-drive') {
@@ -331,9 +360,7 @@ async function downloadFile(provider: Provider, accessToken: string, fileId: str
     });
   }
   if (!res.ok) throw new HttpError(502, `Не удалось скачать файл у провайдера (${res.status}) / Cloud download failed`);
-  const bytes = Buffer.from(await res.arrayBuffer());
-  if (bytes.length > MAX_UPLOAD_BYTES) throw badRequest('Файл больше 10 МБ — уменьшите его или загрузите вручную');
-  return bytes;
+  return readBodyCapped(res, MAX_UPLOAD_BYTES);
 }
 
 export function integrationRoutes(app: FastifyInstance, db: Db): void {
@@ -488,16 +515,28 @@ export function integrationRoutes(app: FastifyInstance, db: Db): void {
 
       const row = await ensureAccessToken(db, req.currentUser.id, provider);
       const buffer = await downloadFile(provider, row.access_token, fileId);
+      // The declared name/extension isn't trustworthy — verify the bytes match,
+      // same as /uploads and the link-import path (defence in depth).
+      assertValidFileContent(buffer, name);
       await assertStorageAllowance(db, req.currentUser.id, buffer.length);
 
       const mime = ext === '.pdf' ? 'application/pdf' : ext === '.docx' ? DOCX_MIME : 'text/plain';
       const stored = await saveFile(buffer, name, mime);
       const text = await extractText(buffer, name);
       const id = newId('up');
-      await db.query(
-        `INSERT INTO uploads (id, user_id, file_name, size_bytes, mime, storage, storage_key, url, extracted_text)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-        [id, req.currentUser.id, name, buffer.length, mime, stored.storage, stored.key, stored.url, text],
+      await withStorageReservation(
+        db,
+        req.currentUser.id,
+        buffer.length,
+        (tx) =>
+          tx
+            .query(
+              `INSERT INTO uploads (id, user_id, file_name, size_bytes, mime, storage, storage_key, url, extracted_text)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+              [id, req.currentUser.id, name, buffer.length, mime, stored.storage, stored.key, stored.url, text],
+            )
+            .then(() => undefined),
+        () => deleteFile(stored.storage, stored.key),
       );
 
       reply.code(201);
@@ -531,12 +570,12 @@ export function integrationRoutes(app: FastifyInstance, db: Db): void {
             `https://www.googleapis.com/drive/v3/files/${link.id}/export?mimeType=${encodeURIComponent(DOCX_MIME)}`,
             { headers },
           );
-          if (r.ok) buffer = Buffer.from(await r.arrayBuffer());
+          if (r.ok) buffer = await readBodyCapped(r, MAX_UPLOAD_BYTES);
         } else {
           const meta = await fetch(`https://www.googleapis.com/drive/v3/files/${link.id}?fields=name`, { headers });
           if (meta.ok) name = ((await meta.json()) as { name?: string }).name ?? null;
           const r = await fetch(`https://www.googleapis.com/drive/v3/files/${link.id}?alt=media`, { headers });
-          if (r.ok) buffer = Buffer.from(await r.arrayBuffer());
+          if (r.ok) buffer = await readBodyCapped(r, MAX_UPLOAD_BYTES);
         }
       } catch {
         /* Drive not connected — the public path below still works. */
@@ -552,7 +591,7 @@ export function integrationRoutes(app: FastifyInstance, db: Db): void {
         const type = r.headers.get('content-type') ?? '';
         // An HTML body is Google's sign-in / error page, not the file.
         if (r.ok && !type.includes('text/html')) {
-          buffer = Buffer.from(await r.arrayBuffer());
+          buffer = await readBodyCapped(r, MAX_UPLOAD_BYTES);
           name ??= filenameFromDisposition(r.headers.get('content-disposition'));
         }
       }
@@ -579,10 +618,19 @@ export function integrationRoutes(app: FastifyInstance, db: Db): void {
       const stored = await saveFile(buffer, name, mime);
       const text = await extractText(buffer, name);
       const id = newId('up');
-      await db.query(
-        `INSERT INTO uploads (id, user_id, file_name, size_bytes, mime, storage, storage_key, url, extracted_text)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-        [id, req.currentUser.id, name, buffer.length, mime, stored.storage, stored.key, stored.url, text],
+      await withStorageReservation(
+        db,
+        req.currentUser.id,
+        buffer.length,
+        (tx) =>
+          tx
+            .query(
+              `INSERT INTO uploads (id, user_id, file_name, size_bytes, mime, storage, storage_key, url, extracted_text)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+              [id, req.currentUser.id, name, buffer.length, mime, stored.storage, stored.key, stored.url, text],
+            )
+            .then(() => undefined),
+        () => deleteFile(stored.storage, stored.key),
       );
 
       reply.code(201);

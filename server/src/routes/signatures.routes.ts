@@ -12,6 +12,7 @@ import { assertFeature } from '../lib/limits.ts';
 import { notify } from '../lib/notify.ts';
 import { asObject, requireString } from '../lib/validate.ts';
 import { getUserByEmail } from '../plugins/auth.ts';
+import { renderSignableText } from './sign.routes.ts';
 import { readFileBytes, saveFile } from '../storage.ts';
 import type { SignatureRecipient, SignatureRequest } from '../types.ts';
 
@@ -58,13 +59,17 @@ export function signatureRoutes(app: FastifyInstance, db: Db): void {
     const documentName = requireString(body, 'documentName', { min: 1, max: 300 });
     // The document must actually belong to the caller — don't let a free-text
     // name create a signature request for a document they don't own.
-    const owned = await db.query('SELECT 1 FROM documents WHERE user_id = $1 AND name = $2 LIMIT 1', [
-      req.currentUser.id,
-      documentName,
-    ]);
+    const owned = await db.query<{ id: string }>(
+      'SELECT id FROM documents WHERE user_id = $1 AND name = $2 ORDER BY updated_at DESC LIMIT 1',
+      [req.currentUser.id, documentName],
+    );
     if (!owned.rows[0]) {
       throw badRequest('Документ с таким названием не найден среди ваших. / No document of yours has that name.');
     }
+    const documentId = owned.rows[0].id;
+    // Freeze the exact reviewed text at send time — signers see/sign this, not a
+    // version the owner might edit afterward (bait-and-switch prevention).
+    const contentSnapshot = await renderSignableText(db, req.currentUser.id, documentName);
     const rawRecipients = body.recipients;
     if (!Array.isArray(rawRecipients) || rawRecipients.length === 0) {
       throw badRequest('Field "recipients" must be a non-empty array of { name, email }');
@@ -103,9 +108,9 @@ export function signatureRoutes(app: FastifyInstance, db: Db): void {
 
       await db.withTx(async (tx) => {
         await tx.query(
-          `INSERT INTO signature_requests (id, user_id, document_name, status, sent_at, provider, provider_request_id)
-           VALUES ($1, $2, $3, 'Sent', now(), 'dropbox_sign', $4)`,
-          [id, req.currentUser.id, documentName, sent.requestId],
+          `INSERT INTO signature_requests (id, user_id, document_name, status, sent_at, provider, provider_request_id, content_snapshot, document_id)
+           VALUES ($1, $2, $3, 'Sent', now(), 'dropbox_sign', $4, $5, $6)`,
+          [id, req.currentUser.id, documentName, sent.requestId, contentSnapshot, documentId],
         );
         for (const r of withTokens) {
           const sig = sent.signatures.find((s) => s.email.toLowerCase() === r.email.toLowerCase());
@@ -136,9 +141,9 @@ export function signatureRoutes(app: FastifyInstance, db: Db): void {
     // never end up with only some of its signers. Emails/notifications follow.
     await db.withTx(async (tx) => {
       await tx.query(
-        `INSERT INTO signature_requests (id, user_id, document_name, status, sent_at)
-         VALUES ($1, $2, $3, 'Sent', now())`,
-        [id, req.currentUser.id, documentName],
+        `INSERT INTO signature_requests (id, user_id, document_name, status, sent_at, content_snapshot, document_id)
+         VALUES ($1, $2, $3, 'Sent', now(), $4, $5)`,
+        [id, req.currentUser.id, documentName, contentSnapshot, documentId],
       );
       for (const r of withTokens) {
         await tx.query(
@@ -226,6 +231,18 @@ export function signatureRoutes(app: FastifyInstance, db: Db): void {
       return reply.code(400).send('bad signature');
     }
 
+    // Replay protection. Dropbox Sign's hash covers only (event_time+event_type),
+    // NOT the signature_request_id — so a captured callback could be replayed,
+    // or its request id swapped, to flip a different request. Reject stale
+    // events to bound that window; completion below is additionally gated on the
+    // provider's authoritative signed-PDF download (a replay for a request that
+    // isn't really complete can't fetch a PDF, so it can't fake completion).
+    const eventTs = Number(ev.event_time);
+    if (!Number.isFinite(eventTs) || Math.abs(Math.floor(Date.now() / 1000) - eventTs) > 600) {
+      req.log.warn('esign webhook: stale/invalid event_time — ignored');
+      return reply.send('Hello API Event Received');
+    }
+
     const sr = event.signature_request;
     if (sr?.signature_request_id) {
       const found = await db.query<{ id: string; user_id: string; document_name: string }>(
@@ -244,23 +261,30 @@ export function signatureRoutes(app: FastifyInstance, db: Db): void {
           }
         }
         if (sr.is_complete && ev.event_type === 'signature_request_all_signed') {
-          let signedKey: string | null = null;
+          // Authoritative gate: only the provider can serve the final signed PDF,
+          // and only for a genuinely completed request. If we can't fetch it, we
+          // do NOT flip our state on the say-so of a (possibly replayed) payload —
+          // Dropbox Sign will retry the webhook when it's truly ready.
+          let signedKey: string;
           try {
             const pdf = await downloadSignedPdf(sr.signature_request_id);
-            const stored = await saveFile(pdf, `${request.document_name} (signed).pdf`, 'application/pdf');
-            signedKey = stored.key;
+            signedKey = (await saveFile(pdf, `${request.document_name} (signed).pdf`, 'application/pdf')).key;
           } catch (err) {
-            req.log.warn(err, 'esign: signed PDF download/store failed');
+            req.log.warn(err, 'esign: signed PDF unavailable — completion deferred');
+            return reply.send('Hello API Event Received');
           }
-          await db.query("UPDATE signature_requests SET status = 'Completed', signed_file_key = $2 WHERE id = $1", [
-            request.id,
-            signedKey,
-          ]);
-          await notify(db, request.user_id, 'esign', 'Документ подписан', 'Document signed', {
-            bodyRu: request.document_name,
-            bodyEn: request.document_name,
-            action: { kind: 'open', data: '/signatures' },
-          });
+          // Idempotent: only the first real completion transitions and notifies.
+          const done = await db.query(
+            "UPDATE signature_requests SET status = 'Completed', signed_file_key = $2 WHERE id = $1 AND status <> 'Completed' RETURNING id",
+            [request.id, signedKey],
+          );
+          if (done.rows.length) {
+            await notify(db, request.user_id, 'esign', 'Документ подписан', 'Document signed', {
+              bodyRu: request.document_name,
+              bodyEn: request.document_name,
+              action: { kind: 'open', data: '/signatures' },
+            });
+          }
         }
       }
     }

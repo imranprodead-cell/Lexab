@@ -20,6 +20,7 @@ import type { Db } from '../db.ts';
 import { badRequest } from '../lib/errors.ts';
 import { newId } from '../lib/ids.ts';
 import { hashPassword } from '../lib/passwords.ts';
+import { asObject, requireString } from '../lib/validate.ts';
 import { getUserById, signToken, toProfile, type UserRow } from '../plugins/auth.ts';
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
@@ -27,6 +28,18 @@ const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const GOOGLE_USERINFO_URL = 'https://openidconnect.googleapis.com/v1/userinfo';
 
 const RATE_LIMIT = { rateLimit: { max: 20, timeWindow: '1 minute' } };
+
+/** httpOnly cookie that binds the OAuth `state` to the browser that started the
+ *  flow (login-CSRF defence). SameSite=Lax so it survives Google's top-level
+ *  redirect back to the callback. */
+const OAUTH_NONCE_COOKIE = 'lexai_oauth_nonce';
+const OAUTH_NONCE_PATH = `${config.apiPrefix}/auth/google`;
+
+function timingSafeEqualStr(a: string, b: string): boolean {
+  const ba = Buffer.from(a);
+  const bb = Buffer.from(b);
+  return ba.length === bb.length && crypto.timingSafeEqual(ba, bb);
+}
 
 interface GoogleProfile {
   sub: string;
@@ -117,7 +130,19 @@ export function googleRoutes(app: FastifyInstance, db: Db): void {
       return reply.redirect(`${backTo}#error=google_not_configured`, 302);
     }
 
-    const state = app.jwt.sign({ purpose: 'google-oauth', redirect: backTo }, { expiresIn: '10m' });
+    // Random nonce: goes into BOTH the signed state and an httpOnly cookie. The
+    // callback accepts only a state whose nonce matches this browser's cookie,
+    // so an attacker can't feed a victim a pre-made state for the attacker's own
+    // Google account (login-CSRF / session fixation).
+    const nonce = crypto.randomBytes(18).toString('base64url');
+    const state = app.jwt.sign({ purpose: 'google-oauth', redirect: backTo, nonce }, { expiresIn: '10m' });
+    reply.setCookie(OAUTH_NONCE_COOKIE, nonce, {
+      httpOnly: true,
+      sameSite: 'lax', // must survive Google's cross-site top-level redirect back
+      secure: req.protocol === 'https', // auto-Secure in prod (https), works on http://localhost
+      path: OAUTH_NONCE_PATH,
+      maxAge: 600,
+    });
     const params = new URLSearchParams({
       client_id: config.googleClientId,
       redirect_uri: config.googleRedirectUri,
@@ -134,13 +159,25 @@ export function googleRoutes(app: FastifyInstance, db: Db): void {
 
     // Without a valid state we don't know a trusted return URL — plain 400.
     let backTo: string;
+    let stateNonce: string | undefined;
     try {
-      const payload = app.jwt.verify<{ purpose: string; redirect: string }>(query.state ?? '');
+      const payload = app.jwt.verify<{ purpose: string; redirect: string; nonce?: string }>(query.state ?? '');
       if (payload.purpose !== 'google-oauth') throw new Error('wrong purpose');
       backTo = validateRedirect(payload.redirect);
+      stateNonce = payload.nonce;
     } catch {
       throw badRequest('Invalid or expired OAuth state');
     }
+
+    // The signed state's nonce must match the httpOnly cookie set when THIS
+    // browser began the flow — otherwise it's a replayed/planted state.
+    const cookieNonce = req.cookies[OAUTH_NONCE_COOKIE];
+    if (!stateNonce || !cookieNonce || !timingSafeEqualStr(cookieNonce, stateNonce)) {
+      reply.clearCookie(OAUTH_NONCE_COOKIE, { path: OAUTH_NONCE_PATH });
+      throw badRequest('Invalid or expired OAuth state');
+    }
+    reply.clearCookie(OAUTH_NONCE_COOKIE, { path: OAUTH_NONCE_PATH });
+
     const fail = (code: string) => reply.redirect(`${backTo}#error=${encodeURIComponent(code)}`, 302);
 
     if (query.error) return fail('access_denied');
@@ -175,12 +212,30 @@ export function googleRoutes(app: FastifyInstance, db: Db): void {
       if (!profile.sub) return fail('profile_failed');
 
       const user = await findOrCreateUser(db, profile);
-      const session = { token: signToken(app, user), user: toProfile(user) };
-      const fragment = Buffer.from(JSON.stringify(session), 'utf8').toString('base64url');
-      return reply.redirect(`${backTo}#session=${fragment}`, 302);
+      // Don't put the long-lived session JWT in the URL (it would linger in
+      // browser history / referrers). Park it behind a short-lived, single-use
+      // code and hand only that to the browser; the SPA exchanges it below.
+      const code = crypto.randomBytes(24).toString('base64url');
+      await db.query('INSERT INTO login_codes (code, user_id) VALUES ($1, $2)', [code, user.id]);
+      return reply.redirect(`${backTo}#code=${code}`, 302);
     } catch (err) {
       req.log.error(err, 'google sign-in failed');
       return fail('google_failed');
     }
+  });
+
+  // Exchange the one-time code from the callback for a real session. Single-use
+  // (DELETE…RETURNING) and short-lived (2 minutes) — a code left in history is
+  // already spent and expired, so it grants nothing.
+  app.post('/auth/google/exchange', { config: RATE_LIMIT }, async (req) => {
+    const body = asObject(req.body);
+    const code = requireString(body, 'code', { min: 10, max: 200 });
+    await db.query("DELETE FROM login_codes WHERE created_at < now() - interval '2 minutes'");
+    const res = await db.query<{ user_id: string }>('DELETE FROM login_codes WHERE code = $1 RETURNING user_id', [code]);
+    const row = res.rows[0];
+    if (!row) throw badRequest('Ссылка входа устарела — войдите ещё раз / Login link expired — sign in again');
+    const user = await getUserById(db, row.user_id);
+    if (!user) throw badRequest('Login link expired');
+    return { token: signToken(app, user), user: toProfile(user) };
   });
 }

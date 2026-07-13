@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { fallbackAnalysis, fallbackChatReply, fallbackCompare, fallbackTemplateDraft } from '../src/fallback.ts';
 import { extractJsonObject, isDeepSeekModel } from '../src/llm.ts';
-import { ALLOWED_EXTENSIONS, fileExtension, verifyFileSignature } from '../src/extract.ts';
+import zlib from 'node:zlib';
+import { ALLOWED_EXTENSIONS, extractText, fileExtension, verifyFileSignature, zipRealDecompressedSize } from '../src/extract.ts';
 import { formatSize, relativeTimeRu } from '../src/lib/format.ts';
 import { newId } from '../src/lib/ids.ts';
 import { hashPassword, verifyPassword } from '../src/lib/passwords.ts';
@@ -16,6 +17,64 @@ test('passwords: hash → verify roundtrip', async () => {
   assert.equal(await verifyPassword('correct horse battery staple', hash), true);
   assert.equal(await verifyPassword('wrong password', hash), false);
   assert.equal(await verifyPassword('anything', 'garbage'), false);
+});
+
+test('zipRealDecompressedSize: real inflation catches a bomb that lies about its size', () => {
+  // Build a valid single-entry ZIP (deflate) around arbitrary raw content.
+  const makeZip = (name: string, raw: Buffer): Buffer => {
+    const comp = zlib.deflateRawSync(raw);
+    const nameBuf = Buffer.from(name, 'latin1');
+    const local = Buffer.alloc(30 + nameBuf.length);
+    local.writeUInt32LE(0x04034b50, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt16LE(8, 8); // method = deflate
+    local.writeUInt32LE(comp.length, 18);
+    local.writeUInt32LE(raw.length >>> 0, 22); // declared uncompressed (deliberately not trusted)
+    local.writeUInt16LE(nameBuf.length, 26);
+    nameBuf.copy(local, 30);
+    const localAndData = Buffer.concat([local, comp]);
+    const cd = Buffer.alloc(46 + nameBuf.length);
+    cd.writeUInt32LE(0x02014b50, 0);
+    cd.writeUInt16LE(20, 6);
+    cd.writeUInt16LE(8, 10);
+    cd.writeUInt32LE(comp.length, 20);
+    cd.writeUInt32LE(raw.length >>> 0, 24);
+    cd.writeUInt16LE(nameBuf.length, 28);
+    cd.writeUInt32LE(0, 42); // local header offset
+    nameBuf.copy(cd, 46);
+    const eocd = Buffer.alloc(22);
+    eocd.writeUInt32LE(0x06054b50, 0);
+    eocd.writeUInt16LE(1, 8);
+    eocd.writeUInt16LE(1, 10);
+    eocd.writeUInt32LE(cd.length, 12);
+    eocd.writeUInt32LE(localAndData.length, 16); // central directory offset
+    return Buffer.concat([localAndData, cd, eocd]);
+  };
+
+  // Honest small entry → its REAL decompressed size is returned.
+  assert.equal(zipRealDecompressedSize(makeZip('a.txt', Buffer.from('hello world'.repeat(10)))), 110);
+  // A bomb: 130 MB of zeros compresses to a few KB but inflates past the 120 MB
+  // cap — declared-size guards miss this; real inflation flags it as Infinity.
+  assert.equal(
+    zipRealDecompressedSize(makeZip('word/document.xml', Buffer.alloc(130 * 1024 * 1024))),
+    Infinity,
+    'a decompression bomb must be caught by real inflation, not declared metadata',
+  );
+  // Not a ZIP → null (caller falls back to the raw 10 MB byte cap).
+  assert.equal(zipRealDecompressedSize(Buffer.from('%PDF-1.4 not a zip')), null);
+});
+
+test('extractText: a real .docx passes the bomb guard and yields its text', async () => {
+  const { Document, Packer, Paragraph, TextRun } = await import('docx');
+  const doc = new Document({
+    sections: [{ children: [new Paragraph({ children: [new TextRun('Confidential Agreement clause one.')] })] }],
+  });
+  const buf = await Packer.toBuffer(doc);
+  const size = zipRealDecompressedSize(buf);
+  // A legitimate docx must NOT be flagged as a bomb (no false positive).
+  assert.ok(size === null || (typeof size === 'number' && size < 120 * 1024 * 1024), 'real docx not flagged as a bomb');
+  const text = await extractText(buf, 'agreement.docx');
+  assert.ok(text && text.includes('Confidential Agreement'), 'text extracted from a real docx');
 });
 
 test('formatSize matches the UI display style', () => {

@@ -52,7 +52,9 @@ async function generateContext(
     const system =
       row.language === 'ru'
         ? 'Ты аннотируешь статьи законов для юридического поискового индекса. По статье напиши 1-2 коротких предложения: из какого закона, что регулирует норма, какими терминами её будет искать юрист. По-русски, без преамбулы.'
-        : 'You annotate statute sections for a legal search index. Given a section, write 1-2 short sentences situating it: which act, what the provision does, key terms a lawyer would search for. Plain English, no preamble.';
+        : row.language === 'de'
+          ? 'Du annotierst Gesetzesparagraphen für einen juristischen Suchindex. Schreibe zu dem Paragraphen 1-2 kurze Sätze: aus welchem Gesetz, was die Norm regelt, mit welchen Begriffen ein Jurist danach sucht. Auf Deutsch, ohne Vorwort.'
+          : 'You annotate statute sections for a legal search index. Given a section, write 1-2 short sentences situating it: which act, what the provision does, key terms a lawyer would search for. Plain English, no preamble.';
     const msg = await api.beta.messages.create({
       model: 'claude-haiku-4-5',
       max_tokens: 300,

@@ -1,4 +1,5 @@
 /** Fastify app assembly: plugins, error shape, and all routes under API_PREFIX. */
+import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import jwt from '@fastify/jwt';
@@ -32,6 +33,11 @@ import { userRoutes } from './routes/user.routes.ts';
 export async function buildApp(db: Db): Promise<FastifyInstance> {
   const app = Fastify({
     logger: { level: process.env.LOG_LEVEL ?? 'info' },
+    // Fastify's default request log prints the raw URL, which for public
+    // capability routes (/sign/:token, /approve/:token, /team/invite-info/:token,
+    // ?code=…) would persist a live bearer-equivalent secret in the log stream.
+    // Disable it and emit our own line with the token redacted (hook below).
+    disableRequestLogging: true,
     bodyLimit: 12 * 1024 * 1024, // avatar data-URLs + JSON payloads
     // Behind a trusted reverse proxy/CDN, honour X-Forwarded-For so req.ip is
     // the real client. Off by default (direct exposure must not trust a
@@ -65,6 +71,10 @@ export async function buildApp(db: Db): Promise<FastifyInstance> {
     exposedHeaders: ['X-Total-Count', 'Content-Disposition'],
   });
   await app.register(jwt, { secret: config.jwtSecret });
+  // Cookies are used only for the short-lived OAuth anti-CSRF nonce (httpOnly,
+  // SameSite=Lax) — the session itself stays a Bearer token, so no CSRF surface
+  // is introduced for the API's mutating routes.
+  await app.register(cookie);
   await app.register(multipart, { limits: { fileSize: 12 * 1024 * 1024, files: 1 } });
   await app.register(rateLimit, {
     global: true,
@@ -111,6 +121,20 @@ export async function buildApp(db: Db): Promise<FastifyInstance> {
 
   app.setNotFoundHandler((_req, reply) => {
     reply.code(404).send({ message: 'Not found' });
+  });
+
+  // Redacted access log: never records the capability token in the path or the
+  // OAuth code/state/token query params (CWE-532).
+  const redactUrl = (url: string): string =>
+    url
+      .replace(/(\/(?:sign|approve|invite-info)\/)[^/?#]+/g, '$1[redacted]')
+      .replace(/([?&](?:code|token|state)=)[^&]+/gi, '$1[redacted]');
+  app.addHook('onResponse', (req, reply, done) => {
+    req.log.info(
+      { method: req.method, url: redactUrl(req.url), statusCode: reply.statusCode, ms: Math.round(reply.elapsedTime) },
+      'request completed',
+    );
+    done();
   });
 
   registerAuth(app, db);

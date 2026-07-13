@@ -36,11 +36,25 @@ function prettyName(fileName: string): string {
   return fileName.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ');
 }
 
+/** Escape for safe interpolation into HTML text/attributes. The PDF export
+ *  writes contract text (which may originate from an attacker's uploaded,
+ *  team-shared document) into a NEW window via document.write — where the app's
+ *  CSP does not reach — so unescaped `<script>` would execute in our origin and
+ *  could read the auth token. Escape everything that goes into that markup. */
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function resolveText(analysis: AnalysisResult): string {
   const parts: string[] = [];
   for (const block of analysis.document) {
     if (block.type === 'heading') {
-      parts.push(`<h3>${block.text ?? ''}</h3>`);
+      parts.push(`<h3>${escapeHtml(block.text ?? '')}</h3>`);
       continue;
     }
     let paragraph = '';
@@ -54,7 +68,7 @@ function resolveText(analysis: AnalysisResult): string {
         paragraph += rl.status === 'accepted' ? rl.insText : rl.delText;
       }
     }
-    parts.push(`<p>${paragraph}</p>`);
+    parts.push(`<p>${escapeHtml(paragraph)}</p>`);
   }
   return parts.join('\n');
 }
@@ -90,11 +104,13 @@ export function exportDocx(analysis: AnalysisResult) {
 /** Open a print-ready window (user chooses “Save as PDF”). */
 export function exportPdf(analysis: AnalysisResult) {
   const body = resolveText(analysis);
+  const title = escapeHtml(analysis.fileName);
+  const heading = escapeHtml(analysis.fileName.replace(/\.[^.]+$/, ''));
   const win = window.open('', '_blank');
   if (!win) return;
-  win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${analysis.fileName}</title>
+  win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${title}</title>
 <style>@page{margin:2cm;} body{font-family:Georgia,serif;font-size:12pt;line-height:1.7;color:#111;} h2{text-align:center;} h3{margin-top:1.4em;}</style>
-</head><body><h2>${analysis.fileName.replace(/\.[^.]+$/, '')}</h2>${body}
+</head><body><h2>${heading}</h2>${body}
 <script>window.onload=function(){window.print();}</script></body></html>`);
   win.document.close();
 }

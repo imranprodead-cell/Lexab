@@ -32,7 +32,7 @@ import type { Finding } from '../src/types.ts';
 interface GoldenRow {
   question: string;
   expected_unit_ids: string[];
-  jurisdiction: 'UK' | 'UZ' | 'KZ';
+  jurisdiction: 'UK' | 'UZ' | 'KZ' | 'DE' | 'US' | 'CA';
   as_of_date?: string;
   notes?: string;
 }
@@ -75,6 +75,9 @@ const ASK_SYSTEM: Record<string, string> = {
   UK: 'You are LexAI, a UK commercial lawyer. Answer the legal question as 1-3 findings, each with a precise statutory citation.',
   UZ: 'Ты LexAI, юрист по праву Республики Узбекистан. Ответь на вопрос 1-3 выводами, каждый с точной ссылкой на норму (например, «ст. 260 ГК» или «ст. 18 Закона «О защите прав потребителей»»).',
   KZ: 'Ты LexAI, юрист по праву Республики Казахстан. Ответь на вопрос 1-3 выводами, каждый с точной ссылкой на норму.',
+  DE: 'Du bist LexAI, ein deutscher Wirtschaftsjurist. Beantworte die Rechtsfrage mit 1-3 Feststellungen, jede mit einer präzisen Gesetzeszitat (z. B. „§ 433 BGB“).',
+  US: 'You are LexAI, a U.S. commercial lawyer. Answer the legal question as 1-3 findings, each with a precise federal statutory citation (e.g. "9 U.S.C. § 2").',
+  CA: 'You are LexAI, a Québec (Canada) civil-law jurist. Answer the legal question as 1-3 findings, each with a precise citation to the Civil Code of Québec (e.g. "art. 1385 CCQ").',
 };
 
 async function askModel(
@@ -134,11 +137,16 @@ async function main(): Promise<void> {
   const model = modelFlag > -1 ? process.argv[modelFlag + 1] : 'claude-sonnet-5';
   const goldenArg = process.argv.find((a) => a.startsWith('--golden='));
   const goldenFile = goldenArg ? goldenArg.slice(9) : 'uk-contract-law.jsonl';
+  // --limit N: only the first N golden questions (cheap paid-model sampling —
+  // used to keep the Anthropic budget in check per the RAG rollout plan).
+  const limitIdx = process.argv.indexOf('--limit');
+  const limit = limitIdx > -1 ? Math.max(1, Number(process.argv[limitIdx + 1])) : Infinity;
 
   const rows: GoldenRow[] = readFileSync(path.join(HERE, 'golden', goldenFile), 'utf8')
     .split('\n')
     .filter(Boolean)
-    .map((l) => JSON.parse(l) as GoldenRow);
+    .map((l) => JSON.parse(l) as GoldenRow)
+    .slice(0, limit);
 
   const db = await getDb();
   await migrate(db);

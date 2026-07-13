@@ -11,7 +11,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Db } from '../db.ts';
 import { ALLOWED_EXTENSIONS, assertValidFileContent, extractText, fileExtension, MAX_UPLOAD_BYTES } from '../extract.ts';
 import { badRequest, HttpError, notFound } from '../lib/errors.ts';
-import { assertDocumentAllowance, assertFeature, assertStorageAllowance, bumpUsage, releaseAiRequest, reserveAiRequest, withAiRequest } from '../lib/limits.ts';
+import { assertDocumentAllowance, assertFeature, assertStorageAllowance, bumpUsage, releaseAiRequest, reserveAiRequest, reserveDocument, withStorageReservation, withAiRequest } from '../lib/limits.ts';
 import { notify } from '../lib/notify.ts';
 import { assertCanEdit, resolveAnalysisAccess, resolveDocumentAccess } from '../lib/teamAccess.ts';
 import { formatSize } from '../lib/format.ts';
@@ -23,7 +23,7 @@ import { generateAnalysis, generateContractDraft, type GeneratedAnalysis } from 
 import { jurisdictionCode, retrieveLegalContext } from '../rag/retrieve.ts';
 import type { RetrievedChunk } from '../rag/types.ts';
 import { validateFindings } from '../rag/validate-citations.ts';
-import { readFileBytes, saveFile } from '../storage.ts';
+import { deleteFile, readFileBytes, saveFile } from '../storage.ts';
 import type { AnalysisResult, DocBlock, Redline } from '../types.ts';
 
 const ANALYSIS_STEPS = [
@@ -190,10 +190,19 @@ async function readSource(db: Db, req: FastifyRequest): Promise<AnalysisSource> 
     await assertStorageAllowance(db, req.currentUser.id, buffer.length);
     const stored = await saveFile(buffer, fileName, part.mimetype);
     const text = await extractText(buffer, fileName);
-    await db.query(
-      `INSERT INTO uploads (id, user_id, file_name, size_bytes, mime, storage, storage_key, url, extracted_text)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-      [newId('up'), req.currentUser.id, fileName, buffer.length, part.mimetype || null, stored.storage, stored.key, stored.url, text],
+    await withStorageReservation(
+      db,
+      req.currentUser.id,
+      buffer.length,
+      (tx) =>
+        tx
+          .query(
+            `INSERT INTO uploads (id, user_id, file_name, size_bytes, mime, storage, storage_key, url, extracted_text)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+            [newId('up'), req.currentUser.id, fileName, buffer.length, part.mimetype || null, stored.storage, stored.key, stored.url, text],
+          )
+          .then(() => undefined),
+      () => deleteFile(stored.storage, stored.key),
     );
     return {
       fileName,
@@ -258,7 +267,9 @@ export async function persistAnalysis(
          VALUES ($1, $2, $3, '—', 'In review', $4, $5, $6)`,
         [documentId, userId, source.fileName, gen.riskLevel, source.jurisdiction ?? '—', source.sizeBytes],
       );
-      await bumpUsage(tx, userId, { docs: 1 });
+      // Atomic doc-quota reservation inside this tx — a 402 rolls back the new
+      // document too, and concurrent creates can't both slip past the limit.
+      await reserveDocument(tx, userId);
       await tx.query(
         `INSERT INTO document_versions (id, document_id, label, author, note)
          VALUES ($1, $2, 'v1 — original', 'Upload', 'Initial draft received.')`,

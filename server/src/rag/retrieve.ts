@@ -30,7 +30,15 @@ const REWRITE_SYSTEM: Record<string, string> = {
   UK: 'Rewrite the user question as 2-3 short search queries against UK statute text: use the legal terms of art a drafter would use (e.g. "implied term satisfactory quality" for "can I return faulty goods"). When you know the exact act and section, include one query naming them (e.g. "Arbitration Act 1996 section 9"). English only. No preamble.',
   UZ: 'Перепиши вопрос пользователя как 2-3 коротких поисковых запроса по русскоязычным текстам законов Узбекистана: используй термины законодателя («неустойка», «расторжение договора», «ненадлежащее исполнение обязательства»). Если уверен в конкретной статье — включи один запрос вида «ст. 260 ГК». Только по-русски. Без преамбулы.',
   KZ: 'Перепиши вопрос пользователя как 2-3 коротких поисковых запроса по русскоязычным текстам законов Казахстана: используй термины законодателя. Только по-русски. Без преамбулы.',
+  DE: 'Formuliere die Nutzerfrage als 2-3 kurze Suchanfragen gegen den deutschen Gesetzestext um: benutze die juristischen Fachbegriffe des Gesetzgebers (z. B. „Sachmangel Nacherfüllung“ für „fehlerhafte Ware zurückgeben“). Wenn der Paragraph bekannt ist, füge eine Anfrage wie „§ 433 BGB“ hinzu. Nur auf Deutsch. Kein Vorwort.',
+  US: 'Rewrite the user question as 2-3 short search queries against U.S. federal statute text (United States Code): use the drafter\'s terms of art (e.g. "agreement to arbitrate valid irrevocable enforceable", "electronic signature legal effect"). When you know the citation, include one query naming it (e.g. "9 U.S.C. 2", "15 U.S.C. 7001"). English only. No preamble.',
+  CA: 'Rewrite the user question as 2-3 short search queries against the Civil Code of Québec (contract/obligations law): use the code\'s terms of art (e.g. "resolution of contract debtor default", "latent defect warranty of quality sale"). When you know the article, include one query naming it (e.g. "article 1385 obligations"). English only. No preamble.',
 };
+
+/** Corpus language → Postgres FTS regconfig. MUST mirror the `tsv` generated
+ *  column CASE in the FTS migrations (015 russian, 023 german). English is the
+ *  default (UK/US/CA). */
+const FTS_CONFIG: Record<string, string> = { UK: 'english', UZ: 'russian', KZ: 'russian', DE: 'german', US: 'english', CA: 'english' };
 
 /** User question → 2-3 statute-flavoured search queries. Falls back to the raw query. */
 export async function rewriteQuery(query: string, jurisdiction: string = 'UK'): Promise<string[]> {
@@ -114,8 +122,10 @@ async function citationFastPath(db: Db, queries: string[], jurisdiction: string,
 export async function retrieveLegalContext(db: Db, params: RetrieveParams): Promise<RetrievedChunk[]> {
   const asOf = params.asOfDate ?? new Date().toISOString().slice(0, 10);
   const topK = params.topK ?? 8;
-  // Full-text config follows the corpus language (Russian stemmer for UZ/KZ).
-  const ftsConfig = params.jurisdiction === 'UK' ? 'english' : 'russian';
+  // Full-text config follows the corpus language: German stemmer for DE,
+  // Russian for UZ/KZ, English for UK/US/CA. Must mirror the `tsv` CASE in the
+  // FTS migrations, or lexical scoring uses the wrong stemmer.
+  const ftsConfig = FTS_CONFIG[params.jurisdiction] ?? 'english';
   const rewrites = await rewriteQuery(params.query, params.jurisdiction);
   // Original question + rewrites (deduped) all participate in the search.
   const queries = [...new Set([params.query, ...rewrites])].slice(0, 4);
@@ -214,6 +224,10 @@ export async function resolveCitationText(
   jurisdiction: string = 'UK',
   asOfDate: string = new Date().toISOString().slice(0, 10),
 ): Promise<string | null> {
+  // Bound the input before the (worst-case quadratic) citation regexes run — a
+  // real citation appears near the start, so a 2 KB cap preserves detection
+  // while making a crafted 20 K-char chat message harmless (event-loop ReDoS).
+  citation = citation.slice(0, 2000);
   let titlePattern: string | null = null;
   let number: string | null = null;
 
@@ -223,6 +237,31 @@ export async function resolveCitationText(
     if (!act || !sec) return null;
     titlePattern = `%${act[1].replace(/\s+/g, ' ').trim()}%`;
     number = sec[1].toUpperCase();
+  } else if (jurisdiction === 'US') {
+    // U.S. citations: "9 U.S.C. § 2", "15 U.S.C. 7001". The number before U.S.C.
+    // is the title (picks the document); the number after is the section.
+    const m = citation.match(/\b(\d+)\s*U\.?\s?S\.?\s?C\.?\s*(?:§+\s*|sec(?:tion)?s?\.?\s*)?(\d+[A-Za-z]?)/i);
+    if (!m) return null;
+    titlePattern = `%Title ${Number(m[1])}%`;
+    number = m[2];
+  } else if (jurisdiction === 'CA') {
+    // Québec citations: "art. 1385 CCQ", "article 1590 of the Civil Code of Québec".
+    const art = citation.match(/art(?:icle)?\.?\s*(\d+(?:\.\d+)?)/i);
+    if (!art) return null;
+    number = art[1];
+    titlePattern = '%Civil Code of Qu%bec%';
+  } else if (jurisdiction === 'DE') {
+    // German citations: «§ 433 BGB», «§ 312g Abs. 1 BGB». The § number is the
+    // unit number; the trailing abbreviation (BGB/HGB) picks the code.
+    const par = citation.match(/§\s*(\d+[a-z]*)/i);
+    if (!par) return null;
+    number = par[1].toLowerCase();
+    // Citation gives the abbreviation (BGB/HGB); the stored title is the long
+    // form — map abbreviation → title ILIKE pattern for the shared lookup.
+    const abk = citation.match(/\b(BGB|HGB)\b/i)?.[1].toUpperCase();
+    const byAbk: Record<string, string> = { BGB: '%Bürgerliches Gesetzbuch%', HGB: '%Handelsgesetzbuch%' };
+    if (abk && byAbk[abk]) titlePattern = byAbk[abk];
+    else return null;
   } else {
     const st = citation.match(/ст(?:атья|атьи|\.)?\s*№?\s*(\d+(?:[.-]\d+)*)/i);
     if (!st) return null;
@@ -249,11 +288,14 @@ export async function resolveCitationText(
 }
 
 /** Map the product's free-text jurisdiction (country selector) to a corpus code. */
-export function jurisdictionCode(s: string | null | undefined): 'UK' | 'UZ' | 'KZ' | null {
+export function jurisdictionCode(s: string | null | undefined): 'UK' | 'UZ' | 'KZ' | 'DE' | 'US' | 'CA' | null {
   if (!s) return null;
   const v = s.toLowerCase();
   if (/united kingdom|\buk\b|britain|england|english law/.test(v)) return 'UK';
   if (/uzbek|узбек/.test(v)) return 'UZ';
   if (/kazakh|казах/.test(v)) return 'KZ';
+  if (/german|deutschland|\bgermany\b|немец|герман/.test(v)) return 'DE';
+  if (/united states|\bus\b|\busa\b|american|сша/.test(v)) return 'US';
+  if (/canad|québec|quebec|канада|квебек/.test(v)) return 'CA';
   return null;
 }

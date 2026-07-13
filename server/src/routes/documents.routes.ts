@@ -288,7 +288,10 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
       sections = [{ text: `No AI review has been run for “${doc.name}” yet — export the document after running an analysis.` }];
     }
 
-    const baseName = doc.name.replace(/\.[^.]+$/, '') || 'document';
+    // Sanitize before it goes into the Content-Disposition header — doc.name is
+    // attacker-controlled (upload filename), and a raw quote would break out of
+    // the quoted filename and let extra header parameters be injected.
+    const baseName = doc.name.replace(/\.[^.]+$/, '').replace(/[^\w.-]+/g, '_') || 'document';
     if (format === 'pdf') {
       const pdf = buildSimplePdf(doc.name, sections);
       reply.header('Content-Type', 'application/pdf');

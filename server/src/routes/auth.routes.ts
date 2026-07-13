@@ -29,7 +29,22 @@ function newToken(): string {
   return crypto.randomBytes(24).toString('base64url');
 }
 
-async function sendVerificationMail(db: Db, userId: string, email: string, name: string): Promise<void> {
+// A throw-away scrypt hash used when the login email doesn't exist, so an
+// unknown-account login costs the same time as a real one — closing the
+// account-enumeration timing oracle. Computed once, lazily.
+let dummyHashPromise: Promise<string> | null = null;
+function dummyHash(): Promise<string> {
+  dummyHashPromise ??= hashPassword(crypto.randomBytes(32).toString('hex'));
+  return dummyHashPromise;
+}
+
+// One identical failure for every bad-credentials case (unknown email, wrong
+// password, Google-only account) so the response never reveals which emails
+// have accounts. Legitimate Google users are guided by the "Continue with
+// Google" button on the login screen, not by a distinct error here.
+const LOGIN_FAILED = 'Неверный email или пароль / Invalid email or password';
+
+export async function sendVerificationMail(db: Db, userId: string, email: string, name: string): Promise<void> {
   const token = newToken();
   await db.query('UPDATE users SET verify_token = $2 WHERE id = $1', [userId, token]);
   const url = `${config.appBaseUrl}/verify-email?token=${token}`;
@@ -55,12 +70,28 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
 
     const existing = await getUserByEmail(db, email);
     if (existing) {
-      throw new HttpError(
-        409,
-        existing.google_sub
-          ? 'Этот email уже привязан ко входу через Google — нажмите «Продолжить с Google» или задайте пароль через «Забыли пароль?»'
-          : 'Аккаунт с этим email уже существует — войдите или восстановите пароль',
-      );
+      // Anti-enumeration: reply EXACTLY as for a brand-new signup (same status,
+      // body and — via the dummy scrypt — timing), so /register never becomes an
+      // oracle for "which emails have accounts" (or which use Google). The real
+      // owner is guided in instead, out-of-band by email.
+      await hashPassword(password);
+      void sendMail({
+        to: existing.email,
+        subject: 'Попытка регистрации в LexAI',
+        html: mailLayout(
+          'У вас уже есть аккаунт LexAI',
+          `<p>Кто-то попытался зарегистрироваться с вашим адресом <strong>${escapeMailHtml(existing.email)}</strong>.</p>
+           <p>${
+             existing.google_sub
+               ? 'Ваш аккаунт привязан ко входу через Google — используйте кнопку «Продолжить с Google».'
+               : 'Если это были вы — просто войдите. Забыли пароль? Воспользуйтесь восстановлением пароля.'
+           }</p>`,
+          'Войти в LexAI',
+          `${config.appBaseUrl}/login`,
+        ),
+      });
+      reply.code(201);
+      return { ok: true, verifyRequired: true, email };
     }
 
     const id = newId('u');
@@ -120,15 +151,16 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
     const password = requireString(body, 'password', { min: 1, max: 200 });
 
     const user = await getUserByEmail(db, email);
-    if (!user || !(await verifyPassword(password, user.password_hash))) {
-      // A Google-created account has no password yet — point the user at the
-      // Google button (or the reset flow, which SETS a password).
-      if (user?.google_sub) {
-        throw unauthorized(
-          'Этот аккаунт создан через Google — войдите кнопкой «Продолжить с Google» или задайте пароль через «Забыли пароль?»',
-        );
-      }
-      throw unauthorized('Неверный email или пароль / Invalid email or password');
+    if (!user) {
+      // Unknown email: still run scrypt (against a throw-away hash) so the reply
+      // isn't measurably faster than for a real account.
+      await verifyPassword(password, await dummyHash());
+      throw unauthorized(LOGIN_FAILED);
+    }
+    if (!(await verifyPassword(password, user.password_hash))) {
+      // Wrong password — and a Google-only account (random unknown password)
+      // lands here too. Same generic message: never disclose account existence.
+      throw unauthorized(LOGIN_FAILED);
     }
     if (!user.email_verified) {
       // Password is correct, but the mailbox was never proven — resend the

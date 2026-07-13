@@ -176,7 +176,9 @@ export async function assertDocumentAllowance(db: Db, userId: string): Promise<v
   }
 }
 
-/** 402 when the incoming file would push stored bytes past the plan quota. */
+/** 402 when the incoming file would push stored bytes past the plan quota.
+ *  Fast pre-check only (before doing expensive work); the authoritative,
+ *  race-free enforcement is `withStorageReservation` at insert time. */
 export async function assertStorageAllowance(db: Db, userId: string, incomingBytes: number): Promise<void> {
   const plan = await planFor(db, userId);
   const limitMb = (PLAN_LIMITS[plan] ?? PLAN_LIMITS.Free).storageMb;
@@ -188,5 +190,77 @@ export async function assertStorageAllowance(db: Db, userId: string, incomingByt
       402,
       `Хранилище тарифа ${plan} заполнено (${usedMb} из ${limitMb} МБ). ${upgradeHint}`,
     );
+  }
+}
+
+/**
+ * Atomically enforce the storage quota AND run the upload INSERT under a
+ * per-user lock, so N concurrent uploads can't each slip past a separate
+ * check-then-insert gap (the old TOCTOU). `insert` runs inside the transaction
+ * and only if the quota holds; when it's exceeded the insert never happens and
+ * the caller cleans up any bytes it already wrote to storage.
+ */
+export async function withStorageReservation(
+  db: Db,
+  userId: string,
+  incomingBytes: number,
+  insert: (tx: Queryable) => Promise<void>,
+  onReject?: () => Promise<void>,
+): Promise<void> {
+  try {
+    await db.withTx(async (tx) => {
+      // Serialize this user's storage ops so the sum below is authoritative for
+      // concurrent uploads (each waits for the previous one's row to commit).
+      await tx.query('SELECT 1 FROM users WHERE id = $1 FOR UPDATE', [userId]);
+      const plan = (await tx.query<{ plan: string }>('SELECT plan FROM subscriptions WHERE user_id = $1', [userId])).rows[0]?.plan ?? 'Free';
+      const limitMb = (PLAN_LIMITS[plan] ?? PLAN_LIMITS.Free).storageMb;
+      if (limitMb !== null) {
+        const used = Number(
+          (
+            await tx.query<{ s: string | number | null }>(
+              'SELECT coalesce(sum(size_bytes), 0) AS s FROM uploads WHERE user_id = $1',
+              [userId],
+            )
+          ).rows[0]?.s ?? 0,
+        );
+        if (used + incomingBytes > limitMb * 1024 * 1024) {
+          const usedMb = Math.round(used / (1024 * 1024));
+          throw new HttpError(402, `Хранилище тарифа ${plan} заполнено (${usedMb} из ${limitMb} МБ). ${upgradeHint}`);
+        }
+      }
+      await insert(tx);
+    });
+  } catch (err) {
+    // The bytes were written to storage before this guarded insert — on quota
+    // rejection (or any insert failure) clean them up so nothing is orphaned.
+    if (onReject) await onReject().catch(() => undefined);
+    throw err;
+  }
+}
+
+/**
+ * Atomically reserve ONE document against the monthly quota (mirrors
+ * reserveAiRequest): the increment-if-under-limit is a single SQL statement, so
+ * concurrent creates can't both pass a check-then-bump gap. Call inside the
+ * document-creation transaction so a 402 rolls the new document back too.
+ */
+export async function reserveDocument(tx: Queryable, userId: string): Promise<void> {
+  const plan = (await tx.query<{ plan: string }>('SELECT plan FROM subscriptions WHERE user_id = $1', [userId])).rows[0]?.plan ?? 'Free';
+  const limit = (PLAN_LIMITS[plan] ?? PLAN_LIMITS.Free).docs;
+  if (limit === null) {
+    await bumpUsage(tx, userId, { docs: 1 }); // unlimited — just count
+    return;
+  }
+  const res = await tx.query(
+    `INSERT INTO usage_counters (user_id, month, ai_requests, docs_created)
+     VALUES ($1, date_trunc('month', now())::date, 0, 1)
+     ON CONFLICT (user_id, month)
+     DO UPDATE SET docs_created = usage_counters.docs_created + 1
+       WHERE usage_counters.docs_created < $2
+     RETURNING docs_created`,
+    [userId, limit],
+  );
+  if (res.rows.length === 0) {
+    throw new HttpError(402, `Лимит документов тарифа ${plan} исчерпан (${limit}/${limit} в этом месяце). ${upgradeHint}`);
   }
 }

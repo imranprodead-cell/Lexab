@@ -16,28 +16,12 @@ import { useUIStore } from '@/store/useUIStore';
 import { useResolvedDark } from '@/hooks/useResolvedDark';
 import { useI18n } from '@/i18n/I18nProvider';
 import { scrollBehavior } from '@/lib/scroll';
-import type { UserProfile } from '@/types/domain';
 import styles from './auth.module.css';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api';
 
 type Mode = 'signin' | 'signup' | 'reset';
-
-/** Decode the `#session=` fragment produced by the Google OAuth callback. */
-function decodeSession(fragment: string): { token: string; user: UserProfile } | null {
-  try {
-    const b64 = fragment.replace(/-/g, '+').replace(/_/g, '/');
-    const bytes = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
-    const parsed = JSON.parse(new TextDecoder().decode(bytes)) as { token?: unknown; user?: unknown };
-    if (typeof parsed.token === 'string' && parsed.user && typeof parsed.user === 'object') {
-      return parsed as { token: string; user: UserProfile };
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
 
 /** The official multicolour Google "G". */
 function GoogleLogo() {
@@ -95,9 +79,9 @@ export function AuthPage() {
   const [error, setError] = useState<string | null>(null);
   /** Set after sign-up: the confirmation letter went to this address. */
   const [verifySentTo, setVerifySentTo] = useState<string | null>(null);
-  /** Returning from Google with a session: show the branded "signing in"
+  /** Returning from Google with a one-time code: show the branded "signing in"
    *  screen instead of flashing the login form. */
-  const [finishing, setFinishing] = useState(() => window.location.hash.startsWith('#session='));
+  const [finishing, setFinishing] = useState(() => window.location.hash.startsWith('#code='));
   /** Fade the whole screen out before navigating into the app. */
   const [leaving, setLeaving] = useState(false);
   /** The page's own scroll container (#root is overflow:hidden). */
@@ -118,18 +102,19 @@ export function AuthPage() {
 
   const redirectTo = inviteToken ? '/team' : ((location.state as { from?: string } | null)?.from ?? '/chat');
 
-  // The Google callback returns here with #session=<payload> (or #error=<code>).
+  // The Google callback returns here with #code=<one-time code> (or #error=<code>).
   useEffect(() => {
     const hash = window.location.hash;
-    if (hash.startsWith('#session=')) {
-      const session = decodeSession(hash.slice('#session='.length));
+    if (hash.startsWith('#code=')) {
+      const code = decodeURIComponent(hash.slice('#code='.length));
       window.history.replaceState(null, '', window.location.pathname);
-      if (session) {
-        adoptSession(session.token, session.user);
-      } else {
-        setFinishing(false);
-        pushToast(t('auth.googleFailed'), 'error');
-      }
+      authApi
+        .exchangeGoogleCode(code)
+        .then((session) => adoptSession(session.token, session.user))
+        .catch(() => {
+          setFinishing(false);
+          pushToast(t('auth.googleFailed'), 'error');
+        });
     } else if (hash.startsWith('#error=')) {
       window.history.replaceState(null, '', window.location.pathname);
       pushToast(t('auth.googleFailed'), 'error');
@@ -241,7 +226,7 @@ export function AuthPage() {
   // Opening the site always starts at the top — the sign-in hero — never
   // mid-page. A leftover section anchor (e.g. #features from an old link)
   // is stripped so the browser can't jump there; the user scrolls himself.
-  // The Google OAuth return hash (#session=…) is left untouched.
+  // The Google OAuth return hash (#code=…) is left untouched.
   useEffect(() => {
     if (finishing) return;
     const id = window.location.hash.slice(1);

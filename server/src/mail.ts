@@ -28,9 +28,18 @@ export function escapeMailHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+/** Mask an address for logs — keep just enough to debug without recording PII
+ *  (recipient addresses) verbatim in log streams that outlive the request. */
+function maskEmail(addr: string): string {
+  const at = addr.indexOf('@');
+  if (at < 1) return '***';
+  const local = addr.slice(0, at);
+  return `${local[0]}***@${addr.slice(at + 1)}`;
+}
+
 export async function sendMail(input: MailInput): Promise<{ sent: boolean }> {
   if (!config.resendApiKey) {
-    console.log(`[mail] (no RESEND_API_KEY) would send to ${input.to}: ${input.subject}`);
+    console.log(`[mail] (no RESEND_API_KEY) would send to ${maskEmail(input.to)}: ${input.subject}`);
     return { sent: false };
   }
 
@@ -69,7 +78,9 @@ export async function sendMail(input: MailInput): Promise<{ sent: boolean }> {
       return { sent: false };
     }
     const data = (await res.json()) as { id?: string };
-    console.log(`[mail] sent "${subject}" → ${to} (id: ${data.id ?? '?'})`);
+    // Log the ORIGINAL subject (the redirect-mode prefix embeds the recipient)
+    // and a masked address, so logs never carry a recipient's full email.
+    console.log(`[mail] sent "${input.subject}" → ${maskEmail(to)} (id: ${data.id ?? '?'})`);
     return { sent: true };
   } catch (err) {
     console.warn(`[mail] send error: ${(err as Error).message}`);
