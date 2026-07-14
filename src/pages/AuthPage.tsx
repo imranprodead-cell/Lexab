@@ -116,8 +116,17 @@ export function AuthPage() {
           pushToast(t('auth.googleFailed'), 'error');
         });
     } else if (hash.startsWith('#error=')) {
+      const code = decodeURIComponent(hash.slice('#error='.length));
       window.history.replaceState(null, '', window.location.pathname);
-      pushToast(t('auth.googleFailed'), 'error');
+      const msg =
+        code === 'sso_required'
+          ? t('auth.ssoRequired')
+          : code === 'team_full'
+            ? t('auth.ssoTeamFull')
+            : code === 'domain_mismatch'
+              ? t('auth.ssoDomainMismatch')
+              : t('auth.googleFailed');
+      pushToast(msg, 'error');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -145,6 +154,36 @@ export function AuthPage() {
     departAnd(() => {
       window.location.href = `${API_BASE}/auth/google?redirect=${back}`;
     }, 260);
+  };
+
+  // Corporate SSO: enter a work email → if the domain has SSO, go to the IdP.
+  const [ssoOpen, setSsoOpen] = useState(false);
+  const [ssoEmail, setSsoEmail] = useState('');
+  const [ssoBusy, setSsoBusy] = useState(false);
+  const startSso = async () => {
+    const email = ssoEmail.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      pushToast(t('auth.ssoBadEmail'), 'error');
+      return;
+    }
+    setSsoBusy(true);
+    try {
+      const { available } = await authApi.ssoLookup(email);
+      if (!available) {
+        pushToast(t('auth.ssoNotConfigured'), 'error');
+        return;
+      }
+      const back = encodeURIComponent(
+        `${window.location.origin}/login${inviteToken ? `?invite=${encodeURIComponent(inviteToken)}` : ''}`,
+      );
+      departAnd(() => {
+        window.location.href = `${API_BASE}/auth/sso/start?email=${encodeURIComponent(email)}&redirect=${back}`;
+      }, 260);
+    } catch (err) {
+      pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
+    } finally {
+      setSsoBusy(false);
+    }
   };
 
   const title =
@@ -351,6 +390,31 @@ export function AuthPage() {
                 <GoogleLogo />
                 {t('auth.google')}
               </button>
+
+              {/* Corporate SSO (Business). Quiet — most users use Google/email. */}
+              {!ssoOpen ? (
+                <button type="button" className={styles.ssoBtn} onClick={() => setSsoOpen(true)}>
+                  <Icon name="shield" size={16} />
+                  {t('auth.ssoButton')}
+                </button>
+              ) : (
+                <div className={styles.ssoRow}>
+                  <TextField
+                    label={t('auth.ssoEmailLabel')}
+                    name="ssoEmail"
+                    type="email"
+                    value={ssoEmail}
+                    autoFocus
+                    onChange={(e) => setSsoEmail(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') void startSso();
+                    }}
+                  />
+                  <Button type="button" variant="primary" disabled={ssoBusy} onClick={() => void startSso()}>
+                    {ssoBusy ? t('common.loading') : t('auth.ssoContinue')}
+                  </Button>
+                </div>
+              )}
 
               <div className={styles.divider}>
                 <span>{t('auth.or')}</span>

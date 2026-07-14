@@ -27,6 +27,9 @@ export interface Finding {
   citation: string;
   /** legal_units id when the citation resolved against the statute corpus. */
   unitId?: string | null;
+  /** Id of the redline that fixes this issue — click the finding to jump to
+   *  and highlight that clause. Null when the finding has no proposed change. */
+  redlineId?: string | null;
   /** True when citation validation could not confirm the source. */
   unverified?: boolean;
 }
@@ -52,6 +55,8 @@ export interface DocBlock {
 /** The full result returned by the contract analysis endpoint. */
 export interface AnalysisResult {
   id: string;
+  /** Owning document id — used for server-side export (Word/PDF). */
+  documentId?: string;
   fileName: string;
   fileSize: string;
   summary: string;

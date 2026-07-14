@@ -9,6 +9,8 @@ import { formatSize, relativeTimeRu } from '../src/lib/format.ts';
 import { newId } from '../src/lib/ids.ts';
 import { hashPassword, verifyPassword } from '../src/lib/passwords.ts';
 import { buildSimplePdf } from '../src/lib/pdf.ts';
+import { buildDocxParagraphs } from '../src/lib/docxExport.ts';
+import { Document, Packer } from 'docx';
 import { asObject, requireEmail, requireOneOf, requireString } from '../src/lib/validate.ts';
 
 test('passwords: hash → verify roundtrip', async () => {
@@ -114,12 +116,82 @@ test('extract: extension gate', () => {
   assert.ok(!ALLOWED_EXTENSIONS.includes('.exe'));
 });
 
-test('pdf builder emits a valid single-file PDF', () => {
-  const pdf = buildSimplePdf('Test report', [{ heading: 'Section' }, { text: 'Hello world '.repeat(120) }]);
+test('pdf builder emits a valid single-file PDF', async () => {
+  const pdf = await buildSimplePdf('Test report', [{ heading: 'Section' }, { text: 'Hello world '.repeat(120) }]);
   const s = pdf.toString('latin1');
-  assert.ok(s.startsWith('%PDF-1.4'));
+  assert.ok(s.startsWith('%PDF-'));
   assert.ok(s.includes('%%EOF'));
   assert.ok(s.includes('/Type /Page'));
+});
+
+test('pdf builder handles Cyrillic without producing "?" placeholders', async () => {
+  // The whole point of the Unicode font: Russian/Uzbek/Kazakh reports must not
+  // render as garbage. Embedding a real font means the bytes are subset+encoded
+  // (no literal '?' substitution), and the doc is a well-formed PDF.
+  const pdf = await buildSimplePdf('Отчёт по договору', [
+    { heading: 'Резюме', text: 'Договор содержит условия о неустойке и расторжении. St.' },
+  ]);
+  const s = pdf.toString('latin1');
+  assert.ok(s.startsWith('%PDF-'));
+  assert.ok(s.includes('%%EOF'));
+  // A subset Unicode font is embedded (FontFile2 = embedded TrueType).
+  assert.ok(s.includes('FontFile2'), 'embeds a TrueType font (Unicode support)');
+  assert.ok(pdf.length > 1000, 'non-trivial PDF produced');
+});
+
+/** Extract word/document.xml from a .docx (ZIP) buffer — minimal local-header
+ *  parser + raw inflate. Enough to inspect the generated Word XML in tests. */
+function docxDocumentXml(buf: Buffer): string {
+  const target = 'word/document.xml';
+  let i = 0;
+  while (i + 4 <= buf.length) {
+    if (buf.readUInt32LE(i) !== 0x04034b50) break; // not a local file header
+    const method = buf.readUInt16LE(i + 8);
+    const compSize = buf.readUInt32LE(i + 18);
+    const nameLen = buf.readUInt16LE(i + 26);
+    const extraLen = buf.readUInt16LE(i + 28);
+    const name = buf.toString('latin1', i + 30, i + 30 + nameLen);
+    const dataStart = i + 30 + nameLen + extraLen;
+    const data = buf.subarray(dataStart, dataStart + compSize);
+    if (name === target) {
+      return (method === 0 ? data : zlib.inflateRawSync(data)).toString('utf8');
+    }
+    i = dataStart + compSize;
+  }
+  throw new Error('document.xml not found (data-descriptor zip?)');
+}
+
+test('docx export: tracked mode emits real Word revisions; clean mode flattens', async () => {
+  const blocks = [
+    { type: 'heading' as const, text: 'Clause 1' },
+    { type: 'paragraph' as const, segments: ['Notice period of ', { redlineId: 'r1' }, ' applies.'] },
+    { type: 'paragraph' as const, segments: ['Cap: ', { redlineId: 'r2' }, '.'] },
+  ];
+  const redlines = [
+    { id: 'r1', delText: "one week's", insText: "one month's", severity: 'High' as const, status: 'pending' as const },
+    { id: 'r2', delText: '12 months', insText: '6 months', severity: 'Medium' as const, status: 'rejected' as const },
+  ];
+
+  // Tracked: pending redline → w:ins + w:del; rejected → plain original text.
+  const tracked = new Document({ sections: [{ children: buildDocxParagraphs('Doc', blocks, redlines, 'tracked', '2026-01-01T00:00:00Z') }] });
+  const trackedXml = docxDocumentXml(await Packer.toBuffer(tracked));
+  assert.ok(trackedXml.includes('<w:ins'), 'tracked mode inserts a w:ins revision');
+  assert.ok(trackedXml.includes('<w:del'), 'tracked mode inserts a w:del revision');
+  assert.ok(trackedXml.includes('LexAI'), 'revision author is LexAI');
+  assert.ok(trackedXml.includes('one week') && trackedXml.includes('one month'), 'both del + ins text present');
+
+  // Clean mode: no revisions; accepted → insText, rejected → original.
+  const cleanXml = docxDocumentXml(
+    await Packer.toBuffer(new Document({ sections: [{ children: buildDocxParagraphs('Doc', blocks, [
+      { id: 'r1', delText: "one week's", insText: "one month's", severity: 'High' as const, status: 'accepted' as const },
+      { id: 'r2', delText: '12 months', insText: '6 months', severity: 'Medium' as const, status: 'rejected' as const },
+    ], 'clean', '2026-01-01T00:00:00Z') }] })),
+  );
+  assert.ok(!cleanXml.includes('<w:ins'), 'clean mode has no tracked insertions');
+  assert.ok(!cleanXml.includes('<w:del'), 'clean mode has no tracked deletions');
+  // (apostrophe may be XML-escaped, so match the stable part)
+  assert.ok(cleanXml.includes('one month'), 'accepted change applied in clean copy');
+  assert.ok(cleanXml.includes('12 months'), 'rejected change keeps original in clean copy');
 });
 
 test('fallbacks stay well-formed (used when no LLM key is set)', () => {

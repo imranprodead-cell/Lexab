@@ -69,6 +69,7 @@ export function ChatPage() {
   const startAnalysis = useChatStore((s) => s.startAnalysis);
   const sendMessage = useChatStore((s) => s.sendMessage);
   const loadSession = useChatStore((s) => s.loadSession);
+  const requestAnchor = useChatStore((s) => s.requestAnchor);
   const ghost = useChatStore((s) => s.ghost);
   const enterGhost = useChatStore((s) => s.enterGhost);
   const exitGhost = useChatStore((s) => s.exitGhost);
@@ -327,6 +328,10 @@ export function ChatPage() {
                         <SummaryCard
                           analysis={analysis}
                           onOpenWorkspace={openWorkspace}
+                          onOpenFinding={(redlineId) => {
+                            requestAnchor(redlineId);
+                            openWorkspace();
+                          }}
                           onAsk={(q) => sendMessage(q)}
                           onAskCustom={() =>
                             document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message LexAI"]')?.focus()

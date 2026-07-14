@@ -274,7 +274,7 @@ const ANALYSIS_SCHEMA = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['severity', 'title', 'citation', 'unitId'],
+        required: ['severity', 'title', 'citation', 'unitId', 'redlineId'],
         properties: {
           severity: { type: 'string', enum: SEVERITY },
           title: { type: 'string', description: 'Short title of the legal issue.' },
@@ -283,6 +283,11 @@ const ANALYSIS_SCHEMA = {
             type: 'string',
             description:
               'ID of the supporting provision from the LEGAL CONTEXT block (unit_id in square brackets), or "" when no listed provision applies. NEVER invent ids.',
+          },
+          redlineId: {
+            type: 'string',
+            description:
+              'Id of the redline (r1, r2, …) that fixes this issue, or "" when the issue has no redline. Never invent ids.',
           },
         },
       },
@@ -338,6 +343,7 @@ Work from the supplied contract (or, when only a file name is available, infer t
 Identify the clauses with the most material legal exposure under the contract's governing jurisdiction. Cite real statutes and case law.
 Produce tracked redlines: quote the exact problematic wording as delText, and provide precise replacement wording as insText.
 Reproduce ONLY the clauses that contain redlines in the document array: a heading block (numbered, e.g. "5.  Termination") followed by a paragraph block whose segments interleave the surrounding original text with a single {redlineId} slot where the change belongs. Every redline id must appear in exactly one slot and every slot must reference an existing redline.
+When a finding is fixed by one of your redlines, set that finding's redlineId to the redline's id (r1, r2, …) so the user can click the finding and jump to the clause; use "" when a finding has no redline. Never invent ids.
 Keep it tight: 3–6 findings, 2–5 redlines, and one heading+paragraph pair per redline.`;
 
 /** User-prompt text for the analysis request — shared by both providers. */
@@ -498,12 +504,19 @@ function normalizeGenerated(raw: GeneratedAnalysis): GeneratedAnalysis {
     riskScore,
     riskLevel,
     clausesReviewed: Math.max(1, Math.round(raw.clausesReviewed)),
-    findings: raw.findings.slice(0, 8).map((f) => ({
-      severity: (SEVERITY.includes(f.severity) ? f.severity : 'Medium') as Severity,
-      title: f.title,
-      citation: f.citation,
-      unitId: f.unitId?.trim() || null,
-    })),
+    findings: raw.findings.slice(0, 8).map((f) => {
+      // Only keep a redlineId that points at a redline we actually kept — the
+      // model (esp. DeepSeek, prompt-only JSON) may emit a bogus or dropped id;
+      // an unknown id becomes null so the finding is simply not clickable.
+      const rid = f.redlineId?.trim();
+      return {
+        severity: (SEVERITY.includes(f.severity) ? f.severity : 'Medium') as Severity,
+        title: f.title,
+        citation: f.citation,
+        unitId: f.unitId?.trim() || null,
+        redlineId: rid && redlineIds.has(rid) ? rid : null,
+      };
+    }),
     redlines,
     document,
   };

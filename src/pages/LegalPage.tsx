@@ -83,6 +83,10 @@ const TERMS: Section[] = [
         ru: 'Мы можем изменять состав и стоимость тарифов. Изменения не применяются задним числом к уже оплаченному периоду.',
         en: 'We may change the contents and pricing of plans. Changes do not apply retroactively to a period you have already paid for.',
       },
+      {
+        ru: 'Оформляя платный тариф, вы просите начать оказание услуги немедленно и прямо подтверждаете, что после начала предоставления услуги теряете право на 14-дневный отказ (возврат), предусмотренное правилами дистанционных договоров ЕС/Великобритании. Оплата за начатый расчётный период не возвращается. При отмене подписки доступ сохраняется до конца оплаченного периода, после чего аккаунт переводится на тариф Free. Ваши обязательные права потребителя по применимому законодательству это положение не затрагивает.',
+        en: 'By purchasing a paid plan you request that the service begin immediately and expressly acknowledge that, once performance has started, you lose the 14-day right of withdrawal (refund) under EU/UK distance-selling rules. Payment for a started billing period is non-refundable. On cancellation, access continues until the end of the paid period, after which the account moves to the Free plan. This does not affect your mandatory statutory consumer rights under applicable law.',
+      },
     ],
   },
   {

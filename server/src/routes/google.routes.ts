@@ -22,6 +22,8 @@ import { newId } from '../lib/ids.ts';
 import { hashPassword } from '../lib/passwords.ts';
 import { asObject, requireString } from '../lib/validate.ts';
 import { getUserById, signToken, toProfile, type UserRow } from '../plugins/auth.ts';
+import { audit } from '../lib/audit.ts';
+import { assertSsoNotRequired } from './sso.routes.ts';
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -225,6 +227,13 @@ export function googleRoutes(app: FastifyInstance, db: Db): void {
       if (!profile.sub) return fail('profile_failed');
 
       const user = await findOrCreateUser(db, profile);
+      // If the user's org enforces SSO, block the Google path too (owner exempt).
+      try {
+        await assertSsoNotRequired(db, { id: user.id, email: user.email });
+      } catch {
+        return fail('sso_required');
+      }
+      await audit(db, req, { type: 'auth.google_login', actorId: user.id, actorLabel: user.email, teamOwnerId: user.id });
       // Don't put the long-lived session JWT in the URL (it would linger in
       // browser history / referrers). Park it behind a short-lived, single-use
       // code and hand only that to the browser; the SPA exchanges it below.

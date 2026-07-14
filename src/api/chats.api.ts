@@ -1,6 +1,6 @@
 /** Chat sessions API — powers the recent-reviews list in the sidebar. */
 import type { ChatMessage, ChatSession } from '@/types/domain';
-import { USE_MOCK, http } from './client';
+import { USE_MOCK, http, httpSSE, StreamingUnsupportedError } from './client';
 import { db } from './mock/db';
 import { clone, delay } from './util';
 
@@ -68,12 +68,27 @@ export const chatsApi = {
 
   /** Send a user message; the server persists it and returns the AI reply.
    *  Pass `analysisId` to ground the reply in that contract (document Q&A);
-   *  `jurisdiction` sets the default law context from the country selector. */
-  async sendMessage(sessionId: string, text: string, analysisId?: string, jurisdiction?: string): Promise<ChatMessage> {
-    return http<ChatMessage>(`/chats/${sessionId}/messages`, {
-      method: 'POST',
-      body: { text, ...(analysisId ? { analysisId } : {}), ...(jurisdiction ? { jurisdiction } : {}) },
-    });
+   *  `jurisdiction` sets the default law context from the country selector.
+   *  With `onToken`, the reply streams live (SSE); without it, a plain POST. */
+  async sendMessage(
+    sessionId: string,
+    text: string,
+    analysisId?: string,
+    jurisdiction?: string,
+    onToken?: (delta: string) => void,
+  ): Promise<ChatMessage> {
+    const body = { text, ...(analysisId ? { analysisId } : {}), ...(jurisdiction ? { jurisdiction } : {}) };
+    if (onToken && !USE_MOCK) {
+      try {
+        return await httpSSE<ChatMessage>(`/chats/${sessionId}/messages`, body, onToken);
+      } catch (err) {
+        // ONLY the pre-send feature-detect falls back to a plain POST; a
+        // mid-stream failure must not re-POST (the server may have already
+        // persisted the turn + reply — a resend would duplicate them).
+        if (!(err instanceof StreamingUnsupportedError)) throw err;
+      }
+    }
+    return http<ChatMessage>(`/chats/${sessionId}/messages`, { method: 'POST', body });
   },
 
   /** Ghost (incognito) chat: same AI, same limits — nothing stored. The
@@ -82,15 +97,21 @@ export const chatsApi = {
     text: string,
     history: { role: 'user' | 'assistant'; text: string }[],
     jurisdiction?: string,
+    onToken?: (delta: string) => void,
   ): Promise<ChatMessage> {
     if (USE_MOCK) {
       await delay(400);
       return { id: `gm_${Date.now()}`, role: 'assistant', kind: 'text', text: 'Ghost reply (mock).' };
     }
-    return http<ChatMessage>('/chats/ghost/messages', {
-      method: 'POST',
-      body: { text, history, ...(jurisdiction ? { jurisdiction } : {}) },
-    });
+    const body = { text, history, ...(jurisdiction ? { jurisdiction } : {}) };
+    if (onToken) {
+      try {
+        return await httpSSE<ChatMessage>('/chats/ghost/messages', body, onToken);
+      } catch (err) {
+        if (!(err instanceof StreamingUnsupportedError)) throw err;
+      }
+    }
+    return http<ChatMessage>('/chats/ghost/messages', { method: 'POST', body });
   },
 
   /** Rate an assistant reply (thumbs up / down); `null` clears the rating. */

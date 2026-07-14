@@ -58,6 +58,21 @@
   background: var(--panel);
   border: 1px solid var(--border);
 }
+.findingCardClickable {
+  cursor: pointer;
+  align-items: center;
+  text-align: left;
+  width: 100%;
+  transition: background var(--dur-fast), border-color var(--dur-fast);
+}
+.findingCardClickable:hover {
+  background: var(--hover-2);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+.findingCardClickable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
 .findingCardDot {
   width: 8px;
   height: 8px;
@@ -220,6 +235,47 @@
   border-radius: 3px;
   padding: 0 2px;
 }
+/* Flash a clause when the user clicks its finding (scroll + brief highlight). */
+.clauseFlash {
+  animation: clauseFlash 1.3s ease-out;
+  border-radius: 6px;
+}
+@keyframes clauseFlash {
+  0%,
+  35% {
+    background: color-mix(in srgb, var(--accent) 22%, transparent);
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+  100% {
+    background: transparent;
+    box-shadow: 0 0 0 6px transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .clauseFlash {
+    animation-duration: 0.01ms;
+  }
+}
+
+/* A rejected change is normal text, but editors get a faint dotted underline so
+   it can be found and reverted. */
+.redlineRejected {
+  text-decoration: underline dotted;
+  text-decoration-color: color-mix(in srgb, var(--dim) 55%, transparent);
+  text-underline-offset: 3px;
+}
+/* Decided redlines are clickable to undo (revert to pending). */
+.redlineRevertable {
+  cursor: pointer;
+}
+.redlineRevertable:hover {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.redlineRevertable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: 3px;
+}
 
 /* Floating toolbar -------------------------------------------------------- */
 .toolbar {
@@ -260,6 +316,61 @@
 }
 .toolbarBtn:hover {
   background: var(--hover-2);
+}
+
+/* Download menu (tracked vs clean) ---------------------------------------- */
+.toolbarMenuWrap {
+  position: relative;
+  display: inline-flex;
+}
+.menuBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: transparent;
+  border: none;
+  cursor: default;
+}
+.toolbarMenu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 31;
+  min-width: 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  border-radius: 12px;
+  background: var(--toolbar-bg, var(--surface));
+  border: 1px solid var(--border);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+}
+.toolbarMenuItem {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  text-align: left;
+  padding: 9px 11px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+}
+.toolbarMenuItem:hover {
+  background: var(--hover-2);
+}
+.toolbarMenuTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.toolbarMenuSub {
+  font-size: 12px;
+  color: var(--dim);
+  line-height: 1.35;
 }
 
 /* Version history list ---------------------------------------------------- */

@@ -145,6 +145,10 @@ function PlanCard({
   const { t, lang } = useI18n();
   const pushToast = useUIStore((s) => s.pushToast);
   const [busy, setBusy] = useState(false);
+  // Consent step before a paid purchase: the withdrawal-right waiver must be
+  // explicitly ticked (unchecked by default) to make the no-refund term lawful.
+  const [confirming, setConfirming] = useState(false);
+  const [consent, setConsent] = useState(false);
 
   const yearly = period === 'yearly';
   const hasNumericPrice = plan.monthly !== undefined;
@@ -169,12 +173,24 @@ function PlanCard({
       pushToast(t('plans.freeActive'), 'success');
       return;
     }
+    // Paid plan: open the consent step instead of buying immediately.
+    setConfirming(true);
+  };
+
+  const confirmPurchase = () => {
+    if (busy) return;
+    if (!consent) {
+      pushToast(t('plans.consentRequired'), 'error');
+      return;
+    }
     setBusy(true);
     billingApi
-      .checkout(plan.name, period)
+      .checkout(plan.name, period, true)
       .then((res) => {
         clearAsyncCache(); // sidebar/settings quotas re-read the new plan
         onPurchased?.(res.plan);
+        setConfirming(false);
+        setConsent(false);
         pushToast(
           yearly
             ? t('plans.activatedYearly', { plan: res.plan, d: res.discountPercent })
@@ -214,13 +230,34 @@ function PlanCard({
           </div>
         ))}
       </div>
-      <button
-        className={`${styles.planCta} ${plan.accent && !current ? styles.planCtaAccent : ''}`}
-        disabled={busy}
-        onClick={buy}
-      >
-        {busy ? t('plans.opening') : current ? t('plans.renew') : pickText(plan.cta, lang)}
-      </button>
+      {confirming ? (
+        <div className={styles.planConsent}>
+          <label className={styles.planConsentRow}>
+            <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
+            <span>{t('plans.consentLabel')}</span>
+          </label>
+          <div className={styles.planConsentActions}>
+            <button
+              className={`${styles.planCta} ${plan.accent ? styles.planCtaAccent : ''}`}
+              disabled={busy || !consent}
+              onClick={confirmPurchase}
+            >
+              {busy ? t('plans.opening') : t('plans.confirmPurchase')}
+            </button>
+            <button className={styles.planConsentCancel} disabled={busy} onClick={() => setConfirming(false)}>
+              {t('common.cancel')}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          className={`${styles.planCta} ${plan.accent && !current ? styles.planCtaAccent : ''}`}
+          disabled={busy}
+          onClick={buy}
+        >
+          {busy ? t('plans.opening') : current ? t('plans.renew') : pickText(plan.cta, lang)}
+        </button>
+      )}
     </div>
   );
 }
