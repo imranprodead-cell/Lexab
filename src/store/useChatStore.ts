@@ -105,8 +105,18 @@ let canvasEpoch = 0;
 const pendingReplies = new Map<string, string>(); // sessionId → placeholder message id
 
 /** Last known conversation per session (stale-while-revalidate): reopening a
- *  chat paints instantly from this cache while fresh data loads behind it. */
+ *  chat paints instantly from this cache while fresh data loads behind it.
+ *  LRU-capped — a long session hopping between many chats (each with a full
+ *  analysis document) must not grow memory without bound. */
+const SESSION_CACHE_MAX = 30;
 const sessionCache = new Map<string, { messages: ChatMessage[]; analysis: AnalysisResult | null }>();
+function cacheSession(id: string, value: { messages: ChatMessage[]; analysis: AnalysisResult | null }) {
+  sessionCache.delete(id); // re-insert → becomes the most recently used
+  sessionCache.set(id, value);
+  while (sessionCache.size > SESSION_CACHE_MAX) {
+    sessionCache.delete(sessionCache.keys().next().value as string); // evict the oldest
+  }
+}
 
 /** Canvas snapshot taken when entering ghost mode, restored on exit. */
 let ghostStash: {
@@ -456,7 +466,7 @@ export const useChatStore = create<ChatState>((set, get) => {
     // Snapshot the canvas we're leaving, so coming back paints instantly.
     const leaving = get();
     if (leaving.serverSessionId && leaving.messages.length) {
-      sessionCache.set(leaving.serverSessionId, { messages: leaving.messages, analysis: leaving.analysis });
+      cacheSession(leaving.serverSessionId, { messages: leaving.messages, analysis: leaving.analysis });
     }
     canvasEpoch++;
     const epoch = canvasEpoch;
@@ -496,7 +506,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       });
       const analysisRef = [...messages].reverse().find((m) => m.analysisId)?.analysisId;
       const analysis = analysisRef ? await analysisApi.get(analysisRef).catch(() => null) : null;
-      sessionCache.set(sessionId, { messages, analysis });
+      cacheSession(sessionId, { messages, analysis });
       if (epoch !== canvasEpoch) return;
       set({
         phase: messages.length || analysis ? 'analyzed' : 'idle',

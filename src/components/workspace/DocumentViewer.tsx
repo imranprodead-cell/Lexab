@@ -95,10 +95,10 @@ export function DocumentViewer({ analysis, pendingCount, onSaveBlock, children }
                 />
                 <div className={styles.clauseEditActions}>
                   <button className={styles.clauseEditBtn} onClick={() => setEditIdx(null)}>
-                    Cancel
+                    {t('common.cancel')}
                   </button>
                   <button className={`${styles.clauseEditBtn} ${styles.clauseEditSave}`} onClick={commit}>
-                    <Icon name="check" size={13} strokeWidth={2.2} /> Save
+                    <Icon name="check" size={13} strokeWidth={2.2} /> {t('common.save')}
                   </button>
                 </div>
               </div>

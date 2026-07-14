@@ -16,6 +16,8 @@ import { renderSignableText } from './sign.routes.ts';
 import { readFileBytes, saveFile } from '../storage.ts';
 import type { SignatureRecipient, SignatureRequest } from '../types.ts';
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 interface RequestRow {
   id: string;
   document_name: string;
@@ -30,27 +32,34 @@ export function signatureRoutes(app: FastifyInstance, db: Db): void {
        WHERE user_id = $1 ORDER BY created_at DESC`,
       [req.currentUser.id],
     );
-    const result: SignatureRequest[] = [];
-    for (const row of requests.rows) {
-      const recipients = await db.query<SignatureRecipient & { signed_at?: Date | string | null }>(
-        'SELECT name, email, signed, token, signed_at FROM signature_recipients WHERE request_id = $1 ORDER BY ord',
-        [row.id],
-      );
-      result.push({
-        id: row.id,
-        documentName: row.document_name,
-        status: row.status,
-        recipients: recipients.rows.map((r) => ({
-          name: r.name,
-          email: r.email,
-          signed: r.signed,
-          ...(r.token ? { token: r.token } : {}),
-          ...(r.signed_at ? { signedAt: toIso(r.signed_at) } : {}),
-        })),
-        sentAt: row.sent_at ? toIso(row.sent_at) : null,
-      });
+    // All recipients in ONE query (was an N+1: one query per request row).
+    const ids = requests.rows.map((r) => r.id);
+    const recipients = ids.length
+      ? await db.query<SignatureRecipient & { request_id: string; signed_at?: Date | string | null }>(
+          `SELECT request_id, name, email, signed, token, signed_at FROM signature_recipients
+           WHERE request_id = ANY($1::text[]) ORDER BY request_id, ord`,
+          [ids],
+        )
+      : { rows: [] };
+    const byRequest = new Map<string, (typeof recipients.rows)[number][]>();
+    for (const r of recipients.rows) {
+      const list = byRequest.get(r.request_id) ?? [];
+      list.push(r);
+      byRequest.set(r.request_id, list);
     }
-    return result;
+    return requests.rows.map((row) => ({
+      id: row.id,
+      documentName: row.document_name,
+      status: row.status,
+      recipients: (byRequest.get(row.id) ?? []).map((r) => ({
+        name: r.name,
+        email: r.email,
+        signed: r.signed,
+        ...(r.token ? { token: r.token } : {}),
+        ...(r.signed_at ? { signedAt: toIso(r.signed_at) } : {}),
+      })),
+      sentAt: row.sent_at ? toIso(row.sent_at) : null,
+    }));
   });
 
   app.post('/signatures', { preHandler: [app.authenticate] }, async (req, reply): Promise<SignatureRequest> => {
@@ -76,9 +85,13 @@ export function signatureRoutes(app: FastifyInstance, db: Db): void {
     }
     const recipients = rawRecipients.map((r, i) => {
       const obj = asObject(r, `recipients[${i}]`);
+      const email = requireString(obj, 'email', { min: 3, max: 320 });
+      // Same format check as approvals/team — a malformed address would only
+      // surface later as a silent mail-provider failure.
+      if (!EMAIL_RE.test(email)) throw badRequest(`recipients[${i}].email is not a valid email address`);
       return {
         name: requireString(obj, 'name', { min: 1, max: 200 }),
-        email: requireString(obj, 'email', { min: 3, max: 320 }),
+        email,
       };
     });
 

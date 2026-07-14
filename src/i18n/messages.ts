@@ -151,7 +151,6 @@ export const MESSAGES: Dict = {
   // Workspace
   'ws.report': { ru: 'Отчёт (PDF)', en: 'Report (PDF)' },
   'ws.saved': { ru: 'Изменения сохранены.', en: 'Changes saved.' },
-  'ws.editHint': { ru: 'Нажмите на абзац, чтобы отредактировать его', en: 'Click a paragraph to edit it' },
   'ws.versionsTitle': { ru: 'История версий', en: 'Version history' },
   'ws.noVersions': {
     ru: 'Версий пока нет — они появятся после загрузки и анализа документа.',
@@ -171,10 +170,6 @@ export const MESSAGES: Dict = {
   'sig.detailTitle': { ru: 'Запрос на подпись', en: 'Signature request' },
   'sig.signedYes': { ru: 'Подпись получена', en: 'Signed' },
   'sig.waiting': { ru: 'Ожидает', en: 'Waiting' },
-  'sig.detailHint': {
-    ru: 'Отправка приглашений по email подключается вместе с почтовым сервисом — пока статусы обновляются внутри LexAI.',
-    en: 'Email invitations will be enabled once a mail provider is connected — for now statuses update inside LexAI.',
-  },
   'country.aiNote': {
     ru: 'Юрисдикция по умолчанию: {law}. ИИ учтёт её в анализах и ответах.',
     en: 'Default jurisdiction: {law}. The AI will use it for reviews and answers.',
@@ -186,7 +181,6 @@ export const MESSAGES: Dict = {
   'tpl.allCategories': { ru: 'Все категории', en: 'All categories' },
   'tpl.empty': { ru: 'Нет шаблонов в этой категории', en: 'No templates in this category' },
   'tpl.clauses': { ru: 'пунктов', en: 'clauses' },
-  'tpl.start': { ru: 'Начать черновик из «{name}»…', en: 'Starting a draft from “{name}”…' },
 
   // Signatures
   'sig.title': { ru: 'Э-подписи', en: 'E-signatures' },
@@ -233,7 +227,6 @@ export const MESSAGES: Dict = {
     en: 'The person joins the team only after accepting the invitation in the app.',
   },
   'team.invitedYou': { ru: '{name} ({firm}) приглашает вас в команду', en: '{name} ({firm}) invited you to their team' },
-  'team.invitedRole': { ru: 'Ваша роль: ', en: 'Your role: ' },
   'team.accept': { ru: 'Принять', en: 'Accept' },
   'team.decline': { ru: 'Отклонить', en: 'Decline' },
   'team.acceptedToast': { ru: 'Вы присоединились к команде.', en: 'You joined the team.' },
@@ -243,7 +236,6 @@ export const MESSAGES: Dict = {
   'top.upgrade': { ru: 'Обновить', en: 'Upgrade' },
   'top.theme.toLight': { ru: 'Светлая тема', en: 'Light theme' },
   'top.theme.toDark': { ru: 'Тёмная тема', en: 'Dark theme' },
-  'top.search': { ru: 'Поиск', en: 'Search' },
   'top.notFound': { ru: 'Ничего не найдено', en: 'No results' },
   'top.notifications': { ru: 'Уведомления', en: 'Notifications' },
   'top.markAllRead': { ru: 'Отметить все', en: 'Mark all read' },
@@ -414,16 +406,11 @@ export const MESSAGES: Dict = {
   },
   'cloud.goSettings': { ru: 'Открыть настройки', en: 'Open Settings' },
   'cloud.drivePick': { ru: 'Выбрать файл на Google Диске', en: 'Pick a file from Google Drive' },
-  'cloud.driveHint': {
-    ru: 'Откроется окно Google — приложение получит доступ только к файлу, который вы выберете.',
-    en: 'Google’s own picker opens — the app can only access the file you pick.',
-  },
   'cloud.search': { ru: 'Поиск по названию…', en: 'Search by name…' },
   'cloud.empty': { ru: 'Подходящих файлов не найдено (PDF, DOC, DOCX, TXT, MD)', en: 'No matching files found (PDF, DOC, DOCX, TXT, MD)' },
   'cloud.importing': { ru: 'Импортирую…', en: 'Importing…' },
 
   // Plan / subscription
-  'plan.pro': { ru: 'Pro · активна', en: 'Pro · active' },
 
   // Chat welcome
   'chat.greeting.morning': { ru: 'Доброе утро', en: 'Good morning' },
@@ -477,7 +464,6 @@ export const MESSAGES: Dict = {
     en: 'LexAI can make mistakes. Verify citations against primary sources.',
   },
   'chat.dropHere': { ru: 'Отпустите файл, чтобы загрузить', en: 'Drop the file to upload' },
-  'chat.uploading': { ru: 'Загрузка…', en: 'Uploading…' },
 
   // Commands
   'cmd.analyze': { ru: 'Обзор контракта на юридические риски', en: 'Review a contract for legal risk' },
@@ -489,37 +475,21 @@ export const MESSAGES: Dict = {
   // Compare
   'cmp.title': { ru: 'Сравнение версий', en: 'Compare versions' },
   'cmp.sub': { ru: 'Различия между двумя версиями договора по пунктам.', en: 'Differences between two contract versions, clause by clause.' },
-  'cmp.removed': { ru: 'Удалено', en: 'Removed' },
-  'cmp.added': { ru: 'Добавлено', en: 'Added' },
   'cmp.changes': { ru: '{n} изменённых пунктов', en: '{n} changed clauses' },
 
   // Analysis
-  'analysis.working': { ru: 'Анализ контракта', en: 'Analyzing contract' },
-  'analysis.done': { ru: 'Анализ завершён', en: 'Analysis complete' },
-  'analysis.badge.working': { ru: 'В работе', en: 'Working' },
-  'analysis.badge.done': { ru: 'Готово', en: 'Complete' },
-  'analysis.step.parse': { ru: 'Разбор структуры документа', en: 'Parsing document structure' },
-  'analysis.step.law': { ru: 'Проверка по закону и практике', en: 'Checking against statute & case law' },
-  'analysis.step.report': { ru: 'Формирование отчёта о рисках', en: 'Building risk report' },
-  'analysis.findings': { ru: 'критических находок', en: 'critical findings' },
-  'analysis.clauses': { ru: 'пунктов проверено', en: 'clauses reviewed' },
-  'analysis.riskScore': { ru: 'оценка риска', en: 'risk score' },
-  'analysis.topFindings': { ru: 'Топ критических находок', en: 'Top critical findings' },
   'analysis.openWorkspace': { ru: 'Открыть рабочую область', en: 'Open workspace' },
-  'analysis.followUp': { ru: 'Задать вопрос', en: 'Ask a follow-up' },
   'risk.Low': { ru: 'Низкий риск', en: 'Low risk' },
   'risk.Elevated': { ru: 'Повышенный риск', en: 'Elevated risk' },
   'risk.High': { ru: 'Высокий риск', en: 'High risk' },
 
   // Generic
-  'common.retry': { ru: 'Повторить', en: 'Try again' },
   'common.loading': { ru: 'Загрузка…', en: 'Loading…' },
   'common.cancel': { ru: 'Отмена', en: 'Cancel' },
   'common.save': { ru: 'Сохранить', en: 'Save' },
   'common.error': { ru: 'Что-то пошло не так', en: 'Something went wrong' },
   'common.close': { ru: 'Закрыть', en: 'Close' },
   'common.back': { ru: 'Назад', en: 'Back' },
-  'common.search': { ru: 'Поиск', en: 'Search' },
 
   // Documents
   'docs.title': { ru: 'Документы', en: 'Documents' },
@@ -537,7 +507,6 @@ export const MESSAGES: Dict = {
   'docs.today': { ru: 'Сегодня', en: 'Today' },
   'docs.yesterday': { ru: 'Вчера', en: 'Yesterday' },
   'docs.daysAgo': { ru: '{n} дн. назад', en: '{n} days ago' },
-  'docs.open': { ru: 'Открыть документ', en: 'Open document' },
   'docs.prev': { ru: 'Назад', en: 'Prev' },
   'docs.next': { ru: 'Далее', en: 'Next' },
   'docs.pageOf': { ru: 'Стр. {page} из {total}', en: 'Page {page} of {total}' },
@@ -578,10 +547,6 @@ export const MESSAGES: Dict = {
   'auth.google': { ru: 'Продолжить с Google', en: 'Continue with Google' },
   'auth.or': { ru: 'ИЛИ', en: 'OR' },
   'auth.emailContinue': { ru: 'Продолжить по email', en: 'Continue with email' },
-  'auth.terms': {
-    ru: 'Продолжая, вы принимаете Условия использования и Политику конфиденциальности LexAI.',
-    en: 'By continuing, you agree to the LexAI Terms of Use and Privacy Policy.',
-  },
   'auth.googleFailed': { ru: 'Не удалось войти через Google. Попробуйте ещё раз.', en: 'Google sign-in failed. Please try again.' },
   'auth.signingIn': { ru: 'Входим в LexAI…', en: 'Signing you in…' },
   // Honest, measured trust signals (RAG eval, golden set — see HANDOFF.md).
@@ -630,21 +595,10 @@ export const MESSAGES: Dict = {
   'limits.storage': { ru: 'Хранилище', en: 'Storage' },
   'limits.unlimited': { ru: 'Безлимит', en: 'Unlimited' },
   'settings.profile': { ru: 'Профиль', en: 'Profile' },
-  'settings.avatar': { ru: 'Фото профиля', en: 'Profile photo' },
   'settings.avatarUpload': { ru: 'Загрузить фото', en: 'Upload photo' },
   'settings.avatarRemove': { ru: 'Удалить', en: 'Remove' },
   'settings.avatarHint': { ru: 'PNG или JPG, до 2 МБ.', en: 'PNG or JPG, up to 2 MB.' },
-  'settings.appearance': { ru: 'Внешний вид', en: 'Appearance' },
   'settings.language': { ru: 'Язык', en: 'Language' },
-  'settings.theme': { ru: 'Тема', en: 'Theme' },
-  'settings.themeLight': { ru: 'Светлая', en: 'Light' },
-  'settings.themeDark': { ru: 'Тёмная', en: 'Dark' },
-  'settings.themeSystem': { ru: 'Системная', en: 'System' },
-  'settings.accent': { ru: 'Акцентный цвет', en: 'Accent colour' },
-  'settings.reduceMotion': { ru: 'Меньше анимации', en: 'Reduce motion' },
-  'settings.reduceMotionDesc': { ru: 'Отключить стриминг текста и лишнюю анимацию.', en: 'Disable streaming text and non-essential animation.' },
-  'settings.pinRail': { ru: 'Держать меню раскрытым', en: 'Keep sidebar expanded' },
-  'settings.pinRailDesc': { ru: 'Закрепить панель навигации вместо раскрытия при наведении.', en: 'Pin the navigation rail open instead of expanding on hover.' },
 
   // Command palette
   'palette.placeholder': { ru: 'Куда перейти или что сделать…', en: 'Go to or do anything…' },
@@ -680,13 +634,8 @@ export const MESSAGES: Dict = {
   'chat.micStop': { ru: 'Остановить запись', en: 'Stop recording' },
   'chat.attach': { ru: 'Прикрепить договор', en: 'Attach contract' },
   'chat.sendLabel': { ru: 'Отправить сообщение', en: 'Send message' },
-  'chat.followUp': {
-    ru: 'Какие пункты требуют доработки в первую очередь?',
-    en: 'Which clauses need attention first?',
-  },
 
   // Workspace
-  'ws.preparing': { ru: 'Готовлю рабочую область…', en: 'Preparing workspace…' },
   'ws.review': { ru: 'Обзор', en: 'Review' },
   'ws.backToChat': { ru: 'Назад в чат', en: 'Back to chat' },
   'ws.intro': {
@@ -733,8 +682,6 @@ export const MESSAGES: Dict = {
   'settings.jurisdiction': { ru: 'Основная юрисдикция', en: 'Primary jurisdiction' },
   'settings.organisation': { ru: 'Организация', en: 'Organisation' },
   'settings.errName': { ru: 'Укажите имя.', en: 'Name is required.' },
-  'settings.errEmailReq': { ru: 'Укажите email.', en: 'Email is required.' },
-  'settings.errFirm': { ru: 'Укажите организацию.', en: 'Organisation is required.' },
 
   // Plans page
   'plans.topTitle': { ru: 'Тарифы', en: 'Plans' },
@@ -748,18 +695,8 @@ export const MESSAGES: Dict = {
   'plans.yearlyNote': { ru: 'при оплате за год · экономия 15%', en: 'billed yearly · save 15%' },
   'plans.popular': { ru: 'Популярный', en: 'Popular' },
   'plans.best': { ru: 'Самый выгодный', en: 'Best value' },
-  'plans.current': { ru: 'Ваш план', en: 'Your plan' },
   'plans.opening': { ru: 'Открываю…', en: 'Opening…' },
-  'plans.checkoutYearly': {
-    ru: 'План {plan}, годовая оплата со скидкой {d}%. Оплата откроется после подключения Stripe.',
-    en: '{plan} plan, yearly billing with {d}% off. Checkout opens once Stripe is connected.',
-  },
-  'plans.checkoutMonthly': {
-    ru: 'План {plan}, помесячная оплата. Оплата откроется после подключения Stripe.',
-    en: '{plan} plan, monthly billing. Checkout opens once Stripe is connected.',
-  },
   'plans.checkoutFailed': { ru: 'Не удалось начать оформление. Попробуйте ещё раз.', en: 'Could not start checkout. Please try again.' },
-  'plans.enterpriseContact': { ru: 'Мы свяжемся с вами для обсуждения условий.', en: 'We will contact you to discuss terms.' },
   'plans.freeActive': { ru: 'План Free уже доступен — просто пользуйтесь LexAI.', en: 'The Free plan is already active — just use LexAI.' },
 
   // Locked email + eye
@@ -772,7 +709,6 @@ export const MESSAGES: Dict = {
 
   // Team management
   'team.col.actions': { ru: 'Действия', en: 'Actions' },
-  'team.roleChanged': { ru: 'Роль обновлена.', en: 'Role updated.' },
   'team.removed': { ru: 'Участник удалён из команды.', en: 'Member removed from the team.' },
   'team.revoked': { ru: 'Приглашение отозвано.', en: 'Invitation revoked.' },
   'team.copyInvite': { ru: 'Скопировать ссылку-приглашение', en: 'Copy invite link' },

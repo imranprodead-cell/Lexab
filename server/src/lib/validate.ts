@@ -21,10 +21,17 @@ export function requireString(obj: Record<string, unknown>, field: string, opts?
   return trimmed;
 }
 
-export function optionalString(obj: Record<string, unknown>, field: string): string | undefined {
+export function optionalString(
+  obj: Record<string, unknown>,
+  field: string,
+  opts?: { max?: number },
+): string | undefined {
   const v = obj[field];
   if (v === undefined || v === null) return undefined;
   if (typeof v !== 'string') throw badRequest(`Field "${field}" must be a string`);
+  if (opts?.max !== undefined && v.length > opts.max) {
+    throw badRequest(`Field "${field}" must be at most ${opts.max} characters`);
+  }
   return v;
 }
 

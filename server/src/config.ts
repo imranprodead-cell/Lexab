@@ -52,6 +52,13 @@ export const config = {
   corsExplicit: Boolean(process.env.CORS_ORIGIN),
 
   databaseUrl: env('DATABASE_URL'),
+  /** CA certificate (PEM path) for validating the DATABASE_URL TLS connection.
+   *  Default: the bundled Supabase root CA (certs/supabase-root-2021-ca.pem).
+   *  Set for other managed-Postgres providers whose CA differs. */
+  databaseCaCertPath: env('DATABASE_CA_CERT_PATH'),
+  /** Explicit escape hatch: '1' disables DB TLS certificate validation
+   *  (encrypted but MITM-able — never use in production). */
+  databaseTlsInsecure: env('DATABASE_TLS_INSECURE') === '1',
   dataDir: path.resolve(env('DATA_DIR', './data')),
 
   jwtSecret: resolveJwtSecret(),

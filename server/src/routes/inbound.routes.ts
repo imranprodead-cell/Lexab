@@ -27,7 +27,7 @@ import type { FastifyInstance } from 'fastify';
 import { config } from '../config.ts';
 import type { Db } from '../db.ts';
 import { ALLOWED_EXTENSIONS, extractText, fileExtension, MAX_UPLOAD_BYTES, verifyFileSignature } from '../extract.ts';
-import { badRequest, notFound, unauthorized } from '../lib/errors.ts';
+import { badRequest, HttpError, notFound, unauthorized } from '../lib/errors.ts';
 import { formatSize } from '../lib/format.ts';
 import { newId } from '../lib/ids.ts';
 import { planFor } from '../lib/limits.ts';
@@ -146,7 +146,9 @@ export function inboundRoutes(app: FastifyInstance, db: Db): void {
           results.push({ fileName, analysisId: analysis.id });
         } catch (err) {
           req.log.warn(err, `inbound: analysis failed for ${fileName}`);
-          results.push({ fileName, error: err instanceof Error ? err.message : 'analysis failed' });
+          // Only deliberate HttpErrors carry a message written for exposure;
+          // anything else (DB/provider internals) stays in the logs.
+          results.push({ fileName, error: err instanceof HttpError ? err.message : 'analysis failed' });
         }
       }
 

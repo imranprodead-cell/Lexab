@@ -157,6 +157,26 @@
         }
       })();
     </script>
+    <!-- Anti-clickjacking (OWASP legacy frame-buster). `frame-ancestors` is
+         ignored in <meta> CSP and we don't control the static host's headers,
+         so the defence ships with the page itself: the app stays hidden unless
+         it is the top window — even inside a sandboxed iframe where the
+         top-navigation escape below is blocked. -->
+    <style id="antiClickjack">
+      body {
+        display: none !important;
+      }
+    </style>
+    <script>
+      (function () {
+        if (self === top) {
+          var s = document.getElementById('antiClickjack');
+          if (s) s.parentNode.removeChild(s);
+        } else {
+          top.location = self.location;
+        }
+      })();
+    </script>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <!-- Fonts load async (media swap) so they never block first paint. -->

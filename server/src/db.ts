@@ -32,6 +32,34 @@ export interface Db extends Queryable {
 
 let dbPromise: Promise<Db> | null = null;
 
+/**
+ * TLS options with REAL certificate validation. Supabase chains to its own
+ * private root ("Supabase Root 2021 CA", shipped in certs/ — a public cert,
+ * not a secret), so the system trust store can't verify it; we pin that root
+ * instead. Without validation the connection is encrypted but unauthenticated
+ * — a MITM could read/alter all DB traffic. DATABASE_CA_CERT_PATH overrides
+ * the CA for other providers; DATABASE_TLS_INSECURE=1 is a labelled dev-only
+ * escape hatch. A missing/unreadable CA file fails the boot loudly rather
+ * than silently downgrading security.
+ */
+function resolveSslOptions(): { ca: string; rejectUnauthorized: true } | { rejectUnauthorized: false } {
+  if (config.databaseTlsInsecure) {
+    console.warn('[db] DATABASE_TLS_INSECURE=1 — TLS certificate validation is OFF. Never use this in production.');
+    return { rejectUnauthorized: false };
+  }
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const caPath = config.databaseCaCertPath || path.join(here, '..', 'certs', 'supabase-root-2021-ca.pem');
+  try {
+    return { ca: fs.readFileSync(caPath, 'utf8'), rejectUnauthorized: true };
+  } catch (err) {
+    throw new Error(
+      `DB CA certificate is not readable at ${caPath} (${(err as Error).message}). ` +
+        'Restore the file, point DATABASE_CA_CERT_PATH at your provider\'s CA, ' +
+        'or set DATABASE_TLS_INSECURE=1 (dev only) to skip validation.',
+    );
+  }
+}
+
 async function createDb(): Promise<Db> {
   if (config.databaseUrl) {
     const { default: pg } = await import('pg');
@@ -39,7 +67,7 @@ async function createDb(): Promise<Db> {
     const useSsl = /supabase\.(co|com)|sslmode=require/.test(config.databaseUrl);
     const pool = new pg.Pool({
       connectionString: config.databaseUrl,
-      ...(useSsl ? { ssl: { rejectUnauthorized: false } } : {}),
+      ...(useSsl ? { ssl: resolveSslOptions() } : {}),
     });
     // An idle pooled connection can error at any time (network change, pooler
     // restart). Without this handler Node crashes the whole process

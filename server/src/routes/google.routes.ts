@@ -84,12 +84,25 @@ async function findOrCreateUser(db: Db, profile: GoogleProfile): Promise<UserRow
   }
 
   // 2. Existing account with this email → link the Google id to it.
-  const byEmail = await db.query<{ id: string; avatar_url: string | null }>(
-    'SELECT id, avatar_url FROM users WHERE lower(email) = $1',
+  const byEmail = await db.query<{ id: string; avatar_url: string | null; email_verified: boolean }>(
+    'SELECT id, avatar_url, email_verified FROM users WHERE lower(email) = $1',
     [email],
   );
   if (byEmail.rows[0]) {
-    const { id, avatar_url } = byEmail.rows[0];
+    const { id, avatar_url, email_verified } = byEmail.rows[0];
+    if (!email_verified) {
+      // Account pre-hijack defence: an UNVERIFIED row's password was set by
+      // whoever registered the email first — not necessarily the mailbox owner.
+      // Google has just proven THIS user owns the mailbox, so the planted
+      // password must die: overwrite it with a random one (recoverable via the
+      // reset flow) and bump token_version to revoke any tokens issued to the
+      // pre-registrant.
+      const scrubbedHash = await hashPassword(crypto.randomBytes(32).toString('hex'));
+      await db.query(
+        'UPDATE users SET password_hash = $2, verify_token = NULL, verify_expires = NULL, token_version = token_version + 1 WHERE id = $1',
+        [id, scrubbedHash],
+      );
+    }
     await db.query('UPDATE users SET google_sub = $2, email_verified = true, avatar_url = COALESCE($3, avatar_url) WHERE id = $1', [
       id,
       profile.sub,

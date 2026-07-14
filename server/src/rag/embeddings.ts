@@ -17,20 +17,34 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /**
  * Embed texts in small batches. The free Voyage tier allows ~3 requests/min
  * and ~10K tokens/request, so batches are small and 429s wait patiently.
+ *
+ * 'query' embeddings run in the LIVE request path (analysis/chat): a hung or
+ * rate-limited Voyage call must never block the reply, so they get a single
+ * attempt with a hard timeout — on failure the caller falls back to FTS-only
+ * search. EMBED_QUERY_MAX_RETRIES (default 0) opts into 429 backoff for the
+ * eval harness, whose back-to-back queries otherwise exhaust the free-tier
+ * RPM (same reasoning as RERANK_MAX_RETRIES below). 'document' embeddings run
+ * in offline ingest (rag:embed), where patient backoff is correct.
  */
+const EMBED_QUERY_MAX_RETRIES = Math.max(0, Number(process.env.EMBED_QUERY_MAX_RETRIES ?? 0));
+const EMBED_QUERY_TIMEOUT_MS = 4000;
+
 export async function embedTexts(texts: string[], inputType: 'document' | 'query'): Promise<number[][]> {
   if (!embeddingsEnabled()) throw new Error('VOYAGE_API_KEY is not set');
+  const live = inputType === 'query';
+  const maxAttempts = live ? 1 + EMBED_QUERY_MAX_RETRIES : 8;
   const BATCH = 12;
   const out: number[][] = [];
   for (let i = 0; i < texts.length; i += BATCH) {
     const batch = texts.slice(i, i + BATCH);
     let lastErr: Error | null = null;
-    for (let attempt = 1; attempt <= 8; attempt++) {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         const res = await fetch('https://api.voyageai.com/v1/embeddings', {
           method: 'POST',
           headers: { authorization: `Bearer ${config.voyageApiKey}`, 'content-type': 'application/json' },
           body: JSON.stringify({ model: EMBEDDING_MODEL, input: batch, input_type: inputType }),
+          ...(live ? { signal: AbortSignal.timeout(EMBED_QUERY_TIMEOUT_MS) } : {}),
         });
         if (res.status === 429) throw new Error('HTTP 429');
         if (res.status >= 500) throw new Error(`HTTP ${res.status}`);
@@ -48,7 +62,8 @@ export async function embedTexts(texts: string[], inputType: 'document' | 'query
       } catch (err) {
         lastErr = err as Error;
         if (lastErr.message.includes('permanent')) break;
-        await sleep(lastErr.message.includes('429') ? 22_000 : 3000 * attempt);
+        // No pointless sleep after the final failed attempt.
+        if (attempt < maxAttempts) await sleep(lastErr.message.includes('429') ? 22_000 : 3000 * attempt);
       }
     }
     if (lastErr) throw lastErr;

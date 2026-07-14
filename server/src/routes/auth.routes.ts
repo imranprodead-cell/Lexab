@@ -46,7 +46,12 @@ const LOGIN_FAILED = 'Неверный email или пароль / Invalid email
 
 export async function sendVerificationMail(db: Db, userId: string, email: string, name: string): Promise<void> {
   const token = newToken();
-  await db.query('UPDATE users SET verify_token = $2 WHERE id = $1', [userId, token]);
+  // The link expires (24h) — a verification token must not stay valid forever
+  // in a mailbox; resend is one click away (login / the bell button).
+  await db.query(`UPDATE users SET verify_token = $2, verify_expires = now() + interval '24 hours' WHERE id = $1`, [
+    userId,
+    token,
+  ]);
   const url = `${config.appBaseUrl}/verify-email?token=${token}`;
   void sendMail({
     to: email,
@@ -54,7 +59,7 @@ export async function sendVerificationMail(db: Db, userId: string, email: string
     html: mailLayout(
       'Подтвердите вашу почту',
       `<p>Здравствуйте, <strong>${escapeMailHtml(name)}</strong>!</p>
-       <p>Нажмите кнопку, чтобы подтвердить адрес <strong>${escapeMailHtml(email)}</strong> и открыть все возможности LexAI — включая приглашения в команды.</p>`,
+       <p>Нажмите кнопку, чтобы подтвердить адрес <strong>${escapeMailHtml(email)}</strong> и открыть все возможности LexAI — включая приглашения в команды. Ссылка действует <strong>24 часа</strong>.</p>`,
       'Подтвердить почту',
       url,
     ),
@@ -125,10 +130,11 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
     const body = asObject(req.body);
     const token = requireString(body, 'token', { min: 10, max: 100 });
     const res = await db.query<{ id: string }>(
-      `UPDATE users SET email_verified = true, verify_token = NULL WHERE verify_token = $1 RETURNING id`,
+      `UPDATE users SET email_verified = true, verify_token = NULL, verify_expires = NULL
+       WHERE verify_token = $1 AND verify_expires > now() RETURNING id`,
       [token],
     );
-    if (!res.rows[0]) throw badRequest('Ссылка недействительна или уже использована');
+    if (!res.rows[0]) throw badRequest('Ссылка недействительна, истекла или уже использована — запросите письмо ещё раз');
     // Owning the mailbox proves the email → sign the user in right away.
     const user = (await getUserById(db, res.rows[0].id)) as UserRow;
     return { ok: true, token: signToken(app, user), user: toProfile(user) };
@@ -184,8 +190,12 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
   app.post('/auth/reset', { config: { rateLimit: { max: 5, timeWindow: '1 minute' } } }, async (req, reply) => {
     const body = asObject(req.body);
     const email = requireEmail(body);
-    const user = await getUserByEmail(db, email);
-    if (user) {
+    // ALL account-dependent work (lookup, token write, mail) runs in the
+    // background AFTER the response: a known email must not answer slower than
+    // an unknown one, or response timing becomes an account-enumeration oracle.
+    void (async () => {
+      const user = await getUserByEmail(db, email);
+      if (!user) return;
       const token = newToken();
       await db.query(
         `UPDATE users SET reset_token = $2, reset_expires = now() + interval '1 hour' WHERE id = $1`,
@@ -204,7 +214,7 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
           url,
         ),
       });
-    }
+    })().catch((err) => req.log.error(err, 'reset request failed'));
     reply.code(204);
   });
 
@@ -224,7 +234,7 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
     const passwordHash = await hashPassword(password);
     await db.query(
       `UPDATE users SET password_hash = $2, reset_token = NULL, reset_expires = NULL,
-        email_verified = true, verify_token = NULL, token_version = token_version + 1
+        email_verified = true, verify_token = NULL, verify_expires = NULL, token_version = token_version + 1
        WHERE id = $1`,
       [row.id, passwordHash],
     );

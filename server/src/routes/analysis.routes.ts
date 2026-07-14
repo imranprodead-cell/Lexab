@@ -331,18 +331,23 @@ export async function persistAnalysis(
     // AI usage is counted by the caller's reservation (reserveAiRequest), not here.
   });
 
-  await notify(db, userId, 'check', 'Анализ готов', 'Analysis ready', {
-    bodyRu: source.fileName,
-    bodyEn: source.fileName,
-    action: { kind: 'open', data: '/documents' },
-  });
-  if (gen.riskLevel === 'High') {
-    await notify(db, userId, 'alert', 'Найден высокий риск', 'High risk found', {
+  // Best-effort AFTER the commit: the analysis is already saved, so a failed
+  // notification must not bubble up — the caller would refund the quota and
+  // return an error, and the client's retry would then DUPLICATE the analysis.
+  void (async () => {
+    await notify(db, userId, 'check', 'Анализ готов', 'Analysis ready', {
       bodyRu: source.fileName,
       bodyEn: source.fileName,
       action: { kind: 'open', data: '/documents' },
     });
-  }
+    if (gen.riskLevel === 'High') {
+      await notify(db, userId, 'alert', 'Найден высокий риск', 'High risk found', {
+        bodyRu: source.fileName,
+        bodyEn: source.fileName,
+        action: { kind: 'open', data: '/documents' },
+      });
+    }
+  })().catch((err) => console.warn(`[analysis] notify failed (analysis saved): ${(err as Error).message}`));
 
   return {
     id: analysisId,

@@ -1,9 +1,7 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { Icon, type IconName } from '@/components/icons/Icon';
 import { useI18n } from '@/i18n/I18nProvider';
-import { tStandalone } from '@/i18n/messages';
 import { Button } from './Button';
-import { Spinner } from './Spinner';
 import styles from './ui.module.css';
 
 /** Centered empty state with icon, title, body, and optional action. */
@@ -45,18 +43,6 @@ export function ErrorState({ message, onRetry }: { message: string; onRetry?: ()
           {t('error.retry')}
         </Button>
       ) : null}
-    </div>
-  );
-}
-
-/** Full-panel loading state. */
-export function LoadingState({ label = tStandalone('common.loading') }: { label?: string }) {
-  return (
-    <div className={styles.state}>
-      <Spinner size={26} />
-      <div className={styles.stateBody} style={{ marginTop: 4 }}>
-        {label}
-      </div>
     </div>
   );
 }

@@ -45,7 +45,9 @@ const FTS_CONFIG: Record<string, string> = { UK: 'english', UZ: 'russian', KZ: '
 export async function rewriteQuery(query: string, jurisdiction: string = 'UK'): Promise<string[]> {
   if (!config.anthropicApiKey) return [query];
   try {
-    const api = new Anthropic({ apiKey: config.anthropicApiKey });
+    // Live request path (analysis/chat): a hung rewrite must degrade to the raw
+    // query fast, not block the reply (the SDK default timeout is 10 minutes).
+    const api = new Anthropic({ apiKey: config.anthropicApiKey, timeout: 5_000, maxRetries: 0 });
     const msg = await api.beta.messages.create({
       model: 'claude-haiku-4-5',
       max_tokens: 300,
@@ -102,22 +104,25 @@ async function hasEmbeddingColumn(db: Db): Promise<boolean> {
 
 /** Direct hit for citation-style queries ("Arbitration Act 1996 section 9", «ст. 260 ГК»). */
 async function citationFastPath(db: Db, queries: string[], jurisdiction: string, asOf: string): Promise<ChunkRow[]> {
-  const out: ChunkRow[] = [];
-  for (const q of queries) {
-    const unitId = await resolveCitationText(db, q, jurisdiction, asOf);
-    if (!unitId) continue;
-    const res = await db.query<ChunkRow>(
-      `SELECT ${CHUNK_COLS}
-       FROM chunks c
-       WHERE c.unit_id = $1
-         AND (c.valid_from IS NULL OR c.valid_from <= $2::date)
-         AND (c.valid_to   IS NULL OR c.valid_to   >= $2::date)
-       LIMIT 1`,
-      [unitId, asOf],
-    );
-    out.push(...res.rows);
-  }
-  return out;
+  // Queries are independent → resolve them concurrently; flat() keeps the
+  // original query order, so the resulting list is deterministic.
+  const perQuery = await Promise.all(
+    queries.map(async (q) => {
+      const unitId = await resolveCitationText(db, q, jurisdiction, asOf);
+      if (!unitId) return [] as ChunkRow[];
+      const res = await db.query<ChunkRow>(
+        `SELECT ${CHUNK_COLS}
+         FROM chunks c
+         WHERE c.unit_id = $1
+           AND (c.valid_from IS NULL OR c.valid_from <= $2::date)
+           AND (c.valid_to   IS NULL OR c.valid_to   >= $2::date)
+         LIMIT 1`,
+        [unitId, asOf],
+      );
+      return res.rows;
+    }),
+  );
+  return perQuery.flat();
 }
 
 export async function retrieveLegalContext(db: Db, params: RetrieveParams): Promise<RetrievedChunk[]> {
@@ -136,57 +141,76 @@ export async function retrieveLegalContext(db: Db, params: RetrieveParams): Prom
        AND (c.valid_from IS NULL OR c.valid_from <= $3::date)
        AND (c.valid_to   IS NULL OR c.valid_to   >= $3::date)`;
 
+  // The three list groups (citation fast-path, lexical, dense) and every query
+  // inside them are independent → fetch CONCURRENTLY. This is the hottest path
+  // of analysis and chat; sequentially it was up to ~20 round-trips end-to-end.
+  // The push order below stays deterministic (direct → lexical per query →
+  // dense per vector), so RRF scoring and tie-breaking are bit-identical.
+
   // Citation-style direct lookup gets its own top-priority list.
-  const direct = await citationFastPath(db, queries, params.jurisdiction, asOf);
-  if (direct.length) lists.push(direct);
+  const directP = citationFastPath(db, queries, params.jurisdiction, asOf);
 
   // Lexical lists per query: strict AND match first, then a relaxed OR match —
   // long rewritten queries must degrade to best-effort ranking, not to zero rows.
-  for (const q of queries) {
-    const strict = await db.query<ChunkRow>(
-      `SELECT ${CHUNK_COLS}, ts_rank(c.tsv, plainto_tsquery($4::regconfig, $1)) AS rank
-       FROM chunks c
-       WHERE ${filters} AND c.tsv @@ plainto_tsquery($4::regconfig, $1)
-       ORDER BY rank DESC LIMIT 20`,
-      [q, params.jurisdiction, asOf, ftsConfig],
-    );
-    if (strict.rows.length) lists.push(strict.rows);
-
-    const orQuery = q
-      .split(/\s+/)
-      .map((w) => w.replace(/[^\p{L}\p{N}.]/gu, ''))
-      .filter((w) => w.length > 1)
-      .slice(0, 10)
-      .join(' OR ');
-    if (!orQuery) continue;
-    const relaxed = await db.query<ChunkRow>(
-      `SELECT ${CHUNK_COLS}, ts_rank(c.tsv, websearch_to_tsquery($4::regconfig, $1)) AS rank
-       FROM chunks c
-       WHERE ${filters} AND c.tsv @@ websearch_to_tsquery($4::regconfig, $1)
-       ORDER BY rank DESC LIMIT 20`,
-      [orQuery, params.jurisdiction, asOf, ftsConfig],
-    );
-    if (relaxed.rows.length) lists.push(relaxed.rows);
-  }
+  const lexicalP = Promise.all(
+    queries.map(async (q) => {
+      const strictP = db.query<ChunkRow>(
+        `SELECT ${CHUNK_COLS}, ts_rank(c.tsv, plainto_tsquery($4::regconfig, $1)) AS rank
+         FROM chunks c
+         WHERE ${filters} AND c.tsv @@ plainto_tsquery($4::regconfig, $1)
+         ORDER BY rank DESC LIMIT 20`,
+        [q, params.jurisdiction, asOf, ftsConfig],
+      );
+      const orQuery = q
+        .split(/\s+/)
+        .map((w) => w.replace(/[^\p{L}\p{N}.]/gu, ''))
+        .filter((w) => w.length > 1)
+        .slice(0, 10)
+        .join(' OR ');
+      const relaxedP = orQuery
+        ? db.query<ChunkRow>(
+            `SELECT ${CHUNK_COLS}, ts_rank(c.tsv, websearch_to_tsquery($4::regconfig, $1)) AS rank
+             FROM chunks c
+             WHERE ${filters} AND c.tsv @@ websearch_to_tsquery($4::regconfig, $1)
+             ORDER BY rank DESC LIMIT 20`,
+            [orQuery, params.jurisdiction, asOf, ftsConfig],
+          )
+        : Promise.resolve({ rows: [] as ChunkRow[] });
+      const [strict, relaxed] = await Promise.all([strictP, relaxedP]);
+      return { strict: strict.rows, relaxed: relaxed.rows };
+    }),
+  );
 
   // Dense lists (skipped gracefully until embeddings exist).
-  if (embeddingsEnabled() && (await hasEmbeddingColumn(db))) {
+  const denseP: Promise<ChunkRow[][]> = (async () => {
+    if (!embeddingsEnabled() || !(await hasEmbeddingColumn(db))) return [];
     try {
       const vectors = await embedTexts(queries, 'query');
-      for (const vec of vectors) {
-        const res = await db.query<ChunkRow>(
-          `SELECT ${CHUNK_COLS}
-           FROM chunks c
-           WHERE ${filters} AND c.embedding IS NOT NULL
-           ORDER BY c.embedding <=> $1::vector LIMIT 20`,
-          [toVectorLiteral(vec), params.jurisdiction, asOf],
-        );
-        if (res.rows.length) lists.push(res.rows);
-      }
+      const results = await Promise.all(
+        vectors.map((vec) =>
+          db.query<ChunkRow>(
+            `SELECT ${CHUNK_COLS}
+             FROM chunks c
+             WHERE ${filters} AND c.embedding IS NOT NULL
+             ORDER BY c.embedding <=> $1::vector LIMIT 20`,
+            [toVectorLiteral(vec), params.jurisdiction, asOf],
+          ),
+        ),
+      );
+      return results.map((r) => r.rows);
     } catch (err) {
       console.warn(`[rag] dense search skipped: ${(err as Error).message}`);
+      return [];
     }
+  })();
+
+  const [direct, lexical, dense] = await Promise.all([directP, lexicalP, denseP]);
+  if (direct.length) lists.push(direct);
+  for (const { strict, relaxed } of lexical) {
+    if (strict.length) lists.push(strict);
+    if (relaxed.length) lists.push(relaxed);
   }
+  for (const rows of dense) if (rows.length) lists.push(rows);
 
   // Reciprocal-rank fusion across all lists.
   const byId = new Map<string, { row: ChunkRow; score: number }>();

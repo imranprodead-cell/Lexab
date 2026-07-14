@@ -18,16 +18,19 @@ export function userRoutes(app: FastifyInstance, db: Db): void {
     const patch: Record<string, string | null | boolean> = {};
     let emailChangedTo: string | null = null;
 
-    const name = optionalString(body, 'name');
+    // Server-side bounds mirror the client's (never trust the client alone):
+    // free-text fields are capped, so a crafted PATCH can't store megabytes
+    // into a profile column.
+    const name = optionalString(body, 'name', { max: 200 });
     if (name !== undefined) {
       if (!name.trim()) throw badRequest('Name cannot be empty');
       patch.name = name.trim();
     }
-    const firm = optionalString(body, 'firm');
+    const firm = optionalString(body, 'firm', { max: 200 });
     if (firm !== undefined) patch.firm = firm;
-    const jurisdiction = optionalString(body, 'jurisdiction');
+    const jurisdiction = optionalString(body, 'jurisdiction', { max: 120 });
     if (jurisdiction !== undefined) patch.jurisdiction = jurisdiction;
-    const email = optionalString(body, 'email');
+    const email = optionalString(body, 'email', { max: 320 });
     if (email !== undefined) {
       const lower = email.toLowerCase();
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(lower)) throw badRequest('Invalid email address');
@@ -43,10 +46,17 @@ export function userRoutes(app: FastifyInstance, db: Db): void {
         emailChangedTo = lower;
       }
     }
-    const initials = optionalString(body, 'initials');
+    const initials = optionalString(body, 'initials', { max: 8 });
     if (initials !== undefined) patch.initials = initials;
-    const avatarUrl = optionalString(body, 'avatarUrl');
-    if (avatarUrl !== undefined) patch.avatar_url = avatarUrl === '' ? null : avatarUrl; // '' clears the photo
+    // Avatars arrive as data-URLs (bounded well under the 12 MB body limit) or
+    // as provider https URLs; anything else (javascript:, file:, …) is refused.
+    const avatarUrl = optionalString(body, 'avatarUrl', { max: 8_000_000 });
+    if (avatarUrl !== undefined) {
+      if (avatarUrl !== '' && !/^(data:image\/|https?:\/\/)/.test(avatarUrl)) {
+        throw badRequest('Field "avatarUrl" must be a data:image/… or http(s) URL');
+      }
+      patch.avatar_url = avatarUrl === '' ? null : avatarUrl; // '' clears the photo
+    }
 
     // Keep initials in sync when the name changes and no explicit override came in.
     if (typeof patch.name === 'string' && initials === undefined) {

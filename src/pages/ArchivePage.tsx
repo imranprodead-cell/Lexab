@@ -20,17 +20,27 @@ export function ArchivePage() {
   const { data, loading, error, reload } = useAsync((signal) => chatsApi.list(true, signal), []);
   usePageTitle(t('archive.title'));
 
+  // A failed restore/delete must say so (like the other pages do) — a silently
+  // swallowed error looks like the button simply didn't work.
   const restore = async (id: string) => {
-    await chatsApi.update(id, { archived: false });
-    reload();
-    void reloadSidebar();
-    pushToast(t('archive.restored'), 'success');
+    try {
+      await chatsApi.update(id, { archived: false });
+      reload();
+      void reloadSidebar();
+      pushToast(t('archive.restored'), 'success');
+    } catch (err) {
+      pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
+    }
   };
 
   const remove = async (id: string) => {
-    await chatsApi.remove(id);
-    reload();
-    pushToast(t('rail.deletedToast'), 'default');
+    try {
+      await chatsApi.remove(id);
+      reload();
+      pushToast(t('rail.deletedToast'), 'default');
+    } catch (err) {
+      pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
+    }
   };
 
   return (

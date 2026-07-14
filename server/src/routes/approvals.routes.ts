@@ -195,18 +195,28 @@ export function approvalRoutes(app: FastifyInstance, db: Db): void {
        WHERE document_id = $1 ORDER BY created_at DESC LIMIT 5`,
       [documentId],
     );
-    const result = [];
-    for (const f of flows.rows) {
-      const steps = await flowSteps(db, f.id);
-      result.push({
-        id: f.id,
-        documentId,
-        status: f.status,
-        createdAt: toIso(f.created_at),
-        steps: steps.map((s) => toStep(s, access.access === 'owner')),
-      });
+    // Steps of all flows in ONE query (was an N+1: one query per flow).
+    const flowIds = flows.rows.map((f) => f.id);
+    const allSteps = flowIds.length
+      ? await db.query<StepRow & { flow_id: string }>(
+          `SELECT flow_id, id, ord, approver_name, approver_email, role_label, status, due_at, token, decided_at, comment
+           FROM approval_steps WHERE flow_id = ANY($1::text[]) ORDER BY flow_id, ord`,
+          [flowIds],
+        )
+      : { rows: [] };
+    const byFlow = new Map<string, StepRow[]>();
+    for (const s of allSteps.rows) {
+      const list = byFlow.get(s.flow_id) ?? [];
+      list.push(s);
+      byFlow.set(s.flow_id, list);
     }
-    return result;
+    return flows.rows.map((f) => ({
+      id: f.id,
+      documentId,
+      status: f.status,
+      createdAt: toIso(f.created_at),
+      steps: (byFlow.get(f.id) ?? []).map((s) => toStep(s, access.access === 'owner')),
+    }));
   });
 
   app.post('/approvals/:id/cancel', { preHandler: [app.authenticate] }, async (req, reply) => {

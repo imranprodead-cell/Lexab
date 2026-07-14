@@ -1,4 +1,4 @@
-import type { Severity, RiskLevel } from '@/types/domain';
+import type { RiskLevel } from '@/types/domain';
 import { useI18n } from '@/i18n/I18nProvider';
 import styles from './ui.module.css';
 
@@ -58,11 +58,6 @@ export function Badge({ children, color = 'var(--dim)', filled = false, plain = 
     </span>
   );
 }
-
-/** Convenience wrappers used across pages. */
-export const SeverityBadge = ({ severity }: { severity: Severity }) => (
-  <Badge color={severity}>{severity}</Badge>
-);
 
 export const RiskBadge = ({ risk, plain }: { risk: RiskLevel; plain?: boolean }) => {
   const { t } = useI18n();
