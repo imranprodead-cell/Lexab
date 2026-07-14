@@ -32,7 +32,7 @@ import type { Finding } from '../src/types.ts';
 interface GoldenRow {
   question: string;
   expected_unit_ids: string[];
-  jurisdiction: 'UK' | 'UZ' | 'KZ' | 'DE' | 'US' | 'CA';
+  jurisdiction: 'UK' | 'UZ' | 'KZ' | 'DE' | 'US' | 'CA' | 'AE';
   as_of_date?: string;
   notes?: string;
 }
@@ -78,6 +78,7 @@ const ASK_SYSTEM: Record<string, string> = {
   DE: 'Du bist LexAI, ein deutscher Wirtschaftsjurist. Beantworte die Rechtsfrage mit 1-3 Feststellungen, jede mit einer präzisen Gesetzeszitat (z. B. „§ 433 BGB“).',
   US: 'You are LexAI, a U.S. commercial lawyer. Answer the legal question as 1-3 findings, each with a precise federal statutory citation (e.g. "9 U.S.C. § 2").',
   CA: 'You are LexAI, a Québec (Canada) civil-law jurist. Answer the legal question as 1-3 findings, each with a precise citation to the Civil Code of Québec (e.g. "art. 1385 CCQ").',
+  AE: 'You are LexAI, a UAE civil-law jurist. Answer the legal question as 1-3 findings, each with a precise citation to the UAE Civil Transactions Law (Federal Law 5/1985), e.g. "Article 125 Civil Transactions Law".',
 };
 
 async function askModel(

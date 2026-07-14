@@ -1,0 +1,21 @@
+{
+  "at": "2026-07-14T07:40:23.133Z",
+  "model": "claude-sonnet-5",
+  "golden": "ae-contract-law.jsonl",
+  "questions": 5,
+  "retrieval": {
+    "hit@5": 1,
+    "hit@10": 1,
+    "recall@10": 1
+  },
+  "baseline": {
+    "findings": 15,
+    "citationPrecision": 0.6,
+    "unverifiedShare": 0.4
+  },
+  "rag": {
+    "findings": 15,
+    "citationPrecision": 1,
+    "unverifiedShare": 0
+  }
+}

@@ -22,6 +22,7 @@
     "rag:ingest:de": "node --env-file-if-exists=.env src/rag/ingest/run-ingest-de.ts",
     "rag:ingest:us": "node --env-file-if-exists=.env src/rag/ingest/run-ingest-us.ts",
     "rag:ingest:ca": "node --env-file-if-exists=.env src/rag/ingest/run-ingest-ca.ts",
+    "rag:ingest:ae": "node --env-file-if-exists=.env src/rag/ingest/run-ingest-ae.ts",
     "rag:index": "node --env-file-if-exists=.env src/rag/build-index.ts",
     "rag:embed": "node --env-file-if-exists=.env src/rag/build-index.ts --embed-only",
     "eval": "node --env-file-if-exists=.env evals/run-eval.ts"

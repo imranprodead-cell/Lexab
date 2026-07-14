@@ -1,0 +1,21 @@
+{
+  "at": "2026-07-14T06:22:50.067Z",
+  "model": "deepseek-v4-pro",
+  "golden": "ae-contract-law.jsonl",
+  "questions": 16,
+  "retrieval": {
+    "hit@5": 0.875,
+    "hit@10": 0.875,
+    "recall@10": 0.875
+  },
+  "baseline": {
+    "findings": 30,
+    "citationPrecision": 0.5,
+    "unverifiedShare": 0.5
+  },
+  "rag": {
+    "findings": 32,
+    "citationPrecision": 0.969,
+    "unverifiedShare": 0.031
+  }
+}

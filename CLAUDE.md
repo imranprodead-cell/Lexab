@@ -36,7 +36,10 @@ npm run dev                  # фронтенд на :5173 (в корне)
    adilet.zan.kz (KZ), gesetze-im-internet.de (DE — офиц. база
    Bundesministerium der Justiz), govinfo.gov (US — федеральный United States
    Code от GPO), legisquebec.gouv.qc.ca (CA — офиц. свод законов Квебека,
-   Publications Québec). Больше НИОТКУДА.
+   Publications Québec), uaelegislation.gov.ae (AE — офиц. портал
+   законодательства ОАЭ; живой хост за Cloudflare-челленджем, поэтому берётся
+   точный снимок офиц. страницы из web.archive.org — см. `ingest/uaelegislation-ae.ts`).
+   Больше НИОТКУДА.
 3. **Provenance обязателен** — enforced CHECK-констрейнтами (`source_url`,
    `sha256_checksum`, `retrieved_at`); строка без источника не вставится.
 4. **Цитаты валидируются в коде, не в промпте** —
@@ -56,6 +59,7 @@ npm run rag:ingest:kz   # загрузка законов РК с adilet.zan.kz
 npm run rag:ingest:de   # загрузка законов ФРГ с gesetze-im-internet.de (BGB)
 npm run rag:ingest:us   # загрузка фед. законов США с govinfo.gov (FAA, E-SIGN)
 npm run rag:ingest:ca   # загрузка ГК Квебека с legisquebec.gouv.qc.ca (CCQ, обязательства)
+npm run rag:ingest:ae   # загрузка ГК ОАЭ (офиц. англ. перевод, снимок офиц. страницы)
 npm run rag:index       # статьи → чанки + ИИ-контекст (--docs=… --max-annotate=N для бюджета)
 npm run rag:embed       # векторы (нужен VOYAGE_API_KEY)
 npm run eval            # метрики (--golden=uz-contract-law.jsonl для УЗ)
@@ -103,9 +107,15 @@ npm run eval            # метрики (--golden=uz-contract-law.jsonl для 
   retrieval hit@5 1.0; точность цитат DeepSeek 92.3%→100%. Квебек = гражданское
   право (кодифицировано); общее право остальных провинций (прецеденты) — вне
   корпуса статутов.
+- **ОАЭ — ✅ LIVE** (uaelegislation.gov.ae: Гражданский кодекс — Federal Law
+  No. 5 of 1985 Civil Transactions Law, офиц. английский перевод Минюста,
+  1526 статей; арабский НЕ нужен — english FTS. Живой портал за
+  Cloudflare-челленджем → парсер `ingest/uaelegislation-ae.ts` берёт точный
+  снимок офиц. страницы из web.archive.org; цитаты «Article 125 Civil
+  Transactions Law»; миграция 026). Метрики AE: retrieval hit@5 0.875;
+  точность цитат DeepSeek 50%→96.9% (+46.9 п.п. — крупнейший прирост:
+  модели плохо знают ГК ОАЭ). ВСЕ СТРАНЫ ПЛАНА ЗАКРЫТЫ: 7 юрисдикций живые.
 - RAG подключён и к анализу (топ-10), и к чату (топ-5 по юрисдикции чата).
-- Осталась 1 страна: ОАЭ (Гражданский кодекс, арабский/PDF, у Postgres нет
-  арабского FTS — план: офиц. английский перевод → english FTS).
 - Отложено: UCC Статья 2 (ядро договорного права США — право штатов) — когда
   появится офиц. машиночитаемый источник штата.
 - **Реранкер и eval:** на бесплатном тарифе Voyage реранкер и векторизация

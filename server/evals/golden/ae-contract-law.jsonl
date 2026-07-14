@@ -1,0 +1,16 @@
+{"question": "How is a contract formed under UAE law?", "expected_unit_ids": ["lu_ae_civil_art-125"], "jurisdiction": "AE", "notes": "Civil Transactions Law art. 125 — formation of contract (offer + acceptance)"}
+{"question": "What may be the subject matter of a contract?", "expected_unit_ids": ["lu_ae_civil_art-126"], "jurisdiction": "AE", "notes": "art. 126 — subject matter of a contract"}
+{"question": "When can a contract be avoided on the ground of duress?", "expected_unit_ids": ["lu_ae_civil_art-176"], "jurisdiction": "AE", "notes": "art. 176 — duress (ikrah)"}
+{"question": "Does misrepresentation or fraud by one party affect the contract?", "expected_unit_ids": ["lu_ae_civil_art-185"], "jurisdiction": "AE", "notes": "art. 185 — misrepresentation (tadlis)"}
+{"question": "Can a contract be set aside for gross cheating or unfairness?", "expected_unit_ids": ["lu_ae_civil_art-188"], "jurisdiction": "AE", "notes": "art. 188 — gross cheating (ghubn)"}
+{"question": "When is a mistake taken into account as a defect of consent?", "expected_unit_ids": ["lu_ae_civil_art-193"], "jurisdiction": "AE", "notes": "art. 193 — mistake"}
+{"question": "Must a contract be performed in good faith and according to its terms?", "expected_unit_ids": ["lu_ae_civil_art-246"], "jurisdiction": "AE", "notes": "art. 246 — performance in accordance with contents and good faith"}
+{"question": "Can one party unilaterally cancel a valid and binding contract?", "expected_unit_ids": ["lu_ae_civil_art-267"], "jurisdiction": "AE", "notes": "art. 267 — a valid binding contract cannot be unilaterally rescinded"}
+{"question": "What happens if one party to a mutually binding contract fails to perform his obligation?", "expected_unit_ids": ["lu_ae_civil_art-272"], "jurisdiction": "AE", "notes": "art. 272 — rescission for non-performance in bilateral contracts"}
+{"question": "What is the effect of force majeure making performance impossible?", "expected_unit_ids": ["lu_ae_civil_art-273"], "jurisdiction": "AE", "notes": "art. 273 — force majeure in bilateral contracts"}
+{"question": "What compensation is due when an obligor fails to perform his obligation?", "expected_unit_ids": ["lu_ae_civil_art-386", "lu_ae_civil_art-387"], "jurisdiction": "AE", "notes": "arts. 386-387 — compensation for non-performance, notice"}
+{"question": "What is a contract of sale?", "expected_unit_ids": ["lu_ae_civil_art-489"], "jurisdiction": "AE", "notes": "art. 489 — definition of sale"}
+{"question": "What is the buyer's option if the thing sold has a pre-existing defect?", "expected_unit_ids": ["lu_ae_civil_art-544"], "jurisdiction": "AE", "notes": "art. 544 — option of defect (khiyar al-ayb)"}
+{"question": "What is a contract of hire or lease?", "expected_unit_ids": ["lu_ae_civil_art-742"], "jurisdiction": "AE", "notes": "art. 742 — definition of hire (ijara)"}
+{"question": "What is a contract of agency?", "expected_unit_ids": ["lu_ae_civil_art-924"], "jurisdiction": "AE", "notes": "art. 924 — definition of agency (wakala)"}
+{"question": "What is suretyship or a guarantee obligation?", "expected_unit_ids": ["lu_ae_civil_art-1056"], "jurisdiction": "AE", "notes": "art. 1056 — suretyship (kafala)"}

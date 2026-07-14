@@ -1,0 +1,21 @@
+{
+  "at": "2026-07-14T07:45:50.300Z",
+  "model": "claude-opus-4-8",
+  "golden": "uz-contract-law.jsonl",
+  "questions": 3,
+  "retrieval": {
+    "hit@5": 1,
+    "hit@10": 1,
+    "recall@10": 1
+  },
+  "baseline": {
+    "findings": 10,
+    "citationPrecision": 0,
+    "unverifiedShare": 1
+  },
+  "rag": {
+    "findings": 7,
+    "citationPrecision": 1,
+    "unverifiedShare": 0
+  }
+}

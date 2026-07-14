@@ -1,0 +1,21 @@
+{
+  "at": "2026-07-14T07:22:13.605Z",
+  "model": "claude-sonnet-5",
+  "golden": "kz-contract-law.jsonl",
+  "questions": 5,
+  "retrieval": {
+    "hit@5": 0.8,
+    "hit@10": 1,
+    "recall@10": 1
+  },
+  "baseline": {
+    "findings": 15,
+    "citationPrecision": 0.867,
+    "unverifiedShare": 0.133
+  },
+  "rag": {
+    "findings": 18,
+    "citationPrecision": 1,
+    "unverifiedShare": 0
+  }
+}

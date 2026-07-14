@@ -1,0 +1,21 @@
+{
+  "at": "2026-07-14T07:47:43.556Z",
+  "model": "claude-fable-5",
+  "golden": "ae-contract-law.jsonl",
+  "questions": 2,
+  "retrieval": {
+    "hit@5": 1,
+    "hit@10": 1,
+    "recall@10": 1
+  },
+  "baseline": {
+    "findings": 6,
+    "citationPrecision": 0.833,
+    "unverifiedShare": 0.167
+  },
+  "rag": {
+    "findings": 6,
+    "citationPrecision": 1,
+    "unverifiedShare": 0
+  }
+}

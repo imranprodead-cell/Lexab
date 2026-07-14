@@ -30,6 +30,7 @@ const JURISDICTIONS: { value: string; ru: string; en: string }[] = [
   { value: 'Canada', ru: 'Канада', en: 'Canada' },
   { value: 'Kazakhstan', ru: 'Казахстан', en: 'Kazakhstan' },
   { value: 'Uzbekistan', ru: 'Узбекистан', en: 'Uzbekistan' },
+  { value: 'United Arab Emirates', ru: 'ОАЭ', en: 'United Arab Emirates' },
 ];
 
 /** Account settings. The profile form is fully validated. */

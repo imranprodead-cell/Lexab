@@ -33,12 +33,13 @@ const REWRITE_SYSTEM: Record<string, string> = {
   DE: 'Formuliere die Nutzerfrage als 2-3 kurze Suchanfragen gegen den deutschen Gesetzestext um: benutze die juristischen Fachbegriffe des Gesetzgebers (z. B. „Sachmangel Nacherfüllung“ für „fehlerhafte Ware zurückgeben“). Wenn der Paragraph bekannt ist, füge eine Anfrage wie „§ 433 BGB“ hinzu. Nur auf Deutsch. Kein Vorwort.',
   US: 'Rewrite the user question as 2-3 short search queries against U.S. federal statute text (United States Code): use the drafter\'s terms of art (e.g. "agreement to arbitrate valid irrevocable enforceable", "electronic signature legal effect"). When you know the citation, include one query naming it (e.g. "9 U.S.C. 2", "15 U.S.C. 7001"). English only. No preamble.',
   CA: 'Rewrite the user question as 2-3 short search queries against the Civil Code of Québec (contract/obligations law): use the code\'s terms of art (e.g. "resolution of contract debtor default", "latent defect warranty of quality sale"). When you know the article, include one query naming it (e.g. "article 1385 obligations"). English only. No preamble.',
+  AE: 'Rewrite the user question as 2-3 short search queries against the UAE Civil Transactions Law (Federal Law 5/1985 — contract/obligations law): use the code\'s terms of art (e.g. "offer acceptance formation of contract", "option to rescind defect", "guarantee kafala obligation"). When you know the article, include one query naming it (e.g. "article 125 contract"). English only. No preamble.',
 };
 
 /** Corpus language → Postgres FTS regconfig. MUST mirror the `tsv` generated
  *  column CASE in the FTS migrations (015 russian, 023 german). English is the
  *  default (UK/US/CA). */
-const FTS_CONFIG: Record<string, string> = { UK: 'english', UZ: 'russian', KZ: 'russian', DE: 'german', US: 'english', CA: 'english' };
+const FTS_CONFIG: Record<string, string> = { UK: 'english', UZ: 'russian', KZ: 'russian', DE: 'german', US: 'english', CA: 'english', AE: 'english' };
 
 /** User question → 2-3 statute-flavoured search queries. Falls back to the raw query. */
 export async function rewriteQuery(query: string, jurisdiction: string = 'UK'): Promise<string[]> {
@@ -250,6 +251,12 @@ export async function resolveCitationText(
     if (!art) return null;
     number = art[1];
     titlePattern = '%Civil Code of Qu%bec%';
+  } else if (jurisdiction === 'AE') {
+    // UAE citations: "Article 125", "Art. 246 Civil Transactions Law".
+    const art = citation.match(/art(?:icle)?\.?\s*\(?(\d+)\)?/i);
+    if (!art) return null;
+    number = art[1];
+    titlePattern = '%Civil Transactions Law%';
   } else if (jurisdiction === 'DE') {
     // German citations: «§ 433 BGB», «§ 312g Abs. 1 BGB». The § number is the
     // unit number; the trailing abbreviation (BGB/HGB) picks the code.
@@ -288,7 +295,7 @@ export async function resolveCitationText(
 }
 
 /** Map the product's free-text jurisdiction (country selector) to a corpus code. */
-export function jurisdictionCode(s: string | null | undefined): 'UK' | 'UZ' | 'KZ' | 'DE' | 'US' | 'CA' | null {
+export function jurisdictionCode(s: string | null | undefined): 'UK' | 'UZ' | 'KZ' | 'DE' | 'US' | 'CA' | 'AE' | null {
   if (!s) return null;
   const v = s.toLowerCase();
   if (/united kingdom|\buk\b|britain|england|english law/.test(v)) return 'UK';
@@ -297,5 +304,6 @@ export function jurisdictionCode(s: string | null | undefined): 'UK' | 'UZ' | 'K
   if (/german|deutschland|\bgermany\b|немец|герман/.test(v)) return 'DE';
   if (/united states|\bus\b|\busa\b|american|сша/.test(v)) return 'US';
   if (/canad|québec|quebec|канада|квебек/.test(v)) return 'CA';
+  if (/\buae\b|emirat|оаэ|эмират/.test(v)) return 'AE';
   return null;
 }
