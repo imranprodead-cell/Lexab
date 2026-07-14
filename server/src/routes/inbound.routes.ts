@@ -30,11 +30,11 @@ import { ALLOWED_EXTENSIONS, extractText, fileExtension, MAX_UPLOAD_BYTES, verif
 import { badRequest, HttpError, notFound, unauthorized } from '../lib/errors.ts';
 import { formatSize } from '../lib/format.ts';
 import { newId } from '../lib/ids.ts';
-import { planFor } from '../lib/limits.ts';
+import { withAiRequest, withStorageReservation } from '../lib/limits.ts';
 import { asObject, requireString } from '../lib/validate.ts';
 import { generateAnalysis } from '../llm.ts';
 import { getUserByEmail } from '../plugins/auth.ts';
-import { saveFile } from '../storage.ts';
+import { deleteFile, saveFile } from '../storage.ts';
 import { persistAnalysis } from './analysis.routes.ts';
 
 function headerStr(v: string | string[] | undefined): string {
@@ -101,7 +101,6 @@ export function inboundRoutes(app: FastifyInstance, db: Db): void {
         return reply.code(202).send({ status: 'ignored', reason: 'unknown sender' });
       }
 
-      const plan = await planFor(db, user.id);
       const results: { fileName: string; analysisId?: string; error?: string }[] = [];
       for (const raw of attachments.slice(0, 3)) {
         const att = asObject(raw, 'attachment');
@@ -122,32 +121,47 @@ export function inboundRoutes(app: FastifyInstance, db: Db): void {
           continue;
         }
 
-        const stored = await saveFile(buffer, fileName);
-        const text = await extractText(buffer, fileName);
-        await db.query(
-          `INSERT INTO uploads (id, user_id, file_name, size_bytes, mime, storage, storage_key, url, extracted_text)
-           VALUES ($1, $2, $3, $4, NULL, $5, $6, $7, $8)`,
-          [newId('up'), user.id, fileName, buffer.length, stored.storage, stored.key, stored.url, text],
-        );
-
-        const source = {
-          fileName,
-          fileSizeLabel: formatSize(buffer.length),
-          sizeBytes: buffer.length,
-          text,
-          pdf: fileExtension(fileName) === '.pdf' ? buffer : null,
-        };
-        // Per-attachment isolation: one bad file (e.g. a scanned PDF that the
-        // Free-plan DeepSeek path honestly rejects with 422) must not abort
+        // Per-attachment isolation: one bad file (e.g. a scanned PDF the Free
+        // DeepSeek path honestly 422s, OR a storage/AI quota 402) must not abort
         // the rest of the batch — report it like the other per-file errors.
         try {
-          const gen = await generateAnalysis({ fileName, text: source.text, pdf: source.pdf, plan });
-          const analysis = await persistAnalysis(db, user.id, source, gen);
+          const stored = await saveFile(buffer, fileName);
+          const text = await extractText(buffer, fileName);
+          // Storage counts against the plan quota, same as POST /uploads — a
+          // rejected reservation deletes the just-saved bytes (no orphan).
+          await withStorageReservation(
+            db,
+            user.id,
+            buffer.length,
+            (tx) =>
+              tx
+                .query(
+                  `INSERT INTO uploads (id, user_id, file_name, size_bytes, mime, storage, storage_key, url, extracted_text)
+                   VALUES ($1, $2, $3, $4, NULL, $5, $6, $7, $8)`,
+                  [newId('up'), user.id, fileName, buffer.length, stored.storage, stored.key, stored.url, text],
+                )
+                .then(() => undefined),
+            () => deleteFile(stored.storage, stored.key),
+          );
+
+          const source = {
+            fileName,
+            fileSizeLabel: formatSize(buffer.length),
+            sizeBytes: buffer.length,
+            text,
+            pdf: fileExtension(fileName) === '.pdf' ? buffer : null,
+          };
+          // AI usage counts against the monthly quota, same as the interactive
+          // path — email intake must not be a free-analysis bypass.
+          const analysis = await withAiRequest(db, user.id, async (plan) => {
+            const gen = await generateAnalysis({ fileName, text: source.text, pdf: source.pdf, plan });
+            return persistAnalysis(db, user.id, source, gen);
+          });
           results.push({ fileName, analysisId: analysis.id });
         } catch (err) {
           req.log.warn(err, `inbound: analysis failed for ${fileName}`);
-          // Only deliberate HttpErrors carry a message written for exposure;
-          // anything else (DB/provider internals) stays in the logs.
+          // Only deliberate HttpErrors carry a message written for exposure
+          // (incl. the 402 quota messages); anything else stays in the logs.
           results.push({ fileName, error: err instanceof HttpError ? err.message : 'analysis failed' });
         }
       }

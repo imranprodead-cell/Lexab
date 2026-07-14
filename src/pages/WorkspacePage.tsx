@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type KeyboardEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Avatar } from '@/components/ui/Avatar';
 import { toneColor } from '@/components/ui/Badge';
 import { CitationLine } from '@/components/ui/VerifiedBadge';
+import { Icon } from '@/components/icons/Icon';
 import { IconButton } from '@/components/ui/Button';
 import { SkeletonRows } from '@/components/ui/States';
 import { ChatInput } from '@/components/chat/ChatInput';
@@ -10,8 +11,7 @@ import { DocumentViewer } from '@/components/workspace/DocumentViewer';
 import { FloatingToolbar } from '@/components/workspace/FloatingToolbar';
 import { SendForSignatureModal } from '@/components/workspace/SendForSignatureModal';
 import { VersionHistoryModal } from '@/components/workspace/VersionHistoryModal';
-import { exportDocx } from '@/lib/exportDocument';
-import { analysisApi } from '@/api';
+import { analysisApi, documentsApi } from '@/api';
 import { useChatStore } from '@/store/useChatStore';
 import { useUIStore } from '@/store/useUIStore';
 import { usePageTitle } from '@/hooks/usePageTitle';
@@ -34,6 +34,7 @@ export function WorkspacePage() {
   const messages = useChatStore((s) => s.messages);
   const sendMessage = useChatStore((s) => s.sendMessage);
   const acceptAll = useChatStore((s) => s.acceptAllRedlines);
+  const revertRedlines = useChatStore((s) => s.revertRedlines);
   const updateDocument = useChatStore((s) => s.updateDocument);
   const reanalyze = useChatStore((s) => s.reanalyze);
   const pushToast = useUIStore((s) => s.pushToast);
@@ -43,6 +44,16 @@ export function WorkspacePage() {
   const [signOpen, setSignOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [reanalyzing, setReanalyzing] = useState(false);
+  const [anchor, setAnchor] = useState<{ redlineId: string; nonce: number } | null>(null);
+  // A pending anchor set from the chat SummaryCard (open workspace at a clause).
+  const pendingAnchor = useChatStore((s) => s.pendingAnchor);
+  const clearPendingAnchor = useChatStore((s) => s.clearPendingAnchor);
+  useEffect(() => {
+    if (pendingAnchor) {
+      setAnchor({ redlineId: pendingAnchor, nonce: Date.now() });
+      clearPendingAnchor();
+    }
+  }, [pendingAnchor, clearPendingAnchor]);
 
   const runReanalysis = () => {
     if (analysisReadOnly()) {
@@ -94,6 +105,29 @@ export function WorkspacePage() {
       .catch(() => pushToast(t('common.error'), 'error'));
   };
 
+  // Server-rendered DOCX: 'tracked' = real Word tracked changes (accept/reject
+  // in Word), 'clean' = final text. Needs the owning document id.
+  const downloadDocx = async (mode: 'tracked' | 'clean') => {
+    if (!analysis.documentId) {
+      pushToast(t('common.error'), 'error');
+      return;
+    }
+    pushToast(t('ws.docxStarted'), 'success');
+    try {
+      const blob = await documentsApi.exportFile(analysis.documentId, 'docx', mode);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${analysis.fileName.replace(/\.[^.]+$/, '') || 'document'}.docx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
+    }
+  };
+
   return (
     <div className={styles.workspace}>
       {/* Left: review conversation + findings + document Q&A */}
@@ -109,15 +143,37 @@ export function WorkspacePage() {
             <div style={{ flex: 1, minWidth: 0 }}>
               <p className={styles.reviewIntroText}>{t('ws.intro', { n: analysis.redlines.length })}</p>
               <div className={styles.findingCards}>
-                {analysis.findings.map((f) => (
-                  <div key={f.id} className={styles.findingCard}>
-                    <span className={styles.findingCardDot} style={{ background: toneColor(f.severity) }} />
-                    <div style={{ minWidth: 0 }}>
-                      <div className={styles.findingCardTitle}>{f.title}</div>
-                      <CitationLine finding={f} />
+                {analysis.findings.map((f) => {
+                  // A finding with a matching redline is clickable → jump to the clause.
+                  const clickable = Boolean(f.redlineId);
+                  return (
+                    <div
+                      key={f.id}
+                      className={`${styles.findingCard} ${clickable ? styles.findingCardClickable : ''}`}
+                      {...(clickable
+                        ? {
+                            role: 'button',
+                            tabIndex: 0,
+                            title: t('ws.jumpToClause'),
+                            onClick: () => setAnchor({ redlineId: f.redlineId as string, nonce: Date.now() }),
+                            onKeyDown: (e: KeyboardEvent) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                setAnchor({ redlineId: f.redlineId as string, nonce: Date.now() });
+                              }
+                            },
+                          }
+                        : {})}
+                    >
+                      <span className={styles.findingCardDot} style={{ background: toneColor(f.severity) }} />
+                      <div style={{ minWidth: 0 }}>
+                        <div className={styles.findingCardTitle}>{f.title}</div>
+                        <CitationLine finding={f} />
+                      </div>
+                      {clickable ? <Icon name="chevron" size={14} color="var(--dim)" /> : null}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               {textMessages.length > 0 ? (
@@ -144,18 +200,22 @@ export function WorkspacePage() {
       </div>
 
       {/* Right: document viewer with redlines + floating toolbar */}
-      <DocumentViewer analysis={analysis} pendingCount={pendingCount} onSaveBlock={canEdit ? saveBlock : undefined}>
+      <DocumentViewer analysis={analysis} pendingCount={pendingCount} onSaveBlock={canEdit ? saveBlock : undefined} anchor={anchor}>
         <FloatingToolbar
           readOnly={!canEdit}
           pendingCount={pendingCount}
           onAcceptAll={() => {
-            acceptAll();
-            pushToast(t('ws.allAccepted'), 'success');
+            const ids = acceptAll();
+            pushToast(t('ws.allAccepted'), 'success', {
+              duration: 5000,
+              actionLabel: t('common.undo'),
+              onAction: () => {
+                revertRedlines(ids);
+                pushToast(t('ws.acceptAllUndone'), 'default');
+              },
+            });
           }}
-          onDownload={() => {
-            exportDocx(analysis);
-            pushToast(t('ws.docxStarted'), 'success');
-          }}
+          onDownload={(mode) => downloadDocx(mode)}
           onReport={() => {
             void analysisApi
               .downloadReport(analysis.id, analysis.fileName)

@@ -314,3 +314,295 @@ describe('contract draft (chat → editable sheet)', () => {
     assert.equal(res.statusCode, 402, 'Free plan must be told to upgrade');
   });
 });
+
+describe('SSO', () => {
+  it('secret sealing round-trips and rejects tampering', async () => {
+    const { sealSecret, openSecret } = await import('../src/lib/secrets.ts');
+    const sealed = sealSecret('super-secret-client-value');
+    assert.notEqual(sealed, 'super-secret-client-value', 'stored form is encrypted');
+    assert.equal(openSecret(sealed), 'super-secret-client-value', 'round-trips');
+    assert.equal(openSecret(sealed.slice(0, -2) + 'xy'), null, 'tampered ciphertext → null');
+    assert.equal(openSecret('garbage'), null, 'malformed → null');
+  });
+
+  it('config is gated to Business and rejects public mail domains', async () => {
+    const free = await makeUser();
+    const gated = await app.inject({ method: 'GET', url: '/api/team/sso', headers: auth(free.token) });
+    assert.equal(gated.statusCode, 402, 'Free cannot use SSO');
+
+    const owner = await makeUser();
+    await db.query("UPDATE subscriptions SET plan = 'Business' WHERE user_id = $1", [owner.id]);
+    // Public mailbox domain is refused (account-takeover guard #2).
+    const pub = await app.inject({
+      method: 'PUT',
+      url: '/api/team/sso',
+      headers: auth(owner.token),
+      payload: { issuerUrl: 'https://accounts.google.com', clientId: 'x', clientSecret: 'y', emailDomain: 'gmail.com', defaultRole: 'viewer' },
+    });
+    assert.equal(pub.statusCode, 400, 'public domain rejected');
+
+    // Empty config for a Business owner reads cleanly.
+    const empty = await app.inject({ method: 'GET', url: '/api/team/sso', headers: auth(owner.token) });
+    assert.equal(empty.statusCode, 200, empty.body);
+    assert.equal(JSON.parse(empty.body).configured, false);
+    assert.ok(JSON.parse(empty.body).redirectUri.includes('/auth/sso/callback'));
+  });
+
+  it('lookup returns false for a domain without SSO', async () => {
+    const res = await app.inject({ method: 'POST', url: '/api/auth/sso/lookup', payload: { email: 'someone@no-sso-here.test' } });
+    assert.equal(res.statusCode, 200);
+    assert.equal(JSON.parse(res.body).available, false);
+  });
+
+  it('enforcement blocks password login for an enforced member but never the owner', async () => {
+    const { assertSsoNotRequired } = await import('../src/routes/sso.routes.ts');
+    // Owner on Business with an enforced, verified SSO config for acme-test.example.
+    const owner = await makeUser();
+    await db.query("UPDATE subscriptions SET plan = 'Business' WHERE user_id = $1", [owner.id]);
+    await db.query(
+      `INSERT INTO team_sso_config (owner_user_id, issuer_url, client_id, client_secret_enc, email_domain,
+        authorization_endpoint, token_endpoint, userinfo_endpoint, default_role, enabled, enforce_sso, domain_verify_token, domain_verified)
+       VALUES ($1, 'https://idp.example', 'cid', 'v1:x:y:z', 'acme-test.example', 'https://idp/a', 'https://idp/t', 'https://idp/u', 'viewer', true, true, 'tok', true)`,
+      [owner.id],
+    );
+    // An active member on that domain.
+    const memberId = 'u_ssomember';
+    await db.query(
+      `INSERT INTO users (id, email, password_hash, name, initials, firm, jurisdiction, email_verified)
+       VALUES ($1, 'bob@acme-test.example', 'x', 'Bob', 'B', 'Acme', 'UK', true)`,
+      [memberId],
+    );
+    await db.query(
+      `INSERT INTO team_members (id, owner_user_id, member_user_id, name, email, role, status)
+       VALUES ('tm_sso1', $1, $2, 'Bob', 'bob@acme-test.example', 'viewer', 'active')`,
+      [owner.id, memberId],
+    );
+
+    // Member is blocked; owner (break-glass) and an outsider are not.
+    await assert.rejects(assertSsoNotRequired(db, { id: memberId, email: 'bob@acme-test.example' }), /SSO/);
+    await assertSsoNotRequired(db, { id: owner.id, email: `owner-exempt@acme-test.example` }); // owner exempt (by id)
+    await assertSsoNotRequired(db, { id: 'u_outsider', email: 'x@other.example' }); // different domain, fine
+  });
+});
+
+describe('audit log', () => {
+  it('audit rows are immutable (UPDATE blocked) but DELETE stays allowed for cascade/retention', async () => {
+    const { id } = await makeUser(); // registering already wrote an audit event
+    // History can never be rewritten.
+    await assert.rejects(db.query("UPDATE audit_events SET status = 'x' WHERE team_owner_id = $1", [id]), /append-only/);
+    // DELETE is allowed — deleting the account must CASCADE the trail away, and
+    // the retention sweep must be able to purge old rows.
+    const del = await db.query('DELETE FROM audit_events WHERE team_owner_id = $1 RETURNING id', [id]);
+    assert.ok(del.rows.length > 0, 'delete of own audit rows is permitted');
+  });
+
+  it('deleting an account cascades its audit trail away (no trigger veto)', async () => {
+    const u = await makeUser();
+    const del = await app.inject({ method: 'DELETE', url: '/api/me', headers: auth(u.token), payload: { confirm: u.email } });
+    assert.equal(del.statusCode, 204, del.body);
+    const remaining = await db.query('SELECT id FROM audit_events WHERE team_owner_id = $1', [u.id]);
+    assert.equal(remaining.rows.length, 0, 'audit rows removed with the account');
+  });
+
+  it('viewer is gated to Business: Free → 402, Business owner → own events only', async () => {
+    const free = await makeUser();
+    const gated = await app.inject({ method: 'GET', url: '/api/audit/events', headers: auth(free.token) });
+    assert.equal(gated.statusCode, 402, 'Free plan cannot read the audit log');
+
+    const owner = await makeUser();
+    await db.query("UPDATE subscriptions SET plan = 'Business' WHERE user_id = $1", [owner.id]);
+    // Generate an event under the owner's scope.
+    await app.inject({ method: 'POST', url: '/api/auth/logout', headers: auth(owner.token) });
+    // (logout bumped token_version → need a fresh login to read)
+    const login = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email: owner.email, password: 'Passw0rd!123' } });
+    const token2 = JSON.parse(login.body).token;
+    const list = await app.inject({ method: 'GET', url: '/api/audit/events', headers: auth(token2) });
+    assert.equal(list.statusCode, 200, list.body);
+    const events = JSON.parse(list.body);
+    assert.ok(Array.isArray(events) && events.length > 0, 'owner sees their own events');
+    assert.ok(events.every((e: { type: string }) => typeof e.type === 'string'), 'events carry a type');
+    // Total count header is present.
+    assert.ok(list.headers['x-total-count'], 'X-Total-Count present');
+
+    // CSV export works and is gated the same way.
+    const csv = await app.inject({ method: 'GET', url: '/api/audit/events.csv', headers: auth(token2) });
+    assert.equal(csv.statusCode, 200);
+    assert.ok(csv.headers['content-type']?.includes('text/csv'));
+    assert.ok(csv.body.startsWith('time,actor,event'), 'CSV header');
+  });
+
+  it('failed logins are recorded and never store a password', async () => {
+    const u = await makeUser();
+    await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email: u.email, password: 'wrong-password' } });
+    const events = await db.query<{ metadata: unknown }>(
+      "SELECT metadata FROM audit_events WHERE event_type = 'auth.login_failed' AND metadata->>'email' = $1",
+      [u.email],
+    );
+    assert.ok(events.rows.length > 0, 'failed login recorded');
+    const meta = JSON.stringify(events.rows[0].metadata);
+    assert.ok(!meta.includes('wrong-password'), 'password never stored in the audit metadata');
+  });
+});
+
+describe('billing lifecycle', () => {
+  it('checkout requires consent and rejects the Free loophole', async () => {
+    const { token } = await makeUser();
+    // Free is not purchasable (quota-reset loophole).
+    const free = await app.inject({ method: 'POST', url: '/api/billing/checkout', headers: auth(token), payload: { plan: 'Free', consent: true } });
+    assert.equal(free.statusCode, 400, 'Free checkout rejected');
+    // Consent is mandatory for a paid plan.
+    const noConsent = await app.inject({ method: 'POST', url: '/api/billing/checkout', headers: auth(token), payload: { plan: 'Standard' } });
+    assert.equal(noConsent.statusCode, 400, 'missing consent rejected');
+    // With consent → activated.
+    const ok = await app.inject({ method: 'POST', url: '/api/billing/checkout', headers: auth(token), payload: { plan: 'Standard', consent: true } });
+    assert.equal(ok.statusCode, 200, ok.body);
+    assert.equal(JSON.parse(ok.body).plan, 'Standard');
+  });
+
+  it('records consent + terms evidence in the append-only billing_events', async () => {
+    const { id, token } = await makeUser();
+    await app.inject({ method: 'POST', url: '/api/billing/checkout', headers: auth(token), payload: { plan: 'Pro', consent: true } });
+    const events = await db.query<{ kind: string }>('SELECT kind FROM billing_events WHERE user_id = $1', [id]);
+    const kinds = events.rows.map((r) => r.kind);
+    assert.ok(kinds.includes('terms_accepted'), 'signup recorded terms acceptance');
+    assert.ok(kinds.includes('consent_waiver'), 'checkout recorded the withdrawal waiver');
+    assert.ok(kinds.includes('checkout'), 'checkout recorded');
+    // Append-only: UPDATE and recent DELETE are blocked by the DB trigger.
+    await assert.rejects(db.query("UPDATE billing_events SET kind = 'x' WHERE user_id = $1", [id]), /append-only/);
+    await assert.rejects(db.query('DELETE FROM billing_events WHERE user_id = $1', [id]), /append-only/);
+  });
+
+  it('cancel schedules end-of-period downgrade and can be reverted', async () => {
+    const { token } = await makeUser();
+    await app.inject({ method: 'POST', url: '/api/billing/checkout', headers: auth(token), payload: { plan: 'Business', consent: true } });
+    const cancel = await app.inject({ method: 'POST', url: '/api/billing/cancel', headers: auth(token), payload: {} });
+    assert.equal(cancel.statusCode, 200, cancel.body);
+    assert.equal(JSON.parse(cancel.body).cancelAtPeriodEnd, true);
+    const sub = await app.inject({ method: 'GET', url: '/api/billing/subscription', headers: auth(token) });
+    assert.equal(JSON.parse(sub.body).cancelAtPeriodEnd, true, 'cancellation is visible');
+    const revert = await app.inject({ method: 'POST', url: '/api/billing/cancel/revert', headers: auth(token), payload: {} });
+    assert.equal(revert.statusCode, 200, revert.body);
+    assert.equal(JSON.parse(revert.body).cancelAtPeriodEnd, false);
+  });
+
+  it('the lifecycle sweep is idempotent: expired paid sub → past_due, run twice is safe', async () => {
+    const { checkBillingLifecycle } = await import('../src/lib/billing.ts');
+    const { id, token } = await makeUser();
+    await app.inject({ method: 'POST', url: '/api/billing/checkout', headers: auth(token), payload: { plan: 'Pro', consent: true } });
+    // Backdate the renewal so the sweep treats it as expired.
+    await db.query("UPDATE subscriptions SET renews_at = now() - interval '1 day' WHERE user_id = $1", [id]);
+    await checkBillingLifecycle(db);
+    const after1 = await db.query<{ status: string; dunning_count: number }>('SELECT status, dunning_count FROM subscriptions WHERE user_id = $1', [id]);
+    assert.equal(after1.rows[0].status, 'past_due', 'moved to past_due');
+    await checkBillingLifecycle(db); // second run must not double-process
+    const after2 = await db.query<{ status: string; dunning_count: number }>('SELECT status, dunning_count FROM subscriptions WHERE user_id = $1', [id]);
+    assert.equal(after2.rows[0].status, 'past_due', 'still past_due (no churn)');
+  });
+});
+
+describe('finding → redline anchor', () => {
+  it('analysis findings carry a redlineId linking to the clause', async () => {
+    const { token } = await makeUser();
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/analysis',
+      headers: auth(token),
+      payload: { fileName: 'anchor.pdf', fileSize: '10 KB', jurisdiction: 'GB' },
+    });
+    assert.equal(created.statusCode, 201, created.body);
+    const an = JSON.parse(created.body);
+    // The dev fallback links each finding to a redline (r1/r2/r3).
+    const linked = an.findings.filter((f: { redlineId?: string | null }) => f.redlineId);
+    assert.ok(linked.length > 0, 'at least one finding has a redlineId');
+    // Every linked redlineId must reference a real redline in the same analysis.
+    const redlineIds = new Set(an.redlines.map((r: { id: string }) => r.id));
+    for (const f of linked) assert.ok(redlineIds.has(f.redlineId), `redlineId ${f.redlineId} exists`);
+
+    // Persisted: reload the analysis and confirm the link survives.
+    const reread = await app.inject({ method: 'GET', url: `/api/analysis/${an.id}`, headers: auth(token) });
+    const reloaded = JSON.parse(reread.body);
+    assert.ok(reloaded.findings.some((f: { redlineId?: string | null }) => f.redlineId), 'redlineId persisted');
+  });
+});
+
+describe('redline decisions (accept / reject / revert)', () => {
+  it('a decision can be reverted back to pending (undo)', async () => {
+    const { token } = await makeUser();
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/analysis',
+      headers: auth(token),
+      payload: { fileName: 'redline.pdf', fileSize: '10 KB', jurisdiction: 'GB' },
+    });
+    assert.equal(created.statusCode, 201, created.body);
+    const an = JSON.parse(created.body);
+    assert.ok(an.redlines.length > 0, 'fallback analysis has redlines');
+    const rid = an.redlines[0].id;
+
+    const accept = await app.inject({
+      method: 'PATCH',
+      url: `/api/analysis/${an.id}/redlines/${rid}`,
+      headers: auth(token),
+      payload: { status: 'accepted' },
+    });
+    assert.equal(accept.statusCode, 200, accept.body);
+    assert.equal(JSON.parse(accept.body).status, 'accepted');
+
+    // Undo: revert the accepted redline back to pending.
+    const revert = await app.inject({
+      method: 'PATCH',
+      url: `/api/analysis/${an.id}/redlines/${rid}`,
+      headers: auth(token),
+      payload: { status: 'pending' },
+    });
+    assert.equal(revert.statusCode, 200, revert.body);
+    assert.equal(JSON.parse(revert.body).status, 'pending', 'reverted to pending');
+
+    // A bogus status is still rejected.
+    const bad = await app.inject({
+      method: 'PATCH',
+      url: `/api/analysis/${an.id}/redlines/${rid}`,
+      headers: auth(token),
+      payload: { status: 'maybe' },
+    });
+    assert.equal(bad.statusCode, 400, 'invalid status rejected');
+  });
+});
+
+describe('chat SSE streaming', () => {
+  it('streams token + done events when Accept: text/event-stream', async () => {
+    const { token } = await makeUser();
+    const session = await app.inject({ method: 'POST', url: '/api/chats', headers: auth(token), payload: { title: 'stream test' } });
+    assert.equal(session.statusCode, 201, session.body);
+    const sessionId = JSON.parse(session.body).id;
+
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/chats/${sessionId}/messages`,
+      headers: { ...auth(token), accept: 'text/event-stream' },
+      payload: { text: 'What is a warranty?' },
+    });
+    assert.equal(res.statusCode, 200, res.body);
+    assert.ok(res.headers['content-type']?.includes('text/event-stream'), 'SSE content-type');
+    assert.ok(res.body.includes('event: token'), 'emits a token event');
+    assert.ok(res.body.includes('event: done'), 'emits a done event with the persisted message');
+    // The done payload carries a real persisted assistant message id.
+    const doneLine = res.body.split('\n').find((l) => l.startsWith('data:') && l.includes('"role":"assistant"'));
+    assert.ok(doneLine, 'done event carries the assistant message');
+  });
+
+  it('non-streaming POST still returns plain JSON', async () => {
+    const { token } = await makeUser();
+    const session = await app.inject({ method: 'POST', url: '/api/chats', headers: auth(token), payload: { title: 'plain' } });
+    const sessionId = JSON.parse(session.body).id;
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/chats/${sessionId}/messages`,
+      headers: auth(token),
+      payload: { text: 'Hello' },
+    });
+    assert.equal(res.statusCode, 200, res.body);
+    assert.ok(res.headers['content-type']?.includes('application/json'), 'plain JSON when no Accept: text/event-stream');
+    assert.equal(JSON.parse(res.body).role, 'assistant');
+  });
+});

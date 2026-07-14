@@ -311,7 +311,12 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
         sse.send('done', msg);
       } catch (err) {
         req.log.error(err, 'ghost chat reply failed');
-        sse.send('error', { message: err instanceof HttpError ? err.message : 'Failed to generate a reply' });
+        // Carry the status so the client can show the right message — a 402
+        // limit-reached looks different to the user than a generic failure.
+        sse.send('error', {
+          message: err instanceof HttpError ? err.message : 'Failed to generate a reply',
+          status: err instanceof HttpError ? err.status : 500,
+        });
       } finally {
         sse.close();
       }
@@ -424,7 +429,7 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
           await release(); // model/DB failed — give the unit back
           req.log.error(err, 'chat reply failed');
           const message = err instanceof HttpError ? err.message : 'Failed to generate a reply';
-          sse.send('error', { message });
+          sse.send('error', { message, status: err instanceof HttpError ? err.status : 500 });
         } finally {
           sse.close();
         }

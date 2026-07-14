@@ -1,4 +1,4 @@
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { Icon } from '@/components/icons/Icon';
 import { Badge } from '@/components/ui/Badge';
 import type { AnalysisResult } from '@/types/domain';
@@ -11,6 +11,9 @@ interface DocumentViewerProps {
   pendingCount: number;
   /** When provided, paragraphs become click-to-edit (live editor). */
   onSaveBlock?: (index: number, text: string) => void;
+  /** Request to scroll to and flash the clause containing this redline. The
+   *  `nonce` makes repeated clicks on the same finding re-trigger the flash. */
+  anchor?: { redlineId: string; nonce: number } | null;
   children?: React.ReactNode; // floating toolbar slot
 }
 
@@ -31,11 +34,29 @@ function resolveParagraph(analysis: AnalysisResult, index: number): string {
 }
 
 /** The right-hand paper view rendering the contract with inline AI redlines. */
-export function DocumentViewer({ analysis, pendingCount, onSaveBlock, children }: DocumentViewerProps) {
+export function DocumentViewer({ analysis, pendingCount, onSaveBlock, anchor, children }: DocumentViewerProps) {
   const { t } = useI18n();
   const redlineById = new Map(analysis.redlines.map((r) => [r.id, r]));
   const [editIdx, setEditIdx] = useState<number | null>(null);
   const [draft, setDraft] = useState('');
+  const [flashIdx, setFlashIdx] = useState<number | null>(null);
+  const blockRefs = useRef(new Map<number, HTMLElement>());
+
+  // Click a finding → scroll to and flash the clause whose paragraph carries
+  // that redline. Re-runs whenever the anchor nonce changes (repeat clicks).
+  useEffect(() => {
+    if (!anchor) return;
+    const targetIdx = analysis.document.findIndex(
+      (b) => b.type === 'paragraph' && (b.segments ?? []).some((s) => typeof s !== 'string' && s.redlineId === anchor.redlineId),
+    );
+    if (targetIdx < 0) return;
+    const el = blockRefs.current.get(targetIdx);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    setFlashIdx(targetIdx);
+    const timer = setTimeout(() => setFlashIdx(null), 1300);
+    return () => clearTimeout(timer);
+  }, [anchor, analysis.document]);
 
   const startEdit = (index: number) => {
     if (!onSaveBlock) return;
@@ -77,7 +98,14 @@ export function DocumentViewer({ analysis, pendingCount, onSaveBlock, children }
 
           {analysis.document.map((block, i) =>
             block.type === 'heading' ? (
-              <h3 key={i} className={styles.clauseHeading}>
+              <h3
+                key={i}
+                ref={(el) => {
+                  if (el) blockRefs.current.set(i, el);
+                  else blockRefs.current.delete(i);
+                }}
+                className={styles.clauseHeading}
+              >
                 {block.text}
               </h3>
             ) : editIdx === i ? (
@@ -103,7 +131,14 @@ export function DocumentViewer({ analysis, pendingCount, onSaveBlock, children }
                 </div>
               </div>
             ) : (
-              <p key={i} className={`${styles.clause} ${onSaveBlock ? styles.clauseEditable : ''}`}>
+              <p
+                key={i}
+                ref={(el) => {
+                  if (el) blockRefs.current.set(i, el);
+                  else blockRefs.current.delete(i);
+                }}
+                className={`${styles.clause} ${onSaveBlock ? styles.clauseEditable : ''} ${flashIdx === i ? styles.clauseFlash : ''}`}
+              >
                 {block.segments?.map((seg, j) => {
                   if (typeof seg === 'string') return <Fragment key={j}>{seg}</Fragment>;
                   const rl = redlineById.get(seg.redlineId);

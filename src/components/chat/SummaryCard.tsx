@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type KeyboardEvent } from 'react';
 import { Icon, type IconName } from '@/components/icons/Icon';
 import { useDismissable } from '@/hooks/useAsync';
 import { Badge, toneColor } from '@/components/ui/Badge';
@@ -21,6 +21,8 @@ const SEVERITY_ICON: Record<string, IconName> = {
 interface SummaryCardProps {
   analysis: AnalysisResult;
   onOpenWorkspace: () => void;
+  /** Open the workspace and jump to the clause fixed by this finding's redline. */
+  onOpenFinding: (redlineId: string) => void;
   /** Send one of the suggested document questions to the chat. */
   onAsk: (question: string) => void;
   /** "Other…": the user types their own question in the composer. */
@@ -28,7 +30,7 @@ interface SummaryCardProps {
 }
 
 /** Post-analysis report: streaming summary, risk gauge, top findings, actions. */
-export function SummaryCard({ analysis, onOpenWorkspace, onAsk, onAskCustom }: SummaryCardProps) {
+export function SummaryCard({ analysis, onOpenWorkspace, onOpenFinding, onAsk, onAskCustom }: SummaryCardProps) {
   const { t } = useI18n();
   const { visible } = useStreamingText(analysis.summary);
 
@@ -62,8 +64,26 @@ export function SummaryCard({ analysis, onOpenWorkspace, onAsk, onAskCustom }: S
         <div className={styles.findingList}>
           {analysis.findings.map((f) => {
             const color = toneColor(f.severity);
+            const clickable = Boolean(f.redlineId);
             return (
-              <div key={f.id} className={styles.finding}>
+              <div
+                key={f.id}
+                className={`${styles.finding} ${clickable ? styles.findingClickable : ''}`}
+                {...(clickable
+                  ? {
+                      role: 'button' as const,
+                      tabIndex: 0,
+                      title: t('ws.jumpToClause'),
+                      onClick: () => onOpenFinding(f.redlineId as string),
+                      onKeyDown: (e: KeyboardEvent) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          onOpenFinding(f.redlineId as string);
+                        }
+                      },
+                    }
+                  : {})}
+              >
                 <div
                   className={styles.findingIcon}
                   style={{ background: `color-mix(in srgb, ${color} 14%, transparent)`, color }}
@@ -77,6 +97,7 @@ export function SummaryCard({ analysis, onOpenWorkspace, onAsk, onAskCustom }: S
                   </div>
                   <CitationLine finding={f} />
                 </div>
+                {clickable ? <Icon name="chevron" size={14} color="var(--dim)" /> : null}
               </div>
             );
           })}

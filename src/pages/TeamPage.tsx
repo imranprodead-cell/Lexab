@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useState, useEffect, type FormEvent } from 'react';
 import { TopBar } from '@/components/layout/TopBar';
 import { InitialsAvatar } from '@/components/ui/Avatar';
 import { Badge } from '@/components/ui/Badge';
@@ -10,6 +10,9 @@ import { EmptyState, ErrorState, SkeletonRows } from '@/components/ui/States';
 import { useAsync, clearAsyncCache } from '@/hooks/useAsync';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { ROLE_COLORS, teamApi, userApi, type TeamRole } from '@/api';
+import { auditApi, type AuditEvent } from '@/api/audit.api';
+import { ssoApi, type SsoConfig } from '@/api/sso.api';
+import { ApiError } from '@/api/util';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -292,6 +295,10 @@ export function TeamPage() {
               </table>
             </div>
           )}
+
+          {/* SSO + audit log — team owner tools (Business feature). */}
+          {canInvite ? <SsoSettingsSection /> : null}
+          {canInvite ? <AuditLogSection /> : null}
         </div>
       </div>
 
@@ -350,6 +357,288 @@ export function TeamPage() {
               </div>
             </form>
           </GlassCard>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** SSO settings card (Business feature; team owner). Configure OIDC, verify the
+ *  domain by DNS, then enable / enforce. A 402 shows an upsell. */
+function SsoSettingsSection() {
+  const { t } = useI18n();
+  const pushToast = useUIStore((s) => s.pushToast);
+  const [cfg, setCfg] = useState<SsoConfig | null>(null);
+  const [locked, setLocked] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [form, setForm] = useState({ issuerUrl: '', clientId: '', clientSecret: '', emailDomain: '', defaultRole: 'viewer' as 'admin' | 'editor' | 'viewer' });
+
+  const load = () => {
+    ssoApi
+      .get()
+      .then((c) => {
+        setCfg(c);
+        setLocked(false);
+        if (c.configured) {
+          setForm((f) => ({ ...f, issuerUrl: c.issuerUrl ?? '', clientId: c.clientId ?? '', emailDomain: c.emailDomain ?? '', defaultRole: c.defaultRole ?? 'viewer' }));
+        }
+      })
+      .catch((err) => {
+        if (err instanceof ApiError && err.status === 402) setLocked(true);
+        else pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
+      });
+  };
+  useEffect(load, [pushToast, t]);
+
+  const copy = (text: string) => {
+    void navigator.clipboard?.writeText(text).then(() => pushToast(t('sso.copied'), 'success')).catch(() => undefined);
+  };
+
+  const save = async () => {
+    if (!form.issuerUrl || !form.clientId || !form.emailDomain || (!cfg?.secretSet && !form.clientSecret)) {
+      pushToast(t('sso.fillAll'), 'error');
+      return;
+    }
+    setBusy(true);
+    try {
+      await ssoApi.save({
+        issuerUrl: form.issuerUrl.trim(),
+        clientId: form.clientId.trim(),
+        ...(form.clientSecret ? { clientSecret: form.clientSecret } : {}),
+        emailDomain: form.emailDomain.trim(),
+        defaultRole: form.defaultRole,
+      });
+      setForm((f) => ({ ...f, clientSecret: '' }));
+      pushToast(t('sso.saved'), 'success');
+      load();
+    } catch (err) {
+      pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const verify = async () => {
+    setBusy(true);
+    try {
+      const r = await ssoApi.verifyDomain();
+      pushToast(r.verified ? t('sso.verifyOk') : t('sso.verifyFail'), r.verified ? 'success' : 'error');
+      load();
+    } catch (err) {
+      pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggle = async (patch: { enabled?: boolean; enforceSso?: boolean }) => {
+    setBusy(true);
+    try {
+      await ssoApi.toggle(patch);
+      load();
+    } catch (err) {
+      pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (locked) {
+    return (
+      <div className={styles.auditSection}>
+        <h2 className={styles.auditTitle}>{t('sso.title')}</h2>
+        <EmptyState icon="shield" title={t('sso.upsellTitle')} body={t('sso.upsellBody')} />
+      </div>
+    );
+  }
+
+  return (
+    <div className={styles.auditSection}>
+      <h2 className={styles.auditTitle}>{t('sso.title')}</h2>
+      <p className={styles.sectionSub}>{t('sso.sub')}</p>
+      <div className={styles.ssoForm}>
+        <TextField label={t('sso.issuer')} name="ssoIssuer" value={form.issuerUrl} placeholder="https://accounts.google.com" onChange={(e) => setForm({ ...form, issuerUrl: e.target.value })} />
+        <TextField label={t('sso.clientId')} name="ssoClientId" value={form.clientId} onChange={(e) => setForm({ ...form, clientId: e.target.value })} />
+        <TextField label={cfg?.secretSet ? t('sso.clientSecretSet') : t('sso.clientSecret')} name="ssoClientSecret" type="password" value={form.clientSecret} placeholder={cfg?.secretSet ? '•••••• ' + t('sso.secretStored') : ''} onChange={(e) => setForm({ ...form, clientSecret: e.target.value })} />
+        <TextField label={t('sso.domain')} name="ssoDomain" value={form.emailDomain} placeholder="acme.com" onChange={(e) => setForm({ ...form, emailDomain: e.target.value })} />
+        <div>
+          <span className={styles.modalLabel}>{t('sso.defaultRole')}</span>
+          <div className={styles.roleChips} role="radiogroup">
+            {ROLES.map((r) => (
+              <button key={r} type="button" role="radio" aria-checked={form.defaultRole === r} className={`${styles.roleChip} ${form.defaultRole === r ? styles.roleChipActive : ''}`} onClick={() => setForm({ ...form, defaultRole: r })}>
+                <span className={styles.roleDot} style={{ background: ROLE_COLORS[r] }} />
+                {t(`team.role.${r}`)}
+              </button>
+            ))}
+          </div>
+        </div>
+        <Button variant="primary" icon="check" disabled={busy} onClick={() => void save()}>
+          {busy ? t('common.loading') : t('sso.save')}
+        </Button>
+      </div>
+
+      {cfg?.configured ? (
+        <div className={styles.ssoStatus}>
+          <div className={styles.ssoStatusRow}>
+            <span className={styles.subStatusText}>{t('sso.redirectUri')}</span>
+            <code className={styles.ssoCode} onClick={() => copy(cfg.redirectUri)}>{cfg.redirectUri}</code>
+          </div>
+          <div className={styles.ssoStatusRow}>
+            <span className={styles.subStatusText}>{t('sso.dnsRecord')}</span>
+            <code className={styles.ssoCode} onClick={() => cfg.dnsRecord && copy(cfg.dnsRecord)}>{cfg.dnsRecord}</code>
+          </div>
+          <div className={styles.ssoStatusRow}>
+            <span className={styles.subStatusText}>
+              {t('sso.domainStatus')}: {cfg.domainVerified ? <Badge color="Low">{t('sso.verified')}</Badge> : <Badge color="Medium">{t('sso.unverified')}</Badge>}
+            </span>
+            {!cfg.domainVerified ? (
+              <Button size="sm" disabled={busy} onClick={() => void verify()}>
+                {t('sso.verifyDomain')}
+              </Button>
+            ) : null}
+          </div>
+          {cfg.domainVerified ? (
+            <>
+              <label className={styles.ssoToggle}>
+                <input type="checkbox" checked={cfg.enabled ?? false} disabled={busy} onChange={(e) => void toggle({ enabled: e.target.checked })} />
+                {t('sso.enable')}
+              </label>
+              <label className={styles.ssoToggle}>
+                <input type="checkbox" checked={cfg.enforceSso ?? false} disabled={busy || !cfg.enabled} onChange={(e) => void toggle({ enforceSso: e.target.checked })} />
+                {t('sso.enforce')}
+              </label>
+            </>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+const AUDIT_GROUPS = ['', 'auth', 'document', 'ai', 'team', 'billing', 'signature', 'security'];
+const PAGE_SIZE = 20;
+
+/** The team owner's audit trail. Business feature — a 402 shows an upsell. */
+function AuditLogSection() {
+  const { t } = useI18n();
+  const pushToast = useUIStore((s) => s.pushToast);
+  const [group, setGroup] = useState('');
+  const [rows, setRows] = useState<AuditEvent[]>([]);
+  const [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(false);
+  const [locked, setLocked] = useState(false); // 402 → not on Business
+  const [hasMore, setHasMore] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    auditApi
+      .list({ group: group || undefined, page, pageSize: PAGE_SIZE })
+      .then((data) => {
+        if (cancelled) return;
+        setRows((prev) => (page === 1 ? data : [...prev, ...data]));
+        setHasMore(data.length === PAGE_SIZE);
+        setLocked(false);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 402) setLocked(true);
+        else pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
+      })
+      .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [group, page, pushToast, t]);
+
+  const exportCsv = async () => {
+    try {
+      const blob = await auditApi.downloadCsv({ group: group || undefined });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'audit-log.csv';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
+    }
+  };
+
+  if (locked) {
+    return (
+      <div className={styles.auditSection}>
+        <h2 className={styles.auditTitle}>{t('audit.title')}</h2>
+        <EmptyState icon="shield" title={t('audit.upsellTitle')} body={t('audit.upsellBody')} />
+      </div>
+    );
+  }
+
+  return (
+    <div className={styles.auditSection}>
+      <div className={styles.auditHead}>
+        <h2 className={styles.auditTitle}>{t('audit.title')}</h2>
+        <div className={styles.auditControls}>
+          <select
+            className={styles.auditFilter}
+            value={group}
+            onChange={(e) => {
+              setPage(1);
+              setGroup(e.target.value);
+            }}
+          >
+            {AUDIT_GROUPS.map((g) => (
+              <option key={g || 'all'} value={g}>
+                {g ? t(`audit.group.${g}`) : t('audit.allGroups')}
+              </option>
+            ))}
+          </select>
+          <Button size="sm" icon="download" onClick={exportCsv}>
+            {t('audit.exportCsv')}
+          </Button>
+        </div>
+      </div>
+
+      {rows.length === 0 && !loading ? (
+        <EmptyState icon="history" title={t('audit.empty')} />
+      ) : (
+        <div className={styles.tableCard}>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th className={styles.th}>{t('audit.colTime')}</th>
+                <th className={styles.th}>{t('audit.colActor')}</th>
+                <th className={styles.th}>{t('audit.colEvent')}</th>
+                <th className={`${styles.th} ${styles.hideSm}`}>{t('audit.colTarget')}</th>
+                <th className={`${styles.th} ${styles.hideSm}`}>{t('audit.colIp')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id}>
+                  <td className={`${styles.td} ${styles.metaText}`}>{new Date(r.at).toLocaleString()}</td>
+                  <td className={styles.td}>{r.actor ?? '—'}</td>
+                  <td className={styles.td}>
+                    <span className={styles.auditType} data-status={r.status}>
+                      {r.type}
+                    </span>
+                  </td>
+                  <td className={`${styles.td} ${styles.hideSm}`}>{r.target ?? '—'}</td>
+                  <td className={`${styles.td} ${styles.hideSm} ${styles.metaText}`}>{r.ip ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {hasMore ? (
+        <div className={styles.auditMore}>
+          <Button size="sm" disabled={loading} onClick={() => setPage((p) => p + 1)}>
+            {loading ? t('common.loading') : t('audit.loadMore')}
+          </Button>
         </div>
       ) : null}
     </div>

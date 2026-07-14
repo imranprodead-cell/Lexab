@@ -103,6 +103,138 @@ export async function http<T>(path: string, options: HttpOptions = {}): Promise<
   throw lastError instanceof Error ? lastError : new ApiError('Network error', 0);
 }
 
+/** Thrown before any network send when the browser can't read a streaming
+ *  response body — lets the caller fall back to a plain POST. */
+export class StreamingUnsupportedError extends Error {
+  constructor() {
+    super('streaming unsupported');
+    this.name = 'StreamingUnsupportedError';
+  }
+}
+
+/**
+ * Authenticated Server-Sent-Events POST. Streams the server's `token`/`done`/
+ * `error` protocol: each `token` delta is handed to `onToken`, the final `done`
+ * payload resolves the promise, an `error` event rejects with an ApiError that
+ * carries the server's status (so 402 limit-reached behaves like a normal HTTP
+ * 402). fetch + ReadableStream (NOT EventSource — it can't POST, can't send the
+ * Bearer header, and a token in the URL would leak into logs).
+ *
+ * Throws StreamingUnsupportedError up front (before sending) when the runtime
+ * can't read response bodies, so the caller can fall back to a plain POST. A
+ * mid-stream failure rejects with a real error and MUST NOT be retried by
+ * re-POSTing (the server may have already persisted the turn + reply).
+ */
+export async function httpSSE<T>(path: string, body: unknown, onToken: (delta: string) => void): Promise<T> {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    throw new ApiError(tStandalone('net.offline'), 0);
+  }
+  // Feature-detect before sending anything, so the fallback re-POST is safe.
+  if (typeof ReadableStream === 'undefined' || typeof TextDecoder === 'undefined') {
+    throw new StreamingUnsupportedError();
+  }
+
+  // A stalled connection must never leave the caller's bubble stuck streaming:
+  // abort if no event arrives for 90s (reset on every event).
+  const controller = new AbortController();
+  let idle: ReturnType<typeof setTimeout> | undefined;
+  const armIdle = () => {
+    if (idle) clearTimeout(idle);
+    idle = setTimeout(() => controller.abort(), 90_000);
+  };
+  armIdle();
+
+  let response: Response;
+  try {
+    response = await fetch(`${BASE_URL}${path}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+        ...authHeader(),
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (idle) clearTimeout(idle);
+    throw err instanceof Error ? err : new ApiError('Network error', 0);
+  }
+
+  if (!response.ok) {
+    if (idle) clearTimeout(idle);
+    let message = `Request failed (${response.status})`;
+    try {
+      const data = (await response.json()) as { message?: string };
+      if (data?.message) message = data.message;
+    } catch {
+      /* non-JSON error body — keep default message */
+    }
+    throw new ApiError(message, response.status);
+  }
+
+  // The server may answer non-SSE (e.g. a proxy stripped Accept) — honour it.
+  const contentType = response.headers.get('content-type') ?? '';
+  if (!contentType.includes('text/event-stream')) {
+    if (idle) clearTimeout(idle);
+    if (response.status === 204) return undefined as T;
+    return (await response.json()) as T;
+  }
+  if (!response.body) {
+    if (idle) clearTimeout(idle);
+    throw new StreamingUnsupportedError();
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let done: T | undefined;
+  let doneSeen = false;
+
+  // Parse one SSE record ("event: <name>\ndata: <json>") into a dispatch.
+  const handleRecord = (record: string) => {
+    let event = 'message';
+    const dataLines: string[] = [];
+    for (const line of record.split('\n')) {
+      if (line.startsWith('event:')) event = line.slice(6).trim();
+      else if (line.startsWith('data:')) dataLines.push(line.slice(5).replace(/^ /, ''));
+    }
+    if (!dataLines.length) return;
+    const payload = JSON.parse(dataLines.join('\n')) as { text?: string; message?: string; status?: number };
+    if (event === 'token') onToken(payload.text ?? '');
+    else if (event === 'done') {
+      done = payload as unknown as T;
+      doneSeen = true;
+    } else if (event === 'error') {
+      throw new ApiError(payload.message ?? 'Stream failed', payload.status ?? 500);
+    }
+  };
+
+  try {
+    for (;;) {
+      const { value, done: streamDone } = await reader.read();
+      if (streamDone) break;
+      armIdle();
+      buffer += decoder.decode(value, { stream: true });
+      // Records are separated by a blank line; keep the trailing partial.
+      let sep: number;
+      while ((sep = buffer.indexOf('\n\n')) !== -1) {
+        const record = buffer.slice(0, sep);
+        buffer = buffer.slice(sep + 2);
+        if (record.trim()) handleRecord(record);
+      }
+    }
+    // Flush any final record without a trailing blank line.
+    if (buffer.trim()) handleRecord(buffer);
+  } finally {
+    if (idle) clearTimeout(idle);
+    reader.cancel().catch(() => undefined);
+  }
+
+  if (!doneSeen) throw new ApiError('Stream ended unexpectedly', 0);
+  return done as T;
+}
+
 /** Authenticated multipart upload (files go as FormData, not JSON). */
 export async function httpForm<T>(path: string, form: FormData): Promise<T> {
   const response = await fetch(`${BASE_URL}${path}`, {

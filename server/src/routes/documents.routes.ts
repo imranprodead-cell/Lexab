@@ -4,15 +4,17 @@
  * POST /documents/:id/export { format: 'docx' | 'pdf' } → binary download
  */
 import { Document, HeadingLevel, Packer, Paragraph, TextRun } from 'docx';
+import { buildDocxParagraphs, type DocxMode } from '../lib/docxExport.ts';
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../db.ts';
 import { badRequest, notFound } from '../lib/errors.ts';
 import { assertFeature } from '../lib/limits.ts';
 import { canEdit, resolveDocumentAccess } from '../lib/teamAccess.ts';
-import { formatSize, toIso } from '../lib/format.ts';
+import { attachmentDisposition, formatSize, toIso } from '../lib/format.ts';
 import { buildSimplePdf } from '../lib/pdf.ts';
 import { asObject, requireOneOf } from '../lib/validate.ts';
 import { deleteFile } from '../storage.ts';
+import { audit } from '../lib/audit.ts';
 import type { ContractDocument, DocBlock, DocumentVersion, Redline } from '../types.ts';
 
 interface DocumentRow {
@@ -262,56 +264,62 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
     const { id } = req.params as { id: string };
     const body = asObject(req.body);
     const format = requireOneOf(body, 'format', ['docx', 'pdf'] as const);
+    // DOCX may be exported with real Word tracked changes (default) or as a
+    // clean final document. Ignored for PDF (always flattened).
+    const mode: DocxMode = body.mode === 'clean' ? 'clean' : 'tracked';
     if (format === 'docx') await assertFeature(db, req.currentUser.id, 'docxExport');
 
     const { doc } = await resolveDocumentAccess(db, req.currentUser.id, id);
 
-    // Latest analysis for this document → resolved clause text with redlines applied.
+    // Latest analysis for this document → blocks + redline states.
     const analysisRes = await db.query<{ id: string; document_blocks: DocBlock[] | string }>(
       `SELECT id, document_blocks FROM analyses WHERE document_id = $1
        ORDER BY created_at DESC LIMIT 1`,
       [id],
     );
-    let sections: { heading?: string; text?: string }[];
+    let blocks: DocBlock[] = [];
+    let redlines: Redline[] = [];
     if (analysisRes.rows[0]) {
       const a = analysisRes.rows[0];
-      const blocks: DocBlock[] = typeof a.document_blocks === 'string' ? JSON.parse(a.document_blocks) : a.document_blocks;
+      blocks = typeof a.document_blocks === 'string' ? JSON.parse(a.document_blocks) : a.document_blocks;
       const redlinesRes = await db.query<{ id: string; del_text: string; ins_text: string; severity: Redline['severity']; status: Redline['status'] }>(
         'SELECT id, del_text, ins_text, severity, status FROM redlines WHERE analysis_id = $1 ORDER BY ord',
         [a.id],
       );
-      sections = resolveSections(
-        blocks,
-        redlinesRes.rows.map((r) => ({ id: r.id, delText: r.del_text, insText: r.ins_text, severity: r.severity, status: r.status })),
-      );
-    } else {
-      sections = [{ text: `No AI review has been run for “${doc.name}” yet — export the document after running an analysis.` }];
+      redlines = redlinesRes.rows.map((r) => ({ id: r.id, delText: r.del_text, insText: r.ins_text, severity: r.severity, status: r.status }));
     }
 
-    // Sanitize before it goes into the Content-Disposition header — doc.name is
-    // attacker-controlled (upload filename), and a raw quote would break out of
-    // the quoted filename and let extra header parameters be injected.
-    const baseName = doc.name.replace(/\.[^.]+$/, '').replace(/[^\w.-]+/g, '_') || 'document';
+    // Audit under the document owner's team scope (a teammate exporting a shared
+    // doc logs against the owner, not themselves).
+    await audit(db, req, {
+      type: 'document.exported',
+      teamOwnerId: doc.user_id,
+      target: { type: 'document', id, label: doc.name },
+      metadata: { format, ...(format === 'docx' ? { mode } : {}) },
+    });
+
     if (format === 'pdf') {
-      const pdf = buildSimplePdf(doc.name, sections);
+      // PDF is always the flattened final text (accepted applied).
+      const sections = blocks.length
+        ? resolveSections(blocks, redlines)
+        : [{ text: `No AI review has been run for “${doc.name}” yet — export the document after running an analysis.` }];
+      const pdf = await buildSimplePdf(doc.name, sections);
       reply.header('Content-Type', 'application/pdf');
-      reply.header('Content-Disposition', `attachment; filename="${baseName}.pdf"`);
+      reply.header('Content-Disposition', attachmentDisposition(doc.name, 'pdf'));
       return reply.send(pdf);
     }
 
-    // Real .docx via the docx library.
-    const paragraphs: Paragraph[] = [
-      new Paragraph({ text: doc.name, heading: HeadingLevel.HEADING_1 }),
-      ...sections.map((s) =>
-        s.heading !== undefined
-          ? new Paragraph({ text: s.heading, heading: HeadingLevel.HEADING_2, spacing: { before: 240, after: 120 } })
-          : new Paragraph({ children: [new TextRun(s.text ?? '')], spacing: { after: 160 } }),
-      ),
-    ];
+    // Real .docx — tracked changes (w:ins/w:del) or clean, per `mode`.
+    const paragraphs: Paragraph[] = blocks.length
+      ? buildDocxParagraphs(doc.name, blocks, redlines, mode, new Date().toISOString())
+      : [
+          new Paragraph({ text: doc.name, heading: HeadingLevel.HEADING_1 }),
+          new Paragraph({ children: [new TextRun(`No AI review has been run for “${doc.name}” yet — export the document after running an analysis.`)] }),
+        ];
     const file = new Document({ sections: [{ children: paragraphs }] });
     const buffer = await Packer.toBuffer(file);
     reply.header('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-    reply.header('Content-Disposition', `attachment; filename="${baseName}.docx"`);
+    reply.header('Content-Disposition', attachmentDisposition(doc.name, 'docx'));
     return reply.send(buffer);
   });
 }

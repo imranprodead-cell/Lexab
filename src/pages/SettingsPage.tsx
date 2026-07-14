@@ -47,8 +47,11 @@ export function SettingsPage() {
 
   const { data, loading } = useAsync((signal) => userApi.me(signal), []);
   const limits = useAsync((signal) => billingApi.limits(signal), []);
+  const sub = useAsync((signal) => billingApi.subscription(signal), []);
   const integrations = useAsync((signal) => integrationsApi.list(signal), []);
   const [integrationBusy, setIntegrationBusy] = useState<CloudProvider | null>(null);
+  const [cancelConfirm, setCancelConfirm] = useState(false);
+  const [cancelBusy, setCancelBusy] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
 
   // Back from the provider's OAuth screen: claim the one-time grant with our
@@ -386,6 +389,76 @@ export function SettingsPage() {
                       {t('settings.changePlan')}
                     </Button>
                   </div>
+
+                  {/* Subscription status + cancellation (paid plans only). */}
+                  {sub.data && sub.data.plan !== 'Free' ? (
+                    <div className={styles.subStatus}>
+                      {sub.data.status === 'past_due' ? (
+                        <p className={styles.subStatusWarn}>
+                          {t('settings.subPastDue', { date: sub.data.periodEnd ? new Date(sub.data.periodEnd).toLocaleDateString() : '' })}
+                        </p>
+                      ) : sub.data.cancelAtPeriodEnd ? (
+                        <div className={styles.subStatusRow}>
+                          <span className={styles.subStatusText}>
+                            {t('settings.subCancelScheduled', { date: sub.data.periodEnd ? new Date(sub.data.periodEnd).toLocaleDateString() : '' })}
+                          </span>
+                          <Button
+                            size="sm"
+                            disabled={cancelBusy}
+                            onClick={() => {
+                              setCancelBusy(true);
+                              billingApi
+                                .revertCancel()
+                                .then(() => {
+                                  sub.reload();
+                                  pushToast(t('settings.subResumed'), 'success');
+                                })
+                                .catch((e) => pushToast(e instanceof Error && e.message ? e.message : t('common.error'), 'error'))
+                                .finally(() => setCancelBusy(false));
+                            }}
+                          >
+                            {t('settings.subResume')}
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className={styles.subStatusRow}>
+                          <span className={styles.subStatusText}>
+                            {t('settings.subActiveUntil', { date: sub.data.periodEnd ? new Date(sub.data.periodEnd).toLocaleDateString() : '' })}
+                          </span>
+                          {cancelConfirm ? (
+                            <span className={styles.subCancelConfirm}>
+                              <span className={styles.subCancelNote}>{t('settings.subCancelConfirm')}</span>
+                              <button
+                                className={styles.subCancelYes}
+                                disabled={cancelBusy}
+                                onClick={() => {
+                                  setCancelBusy(true);
+                                  billingApi
+                                    .cancel()
+                                    .then(() => {
+                                      sub.reload();
+                                      setCancelConfirm(false);
+                                      pushToast(t('settings.subCancelled'), 'success');
+                                    })
+                                    .catch((e) => pushToast(e instanceof Error && e.message ? e.message : t('common.error'), 'error'))
+                                    .finally(() => setCancelBusy(false));
+                                }}
+                              >
+                                {t('settings.subCancelDo')}
+                              </button>
+                              <button className={styles.subCancelNo} disabled={cancelBusy} onClick={() => setCancelConfirm(false)}>
+                                {t('common.cancel')}
+                              </button>
+                            </span>
+                          ) : (
+                            <button className={styles.subCancelLink} onClick={() => setCancelConfirm(true)}>
+                              {t('settings.subCancel')}
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ) : null}
 
                   <LimitRow
                     label={t('limits.ai')}

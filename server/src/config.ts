@@ -94,6 +94,9 @@ export const config = {
   /** Voyage AI — dense embeddings for the legal corpus (empty = FTS-only search). */
   voyageApiKey: env('VOYAGE_API_KEY'),
 
+  /** Audit: failed logins per IP/email in 5 min above this fire a security alert. */
+  authBruteforceThreshold: Math.max(3, Number(env('AUTH_BRUTEFORCE_ALERT_THRESHOLD', '10'))),
+
   googleClientId: env('GOOGLE_CLIENT_ID'),
   googleClientSecret: env('GOOGLE_CLIENT_SECRET'),
   googleRedirectUri: env('GOOGLE_REDIRECT_URI', 'http://localhost:8080/api/auth/google/callback'),

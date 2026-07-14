@@ -13,6 +13,9 @@ import { hashPassword, verifyPassword } from '../lib/passwords.ts';
 import { asObject, requireEmail, requireString } from '../lib/validate.ts';
 import { escapeMailHtml, mailLayout, sendMail } from '../mail.ts';
 import { notify } from '../lib/notify.ts';
+import { recordBillingEvent, TERMS_VERSION } from '../lib/billing.ts';
+import { audit, countRecent } from '../lib/audit.ts';
+import { assertSsoNotRequired } from './sso.routes.ts';
 import { deleteFile } from '../storage.ts';
 import { getUserByEmail, getUserById, signToken, toProfile, type UserRow } from '../plugins/auth.ts';
 
@@ -111,6 +114,14 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
       );
       await tx.query(`INSERT INTO subscriptions (user_id, plan, status) VALUES ($1, 'Free', 'active')`, [id]);
       await tx.query(`INSERT INTO user_stats (user_id) VALUES ($1)`, [id]);
+      // Record which Terms version this account accepted at signup (the auth
+      // page shows the "by continuing you accept…" notice) — legal evidence.
+      await recordBillingEvent(tx, {
+        userId: id,
+        email,
+        kind: 'terms_accepted',
+        payload: { ip: req.ip, termsVersion: TERMS_VERSION, at: 'signup' },
+      });
     });
     await notify(db, id, 'docs', 'Добро пожаловать в LexAI!', 'Welcome to LexAI!', {
       bodyRu: 'Загрузите первый контракт для анализа',
@@ -118,6 +129,7 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
     });
 
     await sendVerificationMail(db, id, email, name);
+    await audit(db, req, { type: 'auth.register', actorId: id, actorLabel: email, teamOwnerId: id });
 
     // No session until the mailbox is proven — otherwise anyone could sign up
     // with someone else's address and use the account under their email.
@@ -137,6 +149,7 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
     if (!res.rows[0]) throw badRequest('Ссылка недействительна, истекла или уже использована — запросите письмо ещё раз');
     // Owning the mailbox proves the email → sign the user in right away.
     const user = (await getUserById(db, res.rows[0].id)) as UserRow;
+    await assertSsoNotRequired(db, { id: user.id, email: user.email });
     return { ok: true, token: signToken(app, user), user: toProfile(user) };
   });
 
@@ -156,16 +169,49 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
     const email = requireEmail(body);
     const password = requireString(body, 'password', { min: 1, max: 200 });
 
+    // Record a failed attempt and, if the per-ip/email rate is suspicious, fire
+    // one deduped security alert (audit event + notify + email to the account).
+    const onFailure = async () => {
+      await audit(db, req, { type: 'auth.login_failed', actorId: null, actorLabel: email, status: 'denied', metadata: { email } });
+      const recent = await countRecent(db, 'auth.login_failed', 5, req.ip, email);
+      if (recent >= config.authBruteforceThreshold) {
+        // Dedupe: at most one alert per ip/email per hour.
+        const alerts = await countRecent(db, 'security.bruteforce_alert', 60, req.ip, email);
+        if (alerts === 0) {
+          await audit(db, req, { type: 'security.bruteforce_alert', actorId: null, actorLabel: email, status: 'denied', metadata: { email, count: recent } });
+          const target = await getUserByEmail(db, email);
+          if (target) {
+            await notify(db, target.id, 'alert', 'Подозрительные попытки входа', 'Suspicious login attempts', {
+              bodyRu: `${recent} неудачных попыток входа за 5 минут`,
+              bodyEn: `${recent} failed login attempts in 5 minutes`,
+            });
+            void sendMail({
+              to: target.email,
+              subject: 'LexAI: подозрительная активность входа',
+              html: mailLayout(
+                'Замечены подозрительные попытки входа',
+                `<p>За последние 5 минут в ваш аккаунт было <strong>${recent}</strong> неудачных попыток входа. Если это были не вы — смените пароль.</p>`,
+                'Сменить пароль',
+                `${config.appBaseUrl}/settings`,
+              ),
+            });
+          }
+        }
+      }
+    };
+
     const user = await getUserByEmail(db, email);
     if (!user) {
       // Unknown email: still run scrypt (against a throw-away hash) so the reply
       // isn't measurably faster than for a real account.
       await verifyPassword(password, await dummyHash());
+      await onFailure();
       throw unauthorized(LOGIN_FAILED);
     }
     if (!(await verifyPassword(password, user.password_hash))) {
       // Wrong password — and a Google-only account (random unknown password)
       // lands here too. Same generic message: never disclose account existence.
+      await onFailure();
       throw unauthorized(LOGIN_FAILED);
     }
     if (!user.email_verified) {
@@ -177,12 +223,16 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
         `Сначала подтвердите почту: новое письмо отправлено на ${user.email} / Verify your email first: a new link was sent to ${user.email}`,
       );
     }
+    // If the user's org enforces SSO, password login is blocked (owner exempt).
+    await assertSsoNotRequired(db, { id: user.id, email: user.email });
+    await audit(db, req, { type: 'auth.login', actorId: user.id, actorLabel: user.email, teamOwnerId: user.id });
     return { token: signToken(app, user), user: toProfile(user) };
   });
 
   app.post('/auth/logout', { preHandler: [app.authenticate], config: RATE_LIMIT }, async (req, reply) => {
     // Bump token_version → all previously issued tokens become invalid.
     await db.query('UPDATE users SET token_version = token_version + 1 WHERE id = $1', [req.currentUser.id]);
+    await audit(db, req, { type: 'auth.logout', teamOwnerId: req.currentUser.id });
     reply.code(204);
   });
 
@@ -240,6 +290,8 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
     );
     // Owning the mailbox proves the email → auto-login with a fresh session.
     const fresh = (await getUserById(db, row.id)) as UserRow;
+    await assertSsoNotRequired(db, { id: fresh.id, email: fresh.email });
+    await audit(db, req, { type: 'auth.password_reset', actorId: fresh.id, actorLabel: fresh.email, teamOwnerId: fresh.id });
     return { token: signToken(app, fresh), user: toProfile(fresh) };
   });
 
@@ -260,6 +312,7 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
       passwordHash,
     ]);
     const fresh = (await getUserById(db, user.id)) as UserRow;
+    await audit(db, req, { type: 'auth.password_changed', teamOwnerId: user.id });
     return { token: signToken(app, fresh), user: toProfile(fresh) };
   });
 
@@ -276,6 +329,8 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
       'SELECT storage, storage_key FROM uploads WHERE user_id = $1',
       [req.currentUser.id],
     );
+    // Log before the CASCADE removes the user (and their own audit rows).
+    await audit(db, req, { type: 'auth.account_deleted', teamOwnerId: req.currentUser.id });
     await db.query('DELETE FROM users WHERE id = $1', [req.currentUser.id]);
     // Best effort: a failed storage delete must not keep the account alive.
     for (const row of files.rows) {

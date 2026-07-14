@@ -14,7 +14,7 @@ import { badRequest, HttpError, notFound } from '../lib/errors.ts';
 import { assertDocumentAllowance, assertFeature, assertStorageAllowance, bumpUsage, releaseAiRequest, reserveAiRequest, reserveDocument, withStorageReservation, withAiRequest } from '../lib/limits.ts';
 import { notify } from '../lib/notify.ts';
 import { assertCanEdit, resolveAnalysisAccess, resolveDocumentAccess } from '../lib/teamAccess.ts';
-import { formatSize } from '../lib/format.ts';
+import { attachmentDisposition, formatSize } from '../lib/format.ts';
 import { buildSimplePdf } from '../lib/pdf.ts';
 import { newId } from '../lib/ids.ts';
 import { openSSE, wantsSSE } from '../lib/sse.ts';
@@ -23,6 +23,7 @@ import { generateAnalysis, generateContractDraft, type GeneratedAnalysis } from 
 import { jurisdictionCode, retrieveLegalContext } from '../rag/retrieve.ts';
 import type { RetrievedChunk } from '../rag/types.ts';
 import { validateFindings } from '../rag/validate-citations.ts';
+import { audit } from '../lib/audit.ts';
 import { deleteFile, readFileBytes, saveFile } from '../storage.ts';
 import type { AnalysisResult, DocBlock, Redline } from '../types.ts';
 
@@ -49,16 +50,16 @@ async function loadAnalysis(db: Db, userId: string, id: string): Promise<Analysi
   // Owner, or an active team member when the linked document is shared.
   const access = await resolveAnalysisAccess(db, userId, id);
   const canEdit = access.access === 'owner' || access.access === 'admin' || access.access === 'editor';
-  const res = await db.query<AnalysisRow>(
-    `SELECT id, file_name, file_size, summary, risk_score, risk_level, clauses_reviewed, document_blocks
+  const res = await db.query<AnalysisRow & { document_id: string }>(
+    `SELECT id, document_id, file_name, file_size, summary, risk_score, risk_level, clauses_reviewed, document_blocks
      FROM analyses WHERE id = $1`,
     [id],
   );
   const row = res.rows[0];
   if (!row) throw notFound('Analysis not found');
 
-  const findings = await db.query<{ id: string; severity: 'High' | 'Medium' | 'Low'; title: string; citation: string; unit_id: string | null; unverified: boolean }>(
-    'SELECT id, severity, title, citation, unit_id, unverified FROM findings WHERE analysis_id = $1 ORDER BY ord',
+  const findings = await db.query<{ id: string; severity: 'High' | 'Medium' | 'Low'; title: string; citation: string; unit_id: string | null; redline_id: string | null; unverified: boolean }>(
+    'SELECT id, severity, title, citation, unit_id, redline_id, unverified FROM findings WHERE analysis_id = $1 ORDER BY ord',
     [id],
   );
   const redlines = await db.query<Redline & { del_text: string; ins_text: string }>(
@@ -69,6 +70,7 @@ async function loadAnalysis(db: Db, userId: string, id: string): Promise<Analysi
 
   return {
     id: row.id,
+    documentId: row.document_id,
     fileName: row.file_name,
     fileSize: row.file_size,
     summary: row.summary,
@@ -81,6 +83,7 @@ async function loadAnalysis(db: Db, userId: string, id: string): Promise<Analysi
       title: f.title,
       citation: f.citation,
       unitId: f.unit_id,
+      redlineId: f.redline_id,
       unverified: f.unverified,
     })),
     redlines: redlines.rows.map((r) => ({
@@ -242,6 +245,7 @@ export async function persistAnalysis(
   chargeUserId: string = userId,
 ): Promise<AnalysisResult> {
   const analysisId = newId('an');
+  let documentId = ''; // set inside the tx; returned so the client can export
 
   // All of the review's rows (document, versions, analysis, findings, redlines,
   // stats) commit together or not at all — a mid-write failure never leaves a
@@ -252,7 +256,6 @@ export async function persistAnalysis(
       'SELECT id FROM documents WHERE user_id = $1 AND name = $2 ORDER BY updated_at DESC LIMIT 1',
       [userId, source.fileName],
     );
-    let documentId: string;
     if (existingDoc.rows[0]) {
       documentId = existingDoc.rows[0].id;
       await tx.query(
@@ -301,8 +304,8 @@ export async function persistAnalysis(
     for (let i = 0; i < gen.findings.length; i++) {
       const f = gen.findings[i];
       await tx.query(
-        'INSERT INTO findings (analysis_id, id, ord, severity, title, citation, unit_id, unverified) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
-        [analysisId, `f${i + 1}`, i, f.severity, f.title, f.citation, f.unitId ?? null, f.unverified ?? false],
+        'INSERT INTO findings (analysis_id, id, ord, severity, title, citation, unit_id, redline_id, unverified) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
+        [analysisId, `f${i + 1}`, i, f.severity, f.title, f.citation, f.unitId ?? null, f.redlineId ?? null, f.unverified ?? false],
       );
     }
     for (let i = 0; i < gen.redlines.length; i++) {
@@ -349,8 +352,19 @@ export async function persistAnalysis(
     }
   })().catch((err) => console.warn(`[analysis] notify failed (analysis saved): ${(err as Error).message}`));
 
+  // Audit: who ran an analysis (scoped to the document owner's team). NEVER the
+  // contract text — only { feature, ok } per the Privacy Policy.
+  await audit(db, null, {
+    type: 'ai.analysis',
+    teamOwnerId: userId,
+    actorId: chargeUserId,
+    target: { type: 'document', id: documentId, label: source.fileName },
+    metadata: { feature: 'analysis', ok: true },
+  });
+
   return {
     id: analysisId,
+    documentId,
     fileName: source.fileName,
     fileSize: source.fileSizeLabel,
     summary: gen.summary,
@@ -548,16 +562,18 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
       { heading: 'About this report' },
       { text: 'Generated by LexAI contract intelligence. This report is an AI-assisted review and does not constitute legal advice.' },
     ];
-    const pdf = buildSimplePdf(`LexAI — Contract Review Report`, sections);
+    const pdf = await buildSimplePdf(`LexAI — Contract Review Report`, sections);
     reply.header('Content-Type', 'application/pdf');
-    reply.header('Content-Disposition', `attachment; filename="LexAI_Report_${a.fileName.replace(/\.[^.]+$/, '').replace(/[^\w-]+/g, '_')}.pdf"`);
+    reply.header('Content-Disposition', attachmentDisposition(`LexAI_Report_${a.fileName}`, 'pdf'));
     return reply.send(pdf);
   });
 
   app.patch('/analysis/:id/redlines/:rid', { preHandler: [app.authenticate] }, async (req): Promise<Redline> => {
     const { id, rid } = req.params as { id: string; rid: string };
     const body = asObject(req.body);
-    const status = requireOneOf(body, 'status', ['accepted', 'rejected'] as const);
+    // 'pending' is allowed so a decision can be reverted (undo). The DB CHECK
+    // already permits it; access control (edit rights) is unchanged below.
+    const status = requireOneOf(body, 'status', ['accepted', 'rejected', 'pending'] as const);
 
     // Owner or team member with edit rights.
     await resolveAnalysisAccess(db, req.currentUser.id, id, true);

@@ -14,6 +14,9 @@ export interface Finding {
   citation: string;
   /** Link into the legal corpus (legal_units.id) when the finding cites a real provision. */
   unitId?: string | null;
+  /** Id of the redline that fixes this issue (r1, r2, …), or null when the
+   *  issue has no proposed change. Powers "click finding → jump to clause". */
+  redlineId?: string | null;
   /** True when the citation failed validation — the finding was demoted (RAG Этап 4). */
   unverified?: boolean;
 }
@@ -36,6 +39,8 @@ export interface DocBlock {
 
 export interface AnalysisResult {
   id: string;
+  /** Owning document id — used for server-side export (Word/PDF). */
+  documentId?: string;
   fileName: string;
   fileSize: string;
   summary: string;

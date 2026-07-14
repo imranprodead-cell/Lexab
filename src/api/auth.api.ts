@@ -61,8 +61,13 @@ export const authApi = {
     await http<void>('/auth/verify/resend', { method: 'POST', body: {} });
   },
 
-  /** Exchange the one-time code from the Google callback (#code=) for a session. */
+  /** Exchange the one-time code from the Google/SSO callback (#code=) for a session. */
   async exchangeGoogleCode(code: string): Promise<AuthSession> {
     return http<AuthSession>('/auth/google/exchange', { method: 'POST', body: { code } });
+  },
+
+  /** Is corporate SSO configured for this work email's domain? */
+  async ssoLookup(email: string): Promise<{ available: boolean }> {
+    return http<{ available: boolean }>('/auth/sso/lookup', { method: 'POST', body: { email } });
   },
 };

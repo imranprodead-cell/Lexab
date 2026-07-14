@@ -23,6 +23,7 @@ import { notify } from '../lib/notify.ts';
 import { asObject, optionalString, requireEmail, requireString } from '../lib/validate.ts';
 import { escapeMailHtml, mailLayout, sendMail } from '../mail.ts';
 import { getUserByEmail } from '../plugins/auth.ts';
+import { audit } from '../lib/audit.ts';
 import type { Member } from '../types.ts';
 
 const ASSIGNABLE_ROLES = ['admin', 'editor', 'viewer'];
@@ -100,6 +101,14 @@ async function acceptInvitation(
   );
   const row = res.rows[0];
   if (!row) throw notFound('Приглашение не найдено или уже принято / Invitation not found or already accepted');
+  // Logged under the team owner's scope (the acceptor is the actor). No req here.
+  await audit(db, null, {
+    type: 'team.invite_accepted',
+    teamOwnerId: row.owner_user_id,
+    actorId: user.id,
+    actorLabel: user.email,
+    target: { type: 'user', id: user.id, label: user.name },
+  });
   await retireInviteNotifications(db, row.invite_token);
   await notify(db, row.owner_user_id, 'check', 'Приглашение принято', 'Invitation accepted', {
     bodyRu: `${user.name} теперь в вашей команде`,
@@ -247,6 +256,12 @@ export function teamRoutes(app: FastifyInstance, db: Db): void {
       ),
     });
 
+    await audit(db, req, {
+      type: 'team.invited',
+      teamOwnerId: req.currentUser.id,
+      target: { type: 'invite', id, label: email },
+      metadata: { role },
+    });
     reply.code(201);
     return toMember({ id, name: name || email, email, role, status: 'invited', color, title_label: title, invite_token: token });
   });
@@ -266,6 +281,12 @@ export function teamRoutes(app: FastifyInstance, db: Db): void {
     );
     const row = res.rows[0];
     if (!row) throw notFound('Участник не найден');
+    await audit(db, req, {
+      type: 'team.role_changed',
+      teamOwnerId: req.currentUser.id,
+      target: { type: 'member', id: row.id, label: row.email },
+      metadata: { role },
+    });
     return toMember(row);
   });
 
@@ -278,6 +299,11 @@ export function teamRoutes(app: FastifyInstance, db: Db): void {
     );
     const row = res.rows[0];
     if (!row) throw notFound('Участник не найден / Member not found');
+    await audit(db, req, {
+      type: 'team.member_removed',
+      teamOwnerId: req.currentUser.id,
+      target: { type: 'member', id, label: row.name },
+    });
     await retireInviteNotifications(db, row.invite_token);
     if (row.member_user_id && row.status === 'active') {
       await notify(db, row.member_user_id, 'alert', 'Вы исключены из команды', 'Removed from the team', {

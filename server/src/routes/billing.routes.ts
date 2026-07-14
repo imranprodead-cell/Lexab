@@ -13,17 +13,42 @@ import { monthlyUsage, PLAN_LIMITS, planFor, storageUsedBytes } from '../lib/lim
 import { config } from '../config.ts';
 import { escapeMailHtml, mailLayout, sendMail } from '../mail.ts';
 import { getUserByEmail } from '../plugins/auth.ts';
+import {
+  activatePlan,
+  recordBillingEvent,
+  setCancelAtPeriodEnd,
+  TERMS_VERSION,
+  type BillingPeriod,
+} from '../lib/billing.ts';
+import { audit } from '../lib/audit.ts';
 
-const KNOWN_PLANS = ['Free', 'Standard', 'Pro', 'Business'];
+// The exact waiver wording shown at checkout — snapshotted into the consent
+// event as the strongest evidence that the user gave informed consent.
+const WAIVER_WORDING = {
+  ru: 'Я прошу начать оказание платной услуги немедленно и подтверждаю, что теряю право на 14-дневный отказ (возврат) после начала предоставления услуги.',
+  en: 'I request that the paid service begin immediately and acknowledge that I lose the 14-day right of withdrawal (refund) once performance has started.',
+};
+
+// Only paid plans are purchasable. 'Free' is deliberately excluded: a checkout
+// resets the month's usage counters, so accepting {plan:'Free'} let a Free user
+// wipe their own quota (and the API cost ceiling) on demand — an abuse loophole.
+// Downgrading to Free happens through the cancellation flow, never checkout.
+const PURCHASABLE_PLANS = ['Standard', 'Pro', 'Business'];
 
 export function billingRoutes(app: FastifyInstance, db: Db): void {
   app.get('/billing/subscription', { preHandler: [app.authenticate] }, async (req) => {
-    const res = await db.query<{ plan: string; status: string; renews_at: Date | string | null }>(
-      'SELECT plan, status, renews_at FROM subscriptions WHERE user_id = $1',
+    const res = await db.query<{ plan: string; status: string; renews_at: Date | string | null; cancel_at_period_end: boolean }>(
+      'SELECT plan, status, renews_at, cancel_at_period_end FROM subscriptions WHERE user_id = $1',
       [req.currentUser.id],
     );
-    const row = res.rows[0] ?? { plan: 'Free', status: 'active', renews_at: null };
-    return { plan: row.plan, status: row.status, renewsAt: row.renews_at ? toIso(row.renews_at) : null };
+    const row = res.rows[0] ?? { plan: 'Free', status: 'active', renews_at: null, cancel_at_period_end: false };
+    return {
+      plan: row.plan,
+      status: row.status,
+      renewsAt: row.renews_at ? toIso(row.renews_at) : null,
+      periodEnd: row.renews_at ? toIso(row.renews_at) : null,
+      cancelAtPeriodEnd: Boolean(row.cancel_at_period_end),
+    };
   });
 
   // Current usage vs the plan's monthly limits (drives the Settings widget).
@@ -76,48 +101,89 @@ export function billingRoutes(app: FastifyInstance, db: Db): void {
     },
   );
 
-  // Purchase / renew a plan. PRE-STRIPE: activation is immediate — when Stripe
-  // arrives, its payment step slots in front of this same activation logic
-  // (webhook → activatePlan). Buying (again) starts a fresh billing period:
-  // the current month's counters reset, so "докупить лимиты" works.
+  // Purchase / renew a plan. PRE-PSP: activation is immediate — when Stripe/
+  // Paddle arrives, its payment step slots in front of activatePlan (called
+  // from the provider webhook instead of here). Requires the withdrawal-waiver
+  // consent, recorded as legal evidence.
   app.post('/billing/checkout', { preHandler: [app.authenticateReal] }, async (req) => {
     const body = asObject(req.body);
     const plan = requireString(body, 'plan', { min: 1, max: 50 });
-    const normalized = KNOWN_PLANS.find((p) => p.toLowerCase() === plan.toLowerCase());
-    if (!normalized) throw new HttpError(400, `План должен быть одним из: ${KNOWN_PLANS.join(', ')}`);
-    const period = body.period === 'yearly' ? 'yearly' : 'monthly';
+    const normalized = PURCHASABLE_PLANS.find((p) => p.toLowerCase() === plan.toLowerCase());
+    if (!normalized) {
+      // A 'Free' request is the loophole attempt — point to cancellation instead.
+      if (plan.toLowerCase() === 'free') {
+        throw new HttpError(400, 'Бесплатный план нельзя «купить». Понизить тариф можно через отмену подписки. / Free plan is not purchasable — downgrade via cancellation.');
+      }
+      throw new HttpError(400, `План должен быть одним из: ${PURCHASABLE_PLANS.join(', ')}`);
+    }
+    // Informed consent to immediate performance is REQUIRED — it's what makes
+    // the no-refund term lawful (EU CRD art.16(m) / UK CCR reg.36-37).
+    if (body.consent !== true) {
+      throw new HttpError(400, 'Требуется согласие на немедленное начало услуги и отказ от 14-дневного возврата. / Consent to immediate performance (waiving the 14-day withdrawal right) is required.');
+    }
+    const period: BillingPeriod = body.period === 'yearly' ? 'yearly' : 'monthly';
     const discountPercent = period === 'yearly' ? 15 : 0;
 
-    await db.query(
-      `INSERT INTO subscriptions (user_id, plan, status, period, renews_at)
-       VALUES ($1, $2, 'active', $3, now() + ($4)::interval)
-       ON CONFLICT (user_id)
-       DO UPDATE SET plan = $2, status = 'active', period = $3, renews_at = now() + ($4)::interval`,
-      [req.currentUser.id, normalized, period, period === 'yearly' ? '1 year' : '1 month'],
-    );
-    // Fresh purchase = fresh quota for the current month.
-    await db.query(
-      `INSERT INTO usage_counters (user_id, month, ai_requests, docs_created)
-       VALUES ($1, date_trunc('month', now())::date, 0, 0)
-       ON CONFLICT (user_id, month) DO UPDATE SET ai_requests = 0, docs_created = 0`,
-      [req.currentUser.id],
-    );
+    // Record the waiver BEFORE activation, snapshotting the exact wording + IP +
+    // UA + terms version (durable evidence the withdrawal right was waived).
+    await recordBillingEvent(db, {
+      userId: req.currentUser.id,
+      email: req.currentUser.email,
+      kind: 'consent_waiver',
+      plan: normalized,
+      payload: { ip: req.ip, userAgent: String(req.headers['user-agent'] ?? '').slice(0, 300), termsVersion: TERMS_VERSION, wording: WAIVER_WORDING },
+    });
+
+    const { renewsAt } = await activatePlan(db, req.currentUser.id, req.currentUser.email, normalized, period);
+    await audit(db, req, { type: 'billing.checkout', teamOwnerId: req.currentUser.id, metadata: { plan: normalized, period } });
+
     await notify(db, req.currentUser.id, 'check', 'Подписка активирована', 'Plan activated', {
       bodyRu: `${normalized} · ${period === 'yearly' ? 'годовая' : 'месячная'} · лимиты обновлены`,
       bodyEn: `${normalized} · ${period} · limits refreshed`,
       action: { kind: 'open', data: '/settings' },
     });
+    // Durable-medium confirmation restating the waiver + no-refund rule.
+    void sendMail({
+      to: req.currentUser.email,
+      subject: `LexAI: подписка ${normalized} активирована`,
+      html: mailLayout(
+        'Подписка активирована',
+        `<p>Здравствуйте, <strong>${escapeMailHtml(req.currentUser.name)}</strong>!</p>
+         <p>Тариф <strong>${escapeMailHtml(normalized)}</strong> (${period === 'yearly' ? 'годовой' : 'месячный'}) активирован.</p>
+         <p>Вы подтвердили немедленное начало услуги и отказались от 14-дневного права возврата. Оплата за начатый период не возвращается; при отмене доступ сохраняется до конца оплаченного срока. Ваши законные права потребителя это не затрагивает.</p>`,
+        'Управление подпиской',
+        `${config.appBaseUrl}/settings`,
+      ),
+    });
 
-    const renews = await db.query<{ renews_at: Date | string }>(
-      'SELECT renews_at FROM subscriptions WHERE user_id = $1',
+    return { ok: true, plan: normalized, period, discountPercent, renewsAt };
+  });
+
+  // Cancel at period end: keep access until renews_at, then the sweep downgrades.
+  app.post('/billing/cancel', { preHandler: [app.authenticateReal] }, async (req) => {
+    const sub = await db.query<{ plan: string; cancel_at_period_end: boolean; renews_at: Date | string | null }>(
+      'SELECT plan, cancel_at_period_end, renews_at FROM subscriptions WHERE user_id = $1',
       [req.currentUser.id],
     );
-    return {
-      ok: true,
-      plan: normalized,
-      period,
-      discountPercent,
-      renewsAt: renews.rows[0]?.renews_at ? toIso(renews.rows[0].renews_at) : null,
-    };
+    const row = sub.rows[0];
+    if (!row || row.plan === 'Free') throw new HttpError(400, 'Активной платной подписки нет. / No active paid subscription.');
+    if (row.cancel_at_period_end) throw new HttpError(400, 'Отмена уже запланирована. / Cancellation is already scheduled.');
+    await setCancelAtPeriodEnd(db, req.currentUser.id, req.currentUser.email, true);
+    return { ok: true, cancelAtPeriodEnd: true, periodEnd: row.renews_at ? toIso(row.renews_at) : null };
+  });
+
+  // Undo a scheduled cancellation while the period is still running.
+  app.post('/billing/cancel/revert', { preHandler: [app.authenticateReal] }, async (req) => {
+    const sub = await db.query<{ cancel_at_period_end: boolean; renews_at: Date | string | null }>(
+      'SELECT cancel_at_period_end, renews_at FROM subscriptions WHERE user_id = $1',
+      [req.currentUser.id],
+    );
+    const row = sub.rows[0];
+    if (!row?.cancel_at_period_end) throw new HttpError(400, 'Отмена не запланирована. / No cancellation is scheduled.');
+    if (row.renews_at && new Date(row.renews_at).getTime() < Date.now()) {
+      throw new HttpError(400, 'Период уже завершился. / The period has already ended.');
+    }
+    await setCancelAtPeriodEnd(db, req.currentUser.id, req.currentUser.email, false);
+    return { ok: true, cancelAtPeriodEnd: false };
   });
 }

@@ -51,15 +51,17 @@ export const documentsApi = {
     return http<ContractDocument>(`/documents/${id}`, { signal });
   },
 
-  /** Server-rendered export of the reviewed document (Word/PDF). */
-  async exportFile(id: string, format: 'docx' | 'pdf'): Promise<Blob> {
+  /** Server-rendered export of the reviewed document (Word/PDF). For DOCX,
+   *  `mode` chooses real Word tracked changes ('tracked', default) or the clean
+   *  final document ('clean'); ignored for PDF. */
+  async exportFile(id: string, format: 'docx' | 'pdf', mode?: 'tracked' | 'clean'): Promise<Blob> {
     if (USE_MOCK) {
       await delay(300);
       const doc = db.documents.find((d) => d.id === id);
       const html = `<!doctype html><html><head><meta charset="utf-8"></head><body><h2>${doc?.name ?? 'Document'}</h2><p>LexAI demo export.</p></body></html>`;
       return new Blob([html], { type: format === 'pdf' ? 'application/pdf' : 'application/msword' });
     }
-    return httpBlob(`/documents/${id}/export`, { method: 'POST', body: { format } });
+    return httpBlob(`/documents/${id}/export`, { method: 'POST', body: { format, ...(mode ? { mode } : {}) } });
   },
 
   /** Owner: share / unshare the document with the team. */

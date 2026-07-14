@@ -26,6 +26,14 @@ export interface PurchaseResult {
   renewsAt: string | null;
 }
 
+export interface Subscription {
+  plan: string;
+  status: 'active' | 'past_due' | 'canceled';
+  renewsAt: string | null;
+  periodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
+}
+
 export const billingApi = {
   async limits(signal?: AbortSignal): Promise<PlanLimits> {
     if (USE_MOCK) {
@@ -40,13 +48,41 @@ export const billingApi = {
     return http<PlanLimits>('/billing/limits', { signal });
   },
 
-  /** Buy / renew a plan (activates immediately until Stripe fronts it). */
-  async checkout(plan: string, period: BillingPeriod): Promise<PurchaseResult> {
+  /** Current subscription state (plan, status, renewal, scheduled cancel). */
+  async subscription(signal?: AbortSignal): Promise<Subscription> {
+    if (USE_MOCK) {
+      await delay(40);
+      return { plan: 'Pro', status: 'active', renewsAt: null, periodEnd: null, cancelAtPeriodEnd: false };
+    }
+    return http<Subscription>('/billing/subscription', { signal });
+  },
+
+  /** Buy / renew a plan (activates immediately until the PSP fronts it).
+   *  `consent` is the required waiver of the 14-day withdrawal right. */
+  async checkout(plan: string, period: BillingPeriod, consent: boolean): Promise<PurchaseResult> {
     if (USE_MOCK) {
       await delay(300);
       return { ok: true, plan, period, discountPercent: period === 'yearly' ? 15 : 0, renewsAt: null };
     }
-    return http<PurchaseResult>('/billing/checkout', { method: 'POST', body: { plan, period } });
+    return http<PurchaseResult>('/billing/checkout', { method: 'POST', body: { plan, period, consent } });
+  },
+
+  /** Cancel at period end — access stays until the period expires. */
+  async cancel(): Promise<{ ok: boolean; cancelAtPeriodEnd: boolean; periodEnd: string | null }> {
+    if (USE_MOCK) {
+      await delay(200);
+      return { ok: true, cancelAtPeriodEnd: true, periodEnd: null };
+    }
+    return http('/billing/cancel', { method: 'POST', body: {} });
+  },
+
+  /** Undo a scheduled cancellation. */
+  async revertCancel(): Promise<{ ok: boolean; cancelAtPeriodEnd: boolean }> {
+    if (USE_MOCK) {
+      await delay(200);
+      return { ok: true, cancelAtPeriodEnd: false };
+    }
+    return http('/billing/cancel/revert', { method: 'POST', body: {} });
   },
 
   /** Enterprise: send a contact-sales request to the LexAI team. */

@@ -26,6 +26,8 @@ import { notificationRoutes } from './routes/notifications.routes.ts';
 import { signRoutes } from './routes/sign.routes.ts';
 import { signatureRoutes } from './routes/signatures.routes.ts';
 import { teamRoutes } from './routes/team.routes.ts';
+import { auditRoutes } from './routes/audit.routes.ts';
+import { ssoRoutes } from './routes/sso.routes.ts';
 import { templateRoutes } from './routes/templates.routes.ts';
 import { uploadRoutes } from './routes/uploads.routes.ts';
 import { userRoutes } from './routes/user.routes.ts';
@@ -159,6 +161,8 @@ export async function buildApp(db: Db): Promise<FastifyInstance> {
       notificationRoutes(api, db);
       billingRoutes(api, db);
       teamRoutes(api, db);
+      auditRoutes(api, db);
+      ssoRoutes(api, db);
       integrationRoutes(api, db);
       feedbackRoutes(api, db);
     },

@@ -57,6 +57,13 @@ interface ChatState {
   sessionLoading: boolean;
   /** Ghost (incognito) mode: the conversation lives only in this tab's memory. */
   ghost: boolean;
+  /** Redline id to jump to when the workspace opens (set from the chat summary
+   *  card's "click a finding"); consumed and cleared by the workspace. */
+  pendingAnchor: string | null;
+
+  /** Request the workspace to open at the clause fixed by this redline. */
+  requestAnchor: (redlineId: string) => void;
+  clearPendingAnchor: () => void;
 
   /** Enter ghost mode: the current canvas is stashed and restored on exit. */
   enterGhost: () => void;
@@ -77,7 +84,10 @@ interface ChatState {
   reanalyze: () => Promise<AnalysisResult>;
 
   setRedlineStatus: (id: string, status: RedlineStatus) => void;
-  acceptAllRedlines: () => void;
+  /** Accept every pending redline; returns the ids flipped (for a 5s Undo). */
+  acceptAllRedlines: () => string[];
+  /** Send the given redlines back to pending (Accept-all undo). */
+  revertRedlines: (ids: string[]) => void;
   pendingRedlineCount: () => number;
   /** Live editor: replace the analysis document blocks after a manual edit. */
   updateDocument: (document: AnalysisResult['document']) => void;
@@ -103,6 +113,11 @@ let canvasEpoch = 0;
  *  chat mid-generation and find the reply streaming in when they come back —
  *  the model keeps working in the background instead of the answer vanishing. */
 const pendingReplies = new Map<string, string>(); // sessionId → placeholder message id
+
+/** Placeholder ids whose reply is streaming live from the server (real SSE, not
+ *  the fake typewriter). finishActiveStreams leaves these alone — they are
+ *  genuinely still generating, not stale animations to fast-forward or drop. */
+const liveStreamIds = new Set<string>();
 
 /** Last known conversation per session (stale-while-revalidate): reopening a
  *  chat paints instantly from this cache while fresh data loads behind it.
@@ -159,9 +174,41 @@ export const useChatStore = create<ChatState>((set, get) => {
     streamTimers.set(assistantId, timer);
   };
 
+  /** Live-token painter: accumulate deltas from an SSE reply and flush them into
+   *  the message with `targetId` at most every ~50ms — but ONLY if that message
+   *  still exists in the current canvas. That one guard covers epoch switches
+   *  (id gone → nothing paints) and leave-and-return (loadSession restores the
+   *  placeholder → the next flush catches it up to everything streamed while
+   *  the user was away). The model's own cadence IS the typewriter here. */
+  const makeLivePainter = (targetId: string) => {
+    let acc = '';
+    let scheduled: ReturnType<typeof setTimeout> | null = null;
+    const flush = () => {
+      scheduled = null;
+      set((s) =>
+        s.messages.some((m) => m.id === targetId)
+          ? { messages: s.messages.map((m) => (m.id === targetId ? { ...m, text: acc, streaming: true } : m)) }
+          : {},
+      );
+    };
+    return {
+      onToken: (delta: string) => {
+        acc += delta;
+        if (!scheduled) scheduled = setTimeout(flush, 50);
+      },
+      cancel: () => {
+        if (scheduled) {
+          clearTimeout(scheduled);
+          scheduled = null;
+        }
+      },
+    };
+  };
+
   /** Fast-forward every animating reply to its full text and drop reply
    *  placeholders whose request never returned. Runs on every canvas switch
-   *  and before each outgoing message — nothing may stay streaming:true. */
+   *  and before each outgoing message — nothing may stay streaming:true.
+   *  Live SSE replies are skipped: they are still generating server-side. */
   const finishActiveStreams = () => {
     const fulls = new Map(streamFullTexts);
     for (const timer of streamTimers.values()) clearInterval(timer);
@@ -170,6 +217,7 @@ export const useChatStore = create<ChatState>((set, get) => {
     set((s) => ({
       messages: s.messages.flatMap((m) => {
         if (!m.streaming) return [m];
+        if (liveStreamIds.has(m.id)) return [m]; // genuinely still streaming from the server
         const full = fulls.get(m.id);
         if (full !== undefined) return [{ ...m, streaming: false, text: full }];
         return m.text ? [{ ...m, streaming: false }] : []; // reply never arrived
@@ -187,6 +235,10 @@ export const useChatStore = create<ChatState>((set, get) => {
   serverSessionId: null,
   sessionLoading: false,
   ghost: false,
+  pendingAnchor: null,
+
+  requestAnchor: (redlineId) => set({ pendingAnchor: redlineId }),
+  clearPendingAnchor: () => set({ pendingAnchor: null }),
 
   enterGhost: () => {
     // No mode switch while an analysis is in flight — its completion would
@@ -388,11 +440,20 @@ export const useChatStore = create<ChatState>((set, get) => {
     // Ghost mode: same AI, same limits — no session, nothing persisted.
     if (get().ghost) {
       void (async () => {
+        const painter = makeLivePainter(assistantId);
+        liveStreamIds.add(assistantId);
         try {
-          const reply = await chatsApi.sendGhostMessage(trimmed, ghostHistory, defaultLaw());
+          const reply = await chatsApi.sendGhostMessage(trimmed, ghostHistory, defaultLaw(), painter.onToken);
+          painter.cancel();
+          liveStreamIds.delete(assistantId);
           if (epoch !== canvasEpoch) return; // canvas switched — drop the late reply
-          streamIn(assistantId, reply.text ?? '');
+          // Finalize with the authoritative server text — no fake typewriter.
+          set((s) => ({
+            messages: s.messages.map((m) => (m.id === assistantId ? { ...m, text: reply.text ?? '', streaming: false } : m)),
+          }));
         } catch (err) {
+          painter.cancel();
+          liveStreamIds.delete(assistantId);
           if (epoch !== canvasEpoch) return;
           failReply(err);
         }
@@ -413,30 +474,41 @@ export const useChatStore = create<ChatState>((set, get) => {
           refreshHistory(); // the new chat shows up in the sidebar right away
         }
         // Ground the reply in the contract being reviewed (document Q&A).
+        // Tokens stream live into the placeholder as the model writes them.
         pendingReplies.set(sessionId, assistantId);
-        const reply = await chatsApi.sendMessage(sessionId, trimmed, get().analysis?.id, defaultLaw());
+        liveStreamIds.add(assistantId);
+        const painter = makeLivePainter(assistantId);
+        const reply = await chatsApi.sendMessage(sessionId, trimmed, get().analysis?.id, defaultLaw(), painter.onToken);
+        painter.cancel();
         pendingReplies.delete(sessionId);
+        liveStreamIds.delete(assistantId);
         if (epoch === canvasEpoch) {
-          // Adopt the server-side message id so follow-up actions (thumbs
-          // rating) address the persisted row, not the temporary local id.
-          set((s) => ({ messages: s.messages.map((m) => (m.id === assistantId ? { ...m, id: reply.id } : m)) }));
-          streamIn(reply.id, reply.text ?? '');
+          // Adopt the server-side message id (so thumbs rating hits the
+          // persisted row) and drop in the authoritative final text.
+          set((s) => ({
+            messages: s.messages.map((m) =>
+              m.id === assistantId ? { ...m, id: reply.id, text: reply.text ?? '', streaming: false } : m,
+            ),
+          }));
         } else if (get().serverSessionId === sessionId) {
           // The user left and came back to this chat while the model worked:
           // reuse the placeholder loadSession restored (or append one) and
-          // stream the finished reply into it.
+          // drop the finished reply into it.
           set((s) => {
             if (s.messages.some((m) => m.id === assistantId)) {
-              return { messages: s.messages.map((m) => (m.id === assistantId ? { ...m, id: reply.id } : m)) };
+              return {
+                messages: s.messages.map((m) =>
+                  m.id === assistantId ? { ...m, id: reply.id, text: reply.text ?? '', streaming: false } : m,
+                ),
+              };
             }
             return {
               messages: [
                 ...s.messages,
-                { id: reply.id, role: 'assistant' as const, kind: 'text' as const, text: '', streaming: true },
+                { id: reply.id, role: 'assistant' as const, kind: 'text' as const, text: reply.text ?? '', streaming: false },
               ],
             };
           });
-          streamIn(reply.id, reply.text ?? '');
         }
         // Another canvas is open: nothing to draw — the reply is persisted
         // server-side and appears when that chat is reopened.
@@ -444,6 +516,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       } catch (err) {
         const sid = get().serverSessionId;
         for (const [k, v] of pendingReplies) if (v === assistantId) pendingReplies.delete(k);
+        liveStreamIds.delete(assistantId);
         if (epoch === canvasEpoch) {
           failReply(err);
         } else if (sid && get().messages.some((m) => m.id === assistantId)) {
@@ -564,31 +637,35 @@ export const useChatStore = create<ChatState>((set, get) => {
   setRedlineStatus: (id, status) => {
     const analysis = get().analysis;
     if (!analysis) return;
+    // Remember the status we're leaving, so a failed persist rolls back to it
+    // (not blindly to 'pending' — reverting an accepted change that fails must
+    // return to 'accepted', not silently discard the earlier decision).
+    const prev = analysis.redlines.find((r) => r.id === id)?.status ?? 'pending';
+    if (prev === status) return;
     set({
       analysis: {
         ...analysis,
         redlines: analysis.redlines.map((r) => (r.id === id ? { ...r, status } : r)),
       },
     });
-    // Persist so the decision survives reloads and reaches exports/teammates.
-    // On failure the optimistic change is rolled back — the UI must never
-    // claim a decision the server did not store.
-    if (status === 'accepted' || status === 'rejected') {
-      void analysisApi.updateRedline(analysis.id, id, status).catch(() => {
-        const a = get().analysis;
-        if (a && a.id === analysis.id) {
-          set({
-            analysis: { ...a, redlines: a.redlines.map((r) => (r.id === id ? { ...r, status: 'pending' } : r)) },
-          });
-        }
-        useUIStore.getState().pushToast(tStandalone('common.error'), 'error');
-      });
-    }
+    // Persist EVERY transition (accept, reject, and revert-to-pending) so the
+    // decision survives reloads and reaches exports/teammates. On failure the
+    // optimistic change rolls back — the UI must never claim a state the
+    // server did not store.
+    void analysisApi.updateRedline(analysis.id, id, status).catch(() => {
+      const a = get().analysis;
+      if (a && a.id === analysis.id) {
+        set({
+          analysis: { ...a, redlines: a.redlines.map((r) => (r.id === id ? { ...r, status: prev } : r)) },
+        });
+      }
+      useUIStore.getState().pushToast(tStandalone('common.error'), 'error');
+    });
   },
 
   acceptAllRedlines: () => {
     const analysis = get().analysis;
-    if (!analysis) return;
+    if (!analysis) return [];
     const pending = analysis.redlines.filter((r) => r.status === 'pending');
     set({
       analysis: {
@@ -607,6 +684,35 @@ export const useChatStore = create<ChatState>((set, get) => {
       if (a && a.id === analysis.id) {
         set({
           analysis: { ...a, redlines: a.redlines.map((r) => (failed.has(r.id) ? { ...r, status: 'pending' } : r)) },
+        });
+      }
+      useUIStore.getState().pushToast(tStandalone('common.error'), 'error');
+    });
+    // Hand back the ids we flipped so the caller can offer a 5s Undo.
+    return pending.map((r) => r.id);
+  },
+
+  /** Undo: send the given redlines back to 'pending' (used by the Accept-all
+   *  undo toast). Persists each revert; a failed one is left accepted. */
+  revertRedlines: (ids) => {
+    const analysis = get().analysis;
+    if (!analysis || !ids.length) return;
+    const idSet = new Set(ids);
+    set({
+      analysis: {
+        ...analysis,
+        redlines: analysis.redlines.map((r) => (idSet.has(r.id) ? { ...r, status: 'pending' } : r)),
+      },
+    });
+    void Promise.allSettled(
+      ids.map((id) => analysisApi.updateRedline(analysis.id, id, 'pending').then(() => id)),
+    ).then((results) => {
+      const failed = new Set(results.flatMap((res, i) => (res.status === 'rejected' ? [ids[i]] : [])));
+      if (!failed.size) return;
+      const a = get().analysis;
+      if (a && a.id === analysis.id) {
+        set({
+          analysis: { ...a, redlines: a.redlines.map((r) => (failed.has(r.id) ? { ...r, status: 'accepted' } : r)) },
         });
       }
       useUIStore.getState().pushToast(tStandalone('common.error'), 'error');

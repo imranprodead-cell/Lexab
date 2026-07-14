@@ -5,7 +5,7 @@
  * likely stream Server-Sent Events for the progress steps; the UI already
  * animates steps independently (see chat store), so only this module changes.
  */
-import type { AnalysisResult, DocBlock } from '@/types/domain';
+import type { AnalysisResult, DocBlock, RedlineStatus } from '@/types/domain';
 import { USE_MOCK, http, httpBlob } from './client';
 import { db } from './mock/db';
 import { ApiError, clone, delay } from './util';
@@ -68,8 +68,8 @@ export const analysisApi = {
     return http<AnalysisResult>(`/documents/${documentId}/analysis`, { signal });
   },
 
-  /** Persist a redline decision (accept/reject). */
-  async updateRedline(analysisId: string, redlineId: string, status: 'accepted' | 'rejected'): Promise<void> {
+  /** Persist a redline decision — accept, reject, or revert back to pending (undo). */
+  async updateRedline(analysisId: string, redlineId: string, status: RedlineStatus): Promise<void> {
     if (USE_MOCK) {
       await delay(80);
       const rl = db.analysis.redlines.find((r) => r.id === redlineId);

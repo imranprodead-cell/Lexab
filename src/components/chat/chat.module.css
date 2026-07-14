@@ -691,6 +691,25 @@
   align-items: flex-start;
   padding: 2px 0;
 }
+.findingClickable {
+  cursor: pointer;
+  align-items: center;
+  width: 100%;
+  padding: 6px 8px;
+  margin: 0 -8px;
+  border-radius: 10px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  transition: background var(--dur-fast);
+}
+.findingClickable:hover {
+  background: var(--hover-2);
+}
+.findingClickable:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
 .findingIcon {
   width: 26px;
   height: 26px;

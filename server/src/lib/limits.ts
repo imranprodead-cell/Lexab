@@ -68,7 +68,7 @@ const upgradeHint = 'Обновите план в разделе «Тарифы�
 
 /** Feature gates — exactly what each plan's card promises, no more, no less.
  *  Cloud integrations (Google Drive / M365 / Dropbox) are open to EVERY plan. */
-export type PlanFeature = 'docxExport' | 'templates' | 'compare' | 'signatures' | 'versions' | 'approvals' | 'team';
+export type PlanFeature = 'docxExport' | 'templates' | 'compare' | 'signatures' | 'versions' | 'approvals' | 'team' | 'auditLog' | 'sso';
 
 const FEATURE_MIN_PLAN: Record<PlanFeature, string[]> = {
   docxExport: ['Standard', 'Pro', 'Business', 'Enterprise'],
@@ -78,6 +78,8 @@ const FEATURE_MIN_PLAN: Record<PlanFeature, string[]> = {
   versions: ['Pro', 'Business', 'Enterprise'],
   approvals: ['Pro', 'Business', 'Enterprise'],
   team: ['Business', 'Enterprise'],
+  auditLog: ['Business', 'Enterprise'],
+  sso: ['Business', 'Enterprise'],
 };
 
 const FEATURE_LABEL: Record<PlanFeature, { ru: string; en: string; plans: string }> = {
@@ -88,6 +90,8 @@ const FEATURE_LABEL: Record<PlanFeature, { ru: string; en: string; plans: string
   versions: { ru: 'История версий', en: 'Version history', plans: 'Pro и Business' },
   approvals: { ru: 'Маршруты согласования', en: 'Approval workflows', plans: 'Pro и Business' },
   team: { ru: 'Команды и общие документы', en: 'Teams & shared documents', plans: 'Business' },
+  auditLog: { ru: 'Журнал действий', en: 'Audit log', plans: 'Business' },
+  sso: { ru: 'Единый вход (SSO)', en: 'Single Sign-On (SSO)', plans: 'Business' },
 };
 
 export function planHasFeature(plan: string, feature: PlanFeature): boolean {

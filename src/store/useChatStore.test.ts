@@ -100,3 +100,49 @@ describe('chat store — reopening a saved session', () => {
     expect(s.messages).toEqual([]);
   });
 });
+
+describe('chat store — live streaming', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useChatStore.setState({
+      phase: 'idle', messages: [], analysis: null, activeStep: -1, error: null,
+      serverSessionId: 's_live', sessionLoading: false, ghost: false,
+    });
+  });
+
+  it('streams tokens live into the bubble and finalizes with the server reply id', async () => {
+    const mockSend = chatsApi.sendMessage as ReturnType<typeof vi.fn>;
+    mockSend.mockImplementation(async (_sid, _text, _aid, _jur, onToken?: (d: string) => void) => {
+      onToken?.('Hel');
+      onToken?.('lo');
+      return { id: 'srv_1', role: 'assistant', kind: 'text', text: 'Hello' };
+    });
+
+    useChatStore.getState().sendMessage('hi');
+    // Let the async send + throttled paint (~50ms) settle.
+    await new Promise((r) => setTimeout(r, 120));
+
+    const assistant = useChatStore.getState().messages.find((m) => m.role === 'assistant');
+    expect(assistant?.id).toBe('srv_1'); // adopted the persisted id (for thumbs rating)
+    expect(assistant?.text).toBe('Hello'); // authoritative final text
+    expect(assistant?.streaming).toBeFalsy(); // no bubble left stuck streaming
+    // The streaming path is taken: an onToken callback is passed through.
+    expect(mockSend).toHaveBeenCalledWith('s_live', 'hi', undefined, expect.anything(), expect.any(Function));
+  });
+
+  it('a mid-stream failure shows an honest error, not a half-written answer', async () => {
+    const mockSend = chatsApi.sendMessage as ReturnType<typeof vi.fn>;
+    mockSend.mockImplementation(async (_sid, _text, _aid, _jur, onToken?: (d: string) => void) => {
+      onToken?.('Partial legal ans');
+      throw new Error('stream broke');
+    });
+
+    useChatStore.getState().sendMessage('hi');
+    await new Promise((r) => setTimeout(r, 120));
+
+    const assistant = useChatStore.getState().messages.find((m) => m.role === 'assistant');
+    // The partial text was replaced by the honest error message (never a
+    // half-written legal answer masquerading as complete).
+    expect(assistant?.text).not.toContain('Partial legal ans');
+  });
+});

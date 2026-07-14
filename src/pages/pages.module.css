@@ -85,6 +85,104 @@
   overflow: hidden;
   background: var(--panel);
 }
+
+/* Audit log section (Team page) ------------------------------------------- */
+.auditSection {
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+}
+.auditHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.auditTitle {
+  font-size: 17px;
+  font-weight: 600;
+  margin: 0;
+}
+.auditControls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.auditFilter {
+  font-family: inherit;
+  font-size: 13px;
+  padding: 7px 10px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+}
+.auditType {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: var(--hover-2);
+  color: var(--text);
+}
+.auditType[data-status='denied'],
+.auditType[data-status='error'] {
+  background: color-mix(in srgb, var(--sev-high) 14%, transparent);
+  color: var(--sev-high);
+}
+.auditMore {
+  display: flex;
+  justify-content: center;
+  padding: 14px 0 2px;
+}
+
+/* SSO settings ------------------------------------------------------------- */
+.ssoForm {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 480px;
+  margin-top: 8px;
+}
+.ssoStatus {
+  margin-top: 18px;
+  padding: 14px;
+  border-radius: 10px;
+  background: var(--hover-2);
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ssoStatusRow {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.ssoCode {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  word-break: break-all;
+  max-width: 340px;
+}
+.ssoToggle {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 14px;
+  color: var(--text);
+  cursor: pointer;
+}
 .table {
   width: 100%;
   border-collapse: collapse;
@@ -827,6 +925,110 @@
 }
 .planCtaAccent:hover {
   background: color-mix(in srgb, var(--accent) 88%, white);
+}
+
+/* Checkout consent step (withdrawal-right waiver) --------------------------- */
+.planConsent {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 4px;
+}
+.planConsentRow {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--dim);
+  cursor: pointer;
+}
+.planConsentRow input {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+.planConsentActions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.planConsentActions .planCta {
+  flex: 1;
+  margin-top: 0;
+}
+.planConsentCancel {
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--dim);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 6px 8px;
+}
+
+/* Subscription status + cancellation (Settings) ---------------------------- */
+.subStatus {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--hover-2);
+  border: 1px solid var(--border);
+}
+.subStatusRow {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+.subStatusText {
+  font-size: 13px;
+  color: var(--text);
+}
+.subStatusWarn {
+  font-size: 13px;
+  color: var(--sev-high);
+  margin: 0;
+}
+.subCancelLink {
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--sev-high);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px 6px;
+}
+.subCancelConfirm {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.subCancelNote {
+  font-size: 12px;
+  color: var(--dim);
+  max-width: 320px;
+}
+.subCancelYes {
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--on-accent);
+  background: var(--sev-high);
+  border: none;
+  border-radius: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.subCancelNo {
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--dim);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 6px 8px;
 }
 
 @media (max-width: 900px) {

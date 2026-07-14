@@ -1,8 +1,16 @@
 /**
- * Minimal PDF writer for the document-export endpoint — single font family
- * (Helvetica), A4, WinAnsi text only (non-encodable characters become '?').
- * Kept dependency-free on purpose; the frontend can also export locally.
+ * PDF writer for document/report export. Built on pdf-lib with an embedded
+ * Unicode font (Noto Sans, OFL — assets/fonts/), so Cyrillic (RU/UZ/KZ) and
+ * other non-Latin text render correctly instead of turning into '?'. A4, single
+ * font family (regular + bold). Arabic is out of scope for now (no PDF surface
+ * emits it — UAE reports are in English); such glyphs fall back to the font's
+ * default and are not shaped RTL.
  */
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { PDFDocument, StandardFonts, rgb, type PDFFont } from 'pdf-lib';
+import fontkit from '@pdf-lib/fontkit';
 
 interface Section {
   heading?: string;
@@ -16,6 +24,7 @@ const BODY_SIZE = 11;
 const HEAD_SIZE = 13;
 const TITLE_SIZE = 16;
 const LINE_H = 16;
+const MAX_W = PAGE_W - 2 * MARGIN;
 
 interface Line {
   text: string;
@@ -24,101 +33,105 @@ interface Line {
   gapBefore: number;
 }
 
-function latin1(s: string): string {
-  return s.replace(/[^\x20-\xFF]/g, '?');
+const FONT_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'assets', 'fonts');
+let cachedFonts: { regular: Buffer; bold: Buffer } | null = null;
+function loadFontBytes(): { regular: Buffer; bold: Buffer } | null {
+  if (cachedFonts) return cachedFonts;
+  try {
+    cachedFonts = {
+      regular: fs.readFileSync(path.join(FONT_DIR, 'NotoSans-Regular.ttf')),
+      bold: fs.readFileSync(path.join(FONT_DIR, 'NotoSans-Bold.ttf')),
+    };
+    return cachedFonts;
+  } catch {
+    // Missing font files must not crash export — fall back to the built-in
+    // Helvetica (Latin-only), which is exactly the old behaviour.
+    return null;
+  }
 }
 
-function escPdf(s: string): string {
-  return s.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
-}
-
-function wrap(text: string, size: number): string[] {
-  const maxChars = Math.floor((PAGE_W - 2 * MARGIN) / (size * 0.5));
+/** Word-wrap using the actual embedded-font metrics (not a fixed char width),
+ *  so Cyrillic and mixed text wrap correctly. Long single words are hard-split. */
+function wrap(text: string, font: PDFFont, size: number): string[] {
   const words = text.split(/\s+/).filter(Boolean);
   const lines: string[] = [];
   let current = '';
+  const widthOf = (s: string) => font.widthOfTextAtSize(s, size);
   for (const word of words) {
     const next = current ? `${current} ${word}` : word;
-    if (next.length > maxChars && current) {
+    if (widthOf(next) > MAX_W && current) {
       lines.push(current);
       current = word;
     } else {
       current = next;
+    }
+    // Hard-split a single word longer than the line.
+    while (widthOf(current) > MAX_W && current.length > 1) {
+      let cut = current.length - 1;
+      while (cut > 1 && widthOf(current.slice(0, cut)) > MAX_W) cut--;
+      lines.push(current.slice(0, cut));
+      current = current.slice(cut);
     }
   }
   if (current) lines.push(current);
   return lines.length ? lines : [''];
 }
 
-export function buildSimplePdf(title: string, sections: Section[]): Buffer {
+export async function buildSimplePdf(title: string, sections: Section[]): Promise<Buffer> {
+  const doc = await PDFDocument.create();
+  doc.registerFontkit(fontkit);
+
+  const bytes = loadFontBytes();
+  let regular: PDFFont;
+  let bold: PDFFont;
+  if (bytes) {
+    // subset:true embeds only the glyphs actually used → small output.
+    regular = await doc.embedFont(bytes.regular, { subset: true });
+    bold = await doc.embedFont(bytes.bold, { subset: true });
+  } else {
+    regular = await doc.embedFont(StandardFonts.Helvetica);
+    bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  }
+  const fontFor = (isBold: boolean) => (isBold ? bold : regular);
+
+  // Build the flat list of laid-out lines.
   const lines: Line[] = [];
-  for (const l of wrap(title, TITLE_SIZE)) lines.push({ text: l, bold: true, size: TITLE_SIZE, gapBefore: 0 });
+  for (const l of wrap(title, bold, TITLE_SIZE)) lines.push({ text: l, bold: true, size: TITLE_SIZE, gapBefore: 0 });
   for (const section of sections) {
     if (section.heading) {
-      for (const l of wrap(section.heading, HEAD_SIZE)) {
+      for (const l of wrap(section.heading, bold, HEAD_SIZE)) {
         lines.push({ text: l, bold: true, size: HEAD_SIZE, gapBefore: LINE_H });
       }
     }
     if (section.text) {
       let first = true;
-      for (const l of wrap(section.text, BODY_SIZE)) {
+      for (const l of wrap(section.text, regular, BODY_SIZE)) {
         lines.push({ text: l, bold: false, size: BODY_SIZE, gapBefore: first ? 6 : 0 });
         first = false;
       }
     }
   }
 
-  // Paginate.
-  const pages: Line[][] = [];
-  let page: Line[] = [];
+  // Paginate + draw.
+  let page = doc.addPage([PAGE_W, PAGE_H]);
   let y = PAGE_H - MARGIN;
   for (const line of lines) {
     const advance = line.gapBefore + LINE_H;
-    if (y - advance < MARGIN && page.length) {
-      pages.push(page);
-      page = [];
+    if (y - advance < MARGIN) {
+      page = doc.addPage([PAGE_W, PAGE_H]);
       y = PAGE_H - MARGIN;
     }
     y -= advance;
-    page.push(line);
-  }
-  if (page.length) pages.push(page);
-  if (!pages.length) pages.push([{ text: '', bold: false, size: BODY_SIZE, gapBefore: 0 }]);
-
-  // Object layout: 1 catalog, 2 pages, 3 F1, 4 F2, then [page, content] pairs.
-  const objects: string[] = [];
-  const pageObjNums = pages.map((_, i) => 5 + i * 2);
-  objects.push(`<< /Type /Catalog /Pages 2 0 R >>`);
-  objects.push(`<< /Type /Pages /Kids [${pageObjNums.map((n) => `${n} 0 R`).join(' ')}] /Count ${pages.length} >>`);
-  objects.push(`<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>`);
-  objects.push(`<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>`);
-
-  for (const pageLines of pages) {
-    const ops: string[] = ['BT', `1 0 0 1 ${MARGIN} ${PAGE_H - MARGIN} Tm`];
-    for (const line of pageLines) {
-      ops.push(`0 ${-(line.gapBefore + LINE_H)} Td`);
-      ops.push(`/${line.bold ? 'F2' : 'F1'} ${line.size} Tf`);
-      ops.push(`(${escPdf(latin1(line.text))}) Tj`);
+    if (line.text) {
+      page.drawText(line.text, { x: MARGIN, y, size: line.size, font: fontFor(line.bold), color: rgb(0.05, 0.05, 0.08) });
     }
-    ops.push('ET');
-    const stream = ops.join('\n');
-    const pageNum = objects.length + 1;
-    objects.push(
-      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_W} ${PAGE_H}] ` +
-        `/Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${pageNum + 1} 0 R >>`,
-    );
-    objects.push(`<< /Length ${Buffer.byteLength(stream, 'latin1')} >>\nstream\n${stream}\nendstream`);
   }
+  if (doc.getPageCount() === 0) doc.addPage([PAGE_W, PAGE_H]);
 
-  let out = '%PDF-1.4\n';
-  const offsets: number[] = [];
-  objects.forEach((body, i) => {
-    offsets.push(Buffer.byteLength(out, 'latin1'));
-    out += `${i + 1} 0 obj\n${body}\nendobj\n`;
-  });
-  const xrefStart = Buffer.byteLength(out, 'latin1');
-  out += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-  for (const off of offsets) out += `${String(off).padStart(10, '0')} 00000 n \n`;
-  out += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefStart}\n%%EOF\n`;
-  return Buffer.from(out, 'latin1');
+  // useObjectStreams:false keeps the PDF's cross-reference table and object
+  // dictionaries uncompressed (readable), which the widest range of PDF tools
+  // and archival workflows accept — a fair trade for a slightly larger file on
+  // a short report.
+  const out = await doc.save({ useObjectStreams: false });
+  return Buffer.from(out);
 }
