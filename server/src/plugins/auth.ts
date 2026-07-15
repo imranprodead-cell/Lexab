@@ -102,6 +102,14 @@ export function registerAuth(app: FastifyInstance, db: Db): void {
   });
 }
 
-export function signToken(app: FastifyInstance, user: UserRow): string {
-  return app.jwt.sign({ sub: user.id, tv: user.token_version }, { expiresIn: config.jwtExpiresIn });
+/**
+ * `auth_at` = when the user last proved their identity (password/link/IdP).
+ * /auth/refresh carries it over unchanged, so a refresh chain can be capped at
+ * an absolute age (config.sessionMaxDays) no matter how often it renews.
+ */
+export function signToken(app: FastifyInstance, user: UserRow, authAt?: number): string {
+  return app.jwt.sign(
+    { sub: user.id, tv: user.token_version, auth_at: authAt ?? Math.floor(Date.now() / 1000) },
+    { expiresIn: config.jwtExpiresIn },
+  );
 }

@@ -21,6 +21,7 @@ export type AuditEventType =
   | 'auth.login'
   | 'auth.login_failed'
   | 'auth.logout'
+  | 'auth.refresh'
   | 'auth.password_changed'
   | 'auth.password_reset'
   | 'auth.account_deleted'

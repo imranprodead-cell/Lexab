@@ -65,6 +65,8 @@ export function AuthPage() {
   const register = useAuthStore((s) => s.register);
   const adoptSession = useAuthStore((s) => s.adoptSession);
   const status = useAuthStore((s) => s.status);
+  /** True when the user was signed out by an expired/revoked token. */
+  const sessionExpired = useAuthStore((s) => s.sessionExpired);
   const pushToast = useUIStore((s) => s.pushToast);
   const toggleTheme = useUIStore((s) => s.toggleTheme);
   const dark = useResolvedDark();
@@ -386,6 +388,13 @@ export function AuthPage() {
             ) : null}
 
             <GlassCard className={styles.card}>
+              {sessionExpired ? (
+                <p className={styles.verifySent} role="status">
+                  <Icon name="clock" size={15} />
+                  <span>{t('auth.sessionExpired')}</span>
+                </p>
+              ) : null}
+
               <button type="button" className={styles.googleBtn} onClick={startGoogle}>
                 <GoogleLogo />
                 {t('auth.google')}

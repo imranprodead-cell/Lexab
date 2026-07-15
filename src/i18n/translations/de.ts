@@ -316,6 +316,7 @@ const de: Record<string, string> = {
   "auth.or": "ODER",
   "auth.emailContinue": "Mit E-Mail fortfahren",
   "auth.googleFailed": "Anmeldung mit Google fehlgeschlagen. Bitte versuchen Sie es erneut.",
+  "auth.sessionExpired": "Die Sitzung ist abgelaufen — bitte melden Sie sich erneut an.",
   "auth.signingIn": "Sie werden angemeldet…",
   "auth.metricWithoutLabel": "Genauigkeit der Gesetzeszitate bei reiner KI, ohne Gesetzeskorpus",
   "auth.metricWithLabel": "mit Abgleich gegen offizielle Texte",

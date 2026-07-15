@@ -316,6 +316,7 @@ const uz: Record<string, string> = {
   "auth.or": "YOKI",
   "auth.emailContinue": "Email bilan davom etish",
   "auth.googleFailed": "Google orqali kirib boʻlmadi. Iltimos, qayta urinib koʻring.",
+  "auth.sessionExpired": "Sessiya muddati tugadi — qaytadan kiring.",
   "auth.signingIn": "LexAI’ga kirilyapti…",
   "auth.metricWithoutLabel": "qonun bazasisiz oddiy AI’ning qonuniy havolalar aniqligi",
   "auth.metricWithLabel": "rasmiy matnlar bilan tekshirilganda",

@@ -24,6 +24,11 @@ export const authApi = {
     return http<void>('/auth/logout', { method: 'POST' });
   },
 
+  /** Exchange a live token for a fresh full-lifetime one (sliding session). */
+  refresh(): Promise<AuthSession> {
+    return http<AuthSession>('/auth/refresh', { method: 'POST' });
+  },
+
   reset(email: string): Promise<void> {
     return http<void>('/auth/reset', { method: 'POST', body: { email } });
   },
