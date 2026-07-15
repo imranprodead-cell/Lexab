@@ -2,6 +2,8 @@ import { Icon } from '@/components/icons/Icon';
 import { Avatar } from '@/components/ui/Avatar';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { useAuthStore } from '@/store/useAuthStore';
+import { useUIStore } from '@/store/useUIStore';
+import { COUNTRIES } from '@/data/countries';
 import { useI18n } from '@/i18n/I18nProvider';
 import styles from './chat.module.css';
 
@@ -12,8 +14,15 @@ interface WelcomeScreenProps {
 }
 
 export function WelcomeScreen({ onAnalyze, onDraft, onCompare }: WelcomeScreenProps) {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const user = useAuthStore((s) => s.user);
+  // The NDA card follows the top-bar country selector — the same jurisdiction
+  // the draft itself will be generated under (defaultLaw in useChatStore).
+  // Russian needs the genitive ("по праву Германии"); every other language
+  // takes its localized country name from the country.* i18n keys.
+  const countryCode = useUIStore((s) => s.country);
+  const country = COUNTRIES.find((c) => c.code === countryCode) ?? COUNTRIES[1];
+  const countryInLaw = lang === 'ru' ? country.nameGen : t(`country.${country.code}`);
 
   const suggestions = [
     { key: 'analyze', icon: 'search' as const, onSelect: onAnalyze },
@@ -44,7 +53,9 @@ export function WelcomeScreen({ onAnalyze, onDraft, onCompare }: WelcomeScreenPr
                 <Icon name={s.icon} size={20} />
               </div>
               <div className={styles.suggestionTitle}>{t(`chat.suggest.${s.key}.title`)}</div>
-              <div className={styles.suggestionBody}>{t(`chat.suggest.${s.key}.body`)}</div>
+              <div className={styles.suggestionBody}>
+                {t(`chat.suggest.${s.key}.body`, s.key === 'draft' ? { country: countryInLaw } : undefined)}
+              </div>
             </GlassCard>
           ))}
         </div>

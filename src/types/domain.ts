@@ -168,6 +168,26 @@ export interface AnalyticsSummary {
   hoursSaved: number;
   reviewsByWeek: { week: string; count: number }[];
   findingsBySeverity: { severity: Severity; count: number }[];
+  /** Last 12 calendar months of activity, oldest first ("YYYY-MM"). */
+  monthly: { month: string; reviews: number; findings: number }[];
+  /** Corporate risk centre: where the portfolio's risk sits. */
+  riskCenter: {
+    topContracts: { id: string; name: string; counterparty: string; riskScore: number; riskLevel: RiskLevel }[];
+    byJurisdiction: { jurisdiction: string; total: number; high: number }[];
+    byCounterparty: { counterparty: string; total: number; high: number }[];
+  };
+  /** Citation validation stats + freshness of the statute corpus. */
+  compliance: {
+    verified: number;
+    unverified: number;
+    corpus: { jurisdiction: string; documents: number; updatedAt: string | null }[];
+  };
+  /** Per-member workload — null unless the viewer owns an active team.
+   *  Counts come from THIS team's audit trail only (ai.analysis events under
+   *  the owner's scope) — a member's outside work never shows up here. */
+  team:
+    | { id: string; name: string; role: string; reviews30d: number; reviewsTotal: number; lastActive: string | null }[]
+    | null;
 }
 
 /** Authenticated user profile (drives the rail footer + settings form). */

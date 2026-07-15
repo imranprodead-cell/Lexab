@@ -30,6 +30,9 @@
   --warn: oklch(0.79 0.14 78);
   --danger: oklch(0.68 0.17 22);
 
+  /* Secondary chart series (the muted bars next to the accent ones). */
+  --chart-muted: color-mix(in srgb, var(--mut) 80%, transparent);
+
   /* Radii */
   --r-sm: 6px;
   --r-md: 10px;
