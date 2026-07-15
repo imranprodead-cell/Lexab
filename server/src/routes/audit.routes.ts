@@ -46,6 +46,14 @@ function buildFilter(ownerId: string, q: Record<string, string | undefined>): { 
     params.push(q.to.trim());
     where.push(`created_at <= $${params.length}::timestamptz`);
   }
+  // Free-text search across who / what / target ("ivan", "document.deleted", "NDA.pdf").
+  if (q.q?.trim()) {
+    // Escape LIKE wildcards so a user typing "%" doesn't match everything.
+    const term = q.q.trim().slice(0, 200).replace(/([\\%_])/g, '\\$1');
+    params.push(`%${term}%`);
+    const n = params.length;
+    where.push(`(actor_label ILIKE $${n} OR event_type ILIKE $${n} OR coalesce(target_label, '') ILIKE $${n})`);
+  }
   return { where: where.join(' AND '), params };
 }
 

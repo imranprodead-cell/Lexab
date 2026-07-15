@@ -3,6 +3,7 @@ import { TopBar } from '@/components/layout/TopBar';
 import { InitialsAvatar } from '@/components/ui/Avatar';
 import { Badge } from '@/components/ui/Badge';
 import { Button, IconButton } from '@/components/ui/Button';
+import { Icon } from '@/components/icons/Icon';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { TextField } from '@/components/ui/TextField';
 import { RoleSelect, type RolePresetKey } from '@/components/ui/RoleSelect';
@@ -523,6 +524,9 @@ function AuditLogSection() {
   const { t } = useI18n();
   const pushToast = useUIStore((s) => s.pushToast);
   const [group, setGroup] = useState('');
+  const [search, setSearch] = useState('');
+  /** Debounced copy of `search`: the server is asked 300ms after typing stops. */
+  const [query, setQuery] = useState('');
   const [rows, setRows] = useState<AuditEvent[]>([]);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -530,10 +534,21 @@ function AuditLogSection() {
   const [hasMore, setHasMore] = useState(false);
 
   useEffect(() => {
+    const id = setTimeout(() => {
+      setQuery((prev) => {
+        const next = search.trim();
+        if (next !== prev) setPage(1);
+        return next;
+      });
+    }, 300);
+    return () => clearTimeout(id);
+  }, [search]);
+
+  useEffect(() => {
     let cancelled = false;
     setLoading(true);
     auditApi
-      .list({ group: group || undefined, page, pageSize: PAGE_SIZE })
+      .list({ group: group || undefined, q: query || undefined, page, pageSize: PAGE_SIZE })
       .then((data) => {
         if (cancelled) return;
         setRows((prev) => (page === 1 ? data : [...prev, ...data]));
@@ -549,11 +564,11 @@ function AuditLogSection() {
     return () => {
       cancelled = true;
     };
-  }, [group, page, pushToast, t]);
+  }, [group, query, page, pushToast, t]);
 
   const exportCsv = async () => {
     try {
-      const blob = await auditApi.downloadCsv({ group: group || undefined });
+      const blob = await auditApi.downloadCsv({ group: group || undefined, q: query || undefined });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -581,20 +596,33 @@ function AuditLogSection() {
       <div className={styles.auditHead}>
         <h2 className={styles.auditTitle}>{t('audit.title')}</h2>
         <div className={styles.auditControls}>
-          <select
-            className={styles.auditFilter}
-            value={group}
-            onChange={(e) => {
-              setPage(1);
-              setGroup(e.target.value);
-            }}
-          >
-            {AUDIT_GROUPS.map((g) => (
-              <option key={g || 'all'} value={g}>
-                {g ? t(`audit.group.${g}`) : t('audit.allGroups')}
-              </option>
-            ))}
-          </select>
+          <span className={styles.auditSearchWrap}>
+            <Icon name="search" size={14} />
+            <input
+              type="search"
+              className={styles.auditSearch}
+              placeholder={t('audit.searchPlaceholder')}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </span>
+          <span className={styles.auditSelectWrap}>
+            <select
+              className={styles.auditFilter}
+              value={group}
+              onChange={(e) => {
+                setPage(1);
+                setGroup(e.target.value);
+              }}
+            >
+              {AUDIT_GROUPS.map((g) => (
+                <option key={g || 'all'} value={g}>
+                  {g ? t(`audit.group.${g}`) : t('audit.allGroups')}
+                </option>
+              ))}
+            </select>
+            <Icon name="chevron" size={14} className={styles.auditSelectChevron} />
+          </span>
           <Button size="sm" icon="download" onClick={exportCsv}>
             {t('audit.exportCsv')}
           </Button>

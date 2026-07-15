@@ -18,6 +18,8 @@ export interface AuditFilter {
   actorId?: string;
   from?: string;
   to?: string;
+  /** Free-text search: actor, event type or target name. */
+  q?: string;
   page?: number;
   pageSize?: number;
 }
@@ -28,6 +30,7 @@ function toQuery(f: AuditFilter): string {
   if (f.actorId) p.set('actorId', f.actorId);
   if (f.from) p.set('from', f.from);
   if (f.to) p.set('to', f.to);
+  if (f.q) p.set('q', f.q);
   if (f.page) p.set('page', String(f.page));
   if (f.pageSize) p.set('pageSize', String(f.pageSize));
   const s = p.toString();

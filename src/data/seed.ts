@@ -187,4 +187,39 @@ export const ANALYTICS: AnalyticsSummary = {
     { severity: 'Medium', count: 63 },
     { severity: 'Low', count: 112 },
   ],
+  monthly: [14, 11, 16, 13, 18, 15, 19, 17, 22, 20, 24, 21].map((reviews, i) => {
+    const d = new Date();
+    d.setUTCMonth(d.getUTCMonth() - (11 - i), 1);
+    const month = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+    return { month, reviews, findings: Math.round(reviews * 0.7) };
+  }),
+  riskCenter: {
+    topContracts: [
+      { id: 'd1', name: 'MSA — Meridian Labs', counterparty: 'Meridian Labs', riskScore: 82, riskLevel: 'High' },
+      { id: 'd2', name: 'Supply Agreement — Acme', counterparty: 'Acme GmbH', riskScore: 67, riskLevel: 'Elevated' },
+      { id: 'd3', name: 'NDA — Northwind', counterparty: 'Northwind LLC', riskScore: 44, riskLevel: 'Elevated' },
+      { id: 'd4', name: 'SaaS Terms — Contoso', counterparty: 'Contoso Ltd', riskScore: 31, riskLevel: 'Low' },
+    ],
+    byJurisdiction: [
+      { jurisdiction: 'UK', total: 9, high: 2 },
+      { jurisdiction: 'UZ', total: 6, high: 1 },
+      { jurisdiction: 'DE', total: 3, high: 0 },
+    ],
+    byCounterparty: [
+      { counterparty: 'Meridian Labs', total: 4, high: 2 },
+      { counterparty: 'Acme GmbH', total: 3, high: 1 },
+      { counterparty: 'Northwind LLC', total: 2, high: 0 },
+    ],
+  },
+  compliance: {
+    verified: 178,
+    unverified: 24,
+    corpus: [
+      { jurisdiction: 'UK', documents: 8, updatedAt: days(12) },
+      { jurisdiction: 'UZ', documents: 4, updatedAt: days(20) },
+      { jurisdiction: 'KZ', documents: 4, updatedAt: days(18) },
+      { jurisdiction: 'DE', documents: 1, updatedAt: days(25) },
+    ],
+  },
+  team: null,
 };

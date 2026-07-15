@@ -496,6 +496,195 @@ describe('audit log', () => {
     const meta = JSON.stringify(events.rows[0].metadata);
     assert.ok(!meta.includes('wrong-password'), 'password never stored in the audit metadata');
   });
+
+  it('free-text search (q) matches actor/type/target and escapes LIKE wildcards', async () => {
+    const owner = await makeUser();
+    await db.query("UPDATE subscriptions SET plan = 'Business' WHERE user_id = $1", [owner.id]);
+    // The registration + login above already wrote events labelled with the email.
+    const hit = await app.inject({
+      method: 'GET',
+      url: `/api/audit/events?q=${encodeURIComponent(owner.email)}`,
+      headers: auth(owner.token),
+    });
+    assert.equal(hit.statusCode, 200, hit.body);
+    assert.ok((JSON.parse(hit.body) as unknown[]).length > 0, 'search by own email finds events');
+
+    const byType = await app.inject({ method: 'GET', url: '/api/audit/events?q=auth.login', headers: auth(owner.token) });
+    assert.ok((JSON.parse(byType.body) as unknown[]).length > 0, 'search by event type works');
+
+    const miss = await app.inject({ method: 'GET', url: '/api/audit/events?q=zzz-no-such-thing', headers: auth(owner.token) });
+    assert.equal((JSON.parse(miss.body) as unknown[]).length, 0, 'no false hits');
+
+    // "%" must be treated literally, not as match-everything.
+    const pct = await app.inject({ method: 'GET', url: `/api/audit/events?q=${encodeURIComponent('%')}`, headers: auth(owner.token) });
+    assert.equal((JSON.parse(pct.body) as unknown[]).length, 0, 'wildcards are escaped');
+  });
+
+  it('q search never crosses tenants: owner A searching owner B finds nothing', async () => {
+    const a = await makeUser();
+    const b = await makeUser(); // b's registration/login events exist and mention b.email
+    await db.query("UPDATE subscriptions SET plan = 'Business' WHERE user_id = $1", [a.id]);
+    const res = await app.inject({
+      method: 'GET',
+      url: `/api/audit/events?q=${encodeURIComponent(b.email)}`,
+      headers: auth(a.token),
+    });
+    assert.equal(res.statusCode, 200);
+    assert.equal((JSON.parse(res.body) as unknown[]).length, 0, "A must never see B's trail via search");
+  });
+});
+
+describe('analytics summary (extended)', () => {
+  it('returns monthly, risk centre, compliance and no team for a solo user', async () => {
+    const u = await makeUser();
+    // One real analysis (dev fallback) → a document + findings + review event.
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/analysis',
+      headers: auth(u.token),
+      payload: { fileName: 'risky.pdf', fileSize: '10 KB', jurisdiction: 'UZ' },
+    });
+    assert.equal(created.statusCode, 201, created.body);
+
+    const res = await app.inject({ method: 'GET', url: '/api/analytics/summary', headers: auth(u.token) });
+    assert.equal(res.statusCode, 200, res.body);
+    const s = JSON.parse(res.body);
+
+    assert.equal(s.monthly.length, 12, '12 calendar months');
+    const totalReviews = s.monthly.reduce((n: number, m: { reviews: number }) => n + m.reviews, 0);
+    assert.ok(totalReviews >= 1, 'the fresh review lands in the current month');
+    assert.ok(s.monthly[11].reviews >= 1, 'last bucket is the current month');
+    // Month keys are real calendar months, oldest → newest, ending at now (UTC).
+    const now = new Date();
+    const key = (off: number) => {
+      const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - off, 1));
+      return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+    };
+    assert.equal(s.monthly[11].month, key(0), 'last bucket labelled with the current month');
+    assert.equal(s.monthly[0].month, key(11), 'first bucket labelled 11 months back');
+
+    assert.ok(s.riskCenter.topContracts.length >= 1, 'top contracts include the analysed document');
+    assert.equal(typeof s.riskCenter.topContracts[0].riskScore, 'number');
+    assert.ok(s.riskCenter.topContracts[0].id, 'contracts carry a stable id (React keys)');
+    assert.ok(s.riskCenter.byJurisdiction.some((j: { jurisdiction: string }) => j.jurisdiction === 'UZ'));
+
+    // The dev-fallback analysis produces findings → the citation tally is not empty.
+    assert.ok(s.compliance.verified + s.compliance.unverified >= 1, 'citation stats reflect real findings');
+    assert.ok(Array.isArray(s.compliance.corpus));
+
+    assert.equal(s.team, null, 'no team section for a solo user');
+  });
+
+  it('a review from a previous month lands in ITS month bucket, not the current one', async () => {
+    const u = await makeUser();
+    const prev = new Date();
+    prev.setUTCMonth(prev.getUTCMonth() - 2, 15); // safely inside month -2
+    await db.query('INSERT INTO review_events (id, user_id, risk_score, created_at) VALUES ($1, $2, 40, $3)', [
+      `re_test_${Date.now()}`,
+      u.id,
+      prev.toISOString(),
+    ]);
+    const res = await app.inject({ method: 'GET', url: '/api/analytics/summary', headers: auth(u.token) });
+    const s = JSON.parse(res.body);
+    assert.equal(s.monthly[9].reviews, 1, 'bucket index 9 = two months back');
+    assert.equal(s.monthly[11].reviews, 0, 'nothing counted in the current month');
+  });
+
+  it('topContracts uses the LATEST analysis per document, not the scariest ever', async () => {
+    const u = await makeUser();
+    // Two analyses of the same file → same document, two analysis rows.
+    for (let i = 0; i < 2; i++) {
+      const r = await app.inject({
+        method: 'POST',
+        url: '/api/analysis',
+        headers: auth(u.token),
+        payload: { fileName: 'same-doc.pdf', fileSize: '10 KB', jurisdiction: 'GB' },
+      });
+      assert.equal(r.statusCode, 201, r.body);
+    }
+    // Force distinguishable scores: older=90, newest=10.
+    await db.query(
+      `UPDATE analyses SET risk_score = 90, created_at = now() - interval '2 hours'
+        WHERE id = (SELECT id FROM analyses WHERE user_id = $1 ORDER BY created_at ASC LIMIT 1)`,
+      [u.id],
+    );
+    await db.query(
+      `UPDATE analyses SET risk_score = 10
+        WHERE id = (SELECT id FROM analyses WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1)`,
+      [u.id],
+    );
+    const res = await app.inject({ method: 'GET', url: '/api/analytics/summary', headers: auth(u.token) });
+    const s = JSON.parse(res.body);
+    const doc = s.riskCenter.topContracts.find((c: { name: string }) => c.name === 'same-doc.pdf');
+    assert.ok(doc, 'the document is present');
+    assert.equal(doc.riskScore, 10, 'the LATEST analysis wins (the 90 one is history)');
+  });
+
+  it("one user's data never leaks into another's analytics", async () => {
+    const a = await makeUser();
+    const b = await makeUser();
+    await app.inject({
+      method: 'POST',
+      url: '/api/analysis',
+      headers: auth(a.token),
+      payload: { fileName: 'private-a.pdf', fileSize: '10 KB', jurisdiction: 'GB' },
+    });
+    const res = await app.inject({ method: 'GET', url: '/api/analytics/summary', headers: auth(b.token) });
+    const s = JSON.parse(res.body);
+    assert.ok(
+      !s.riskCenter.topContracts.some((c: { name: string }) => c.name.includes('private-a')),
+      "b must not see a's contracts",
+    );
+    assert.equal(s.riskCenter.byJurisdiction.length, 0, 'no jurisdiction rows from foreign documents');
+    assert.equal(s.riskCenter.byCounterparty.length, 0, 'no counterparty rows from foreign documents');
+    assert.equal(s.compliance.verified + s.compliance.unverified, 0, 'no citation stats from foreign findings');
+    const monthlySum = s.monthly.reduce(
+      (n: number, m: { reviews: number; findings: number }) => n + m.reviews + m.findings,
+      0,
+    );
+    assert.equal(monthlySum, 0, "a's activity never shows in b's monthly chart");
+  });
+
+  it("team workload counts ONLY work inside the owner's team — a member's private reviews stay invisible", async () => {
+    const owner = await makeUser();
+    const member = await makeUser();
+    await db.query(
+      `INSERT INTO team_members (id, owner_user_id, member_user_id, name, email, role, status)
+       VALUES ($1, $2, $3, 'M Member', $4, 'editor', 'active')`,
+      [`tm_test_${Date.now()}`, owner.id, member.id, member.email],
+    );
+    // The member works on their OWN documents (private practice)…
+    const own = await app.inject({
+      method: 'POST',
+      url: '/api/analysis',
+      headers: auth(member.token),
+      payload: { fileName: 'member-private.pdf', fileSize: '10 KB', jurisdiction: 'GB' },
+    });
+    assert.equal(own.statusCode, 201, own.body);
+    // …and the owner runs one analysis of their own.
+    const owners = await app.inject({
+      method: 'POST',
+      url: '/api/analysis',
+      headers: auth(owner.token),
+      payload: { fileName: 'owner-doc.pdf', fileSize: '10 KB', jurisdiction: 'GB' },
+    });
+    assert.equal(owners.statusCode, 201, owners.body);
+
+    const res = await app.inject({ method: 'GET', url: '/api/analytics/summary', headers: auth(owner.token) });
+    const s = JSON.parse(res.body);
+    assert.ok(Array.isArray(s.team), 'owner with an active member gets the team section');
+    assert.equal(s.team.length, 2, 'owner + one member');
+    const ownerRow = s.team.find((m: { role: string }) => m.role === 'owner');
+    const memberRow = s.team.find((m: { role: string }) => m.role === 'editor');
+    assert.ok(ownerRow.reviews30d >= 1, "owner's own in-team analysis is counted");
+    assert.equal(memberRow.reviews30d, 0, "member's PRIVATE work must not appear (privacy)");
+    assert.equal(memberRow.lastActive, null, 'no in-team activity → no timestamp exposed');
+    assert.ok(memberRow.id && ownerRow.id, 'rows carry stable ids');
+
+    // And the member (not an owner) sees no team section at all.
+    const asMember = await app.inject({ method: 'GET', url: '/api/analytics/summary', headers: auth(member.token) });
+    assert.equal(JSON.parse(asMember.body).team, null, 'members do not get the owner dashboard');
+  });
 });
 
 describe('billing lifecycle', () => {
