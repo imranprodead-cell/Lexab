@@ -62,7 +62,13 @@ export const config = {
   dataDir: path.resolve(env('DATA_DIR', './data')),
 
   jwtSecret: resolveJwtSecret(),
-  jwtExpiresIn: env('JWT_EXPIRES_IN', '12h'),
+  // 30 days + silent client-side renewal ≈ "stay signed in"; logout / password
+  // change still revoke every issued token instantly via token_version.
+  jwtExpiresIn: env('JWT_EXPIRES_IN', '30d'),
+  // Absolute cap on a refresh chain: however often a session renews, once the
+  // ORIGINAL sign-in (auth_at claim) is this old, /auth/refresh answers 401 and
+  // the user re-authenticates. Limits how long a stolen token can self-renew.
+  sessionMaxDays: Number(env('SESSION_MAX_DAYS', '90')),
   /** Password for the opt-in seeded demo account (only when SEED_DEMO_DATA=true). */
   seedDemoPassword: env('SEED_DEMO_PASSWORD', 'lexai-demo'),
 

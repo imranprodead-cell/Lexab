@@ -316,6 +316,7 @@ const kk: Record<string, string> = {
   "auth.or": "НЕМЕСЕ",
   "auth.emailContinue": "Email арқылы жалғастыру",
   "auth.googleFailed": "Google арқылы кіру сәтсіз аяқталды. Қайталап көріңіз.",
+  "auth.sessionExpired": "Сессия мерзімі бітті — қайта кіріңіз.",
   "auth.signingIn": "LexAI-ге кіру…",
   "auth.metricWithoutLabel": "заң базасы жоқ ИИ-дің заңға сілтемелерінің дәлдігі",
   "auth.metricWithLabel": "ресми мәтіндер базасы бойынша тексерумен",

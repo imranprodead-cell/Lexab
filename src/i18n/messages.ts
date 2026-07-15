@@ -592,6 +592,7 @@ export const MESSAGES: Dict = {
   'auth.or': { ru: 'ИЛИ', en: 'OR' },
   'auth.emailContinue': { ru: 'Продолжить по email', en: 'Continue with email' },
   'auth.googleFailed': { ru: 'Не удалось войти через Google. Попробуйте ещё раз.', en: 'Google sign-in failed. Please try again.' },
+  'auth.sessionExpired': { ru: 'Сессия истекла — войдите снова.', en: 'Your session expired — please sign in again.' },
   'auth.ssoButton': { ru: 'Войти через SSO', en: 'Sign in with SSO' },
   'auth.ssoEmailLabel': { ru: 'Рабочая почта', en: 'Work email' },
   'auth.ssoContinue': { ru: 'Продолжить', en: 'Continue' },

@@ -89,6 +89,60 @@ describe('auth', () => {
     const res = await app.inject({ method: 'GET', url: '/api/me' });
     assert.equal(res.statusCode, 401);
   });
+
+  it('refresh exchanges a live token for a working fresh one', async () => {
+    const u = await makeUser();
+    // iat has 1s resolution — wait past it so a genuinely re-signed token differs.
+    await new Promise((r) => setTimeout(r, 1100));
+    const res = await app.inject({ method: 'POST', url: '/api/auth/refresh', headers: auth(u.token) });
+    assert.equal(res.statusCode, 200, res.body);
+    const { token: fresh, user } = JSON.parse(res.body) as { token: string; user: { email: string } };
+    assert.ok(fresh, 'refresh returns a token');
+    assert.notEqual(fresh, u.token, 'refresh must mint a NEW token, not echo the old one');
+    assert.equal(user.email, u.email);
+    const me = await app.inject({ method: 'GET', url: '/api/me', headers: auth(fresh) });
+    assert.equal(me.statusCode, 200, 'the refreshed token authenticates');
+    const old = await app.inject({ method: 'GET', url: '/api/me', headers: auth(u.token) });
+    assert.equal(old.statusCode, 200, 'refresh must not revoke the old token (other open tabs/devices)');
+    // The original sign-in time must survive the exchange — it is what caps the chain.
+    const claim = (t: string) => JSON.parse(Buffer.from(t.split('.')[1], 'base64url').toString()) as { auth_at: number };
+    assert.equal(claim(fresh).auth_at, claim(u.token).auth_at, 'auth_at must carry over unchanged');
+  });
+
+  it('refresh is rejected without a token and after logout (revocation)', async () => {
+    const anon = await app.inject({ method: 'POST', url: '/api/auth/refresh' });
+    assert.equal(anon.statusCode, 401);
+
+    const u = await makeUser();
+    await app.inject({ method: 'POST', url: '/api/auth/logout', headers: auth(u.token) });
+    // token_version bumped → every previously issued token (incl. this one) is dead.
+    const revoked = await app.inject({ method: 'POST', url: '/api/auth/refresh', headers: auth(u.token) });
+    assert.equal(revoked.statusCode, 401, 'a revoked token must not be refreshable');
+  });
+
+  it('refresh refuses a chain whose original sign-in exceeds the absolute cap', async () => {
+    const u = await makeUser();
+    // Forge what a long-refreshed chain would look like: a VALID token (real
+    // token_version) whose auth_at (original sign-in) is 91 days old — past the
+    // 90-day default cap. Sanity-check the forgery works before aging it.
+    const { tv } = JSON.parse(Buffer.from(u.token.split('.')[1], 'base64url').toString()) as { tv: number };
+    const now = Math.floor(Date.now() / 1000);
+    const live = app.jwt.sign({ sub: u.id, tv, auth_at: now }, { expiresIn: '30d' });
+    const sane = await app.inject({ method: 'POST', url: '/api/auth/refresh', headers: auth(live) });
+    assert.equal(sane.statusCode, 200, 'control: a forged-but-young token refreshes fine');
+    const aged = app.jwt.sign({ sub: u.id, tv, auth_at: now - 91 * 86400 }, { expiresIn: '30d' });
+    const res = await app.inject({ method: 'POST', url: '/api/auth/refresh', headers: auth(aged) });
+    assert.equal(res.statusCode, 401, 'a 91-day-old session must re-authenticate, not renew');
+  });
+
+  it('refresh refuses an account whose email is no longer verified', async () => {
+    const u = await makeUser();
+    // E.g. the user changed their address — login demands re-verification, so
+    // the silent-renewal path must not keep the session alive around it.
+    await db.query('UPDATE users SET email_verified = false WHERE id = $1', [u.id]);
+    const res = await app.inject({ method: 'POST', url: '/api/auth/refresh', headers: auth(u.token) });
+    assert.equal(res.statusCode, 401);
+  });
 });
 
 describe('AI usage reservation (atomic limit)', () => {

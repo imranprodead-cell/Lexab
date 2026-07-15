@@ -229,6 +229,30 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
     return { token: signToken(app, user), user: toProfile(user) };
   });
 
+  // Sliding session: a live token is exchanged for a fresh full-lifetime one.
+  // An expired or revoked (token_version bump) token gets the standard 401 —
+  // the client then sends the user to the login screen instead of a dead page.
+  // Guards mirror the other token-issuing routes (a refresh chain must not
+  // outlive what a fresh login would allow):
+  //  - unverified email → 401 (login refuses it too; e.g. after an email change)
+  //  - org enforces SSO → 401, so the user re-enters through the IdP
+  //  - absolute cap: once the ORIGINAL sign-in (auth_at) is older than
+  //    SESSION_MAX_DAYS, renewal stops — a stolen token can't self-renew forever.
+  app.post('/auth/refresh', { preHandler: [app.authenticate], config: RATE_LIMIT }, async (req) => {
+    if (!req.currentUser.email_verified) throw unauthorized();
+    try {
+      await assertSsoNotRequired(db, { id: req.currentUser.id, email: req.currentUser.email });
+    } catch {
+      throw unauthorized(); // 401 (not 403): the client must drop the session and re-login via SSO
+    }
+    const raw = (req.headers.authorization ?? '').slice(7);
+    const payload = app.jwt.decode<{ iat?: number; auth_at?: number }>(raw);
+    const authAt = payload?.auth_at ?? payload?.iat ?? Math.floor(Date.now() / 1000);
+    if (Date.now() / 1000 - authAt > config.sessionMaxDays * 86400) throw unauthorized();
+    await audit(db, req, { type: 'auth.refresh', teamOwnerId: req.currentUser.id });
+    return { token: signToken(app, req.currentUser, authAt), user: toProfile(req.currentUser) };
+  });
+
   app.post('/auth/logout', { preHandler: [app.authenticate], config: RATE_LIMIT }, async (req, reply) => {
     // Bump token_version → all previously issued tokens become invalid.
     await db.query('UPDATE users SET token_version = token_version + 1 WHERE id = $1', [req.currentUser.id]);

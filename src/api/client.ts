@@ -47,6 +47,26 @@ function authHeader(): Record<string, string> {
   }
 }
 
+/** Fired once per 401 so the auth store can drop the dead session and route
+ *  the user to the login screen ("session expired") instead of leaving pages
+ *  stuck on a generic error card. */
+export const SESSION_EXPIRED_EVENT = 'lexai:session-expired';
+
+// Endpoints where a 401 means "bad credentials", not "session expired":
+// login, register, password reset/verify flows, Google/SSO exchanges and the
+// change-password form (wrong current password is also a 401). /auth/refresh
+// is the exception — a 401 there IS an expired session.
+// `sentAuth` is the Authorization header the FAILED request carried: the
+// listener ignores the event when the store already holds a different (newer)
+// token — e.g. an in-flight poll losing the race against a password change.
+function noteUnauthorized(path: string, status: number, sentAuth?: string): void {
+  if (status !== 401) return;
+  if (path.startsWith('/auth/') && path !== '/auth/refresh') return;
+  if (typeof window === 'undefined') return;
+  const token = sentAuth?.startsWith('Bearer ') ? sentAuth.slice(7) : undefined;
+  window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT, { detail: { token } }));
+}
+
 export async function http<T>(path: string, options: HttpOptions = {}): Promise<T> {
   const { method = 'GET', body, signal, headers = {}, retries = method === 'GET' ? 2 : 0 } = options;
 
@@ -57,6 +77,7 @@ export async function http<T>(path: string, options: HttpOptions = {}): Promise<
   let lastError: unknown;
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
+      const authH = authHeader();
       const response = await fetch(`${BASE_URL}${path}`, {
         method,
         signal,
@@ -64,7 +85,7 @@ export async function http<T>(path: string, options: HttpOptions = {}): Promise<
         // requests (e.g. DELETE /chats/:id) that declare application/json.
         headers: {
           ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
-          ...authHeader(),
+          ...authH,
           ...headers,
         },
         body: body === undefined ? undefined : JSON.stringify(body),
@@ -77,6 +98,7 @@ export async function http<T>(path: string, options: HttpOptions = {}): Promise<
           await sleep(300 * (attempt + 1));
           continue;
         }
+        noteUnauthorized(path, response.status, authH.Authorization);
         let message = `Request failed (${response.status})`;
         try {
           const data = (await response.json()) as { message?: string };
@@ -144,6 +166,7 @@ export async function httpSSE<T>(path: string, body: unknown, onToken: (delta: s
   };
   armIdle();
 
+  const authH = authHeader();
   let response: Response;
   try {
     response = await fetch(`${BASE_URL}${path}`, {
@@ -151,7 +174,7 @@ export async function httpSSE<T>(path: string, body: unknown, onToken: (delta: s
       headers: {
         'Content-Type': 'application/json',
         Accept: 'text/event-stream',
-        ...authHeader(),
+        ...authH,
       },
       body: JSON.stringify(body),
       signal: controller.signal,
@@ -163,6 +186,7 @@ export async function httpSSE<T>(path: string, body: unknown, onToken: (delta: s
 
   if (!response.ok) {
     if (idle) clearTimeout(idle);
+    noteUnauthorized(path, response.status, authH.Authorization);
     let message = `Request failed (${response.status})`;
     try {
       const data = (await response.json()) as { message?: string };
@@ -237,12 +261,14 @@ export async function httpSSE<T>(path: string, body: unknown, onToken: (delta: s
 
 /** Authenticated multipart upload (files go as FormData, not JSON). */
 export async function httpForm<T>(path: string, form: FormData): Promise<T> {
+  const authH = authHeader();
   const response = await fetch(`${BASE_URL}${path}`, {
     method: 'POST',
-    headers: { ...authHeader() }, // no Content-Type: the browser sets the multipart boundary
+    headers: { ...authH }, // no Content-Type: the browser sets the multipart boundary
     body: form,
   });
   if (!response.ok) {
+    noteUnauthorized(path, response.status, authH.Authorization);
     let message = `Request failed (${response.status})`;
     try {
       const data = (await response.json()) as { message?: string };
@@ -258,15 +284,17 @@ export async function httpForm<T>(path: string, form: FormData): Promise<T> {
 /** Authenticated binary download (e.g. the PDF analysis report). */
 export async function httpBlob(path: string, options: { method?: 'GET' | 'POST'; body?: unknown } = {}): Promise<Blob> {
   const { method = 'GET', body } = options;
+  const authH = authHeader();
   const response = await fetch(`${BASE_URL}${path}`, {
     method,
     headers: {
       ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
-      ...authHeader(),
+      ...authH,
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (!response.ok) {
+    noteUnauthorized(path, response.status, authH.Authorization);
     let message = `Request failed (${response.status})`;
     try {
       const data = (await response.json()) as { message?: string };

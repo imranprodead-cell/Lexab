@@ -316,6 +316,7 @@ const ar: Record<string, string> = {
   "auth.or": "أو",
   "auth.emailContinue": "المتابعة بالبريد الإلكتروني",
   "auth.googleFailed": "تعذّر تسجيل الدخول عبر Google. يُرجى المحاولة مرة أخرى.",
+  "auth.sessionExpired": "انتهت صلاحية الجلسة — يُرجى تسجيل الدخول مرة أخرى.",
   "auth.signingIn": "جارٍ تسجيل دخولك…",
   "auth.metricWithoutLabel": "دقة الاستشهاد القانوني للذكاء الاصطناعي وحده، دون قاعدة قوانين",
   "auth.metricWithLabel": "مع التحقق من النصوص الرسمية",
