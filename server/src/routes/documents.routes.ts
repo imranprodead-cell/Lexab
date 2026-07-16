@@ -4,7 +4,7 @@
  * POST /documents/:id/export { format: 'docx' | 'pdf' } → binary download
  */
 import { Document, HeadingLevel, Packer, Paragraph, TextRun } from 'docx';
-import { buildDocxParagraphs, type DocxMode } from '../lib/docxExport.ts';
+import { buildDocxParagraphs, DOCX_NUMBERING, type DocxMode } from '../lib/docxExport.ts';
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../db.ts';
 import { badRequest, notFound } from '../lib/errors.ts';
@@ -54,11 +54,15 @@ const SORT_COLUMNS: Record<string, string> = {
   updatedAt: 'updated_at',
 };
 
-/** Resolve document blocks + redline states into export sections. */
+/** Resolve document blocks + redline states into export sections. Formatting
+ *  marks are flattened (the simple PDF is plain text); list items get a marker
+ *  prefix so numbered/bulleted structure survives. */
 function resolveSections(blocks: DocBlock[], redlines: Redline[]): { heading?: string; text?: string }[] {
   const byId = new Map(redlines.map((r) => [r.id, r]));
   const sections: { heading?: string; text?: string }[] = [];
+  let numberedCount = 0;
   for (const block of blocks) {
+    if (block.type !== 'numbered') numberedCount = 0;
     if (block.type === 'heading') {
       sections.push({ heading: block.text ?? '' });
       continue;
@@ -67,14 +71,18 @@ function resolveSections(blocks: DocBlock[], redlines: Redline[]): { heading?: s
     for (const seg of block.segments ?? []) {
       if (typeof seg === 'string') {
         text += seg;
-      } else {
+      } else if ('redlineId' in seg) {
         const rl = byId.get(seg.redlineId);
         if (!rl) continue;
         // Only accepted suggestions are applied; pending keeps the original —
         // same convention as the draft builder and the signing page.
         text += rl.status === 'accepted' ? rl.insText : rl.delText;
+      } else {
+        text += seg.text; // formatted run — marks dropped for the plain PDF
       }
     }
+    if (block.type === 'bullet') text = `• ${text}`;
+    if (block.type === 'numbered') text = `${++numberedCount}. ${text}`;
     sections.push({ text });
   }
   return sections;
@@ -316,7 +324,7 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
           new Paragraph({ text: doc.name, heading: HeadingLevel.HEADING_1 }),
           new Paragraph({ children: [new TextRun(`No AI review has been run for “${doc.name}” yet — export the document after running an analysis.`)] }),
         ];
-    const file = new Document({ sections: [{ children: paragraphs }] });
+    const file = new Document({ numbering: DOCX_NUMBERING, sections: [{ children: paragraphs }] });
     const buffer = await Packer.toBuffer(file);
     reply.header('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     reply.header('Content-Disposition', attachmentDisposition(doc.name, 'docx'));

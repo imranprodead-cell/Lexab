@@ -9,7 +9,7 @@ import { formatSize, relativeTimeRu } from '../src/lib/format.ts';
 import { newId } from '../src/lib/ids.ts';
 import { hashPassword, verifyPassword } from '../src/lib/passwords.ts';
 import { buildSimplePdf } from '../src/lib/pdf.ts';
-import { buildDocxParagraphs } from '../src/lib/docxExport.ts';
+import { buildDocxParagraphs, DOCX_NUMBERING } from '../src/lib/docxExport.ts';
 import { Document, Packer } from 'docx';
 import { asObject, requireEmail, requireOneOf, requireString } from '../src/lib/validate.ts';
 
@@ -192,6 +192,56 @@ test('docx export: tracked mode emits real Word revisions; clean mode flattens',
   // (apostrophe may be XML-escaped, so match the stable part)
   assert.ok(cleanXml.includes('one month'), 'accepted change applied in clean copy');
   assert.ok(cleanXml.includes('12 months'), 'rejected change keeps original in clean copy');
+});
+
+test('docx export: user formatting (marks, align, lists, links) carries into Word', async () => {
+  const blocks = [
+    { type: 'heading' as const, text: 'Title', level: 1 as const },
+    {
+      type: 'paragraph' as const,
+      align: 'center' as const,
+      segments: [
+        'plain ',
+        { text: 'bold', marks: ['b' as const] },
+        { text: 'italic', marks: ['i' as const] },
+        { text: 'under', marks: ['u' as const] },
+        { text: 'struck', marks: ['s' as const] },
+        { text: 'site', href: 'https://example.com' },
+      ],
+    },
+    { type: 'bullet' as const, segments: ['first point'] },
+    { type: 'numbered' as const, segments: ['step one'] },
+  ];
+  const doc = new Document({
+    numbering: DOCX_NUMBERING,
+    sections: [{ children: buildDocxParagraphs('Doc', blocks, [], 'clean', '2026-01-01T00:00:00Z') }],
+  });
+  const xml = docxDocumentXml(await Packer.toBuffer(doc));
+  assert.ok(xml.includes('<w:b/>') || xml.includes('<w:b '), 'bold run present');
+  assert.ok(xml.includes('<w:i/>') || xml.includes('<w:i '), 'italic run present');
+  assert.ok(xml.includes('<w:u '), 'underline run present');
+  assert.ok(xml.includes('<w:strike'), 'strikethrough run present');
+  assert.ok(xml.includes('w:val="center"'), 'center alignment present');
+  assert.ok(xml.includes('<w:numPr>'), 'list items carry numbering/bullet properties');
+  assert.ok(xml.includes('<w:hyperlink'), 'hyperlink present');
+});
+
+test('docx export: two separate numbered lists each restart (distinct numbering instances)', async () => {
+  const blocks = [
+    { type: 'numbered' as const, segments: ['a1'] },
+    { type: 'numbered' as const, segments: ['a2'] },
+    { type: 'paragraph' as const, segments: ['break'] },
+    { type: 'numbered' as const, segments: ['b1'] },
+  ];
+  const doc = new Document({
+    numbering: DOCX_NUMBERING,
+    sections: [{ children: buildDocxParagraphs('Doc', blocks, [], 'clean', '2026-01-01T00:00:00Z') }],
+  });
+  const xml = docxDocumentXml(await Packer.toBuffer(doc));
+  const numIds = [...xml.matchAll(/<w:numId w:val="(\d+)"/g)].map((m) => m[1]);
+  assert.equal(numIds.length, 3, 'three numbered paragraphs reference numbering');
+  assert.equal(numIds[0], numIds[1], 'the first two items share one instance');
+  assert.notEqual(numIds[2], numIds[0], 'the second list uses a different instance (restarts)');
 });
 
 test('fallbacks stay well-formed (used when no LLM key is set)', () => {

@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // USE_MOCK must be false so loadSession talks to the (mocked) HTTP api layer.
 vi.mock('@/api', () => ({
   USE_MOCK: false,
-  analysisApi: { get: vi.fn() },
+  analysisApi: { get: vi.fn(), saveDocument: vi.fn().mockResolvedValue(undefined) },
 }));
 vi.mock('@/api/chats.api', () => ({
   chatsApi: {
@@ -23,6 +23,7 @@ vi.mock('@/store/useChatHistoryStore', () => ({
 
 import { analysisApi } from '@/api';
 import { chatsApi } from '@/api/chats.api';
+import type { AnalysisResult, DocBlock } from '@/types/domain';
 import { useChatStore } from './useChatStore';
 
 const mockMessages = chatsApi.messages as ReturnType<typeof vi.fn>;
@@ -144,5 +145,83 @@ describe('chat store — live streaming', () => {
     // The partial text was replaced by the honest error message (never a
     // half-written legal answer masquerading as complete).
     expect(assistant?.text).not.toContain('Partial legal ans');
+  });
+});
+
+describe('chat store — editor toggles & document undo/redo', () => {
+  const baseDoc: DocBlock[] = [{ type: 'paragraph', segments: ['original'] }];
+  const analysisWith = (doc: DocBlock[]): AnalysisResult => ({
+    id: 'an_ed', fileName: 'D.pdf', fileSize: '1 KB', summary: '', riskScore: 10, riskLevel: 'Low',
+    clausesReviewed: 1, findings: [], redlines: [], document: doc, canEdit: true,
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useChatStore.setState({
+      phase: 'analyzed', messages: [], analysis: analysisWith(baseDoc), activeStep: -1, error: null,
+      serverSessionId: null, sessionLoading: false, ghost: false, showEdits: true, docUndo: [], docRedo: [],
+    });
+  });
+
+  it('toggleShowEdits flips the flag', () => {
+    expect(useChatStore.getState().showEdits).toBe(true);
+    useChatStore.getState().toggleShowEdits();
+    expect(useChatStore.getState().showEdits).toBe(false);
+  });
+
+  it('updateDocument records an undo snapshot; undo/redo restore the blocks', () => {
+    const edited = [{ type: 'paragraph' as const, segments: ['edited'] }];
+    useChatStore.getState().updateDocument(edited);
+    expect(useChatStore.getState().analysis?.document).toEqual(edited);
+    expect(useChatStore.getState().docUndo.length).toBe(1);
+    expect(useChatStore.getState().docRedo.length).toBe(0);
+
+    useChatStore.getState().undoDocument();
+    expect(useChatStore.getState().analysis?.document).toEqual(baseDoc);
+    expect(useChatStore.getState().docUndo.length).toBe(0);
+    expect(useChatStore.getState().docRedo.length).toBe(1);
+
+    useChatStore.getState().redoDocument();
+    expect(useChatStore.getState().analysis?.document).toEqual(edited);
+    expect(useChatStore.getState().docRedo.length).toBe(0);
+  });
+
+  it('retires a pending redline only when its slot is gone; a bold run is not a slot', () => {
+    const withRedline = () => ({
+      ...analysisWith(baseDoc),
+      redlines: [{ id: 'r1', delText: 'a', insText: 'b', severity: 'Low' as const, status: 'pending' as const }],
+    });
+    // Edit KEEPS the slot (plus a bold run) → r1 stays. The run must not be
+    // treated as a slot (it has no redlineId).
+    useChatStore.setState({ analysis: withRedline(), docUndo: [], docRedo: [] });
+    useChatStore.getState().updateDocument([
+      { type: 'paragraph', segments: [{ text: 'bold', marks: ['b'] }, { redlineId: 'r1' }] },
+    ]);
+    expect(useChatStore.getState().analysis?.redlines.find((r) => r.id === 'r1')).toBeTruthy();
+
+    // Edit DROPS the slot (only a bold run remains) → r1 is retired.
+    useChatStore.setState({ analysis: withRedline(), docUndo: [], docRedo: [] });
+    useChatStore.getState().updateDocument([{ type: 'paragraph', segments: [{ text: 'bold', marks: ['b'] }] }]);
+    expect(useChatStore.getState().analysis?.redlines.find((r) => r.id === 'r1')).toBeFalsy();
+  });
+
+  it('undo restores BOTH the blocks and the redlines (no resurrected dangling slot)', () => {
+    // A doc with a pending redline r1 referenced by a slot.
+    const docWithSlot: DocBlock[] = [{ type: 'paragraph', segments: ['Term: ', { redlineId: 'r1' }, '.'] }];
+    useChatStore.setState({
+      analysis: {
+        ...analysisWith(docWithSlot),
+        redlines: [{ id: 'r1', delText: '30 days', insText: '60 days', severity: 'Low', status: 'pending' }],
+      },
+      docUndo: [], docRedo: [],
+    });
+    // Edit removes the slot → r1 is retired from redlines.
+    useChatStore.getState().updateDocument([{ type: 'paragraph', segments: ['Term: 30 days.'] }]);
+    expect(useChatStore.getState().analysis?.redlines.length).toBe(0);
+    // Undo must bring BACK r1 alongside the slot — not leave a dangling slot.
+    useChatStore.getState().undoDocument();
+    const s = useChatStore.getState();
+    expect(s.analysis?.document).toEqual(docWithSlot);
+    expect(s.analysis?.redlines.find((r) => r.id === 'r1')).toBeTruthy();
   });
 });

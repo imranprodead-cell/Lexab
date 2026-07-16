@@ -18,7 +18,8 @@ import { ANALYSIS_STEPS } from '@/data/seed';
 import { tStandalone } from '@/i18n/messages';
 import { useChatHistoryStore } from '@/store/useChatHistoryStore';
 import { useUIStore } from '@/store/useUIStore';
-import type { AnalysisResult, ChatMessage, RedlineStatus } from '@/types/domain';
+import type { AnalysisResult, ChatMessage, DocBlock, RedlineStatus } from '@/types/domain';
+import { isRedlineSlot } from '@/types/domain';
 
 /** Refresh the sidebar list so new sessions / updated order show up instantly. */
 function refreshHistory() {
@@ -89,8 +90,25 @@ interface ChatState {
   /** Send the given redlines back to pending (Accept-all undo). */
   revertRedlines: (ids: string[]) => void;
   pendingRedlineCount: () => number;
-  /** Live editor: replace the analysis document blocks after a manual edit. */
-  updateDocument: (document: AnalysisResult['document']) => void;
+  /** Live editor: replace the analysis document blocks after a manual edit.
+   *  `snapshot` (default true) records an undo step; undo/redo pass false. */
+  updateDocument: (document: AnalysisResult['document'], snapshot?: boolean) => void;
+
+  /** Toggle whether AI tracked changes (redlines) are shown or hidden. */
+  showEdits: boolean;
+  toggleShowEdits: () => void;
+  /** Undo/redo stacks (editor toolbar). Each snapshot captures BOTH the blocks
+   *  and the redline states, so undo can't resurrect a retired redline slot. */
+  docUndo: DocSnapshot[];
+  docRedo: DocSnapshot[];
+  /** Revert / re-apply the last document edit; persists the swapped blocks. */
+  undoDocument: () => void;
+  redoDocument: () => void;
+}
+
+interface DocSnapshot {
+  document: DocBlock[];
+  redlines: AnalysisResult['redlines'];
 }
 
 let stepTimers: ReturnType<typeof setTimeout>[] = [];
@@ -236,6 +254,9 @@ export const useChatStore = create<ChatState>((set, get) => {
   sessionLoading: false,
   ghost: false,
   pendingAnchor: null,
+  showEdits: true,
+  docUndo: [],
+  docRedo: [],
 
   requestAnchor: (redlineId) => set({ pendingAnchor: redlineId }),
   clearPendingAnchor: () => set({ pendingAnchor: null }),
@@ -621,6 +642,9 @@ export const useChatStore = create<ChatState>((set, get) => {
       activeStep: ANALYSIS_STEPS.length,
       error: null,
       serverSessionId: null,
+      // A freshly opened document starts with a clean edit history.
+      docUndo: [],
+      docRedo: [],
     });
   },
 
@@ -722,7 +746,7 @@ export const useChatStore = create<ChatState>((set, get) => {
   pendingRedlineCount: () =>
     get().analysis?.redlines.filter((r) => r.status === 'pending').length ?? 0,
 
-  updateDocument: (document) =>
+  updateDocument: (document, snapshot = true) =>
     set((s) => {
       if (!s.analysis) return s;
       // A manual paragraph edit can drop {redlineId} slots — retire pending
@@ -731,16 +755,56 @@ export const useChatStore = create<ChatState>((set, get) => {
       const referenced = new Set<string>();
       for (const b of document) {
         for (const seg of b.segments ?? []) {
-          if (typeof seg !== 'string') referenced.add(seg.redlineId);
+          if (isRedlineSlot(seg)) referenced.add(seg.redlineId);
         }
       }
+      const before: DocSnapshot = { document: s.analysis.document, redlines: s.analysis.redlines };
       return {
         analysis: {
           ...s.analysis,
           document,
           redlines: s.analysis.redlines.filter((r) => r.status !== 'pending' || referenced.has(r.id)),
         },
+        // Record the pre-edit state so Undo restores both blocks AND redlines.
+        docUndo: snapshot ? [...s.docUndo, before].slice(-50) : s.docUndo,
+        docRedo: snapshot ? [] : s.docRedo,
       };
     }),
+
+  toggleShowEdits: () => set((s) => ({ showEdits: !s.showEdits })),
+
+  undoDocument: () => {
+    const s = get();
+    if (!s.analysis || s.docUndo.length === 0) return;
+    const prev = s.docUndo[s.docUndo.length - 1];
+    const current: DocSnapshot = { document: s.analysis.document, redlines: s.analysis.redlines };
+    set({
+      analysis: { ...s.analysis, document: prev.document, redlines: prev.redlines },
+      docUndo: s.docUndo.slice(0, -1),
+      docRedo: [...s.docRedo, current].slice(-50),
+    });
+    void persistDocument(get().analysis!.id, prev.document);
+  },
+
+  redoDocument: () => {
+    const s = get();
+    if (!s.analysis || s.docRedo.length === 0) return;
+    const next = s.docRedo[s.docRedo.length - 1];
+    const current: DocSnapshot = { document: s.analysis.document, redlines: s.analysis.redlines };
+    set({
+      analysis: { ...s.analysis, document: next.document, redlines: next.redlines },
+      docRedo: s.docRedo.slice(0, -1),
+      docUndo: [...s.docUndo, current].slice(-50),
+    });
+    void persistDocument(get().analysis!.id, next.document);
+  },
   };
 });
+
+/** Persist swapped document blocks (undo/redo); surface a toast on failure. */
+function persistDocument(analysisId: string, document: DocBlock[]): Promise<void> {
+  return analysisApi
+    .saveDocument(analysisId, document)
+    .then(() => undefined)
+    .catch(() => useUIStore.getState().pushToast(tStandalone('common.error'), 'error'));
+}

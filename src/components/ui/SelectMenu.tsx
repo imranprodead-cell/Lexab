@@ -13,10 +13,11 @@ interface SelectMenuProps {
   options: SelectMenuOption[];
   onChange: (value: string) => void;
   ariaLabel: string;
+  disabled?: boolean;
 }
 
 /** Styled dropdown filter — one look for every list filter in the app. */
-export function SelectMenu({ value, options, onChange, ariaLabel }: SelectMenuProps) {
+export function SelectMenu({ value, options, onChange, ariaLabel, disabled }: SelectMenuProps) {
   const [open, setOpen] = useState(false);
   const ref = useDismissable<HTMLDivElement>(() => setOpen(false), open);
 
@@ -30,6 +31,7 @@ export function SelectMenu({ value, options, onChange, ariaLabel }: SelectMenuPr
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={ariaLabel}
+        disabled={disabled}
         onClick={() => setOpen((v) => !v)}
       >
         <span className={styles.selectMenuLabel}>{current?.label}</span>

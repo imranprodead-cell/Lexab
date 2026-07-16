@@ -75,11 +75,13 @@ export async function renderSignableText(db: Db, ownerId: string, fileName: stri
     let text = '';
     for (const seg of block.segments ?? []) {
       if (typeof seg === 'string') text += seg;
-      else {
+      else if ('redlineId' in seg) {
         const rl = byId.get(seg.redlineId);
         // Only ACCEPTED suggestions are applied; pending keeps the original —
         // nobody signs AI edits the owner has not approved.
         if (rl) text += rl.status === 'accepted' ? rl.ins_text : rl.del_text;
+      } else {
+        text += seg.text; // formatted run — plain text for the signing page
       }
     }
     lines.push(text);

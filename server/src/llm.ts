@@ -494,7 +494,7 @@ function normalizeGenerated(raw: GeneratedAnalysis): GeneratedAnalysis {
   const document: DocBlock[] = raw.document.map((block) => {
     if (block.type === 'heading') return { type: 'heading', text: block.text ?? '' };
     const segments = (block.segments ?? []).filter(
-      (seg) => typeof seg === 'string' || redlineIds.has(seg.redlineId),
+      (seg) => typeof seg === 'string' || !('redlineId' in seg) || redlineIds.has(seg.redlineId),
     );
     return { type: 'paragraph', segments };
   });
