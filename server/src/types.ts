@@ -29,12 +29,24 @@ export interface Redline {
   status: RedlineStatus;
 }
 
-export type DocSegment = string | { redlineId: string };
+export type Mark = 'b' | 'i' | 'u' | 's';
+
+export interface TextRun {
+  text: string;
+  marks?: Mark[];
+  href?: string;
+}
+
+export type DocSegment = string | TextRun | { redlineId: string };
+
+export type DocBlockType = 'heading' | 'paragraph' | 'bullet' | 'numbered';
 
 export interface DocBlock {
-  type: 'heading' | 'paragraph';
+  type: DocBlockType;
   text?: string;
   segments?: DocSegment[];
+  align?: 'left' | 'center' | 'right';
+  level?: 1 | 2;
 }
 
 export interface AnalysisResult {

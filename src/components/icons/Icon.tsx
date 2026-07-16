@@ -332,6 +332,114 @@ const GEOMETRY: Record<string, ReactNode> = {
       <path d="m7.5 17.6 4.5 2.9 4.5-2.9" />
     </>
   ),
+  // ── Rich-text editor toolbar ─────────────────────────────────────────────
+  bold: (
+    <>
+      <path d="M7 4h6a4 4 0 0 1 0 8H7z" />
+      <path d="M7 12h7a4 4 0 0 1 0 8H7z" />
+    </>
+  ),
+  italic: (
+    <>
+      <path d="M19 4h-9" />
+      <path d="M14 20H5" />
+      <path d="m15 4-6 16" />
+    </>
+  ),
+  underline: (
+    <>
+      <path d="M6 4v6a6 6 0 0 0 12 0V4" />
+      <path d="M5 21h14" />
+    </>
+  ),
+  strikethrough: (
+    <>
+      <path d="M16 4H9a3 3 0 0 0-2.83 4" />
+      <path d="M14 12a4 4 0 0 1 0 8H6" />
+      <path d="M4 12h16" />
+    </>
+  ),
+  list: (
+    <>
+      <path d="M8 6h13" />
+      <path d="M8 12h13" />
+      <path d="M8 18h13" />
+      <path d="M3 6h.01" />
+      <path d="M3 12h.01" />
+      <path d="M3 18h.01" />
+    </>
+  ),
+  listNumbered: (
+    <>
+      <path d="M10 6h11" />
+      <path d="M10 12h11" />
+      <path d="M10 18h11" />
+      <path d="M4 5h1v4" />
+      <path d="M4 9h2" />
+      <path d="M4 15.5c0-.8 2-.8 2 .3s-2 1.4-2 2.2h2" />
+    </>
+  ),
+  alignLeft: (
+    <>
+      <path d="M3 6h18" />
+      <path d="M3 12h12" />
+      <path d="M3 18h15" />
+    </>
+  ),
+  alignCenter: (
+    <>
+      <path d="M3 6h18" />
+      <path d="M6 12h12" />
+      <path d="M4 18h16" />
+    </>
+  ),
+  alignRight: (
+    <>
+      <path d="M3 6h18" />
+      <path d="M9 12h12" />
+      <path d="M6 18h15" />
+    </>
+  ),
+  link: (
+    <>
+      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+    </>
+  ),
+  undo: (
+    <>
+      <path d="M9 14 4 9l5-5" />
+      <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H10" />
+    </>
+  ),
+  redo: (
+    <>
+      <path d="m15 14 5-5-5-5" />
+      <path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H14" />
+    </>
+  ),
+  cut: (
+    <>
+      <circle cx="6" cy="6" r="3" />
+      <circle cx="6" cy="18" r="3" />
+      <path d="M20 4 8.12 15.88" />
+      <path d="M14.47 14.48 20 20" />
+      <path d="M8.12 8.12 12 12" />
+    </>
+  ),
+  paste: (
+    <>
+      <rect x="8" y="2" width="8" height="4" rx="1" />
+      <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+    </>
+  ),
+  textStyle: (
+    <>
+      <path d="M4 7V5h16v2" />
+      <path d="M9 19h6" />
+      <path d="M12 5v14" />
+    </>
+  ),
 };
 
 export type IconName = keyof typeof GEOMETRY;

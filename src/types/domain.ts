@@ -43,13 +43,47 @@ export interface Redline {
   status: RedlineStatus;
 }
 
-/** An inline segment of a document paragraph: plain text or a redline slot. */
-export type DocSegment = string | { redlineId: string };
+/** Inline character formatting on a text run. b=bold, i=italic, u=underline, s=strikethrough. */
+export type Mark = 'b' | 'i' | 'u' | 's';
+
+/** A formatted run of text inside a paragraph. */
+export interface TextRun {
+  text: string;
+  /** Applied inline marks (empty/absent = plain). */
+  marks?: Mark[];
+  /** When set, the run is a hyperlink. */
+  href?: string;
+}
+
+/**
+ * An inline segment of a document paragraph. A bare `string` is a plain run
+ * (kept for backward compatibility with older stored documents); a `TextRun`
+ * carries inline formatting; a redline slot references a tracked change.
+ */
+export type DocSegment = string | TextRun | { redlineId: string };
+
+/** Block-level type. `bullet`/`numbered` are single list items; consecutive
+ *  items of the same kind render as one list. */
+export type DocBlockType = 'heading' | 'paragraph' | 'bullet' | 'numbered';
 
 export interface DocBlock {
-  type: 'heading' | 'paragraph';
+  type: DocBlockType;
   text?: string;
   segments?: DocSegment[];
+  /** Paragraph/list-item alignment (default left). */
+  align?: 'left' | 'center' | 'right';
+  /** Heading depth (1 = section title, 2 = sub-heading). Default 2. */
+  level?: 1 | 2;
+}
+
+/** True when a segment is a redline slot (vs. plain text / formatted run). */
+export function isRedlineSlot(seg: DocSegment): seg is { redlineId: string } {
+  return typeof seg !== 'string' && 'redlineId' in seg;
+}
+
+/** True when a segment is a formatted text run (vs. bare string / redline). */
+export function isTextRun(seg: DocSegment): seg is TextRun {
+  return typeof seg !== 'string' && 'text' in seg;
 }
 
 /** The full result returned by the contract analysis endpoint. */

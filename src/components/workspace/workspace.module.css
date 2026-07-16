@@ -601,3 +601,97 @@
     display: none;
   }
 }
+
+/* ── Top editing toolbar (rich-text) ─────────────────────────────────────── */
+.editorToolbar {
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bar-bg);
+}
+.editorToolbarInner {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 7px 14px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.editorToolbarInner::-webkit-scrollbar {
+  height: 6px;
+}
+.etBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  min-width: 32px;
+  padding: 0 7px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background var(--dur-fast), border-color var(--dur-fast), opacity var(--dur-fast);
+}
+.etBtn:hover:not(:disabled) {
+  background: var(--hover-2);
+}
+.etBtn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.etBtnOn {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 34%, transparent);
+  color: var(--accent);
+}
+.etTextBtn {
+  padding: 0 11px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.etBtnText {
+  white-space: nowrap;
+}
+.etDivider {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+.etSpacer {
+  flex: 1;
+  min-width: 8px;
+}
+
+/* A block currently being edited (contentEditable). */
+.blockEditing {
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: 4px;
+  border-radius: 4px;
+  cursor: text;
+}
+.blockEditing:focus {
+  outline-color: var(--accent);
+}
+.blockEditing a {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+/* Lists inside the document. */
+.clauseList {
+  font-family: var(--font-serif);
+  font-size: 15.5px;
+  line-height: 1.95;
+  color: #c9c9d2;
+  margin: 0 0 8px;
+  padding-inline-start: 26px;
+}
+.clauseList li.clause {
+  margin: 0;
+  list-style: revert;
+}

@@ -1,4 +1,4 @@
-import { useEffect, useState, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Avatar } from '@/components/ui/Avatar';
 import { toneColor } from '@/components/ui/Badge';
@@ -7,11 +7,12 @@ import { Icon } from '@/components/icons/Icon';
 import { IconButton } from '@/components/ui/Button';
 import { SkeletonRows } from '@/components/ui/States';
 import { ChatInput } from '@/components/chat/ChatInput';
-import { DocumentViewer } from '@/components/workspace/DocumentViewer';
+import { DocumentViewer, type ActiveBlock, type DocEditorHandle } from '@/components/workspace/DocumentViewer';
+import { EditorToolbar } from '@/components/workspace/EditorToolbar';
 import { FloatingToolbar } from '@/components/workspace/FloatingToolbar';
 import { SendForSignatureModal } from '@/components/workspace/SendForSignatureModal';
 import { VersionHistoryModal } from '@/components/workspace/VersionHistoryModal';
-import { analysisApi, documentsApi } from '@/api';
+import { analysisApi, documentsApi, versionsApi } from '@/api';
 import { useChatStore } from '@/store/useChatStore';
 import { useUIStore } from '@/store/useUIStore';
 import { usePageTitle } from '@/hooks/usePageTitle';
@@ -37,8 +38,19 @@ export function WorkspacePage() {
   const revertRedlines = useChatStore((s) => s.revertRedlines);
   const updateDocument = useChatStore((s) => s.updateDocument);
   const reanalyze = useChatStore((s) => s.reanalyze);
+  const showEdits = useChatStore((s) => s.showEdits);
+  const toggleShowEdits = useChatStore((s) => s.toggleShowEdits);
+  const undoDocument = useChatStore((s) => s.undoDocument);
+  const redoDocument = useChatStore((s) => s.redoDocument);
+  const canUndo = useChatStore((s) => s.docUndo.length > 0);
+  const canRedo = useChatStore((s) => s.docRedo.length > 0);
   const pushToast = useUIStore((s) => s.pushToast);
   usePageTitle(analysis?.fileName || t('ws.review'));
+
+  // The rich editor's imperative handle + which block is focused (toolbar state).
+  const editorRef = useRef<DocEditorHandle>(null);
+  const [activeBlock, setActiveBlock] = useState<ActiveBlock | null>(null);
+  const [versionLabel, setVersionLabel] = useState<string | null>(null);
 
   const analysisReadOnly = () => useChatStore.getState().analysis?.canEdit === false;
   const [signOpen, setSignOpen] = useState(false);
@@ -54,6 +66,21 @@ export function WorkspacePage() {
       clearPendingAnchor();
     }
   }, [pendingAnchor, clearPendingAnchor]);
+
+  // The toolbar shows the latest version label (e.g. "v3 — current"). Best
+  // effort: versions are a plan-gated feature, so a 402/empty just hides it.
+  const analysisId = analysis?.id;
+  useEffect(() => {
+    if (!analysisId) return;
+    let cancelled = false;
+    versionsApi
+      .list(analysisId)
+      .then((versions) => !cancelled && setVersionLabel(versions[0]?.label ?? null))
+      .catch(() => !cancelled && setVersionLabel(null));
+    return () => {
+      cancelled = true;
+    };
+  }, [analysisId]);
 
   const runReanalysis = () => {
     if (analysisReadOnly()) {
@@ -94,10 +121,9 @@ export function WorkspacePage() {
 
   const closeWorkspace = () => navigate(sessionId ? `/chat/${sessionId}` : '/chat');
 
-  const saveBlock = (index: number, text: string) => {
-    const document: DocBlock[] = analysis.document.map((b, i) =>
-      i === index ? (b.type === 'heading' ? { type: 'heading', text } : { type: 'paragraph', segments: [text] }) : b,
-    );
+  // Persist a document edit from the rich editor (blocks already assembled by
+  // the viewer). updateDocument records an undo snapshot; the server stores it.
+  const persistDocument = (document: DocBlock[]) => {
     updateDocument(document);
     analysisApi
       .saveDocument(analysis.id, document)
@@ -199,8 +225,38 @@ export function WorkspacePage() {
         <ChatInput compact draftKey="workspace" onAnalyze={runReanalysis} onSend={(text) => sendMessage(text)} />
       </div>
 
-      {/* Right: document viewer with redlines + floating toolbar */}
-      <DocumentViewer analysis={analysis} pendingCount={pendingCount} onSaveBlock={canEdit ? saveBlock : undefined} anchor={anchor}>
+      {/* Right: top editing toolbar + document viewer with redlines + floating toolbar */}
+      <DocumentViewer
+        ref={editorRef}
+        analysis={analysis}
+        pendingCount={pendingCount}
+        canEdit={canEdit}
+        onChange={canEdit ? persistDocument : undefined}
+        onActiveChange={setActiveBlock}
+        anchor={anchor}
+        topBar={
+          <EditorToolbar
+            canEdit={canEdit}
+            active={activeBlock}
+            editor={editorRef}
+            showEdits={showEdits}
+            onToggleShowEdits={toggleShowEdits}
+            canUndo={canUndo}
+            canRedo={canRedo}
+            onUndo={() => {
+              editorRef.current?.exitEdit(); // don't let a stale open editor re-save
+              undoDocument();
+            }}
+            onRedo={() => {
+              editorRef.current?.exitEdit();
+              redoDocument();
+            }}
+            versionLabel={versionLabel}
+            onVersionHistory={() => setHistoryOpen(true)}
+            onClose={closeWorkspace}
+          />
+        }
+      >
         <FloatingToolbar
           readOnly={!canEdit}
           pendingCount={pendingCount}

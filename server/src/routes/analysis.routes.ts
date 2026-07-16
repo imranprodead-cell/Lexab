@@ -124,10 +124,12 @@ function blocksToDraftText(blocks: DocBlock[], redlines: Redline[]): string {
     for (const seg of block.segments ?? []) {
       if (typeof seg === 'string') {
         text += seg;
-      } else {
+      } else if ('redlineId' in seg) {
         const rl = byId.get(seg.redlineId);
         if (!rl) continue;
         text += rl.status === 'accepted' ? rl.insText : rl.delText;
+      } else {
+        text += seg.text;
       }
     }
     lines.push(text);
@@ -520,10 +522,42 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
     if (!Array.isArray(blocks) || blocks.length === 0 || blocks.length > 500) {
       throw badRequest('Field "document" must be a non-empty array of blocks');
     }
-    for (const b of blocks) {
-      const block = b as DocBlock;
-      if (block.type !== 'heading' && block.type !== 'paragraph') {
-        throw badRequest('Each block must have type "heading" or "paragraph"');
+    const VALID_TYPES = new Set(['heading', 'paragraph', 'bullet', 'numbered']);
+    const VALID_MARKS = new Set(['b', 'i', 'u', 's']);
+    // Same safe-scheme policy as the client: no javascript:/data: links can be
+    // stored (they would become clickable script for any viewer).
+    const safeHref = (h: string) => /^(https?:\/\/|\/|#|\.|mailto:|tel:)/i.test(h.trim());
+    const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;
+    for (const b of blocks as unknown[]) {
+      if (!isObject(b)) throw badRequest('Each block must be an object');
+      if (typeof b.type !== 'string' || !VALID_TYPES.has(b.type)) {
+        throw badRequest('Each block type must be heading, paragraph, bullet or numbered');
+      }
+      if (b.align !== undefined && !['left', 'center', 'right'].includes(b.align as string)) {
+        throw badRequest('Invalid block align');
+      }
+      if (b.level !== undefined && b.level !== 1 && b.level !== 2) {
+        throw badRequest('Invalid heading level');
+      }
+      if (b.segments !== undefined && !Array.isArray(b.segments)) {
+        throw badRequest('Block segments must be an array');
+      }
+      for (const seg of (b.segments as unknown[]) ?? []) {
+        if (typeof seg === 'string') continue;
+        if (!isObject(seg)) throw badRequest('Invalid segment');
+        if ('redlineId' in seg) {
+          if (typeof seg.redlineId !== 'string') throw badRequest('Invalid redline slot');
+          continue;
+        }
+        // A formatted text run.
+        if (typeof seg.text !== 'string') throw badRequest('Invalid text run');
+        if (seg.marks !== undefined && (!Array.isArray(seg.marks) || seg.marks.some((m) => !VALID_MARKS.has(m as string)))) {
+          throw badRequest('Invalid run marks');
+        }
+        if (seg.href !== undefined) {
+          if (typeof seg.href !== 'string') throw badRequest('Invalid link');
+          if (seg.href && !safeHref(seg.href)) throw badRequest('Unsafe link scheme');
+        }
       }
     }
     await resolveAnalysisAccess(db, req.currentUser.id, id, true);
@@ -534,7 +568,7 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
     const referenced: string[] = [];
     for (const b of blocks as DocBlock[]) {
       for (const seg of b.segments ?? []) {
-        if (typeof seg !== 'string' && seg.redlineId) referenced.push(seg.redlineId);
+        if (typeof seg !== 'string' && 'redlineId' in seg) referenced.push(seg.redlineId);
       }
     }
     await db.query(

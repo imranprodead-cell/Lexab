@@ -360,6 +360,40 @@ describe('contract draft (chat → editable sheet)', () => {
     // Surfaces on the Documents page.
     const docs = await app.inject({ method: 'GET', url: '/api/documents', headers: auth(token) });
     assert.ok(JSON.parse(docs.body).some((d: { name: string }) => d.name === an.fileName), 'draft shows in documents');
+
+    // Rich formatting from the editor persists (marks, align, lists, links).
+    const formatted = [
+      { type: 'heading', text: 'Section', level: 1 },
+      {
+        type: 'paragraph',
+        align: 'center',
+        segments: ['see ', { text: 'bold', marks: ['b'] }, { text: 'x', href: 'https://ex.com' }],
+      },
+      { type: 'bullet', segments: [{ text: 'point', marks: ['i'] }] },
+      { type: 'numbered', segments: ['step'] },
+    ];
+    const rich = await app.inject({ method: 'PATCH', url: `/api/analysis/${an.id}/document`, headers: auth(token), payload: { document: formatted } });
+    assert.equal(rich.statusCode, 200, rich.body);
+    const back = JSON.parse((await app.inject({ method: 'GET', url: `/api/analysis/${an.id}`, headers: auth(token) })).body);
+    assert.equal(back.document[0].level, 1, 'heading level persisted');
+    assert.equal(back.document[1].align, 'center', 'alignment persisted');
+    assert.deepEqual(back.document[1].segments[1], { text: 'bold', marks: ['b'] }, 'bold run persisted');
+    assert.deepEqual(back.document[1].segments[2], { text: 'x', href: 'https://ex.com' }, 'hyperlink run persisted');
+    assert.equal(back.document[2].type, 'bullet', 'bullet block persisted');
+    assert.equal(back.document[3].type, 'numbered', 'numbered block persisted');
+
+    // Malformed formatting is rejected with 400 (never a 500), defending the JSON shape.
+    const reject = async (document: unknown, why: string) => {
+      const r = await app.inject({ method: 'PATCH', url: `/api/analysis/${an.id}/document`, headers: auth(token), payload: { document } });
+      assert.equal(r.statusCode, 400, `${why} → expected 400, got ${r.statusCode}`);
+    };
+    await reject([{ type: 'paragraph', segments: [{ text: 'x', marks: ['zzz'] }] }], 'invalid mark');
+    await reject([{ type: 'quote', segments: ['x'] }], 'unknown block type');
+    await reject([{ type: 'paragraph', align: 'justify', segments: ['x'] }], 'invalid align');
+    await reject([{ type: 'paragraph', segments: [{ text: 'x', href: 'javascript:alert(1)' }] }], 'unsafe link scheme');
+    await reject([{ type: 'paragraph', segments: [{ redlineId: 42 }] }], 'non-string redlineId');
+    await reject([{ type: 'paragraph', segments: [123] }], 'non-object segment (must be 400 not 500)');
+    await reject([null], 'non-object block (must be 400 not 500)');
   });
 
   it('is gated to plans that include the contract generator (Free → 402)', async () => {
