@@ -36,6 +36,16 @@
   padding-top: 24px;
 }
 
+/* Sit the hero + sign-in card a touch lower — but ONLY on tall screens
+   (>=900px), where there is genuine slack. On common laptops (~768px) this
+   stays off so the metric line under the card is never pushed below the fold.
+   The auto margins on .leftInner keep it centred and never clip the top. */
+@media (min-width: 941px) and (min-height: 900px) {
+  .left {
+    padding-top: clamp(24px, 5vh, 64px);
+  }
+}
+
 .brand {
   display: flex;
   align-items: center;
@@ -55,22 +65,66 @@
 }
 
 .hero {
-  font-size: clamp(32px, 3.8vw, 48px);
-  line-height: 1.1;
+  /* Larger to fill the roomy left column. overflow-wrap lets a very long word
+     (e.g. Kazakh "Келісімшарттарды") break instead of spilling past the 420px
+     measure — RU/EN words never trigger it. */
+  font-size: clamp(34px, 4.4vw, 56px);
+  line-height: 1.08;
   font-weight: 700;
   letter-spacing: -0.02em;
   margin: 0 0 12px;
+  overflow-wrap: break-word;
 }
 
+/* Accent word ("быстрее"): violet gradient fill with a hand-drawn wavy
+   underline. Falls back to a solid accent colour where background-clip:text
+   is unsupported, so the word is never invisible. */
 .heroAccent {
+  position: relative;
+  display: inline-block;
   color: var(--accent);
+  padding-bottom: 0.04em;
+}
+
+@supports ((-webkit-background-clip: text) or (background-clip: text)) {
+  .heroAccent {
+    /* Left half = the heading colour (near-black in light, near-white in dark)
+       so it blends into "контракты"; the violet gradient sits on the RIGHT. */
+    /* Long gradient: "б" keeps the heading colour, then from "ы" it ramps
+       smoothly across the remaining letters to full violet at the end. */
+    background: linear-gradient(
+      95deg,
+      var(--text) 0%,
+      var(--text) 12%,
+      var(--accent) 100%
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+  }
+}
+
+/* Freehand marker underline: a smooth, slightly curved band in translucent
+   lavender with uneven thickness (filled shape, not a stroke) so the background
+   shows through — a highlighter feel. Stretched once under the word. */
+.heroAccent::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -0.18em;
+  height: 0.3em;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 220 14' preserveAspectRatio='none'%3E%3Cpath d='M4 8.4C46 4.2 120 3.1 176 5.2 197 6 209 6.6 216 5.1 210 8.6 197 10.4 176 9.7 120 8.2 46 9 4 10.6 2.4 9.9 2.4 9 4 8.4Z' fill='%23c3b2f2' fill-opacity='0.6'/%3E%3C/svg%3E")
+    no-repeat center / 100% 100%;
+  pointer-events: none;
 }
 
 .heroSub {
   font-size: 15px;
   line-height: 1.55;
   color: var(--dim);
-  margin: 0 0 18px;
+  margin: 0 0 14px;
   max-width: 400px;
 }
 
@@ -81,35 +135,42 @@
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
-  margin: 0 0 26px;
+  margin: 0 0 18px;
 }
 
-/* Outline, not filled: the screen's single filled-accent CTA is the sign-in
-   card's email button — hero buttons must not compete with it. */
+/* Primary hero action: soft-violet tinted fill with a trailing arrow. The
+   text colour blends toward --text so it stays legible on both themes. */
 .heroCtaOutline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   padding: 11px 20px;
-  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+  border: 1px solid transparent;
   border-radius: 12px;
-  background: transparent;
-  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 15%, var(--panel));
+  color: color-mix(in srgb, var(--accent) 74%, var(--text));
   font-family: inherit;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   touch-action: manipulation;
-  transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+  transition: background var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
 }
 
 .heroCtaOutline:hover {
-  background: color-mix(in srgb, var(--accent) 9%, transparent);
-  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 24%, var(--panel));
+  transform: translateY(-1px);
 }
 
 .heroCtaOutline:active {
   transform: scale(0.97);
 }
 
+/* Secondary hero action: quiet surface button with a leading play glyph. */
 .heroCtaGhost {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   padding: 11px 20px;
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -120,12 +181,15 @@
   font-weight: 600;
   cursor: pointer;
   touch-action: manipulation;
-  transition: border-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+  box-shadow: 0 1px 2px color-mix(in srgb, #000 8%, transparent);
+  transition: border-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--ease);
 }
 
 .heroCtaGhost:hover {
   border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
   color: var(--accent);
+  transform: translateY(-1px);
 }
 
 .heroCtaGhost:active {
@@ -396,13 +460,13 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 22px;
+  gap: 16px;
 }
 
 .rightDiamond {
-  width: 128px;
-  height: 128px;
-  border-radius: 32px;
+  width: 104px;
+  height: 104px;
+  border-radius: 26px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -429,7 +493,7 @@
 
 .topBar {
   position: sticky;
-  top: 0;
+  top: 14px;
   /* Above the fixed Telegram dock (z-70): the banner is a stacking context,
      so the open language menu inherits this ceiling. */
   z-index: 80;
@@ -437,32 +501,72 @@
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
   gap: 12px;
-  padding: 14px 24px;
-  /* Overlay the 100vh first screen instead of pushing it down. */
-  margin-bottom: -72px;
-  pointer-events: none;
+  /* One unified floating bar (photo 1): centred, rounded, blurred surface. */
+  width: min(1240px, calc(100% - 32px));
+  margin: 14px auto -74px; /* still overlays the 100vh first screen */
+  padding: 10px 12px 10px 16px;
+  border-radius: 22px;
+  /* Liquid glass: very translucent surface + strong blur & saturation so
+     scrolled content shows through the empty areas, with a top sheen for the
+     glass edge. Text/controls sit on top and stay fully opaque. */
+  background: color-mix(in srgb, var(--panel) 44%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  box-shadow: var(--shadow-card), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  backdrop-filter: blur(24px) saturate(1.8);
+  -webkit-backdrop-filter: blur(24px) saturate(1.8);
+  pointer-events: auto;
 }
 
 .topBarSide {
   display: flex;
   min-width: 0;
+  align-items: center;
 }
 
 .topBarRight {
   justify-content: flex-end;
+  gap: 8px;
+}
+
+/* Brand lockup inside the banner (photo 1). Hidden on mobile, where the hero
+   keeps its own lockup — see the responsive block. */
+.bannerBrand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding-left: 2px;
+}
+
+.bannerBrandText {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+
+.bannerBrandName {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.bannerBrandSub {
+  font-size: 11px;
+  color: var(--mut);
+  font-family: var(--font-label);
 }
 
 .navPill {
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 5px;
+  padding: 3px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--panel) 82%, transparent);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-card);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  /* Subtle backing so the labels stay legible when a bright element (the white
+     Pro card, the violet CTA banner) scrolls under the translucent bar; the
+     empty gaps of the bar stay clear glass. */
+  background: color-mix(in srgb, var(--panel) 42%, transparent);
+  border: none;
+  box-shadow: none;
   pointer-events: auto;
   max-width: 100%;
   overflow-x: auto;
@@ -500,14 +604,14 @@
   background: var(--hover);
 }
 
-/* Sticky conversion CTA in the banner (hidden on small screens). */
+/* Sticky conversion CTA in the banner — the violet gradient from photo 1. */
 .headerCta {
-  margin-right: 10px;
-  padding: 9px 16px;
+  margin-right: 0;
+  padding: 10px 18px;
   border: none;
   border-radius: 999px;
-  background: var(--accent);
-  color: var(--on-accent);
+  background: var(--grad-cta);
+  color: var(--on-grad);
   font-family: inherit;
   font-size: 13px;
   font-weight: 600;
@@ -515,13 +619,15 @@
   cursor: pointer;
   touch-action: manipulation;
   pointer-events: auto;
-  box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 28%, transparent);
-  transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--accent) 34%, transparent);
+  transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease);
 }
 
 .headerCta:hover {
   transform: translateY(-1px);
-  box-shadow: 0 9px 24px color-mix(in srgb, var(--accent) 40%, transparent);
+  background: var(--grad-cta-hover);
+  box-shadow: 0 11px 26px color-mix(in srgb, var(--accent) 46%, transparent);
 }
 
 .headerCta:active {
@@ -532,13 +638,12 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 6px;
+  padding: 3px 5px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--panel) 82%, transparent);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-card);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  /* Same subtle backing as the nav cluster (see .navPill) for legibility. */
+  background: color-mix(in srgb, var(--panel) 42%, transparent);
+  border: none;
+  box-shadow: none;
   pointer-events: auto;
 }
 
@@ -601,21 +706,34 @@
   .hero {
     font-size: clamp(30px, 8.5vw, 38px);
   }
-  /* The banner stops overlaying and becomes a regular blurred strip. */
+  /* The banner stops overlaying and becomes a full-width blurred strip. */
   .topBar {
     grid-template-columns: minmax(0, 1fr) auto;
-    margin-bottom: 0;
+    top: 0;
+    width: auto;
+    margin: 0;
+    border-radius: 0;
+    border-width: 0 0 1px;
     padding: 10px 12px;
     background: color-mix(in srgb, var(--bg) 86%, transparent);
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
     pointer-events: auto;
   }
+  /* Banner logo hides here; the hero keeps its own lockup on mobile. */
   .topBarSide:first-child {
     display: none;
   }
   .navPill {
     justify-self: start;
+  }
+}
+
+/* Desktop only: the banner carries the logo, so the hero's own lockup would
+   duplicate it — hide the hero one above the mobile breakpoint. */
+@media (min-width: 941px) {
+  .brand {
+    display: none;
   }
 }
 
@@ -645,7 +763,7 @@
   align-items: center;
   justify-content: center;
   gap: 34px;
-  padding-top: 26px;
+  padding-top: 16px;
 }
 
 .stat {
@@ -682,7 +800,7 @@
   text-align: center;
   font-size: 11.5px;
   color: var(--dim);
-  margin-top: 10px;
+  margin-top: 8px;
 }
 
 /* ── Verifiable trust badges on the decorative panel ─────────────────────── */
@@ -691,21 +809,21 @@
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 10px;
-  width: min(380px, 78%);
-  margin-top: 12px;
+  gap: 8px;
+  width: min(360px, 76%);
+  margin-top: 10px;
 }
 
 .rightBadge {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 11px 16px;
+  padding: 9px 14px;
   border-radius: 999px;
   background: var(--panel);
   border: 1px solid var(--border);
   box-shadow: 0 10px 28px color-mix(in srgb, var(--accent) 10%, transparent);
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 500;
   text-align: left;
 }

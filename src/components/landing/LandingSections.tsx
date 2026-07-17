@@ -144,29 +144,35 @@ const STEPS: { title: Text2; text: Text2 }[] = [
   },
 ];
 
-const SOLUTIONS: { icon: IconName; title: Text2; text: Text2 }[] = [
+/** Audience cards (photo-10 layout): an optional headline metric top-right,
+ *  plus a "learn more" link. Metrics are product-positioning figures — the
+ *  Individuals card intentionally carries none (no number to stand behind). */
+const AUDIENCES: { icon: IconName; metric?: Text2; title: Text2; text: Text2 }[] = [
   {
     icon: 'users',
-    title: { ru: 'Юридические фирмы', en: 'Law firms' },
+    metric: { ru: '10×', en: '10×' },
+    title: { ru: 'In-house юристы', en: 'In-house counsel' },
     text: {
-      ru: 'Рутинная вычитка уходит ИИ — юристы занимаются позицией клиента, а не перечитыванием типовых пунктов.',
-      en: 'Routine review goes to the AI — lawyers spend time on the client’s position, not on re-reading boilerplate.',
+      ru: 'Ускорьте обзор входящих контрактов в 10 раз. Освободите время на стратегию.',
+      en: 'Review incoming contracts 10× faster. Free up time for strategy.',
     },
   },
   {
     icon: 'layout',
-    title: { ru: 'Юротделы компаний', en: 'In-house legal teams' },
+    metric: { ru: '3,5×', en: '3.5×' },
+    title: { ru: 'Юридические фирмы', en: 'Law firms' },
     text: {
-      ru: 'Общие документы, роли доступа и маршруты согласования — договор проходит цепочку быстрее.',
-      en: 'Shared documents, access roles and approval workflows — contracts move through the chain faster.',
+      ru: 'Стандартизируйте качество due diligence в команде любого размера.',
+      en: 'Standardise due-diligence quality across a team of any size.',
     },
   },
   {
-    icon: 'analytics',
-    title: { ru: 'Компании с потоком договоров', en: 'High-volume teams' },
+    icon: 'shield',
+    metric: { ru: '99,9%', en: '99.9%' },
+    title: { ru: 'Compliance & Risk', en: 'Compliance & Risk' },
     text: {
-      ru: 'Десятки договоров в месяц: шаблоны, история версий и аналитика рисков в одном месте.',
-      en: 'Dozens of contracts a month: templates, version history and risk analytics in one place.',
+      ru: 'Автоматический мониторинг соответствия локальному законодательству.',
+      en: 'Automatic monitoring of compliance with local legislation.',
     },
   },
   {
@@ -209,8 +215,8 @@ const SECURITY: { icon: IconName; title: Text2; text: Text2 }[] = [
     icon: 'check',
     title: { ru: 'Проверяемые цитаты', en: 'Verifiable citations' },
     text: {
-      ru: 'Ссылки на законы проверяются кодом по официальным источникам — legislation.gov.uk и lex.uz. Неподтверждённое помечается.',
-      en: 'Legal citations are validated in code against official sources — legislation.gov.uk and lex.uz. Anything unconfirmed is flagged.',
+      ru: 'Ссылки на законы проверяются кодом по официальным государственным источникам законодательства. Неподтверждённое помечается.',
+      en: 'Legal citations are validated in code against official government sources. Anything unconfirmed is flagged.',
     },
   },
   {
@@ -219,6 +225,54 @@ const SECURITY: { icon: IconName; title: Text2; text: Text2 }[] = [
     text: {
       ru: 'Удалите документ — он исчезнет из аккаунта и базы данных. Можно удалить и аккаунт целиком вместе со всеми данными.',
       en: 'Delete a document and it disappears from your account and the database. You can also delete your entire account with all its data.',
+    },
+  },
+  {
+    icon: 'globe',
+    title: { ru: 'SSO', en: 'SSO' },
+    text: {
+      ru: 'Единый корпоративный вход через вашего провайдера (SAML/OIDC) — на тарифе Business.',
+      en: 'Single sign-on through your corporate identity provider (SAML/OIDC) on the Business plan.',
+    },
+  },
+  {
+    icon: 'users',
+    title: { ru: 'RBAC', en: 'RBAC' },
+    text: {
+      ru: 'Роли доступа: администратор, редактор, просмотр — каждый видит только то, что ему разрешено.',
+      en: 'Role-based access: admin, editor, viewer — each teammate sees only what they’re allowed to.',
+    },
+  },
+  {
+    icon: 'shield',
+    title: { ru: 'MFA', en: 'MFA' },
+    text: {
+      ru: 'Двухфакторная защита входа через ваш аккаунт Google или корпоративный SSO-провайдер.',
+      en: 'Two-factor protection at sign-in via your Google account or corporate SSO provider.',
+    },
+  },
+  {
+    icon: 'history',
+    title: { ru: 'Audit Logs', en: 'Audit Logs' },
+    text: {
+      ru: 'Журнал действий: кто открыл, изменил, скачал или удалил документ — с поиском и фильтром.',
+      en: 'Audit trail: who opened, edited, downloaded or deleted a document — with search and filters.',
+    },
+  },
+  {
+    icon: 'cloud',
+    title: { ru: 'Secure Cloud Infrastructure', en: 'Secure Cloud Infrastructure' },
+    text: {
+      ru: 'Данные — в защищённой облачной инфраструктуре; доступ к файлам только по временным подписанным ссылкам.',
+      en: 'Data lives in secure cloud infrastructure; files are reachable only via expiring signed links.',
+    },
+  },
+  {
+    icon: 'layout',
+    title: { ru: 'Workspace Permissions', en: 'Workspace Permissions' },
+    text: {
+      ru: 'Документ виден только вам, пока вы сами не откроете доступ команде и не назначите роли.',
+      en: 'A document is private to you until you share it with your team and assign roles.',
     },
   },
 ];
@@ -230,10 +284,13 @@ interface LandingPlan {
   monthly: number;
   popular?: boolean;
   tagline: Text2;
+  /** "Everything in X, plus:" line shown above the feature list. */
+  inherits?: Text2;
   features: Text2[];
 }
 
-/** Mirrors the in-app Plans page (same numbers, gates and 15% yearly discount). */
+/** Mirrors the in-app Plans page (PlansPage.tsx) — same taglines, features and
+ *  gates — so the descriptions stay identical on the landing and inside the app. */
 const YEARLY_DISCOUNT = 0.15;
 
 const PLANS: LandingPlan[] = [
@@ -241,26 +298,30 @@ const PLANS: LandingPlan[] = [
     name: 'Free',
     dot: '#5F5F6A',
     monthly: 0,
-    tagline: { ru: 'Понять, что умеет LexAI', en: 'See what LexAI can do' },
+    tagline: { ru: 'Узнайте, что LexAI может сделать для вас', en: 'See what LexAI can do for you' },
     features: [
       { ru: '10 AI-запросов в месяц', en: '10 AI requests per month' },
       { ru: 'До 3 документов', en: 'Up to 3 documents' },
-      { ru: 'AI-чат с документами', en: 'AI chat with documents' },
+      { ru: 'AI Chat с документами', en: 'AI Chat with documents' },
+      { ru: 'AI Summary', en: 'AI Summary' },
       { ru: 'Экспорт в PDF', en: 'PDF export' },
-      { ru: '100 МБ хранилища', en: '100 MB storage' },
     ],
   },
   {
     name: 'Standard',
     dot: '#3FB8AF',
     monthly: 15,
-    tagline: { ru: 'Студентам, фрилансерам, стартапам', en: 'For students, freelancers and startups' },
+    tagline: { ru: 'Для студентов, фрилансеров и стартапов', en: 'For students, freelancers and startups' },
     features: [
-      { ru: '100 AI-запросов в месяц', en: '100 AI requests per month' },
+      { ru: 'До 100 AI-запросов в месяц', en: 'Up to 100 AI requests per month' },
       { ru: 'До 20 документов в месяц', en: 'Up to 20 documents per month' },
-      { ru: 'Генератор договоров', en: 'Contract generator' },
-      { ru: 'Экспорт в DOCX и PDF', en: 'DOCX & PDF export' },
-      { ru: '2 ГБ хранилища', en: '2 GB storage' },
+      { ru: 'AI Chat с документами', en: 'AI Chat with documents' },
+      { ru: 'AI Contract Generator', en: 'AI Contract Generator' },
+      { ru: 'AI Risk Analysis', en: 'AI Risk Analysis' },
+      { ru: 'AI Summary', en: 'AI Summary' },
+      { ru: 'Экспорт в PDF и DOCX', en: 'PDF & DOCX export' },
+      { ru: '2 GB защищённого хранилища', en: '2 GB secure storage' },
+      { ru: 'Email-поддержка', en: 'Email support' },
     ],
   },
   {
@@ -268,29 +329,58 @@ const PLANS: LandingPlan[] = [
     dot: '#5B8DEF',
     monthly: 50,
     popular: true,
-    tagline: { ru: 'Юристам и малому бизнесу', en: 'For lawyers and small businesses' },
+    tagline: { ru: 'Для юристов и малого бизнеса', en: 'For lawyers and small businesses' },
+    inherits: { ru: 'Всё из Standard, плюс:', en: 'Everything in Standard, plus:' },
     features: [
       { ru: 'Безлимитные AI-чаты', en: 'Unlimited AI chats' },
       { ru: 'До 80 документов в месяц', en: 'Up to 80 documents per month' },
-      { ru: 'Сравнение версий (Redline)', en: 'Version compare (Redline)' },
-      { ru: 'Э-подпись и маршруты согласования', en: 'E-signature and approval workflows' },
-      { ru: '50 ГБ хранилища', en: '50 GB storage' },
+      { ru: 'Redline (сравнение версий)', en: 'Redline (version compare)' },
+      { ru: 'AI Contract Review', en: 'AI Contract Review' },
+      { ru: 'AI Clause Suggestions', en: 'AI Clause Suggestions' },
+      { ru: 'Version History', en: 'Version History' },
+      { ru: 'Электронная подпись', en: 'E-signature' },
+      { ru: 'Маршруты согласования (цепочки утверждения с дедлайнами)', en: 'Approval workflows (multi-step sign-off with deadlines)' },
+      { ru: '50 GB защищённого хранилища', en: '50 GB secure storage' },
+      { ru: 'Приоритетная поддержка', en: 'Priority support' },
+      { ru: 'Ранний доступ к новым функциям', en: 'Early access to new features' },
     ],
   },
   {
     name: 'Business',
     dot: '#8B7CF6',
     monthly: 499,
-    tagline: { ru: 'Юрфирмам и компаниям', en: 'For law firms and companies' },
+    tagline: { ru: 'Для юридических фирм и компаний', en: 'For law firms and companies' },
+    inherits: { ru: 'Всё из Pro, плюс:', en: 'Everything in Pro, plus:' },
     features: [
-      { ru: 'Всё из Pro, до 5 пользователей', en: 'Everything in Pro, up to 5 users' },
-      { ru: 'Команды и общие документы', en: 'Teams and shared documents' },
+      { ru: 'Доступ к самым мощным AI-моделям', en: 'Access to the most capable AI models' },
+      { ru: 'До 5 пользователей', en: 'Up to 5 users' },
       { ru: 'До 700 документов в месяц', en: 'Up to 700 documents per month' },
-      { ru: 'Самые мощные AI-модели', en: 'The most capable AI models' },
-      { ru: '1 ТБ хранилища', en: '1 TB storage' },
+      { ru: 'Общие Workspaces', en: 'Shared workspaces' },
+      { ru: 'Управление ролями и правами доступа', en: 'Roles & access management' },
+      { ru: 'Совместная работа над документами', en: 'Document collaboration' },
+      { ru: 'Audit Log', en: 'Audit log' },
+      { ru: 'Расширенная аналитика', en: 'Advanced analytics' },
+      { ru: 'SSO (Single Sign-On)', en: 'SSO (Single Sign-On)' },
+      { ru: '1 TB защищённого хранилища', en: '1 TB secure storage' },
+      { ru: 'Выделенный Customer Success Manager', en: 'Dedicated Customer Success Manager' },
     ],
   },
 ];
+
+/** Enterprise — custom pricing, shown as a full-width card below the grid
+ *  (mirrors the in-app Enterprise card). */
+const ENTERPRISE: { dot: string; priceLabel: Text2; tagline: Text2; features: Text2[] } = {
+  dot: '#9A9AA6',
+  priceLabel: { ru: 'По договорённости', en: 'Custom pricing' },
+  tagline: { ru: 'Индивидуальные условия и внедрение — по созвону.', en: 'Custom terms and onboarding — book a call.' },
+  features: [
+    { ru: 'Безлимитные пользователи и документы', en: 'Unlimited users and documents' },
+    { ru: 'Приватные / self-hosted AI-модели', en: 'Private / self-hosted AI models' },
+    { ru: 'Кастомные интеграции и API', en: 'Custom integrations and API' },
+    { ru: 'Персональный SLA и поддержка 24/7', en: 'Personal SLA and 24/7 support' },
+    { ru: 'Юридический on-boarding команды', en: 'Legal onboarding for your team' },
+  ],
+};
 
 interface FaqItem {
   q: Text2;
@@ -339,15 +429,15 @@ const FAQ_GROUPS: { title: Text2; items: FaqItem[] }[] = [
       {
         q: { ru: 'Что значит «ссылки на законодательство»?', en: 'What do “legal citations” mean?' },
         a: {
-          ru: 'Если система отмечает рискованный пункт, она показывает не просто «это плохо», а ссылку на статью закона, из-за которой пункт является рискованным. Тексты норм попадают в базу только из официальных источников — legislation.gov.uk и lex.uz, — поэтому система не может «придумать» несуществующую норму, как обычный чат-бот.',
-          en: 'When the system flags a risky clause, it doesn’t just say “this is bad” — it shows the specific statutory provision that makes the clause risky. Law texts enter the corpus only from official sources — legislation.gov.uk and lex.uz — so the system cannot “invent” a non-existent provision the way a generic chatbot can.',
+          ru: 'Если система отмечает рискованный пункт, она показывает не просто «это плохо», а ссылку на статью закона, из-за которой пункт является рискованным. Тексты норм попадают в базу только из официальных государственных источников соответствующей юрисдикции, поэтому система не может «придумать» несуществующую норму, как обычный чат-бот.',
+          en: 'When the system flags a risky clause, it doesn’t just say “this is bad” — it shows the specific statutory provision that makes the clause risky. Law texts enter the corpus only from official government sources for each jurisdiction, so the system cannot “invent” a non-existent provision the way a generic chatbot can.',
         },
       },
       {
         q: { ru: 'С законодательством каких стран вы работаете?', en: 'Which countries’ legislation do you cover?' },
         a: {
-          ru: 'Сейчас — Великобритания и Узбекистан. Казахстан — следующий модуль. Новые юрисдикции подключаются как отдельные модули.',
-          en: 'Currently the United Kingdom and Uzbekistan. Kazakhstan is the next module. New jurisdictions are added as separate modules.',
+          ru: 'Сейчас доступны семь юрисдикций: Великобритания, США, Германия, Канада, Казахстан, Узбекистан и ОАЭ. Новые юрисдикции подключаются как отдельные модули.',
+          en: 'Seven jurisdictions are available today: the United Kingdom, the United States, Germany, Canada, Kazakhstan, Uzbekistan and the UAE. New jurisdictions are added as separate modules.',
         },
       },
       {
@@ -365,8 +455,8 @@ const FAQ_GROUPS: { title: Text2; items: FaqItem[] }[] = [
       {
         q: { ru: 'На каком языке работает система?', en: 'What languages does it work in?' },
         a: {
-          ru: 'Интерфейс — на русском и английском. ИИ отвечает на языке вашего вопроса. Корпус законов Великобритании — на английском, Узбекистана — официальная русская версия lex.uz.',
-          en: 'The interface is in Russian and English. The AI replies in the language of your question. The UK law corpus is in English; the Uzbekistan corpus uses the official Russian version from lex.uz.',
+          ru: 'Интерфейс — на русском и английском. ИИ отвечает на языке вашего вопроса. Корпус законов каждой юрисдикции хранится на её официальном языке публикации.',
+          en: 'The interface is in Russian and English. The AI replies in the language of your question. Each jurisdiction’s law corpus is stored in its official language of publication.',
         },
       },
       {
@@ -414,8 +504,6 @@ const FOOTER_COLS: {
     title: { ru: 'Безопасность', en: 'Security' },
     links: [
       { label: { ru: 'Как мы храним данные', en: 'How we store data' }, anchor: 'security' },
-      { label: { ru: 'legislation.gov.uk', en: 'legislation.gov.uk' }, href: 'https://www.legislation.gov.uk' },
-      { label: { ru: 'lex.uz', en: 'lex.uz' }, href: 'https://lex.uz' },
     ],
   },
   {
@@ -536,14 +624,27 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
       <section id="solutions" className={`${styles.section} ${styles.sectionAlt}`}>
         <div className={styles.inner}>
           <Head id="solutions" />
-          <div className={styles.cardsGrid}>
-            {SOLUTIONS.map((s, i) => (
-              <div key={s.icon} className={styles.card} data-reveal style={revealAt(i)}>
-                <span className={styles.cardIcon}>
-                  <Icon name={s.icon} size={19} />
-                </span>
-                <div className={styles.cardTitle}>{pickText(s.title, lang)}</div>
-                <div className={styles.cardText}>{pickText(s.text, lang)}</div>
+          <div className={styles.audienceGrid}>
+            {AUDIENCES.map((a, i) => (
+              <div key={a.title.en} className={styles.audienceCard} data-reveal style={revealAt(i)}>
+                <div className={styles.audienceTop}>
+                  <span className={styles.audienceIcon}>
+                    <Icon name={a.icon} size={19} />
+                  </span>
+                  {a.metric ? <span className={styles.audienceMetric}>{pickText(a.metric, lang)}</span> : null}
+                </div>
+                <div className={styles.audienceTitle}>{pickText(a.title, lang)}</div>
+                <div className={styles.cardText}>{pickText(a.text, lang)}</div>
+                <button
+                  type="button"
+                  className={styles.audienceMore}
+                  onClick={() =>
+                    document.getElementById('features')?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' })
+                  }
+                >
+                  {lang === 'ru' ? 'Подробнее' : 'Learn more'}
+                  <Icon name="arrowUpRight" size={14} />
+                </button>
               </div>
             ))}
           </div>
@@ -620,6 +721,7 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
                   <div className={styles.planPriceNote}>{t('plans.yearlyNote')}</div>
                 ) : null}
                 <div className={styles.planTagline}>{pickText(p.tagline, lang)}</div>
+                {p.inherits ? <div className={styles.planInherits}>{pickText(p.inherits, lang)}</div> : null}
                 <ul className={styles.planFeatures}>
                   {p.features.map((f) => (
                     <li key={f.en}>
@@ -630,7 +732,7 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
                 </ul>
                 <button
                   type="button"
-                  className={p.popular ? styles.ctaPrimary : styles.ctaGhost}
+                  className={p.popular ? styles.planBtnDark : styles.planBtnFilled}
                   onClick={onStart}
                 >
                   {p.name === 'Free' ? t('landing.startFree') : t('landing.choosePlan')}
@@ -638,24 +740,32 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
               </div>
             ))}
           </div>
-          <div className={styles.plansNote}>
-            {lang === 'ru' ? (
-              <>
-                Нужен Enterprise — индивидуальные условия, приватные модели, SLA?{' '}
-                <a href={TELEGRAM_URL} target="_blank" rel="noreferrer noopener">
-                  Напишите нам в Telegram
-                </a>
-                .
-              </>
-            ) : (
-              <>
-                Need Enterprise — custom terms, private models, an SLA?{' '}
-                <a href={TELEGRAM_URL} target="_blank" rel="noreferrer noopener">
-                  Message us on Telegram
-                </a>
-                .
-              </>
-            )}
+          {/* Enterprise — custom pricing, full-width card (mirrors the in-app page). */}
+          <div className={styles.enterprise} data-reveal>
+            <div className={styles.enterpriseInfo}>
+              <div className={styles.planName}>
+                <span className={styles.planDot} style={{ background: ENTERPRISE.dot }} />
+                Enterprise
+              </div>
+              <div className={styles.planTagline}>{pickText(ENTERPRISE.tagline, lang)}</div>
+              <div className={styles.enterprisePrice}>{pickText(ENTERPRISE.priceLabel, lang)}</div>
+              <a
+                className={styles.enterpriseCta}
+                href={TELEGRAM_URL}
+                target="_blank"
+                rel="noreferrer noopener"
+              >
+                {lang === 'ru' ? 'Связаться' : 'Contact us'}
+              </a>
+            </div>
+            <ul className={styles.enterpriseFeatures}>
+              {ENTERPRISE.features.map((f) => (
+                <li key={f.en}>
+                  <Icon name="check" size={13} className={styles.planCheck} />
+                  {pickText(f, lang)}
+                </li>
+              ))}
+            </ul>
           </div>
         </div>
       </section>
@@ -672,8 +782,8 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
                   <details key={item.q.en} className={styles.faqItem}>
                     <summary className={styles.faqQ}>
                       {pickText(item.q, lang)}
-                      <span className={styles.faqChevron}>
-                        <Icon name="chevron" size={15} />
+                      <span className={styles.faqToggle}>
+                        <Icon name="plus" size={16} />
                       </span>
                     </summary>
                     <div className={styles.faqA}>
@@ -700,6 +810,38 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
         </div>
       </section>
 
+      {/* ── Pre-footer CTA banner ────────────────────────────────────────── */}
+      <section className={styles.section}>
+        <div className={styles.inner}>
+          <div className={styles.ctaBanner} data-reveal>
+            <span className={styles.ctaBannerGrid} aria-hidden="true" />
+            <h2 className={styles.ctaBannerTitle}>
+              {lang === 'ru' ? 'Готовы ускорить работу с контрактами?' : 'Ready to speed up your contract work?'}
+            </h2>
+            <p className={styles.ctaBannerSub}>
+              {lang === 'ru'
+                ? 'Пилот за 3 дня. Никакой карты. Полный доступ к возможностям Enterprise.'
+                : 'A 3-day pilot. No card. Full access to Enterprise features.'}
+            </p>
+            <div className={styles.ctaBannerBtns}>
+              <button type="button" className={styles.ctaBannerPrimary} onClick={onStart}>
+                {t('landing.navCta')}
+                <Icon name="arrowRight" size={17} />
+              </button>
+              <button
+                type="button"
+                className={styles.ctaBannerGhost}
+                onClick={() =>
+                  document.getElementById('demo')?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' })
+                }
+              >
+                {t('landing.viewDemo')}
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* ── Footer ───────────────────────────────────────────────────────── */}
       <footer className={styles.footer}>
         <div className={styles.footerGrid}>
@@ -711,8 +853,8 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
             <p className={styles.footerTagline}>{t('auth.tagline')}</p>
             <p className={styles.footerJuris}>
               {lang === 'ru'
-                ? 'Юрисдикции: Великобритания · Узбекистан'
-                : 'Jurisdictions: United Kingdom · Uzbekistan'}
+                ? 'Юрисдикции: Великобритания · США · Германия · Канада · Казахстан · Узбекистан · ОАЭ'
+                : 'Jurisdictions: United Kingdom · United States · Germany · Canada · Kazakhstan · Uzbekistan · UAE'}
             </p>
           </div>
 

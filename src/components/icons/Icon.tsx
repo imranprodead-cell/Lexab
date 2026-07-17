@@ -440,6 +440,20 @@ const GEOMETRY: Record<string, ReactNode> = {
       <path d="M12 5v14" />
     </>
   ),
+  // ── Landing CTAs ─────────────────────────────────────────────────────────
+  arrowRight: (
+    <>
+      <path d="M5 12h14" />
+      <path d="m13 6 6 6-6 6" />
+    </>
+  ),
+  arrowUpRight: (
+    <>
+      <path d="M7 17 17 7" />
+      <path d="M8 7h9v9" />
+    </>
+  ),
+  play: <path d="M7 5v14l11-7z" />,
 };
 
 export type IconName = keyof typeof GEOMETRY;

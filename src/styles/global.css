@@ -22,6 +22,22 @@
   --accent: #8b7cf6;
   --on-accent: #0c0c10;
 
+  /* Violet CTA gradient — the "Начать бесплатно" / pilot buttons and the
+     pre-footer banner. Derived from the accent so runtime re-theming still
+     tracks, but tuned light→deep to read like a premium brand gradient with
+     white text (contrast holds on both themes). */
+  --grad-cta: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent) 82%, #ffffff) 0%,
+    color-mix(in srgb, var(--accent) 90%, #1c1550) 100%
+  );
+  --grad-cta-hover: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--accent) 88%, #ffffff) 0%,
+    color-mix(in srgb, var(--accent) 96%, #1c1550) 100%
+  );
+  --on-grad: #ffffff;
+
   /* Severity / status */
   --sev-high: oklch(0.68 0.17 22);
   --sev-med: oklch(0.79 0.14 78);

@@ -317,7 +317,15 @@ export function AuthPage() {
     <div className={`${styles.auth} ${leaving ? styles.authLeaving : ''}`} ref={rootRef}>
       {/* ── Sticky top banner: section nav pill + language/theme controls ── */}
       <header className={styles.topBar}>
-        <div className={styles.topBarSide} />
+        <div className={styles.topBarSide}>
+          <div className={styles.bannerBrand}>
+            <Avatar size={30} />
+            <span className={styles.bannerBrandText}>
+              <span className={styles.bannerBrandName}>LexAI</span>
+              <span className={styles.bannerBrandSub}>{t('auth.tagline')}</span>
+            </span>
+          </div>
+        </div>
         <nav className={styles.navPill} aria-label={t('landing.nav.aria')}>
           {NAV_SECTIONS.map((s) => (
             <button
@@ -332,9 +340,6 @@ export function AuthPage() {
           ))}
         </nav>
         <div className={`${styles.topBarSide} ${styles.topBarRight}`}>
-          <button type="button" className={styles.headerCta} onClick={startSignup}>
-            {t('landing.navCta')}
-          </button>
           <div className={styles.controlsPill}>
             <LanguageMenu />
             <span className={styles.controlsDivider} />
@@ -348,6 +353,9 @@ export function AuthPage() {
               <Icon name={dark ? 'moon' : 'sun'} size={17} />
             </button>
           </div>
+          <button type="button" className={styles.headerCta} onClick={startSignup}>
+            {t('landing.navCta')}
+          </button>
         </div>
       </header>
 
@@ -373,8 +381,10 @@ export function AuthPage() {
             <div className={styles.heroCtas}>
               <button type="button" className={styles.heroCtaOutline} onClick={() => scrollToSection('how-it-works')}>
                 {t('landing.howItWorks')}
+                <Icon name="arrowRight" size={17} />
               </button>
               <button type="button" className={styles.heroCtaGhost} onClick={() => scrollToSection('demo')}>
+                <Icon name="play" size={15} />
                 {t('landing.viewDemo')}
               </button>
             </div>
@@ -558,7 +568,7 @@ export function AuthPage() {
           <div className={styles.rightOrbSmall} />
           <div className={styles.rightMark}>
             <div className={styles.rightDiamond}>
-              <Icon name="diamond" size={64} color="var(--on-accent)" strokeWidth={1.8} />
+              <Icon name="diamond" size={52} color="var(--on-accent)" strokeWidth={1.8} />
             </div>
             <div className={styles.rightCaption}>
               LexAI <span>· {t('auth.tagline')}</span>

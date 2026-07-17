@@ -85,9 +85,12 @@
 }
 
 .card {
-  padding: 22px 20px;
-  border-radius: var(--r-xl);
-  background: var(--panel);
+  padding: 26px 24px;
+  border-radius: 20px;
+  /* Faint violet glow bleeding from the top-right corner (photos 4–6). */
+  background:
+    radial-gradient(130% 90% at 100% 0%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 58%),
+    var(--panel);
   border: 1px solid var(--border);
   transition: transform var(--dur-mid) var(--ease), border-color var(--dur-mid) var(--ease),
     box-shadow var(--dur-mid) var(--ease);
@@ -103,25 +106,107 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
   color: var(--accent);
-  margin-bottom: 14px;
+  margin-bottom: 16px;
 }
 
 .cardTitle {
-  font-size: 15px;
+  font-size: 16.5px;
   font-weight: 700;
   letter-spacing: -0.01em;
-  margin-bottom: 6px;
+  margin-bottom: 7px;
 }
 
 .cardText {
-  font-size: 13.5px;
-  line-height: 1.55;
+  font-size: 14px;
+  line-height: 1.58;
   color: var(--dim);
+}
+
+/* Audience cards (photo 10): icon + headline metric, then a "learn more" link */
+
+.audienceGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.audienceCard {
+  display: flex;
+  flex-direction: column;
+  padding: 26px 24px;
+  border-radius: 20px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  transition: transform var(--dur-mid) var(--ease), border-color var(--dur-mid) var(--ease),
+    box-shadow var(--dur-mid) var(--ease);
+}
+
+.audienceCard:hover {
+  transform: translateY(-3px);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  box-shadow: 0 14px 40px color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.audienceTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.audienceIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
+  color: var(--accent);
+}
+
+.audienceMetric {
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: color-mix(in srgb, var(--accent) 68%, var(--text));
+}
+
+.audienceTitle {
+  font-size: 16.5px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin-bottom: 7px;
+}
+
+.audienceMore {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  align-self: flex-start;
+  margin-top: 16px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: gap var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+
+.audienceMore:hover {
+  gap: 9px;
+  color: color-mix(in srgb, var(--accent) 80%, var(--text));
 }
 
 /* How-it-works steps */
@@ -391,19 +476,21 @@
   padding: 11px 22px;
   border: none;
   border-radius: 12px;
-  background: var(--accent);
-  color: var(--on-accent);
+  background: var(--grad-cta);
+  color: var(--on-grad);
   font-family: inherit;
   font-size: 14.5px;
   font-weight: 600;
   cursor: pointer;
   touch-action: manipulation;
   box-shadow: 0 8px 26px color-mix(in srgb, var(--accent) 30%, transparent);
-  transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+  transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease);
 }
 
 .ctaPrimary:hover {
   transform: translateY(-1px);
+  background: var(--grad-cta-hover);
   box-shadow: 0 12px 34px color-mix(in srgb, var(--accent) 42%, transparent);
 }
 
@@ -540,15 +627,103 @@
   position: relative;
   display: flex;
   flex-direction: column;
-  padding: 22px 20px;
-  border-radius: var(--r-xl);
-  background: var(--panel);
+  padding: 26px 22px;
+  border-radius: 20px;
+  background:
+    radial-gradient(130% 80% at 100% 0%, color-mix(in srgb, var(--accent) 5%, transparent), transparent 60%),
+    var(--panel);
   border: 1px solid var(--border);
+  transition: transform var(--dur-mid) var(--ease), box-shadow var(--dur-mid) var(--ease);
 }
 
+.plan:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 14px 40px color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+/* Popular plan (Pro) — the dark stand-out card from photo 7. Explicitly dark
+   in both themes; a violet border + glow keeps it distinct on the dark theme. */
 .planPopular {
-  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
-  box-shadow: 0 14px 44px color-mix(in srgb, var(--accent) 16%, transparent);
+  background: linear-gradient(165deg, #1d1c29 0%, #101017 100%);
+  border-color: color-mix(in srgb, var(--accent) 50%, #2a2a35);
+  box-shadow: 0 20px 55px color-mix(in srgb, var(--accent) 26%, transparent);
+  color: #fff;
+}
+
+.planPopular:hover {
+  box-shadow: 0 26px 66px color-mix(in srgb, var(--accent) 34%, transparent);
+}
+
+.planPopular .planName,
+.planPopular .planPrice {
+  color: #fff;
+}
+
+.planPopular .planPer {
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.planPopular .planTagline {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.planPopular .planFeatures li {
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.planPopular .planCheck {
+  color: var(--accent);
+}
+
+.planPopular .planPriceOld {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.planPopular .planPriceNote {
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* Dark theme inverts the popular card: the others are dark surfaces, so Pro
+   becomes a white card to stand out (mirror of the light-theme black card). */
+html[data-theme='dark'] .planPopular {
+  background: linear-gradient(165deg, #ffffff 0%, #f1f1f6 100%);
+  border-color: color-mix(in srgb, var(--accent) 50%, #d6d6e0);
+  box-shadow: 0 22px 58px color-mix(in srgb, var(--accent) 32%, transparent);
+  color: #17171c;
+}
+
+html[data-theme='dark'] .planPopular .planName,
+html[data-theme='dark'] .planPopular .planPrice {
+  color: #17171c;
+}
+
+html[data-theme='dark'] .planPopular .planPer,
+html[data-theme='dark'] .planPopular .planTagline,
+html[data-theme='dark'] .planPopular .planPriceNote {
+  color: #5a5a66;
+}
+
+html[data-theme='dark'] .planPopular .planFeatures li {
+  color: #3a3a44;
+}
+
+html[data-theme='dark'] .planPopular .planCheck {
+  color: var(--accent);
+}
+
+html[data-theme='dark'] .planPopular .planPriceOld {
+  color: #9a9aa6;
+}
+
+/* White card needs a coloured button (the dark card used a white one). */
+html[data-theme='dark'] .planPopular .planBtnDark {
+  background: var(--grad-cta);
+  color: var(--on-grad);
+}
+
+html[data-theme='dark'] .planPopular .planBtnDark:hover {
+  background: var(--grad-cta-hover);
+  box-shadow: 0 10px 26px color-mix(in srgb, var(--accent) 40%, transparent);
 }
 
 .planBadge {
@@ -556,13 +731,14 @@
   top: -11px;
   left: 50%;
   transform: translateX(-50%);
-  padding: 3px 12px;
+  padding: 4px 13px;
   border-radius: 999px;
-  background: var(--accent);
-  color: var(--on-accent);
+  background: var(--grad-cta);
+  color: var(--on-grad);
   font-size: 11.5px;
   font-weight: 700;
   white-space: nowrap;
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 34%, transparent);
 }
 
 .planName {
@@ -626,6 +802,58 @@
   margin-top: 3px;
 }
 
+/* Filled violet button for the white plan cards (photo 7). Full-width via the
+   card's flex-column stretch. */
+.planBtnFilled {
+  padding: 12px 22px;
+  border: none;
+  border-radius: 12px;
+  background: var(--grad-cta);
+  color: var(--on-grad);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--accent) 26%, transparent);
+  transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease);
+}
+
+.planBtnFilled:hover {
+  transform: translateY(-1px);
+  background: var(--grad-cta-hover);
+  box-shadow: 0 11px 28px color-mix(in srgb, var(--accent) 38%, transparent);
+}
+
+.planBtnFilled:active {
+  transform: scale(0.97);
+}
+
+/* White button for the dark popular card (photo 7). */
+.planBtnDark {
+  padding: 12px 22px;
+  border: none;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #17171c;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+}
+
+.planBtnDark:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
+}
+
+.planBtnDark:active {
+  transform: scale(0.97);
+}
+
 .plansNote {
   text-align: center;
   font-size: 13.5px;
@@ -636,6 +864,103 @@
 .plansNote a {
   color: var(--accent);
   font-weight: 600;
+}
+
+/* "Everything in X, plus:" line above a plan's feature list */
+.planInherits {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--accent);
+  margin: -4px 0 12px;
+}
+
+/* Light theme: the Pro card is dark, so lift the inherits line off it. */
+.planPopular .planInherits {
+  color: color-mix(in srgb, var(--accent) 55%, #ffffff);
+}
+
+/* Dark theme: the Pro card is white, so the accent reads fine as-is. */
+html[data-theme='dark'] .planPopular .planInherits {
+  color: var(--accent);
+}
+
+/* Enterprise — full-width card below the plan grid */
+.enterprise {
+  display: flex;
+  gap: 28px;
+  margin-top: 16px;
+  padding: 26px 28px;
+  border-radius: 20px;
+  background:
+    radial-gradient(130% 90% at 100% 0%, color-mix(in srgb, var(--accent) 6%, transparent), transparent 60%),
+    var(--panel);
+  border: 1px solid var(--border);
+}
+
+.enterpriseInfo {
+  flex: 0 0 250px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.enterprisePrice {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 2px 0 8px;
+}
+
+.enterpriseCta {
+  display: inline-flex;
+  align-items: center;
+  padding: 11px 22px;
+  border-radius: 12px;
+  background: var(--grad-cta);
+  color: var(--on-grad);
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+  touch-action: manipulation;
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--accent) 26%, transparent);
+  transition: transform var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+
+.enterpriseCta:hover {
+  transform: translateY(-1px);
+  background: var(--grad-cta-hover);
+}
+
+.enterpriseFeatures {
+  flex: 1;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 8px 20px;
+  align-content: center;
+}
+
+.enterpriseFeatures li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--dim);
+}
+
+@media (max-width: 720px) {
+  .enterprise {
+    flex-direction: column;
+    gap: 18px;
+  }
+  .enterpriseInfo {
+    flex: none;
+  }
 }
 
 /* FAQ */
@@ -660,10 +985,16 @@
 
 .faqItem {
   border: 1px solid var(--border);
-  border-radius: var(--r-lg);
+  border-radius: 16px;
   background: var(--panel);
-  margin-bottom: 10px;
+  margin-bottom: 12px;
   overflow: hidden;
+  transition: border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+}
+
+.faqItem[open] {
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--border));
+  box-shadow: 0 12px 34px color-mix(in srgb, var(--accent) 9%, transparent);
 }
 
 .faqQ {
@@ -671,8 +1002,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  padding: 15px 18px;
-  font-size: 14.5px;
+  padding: 18px 20px;
+  font-size: 15px;
   font-weight: 600;
   letter-spacing: -0.01em;
   cursor: pointer;
@@ -689,16 +1020,26 @@
   color: var(--accent);
 }
 
-.faqChevron {
+/* Circular +/× control (photo 8): a plus that rotates into a cross and turns
+   violet when its answer is open. */
+.faqToggle {
   flex: none;
   display: flex;
-  color: var(--mut);
-  transform: rotate(90deg);
-  transition: transform var(--dur-fast) var(--ease);
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--hover-2);
+  color: var(--dim);
+  transition: transform var(--dur-mid) var(--ease), background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
 }
 
-.faqItem[open] .faqChevron {
-  transform: rotate(-90deg);
+.faqItem[open] .faqToggle {
+  background: color-mix(in srgb, var(--accent) 18%, var(--panel));
+  color: var(--accent);
+  transform: rotate(45deg);
 }
 
 .faqA {
@@ -723,6 +1064,121 @@
 
 .faqLink:hover {
   text-decoration: underline;
+}
+
+/* Pre-footer CTA banner (photo 9) */
+
+.ctaBanner {
+  position: relative;
+  overflow: hidden;
+  border-radius: 28px;
+  padding: 58px 40px;
+  text-align: center;
+  background: var(--grad-cta);
+  color: var(--on-grad);
+  box-shadow: 0 30px 70px -28px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+
+/* Faint engineering grid, fading out toward the edges. */
+.ctaBannerGrid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.14) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.14) 1px, transparent 1px);
+  background-size: 48px 48px;
+  -webkit-mask-image: radial-gradient(82% 74% at 50% 38%, #000, transparent 76%);
+  mask-image: radial-gradient(82% 74% at 50% 38%, #000, transparent 76%);
+  pointer-events: none;
+}
+
+.ctaBannerTitle {
+  position: relative;
+  font-size: clamp(26px, 4vw, 40px);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  margin: 0 0 12px;
+  text-wrap: balance;
+}
+
+.ctaBannerSub {
+  position: relative;
+  font-size: 15.5px;
+  line-height: 1.6;
+  margin: 0 auto 26px;
+  max-width: 520px;
+  opacity: 0.92;
+}
+
+.ctaBannerBtns {
+  position: relative;
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.ctaBannerPrimary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 13px 24px;
+  border: none;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #191922;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
+  transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+}
+
+.ctaBannerPrimary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.3);
+}
+
+.ctaBannerPrimary:active {
+  transform: scale(0.97);
+}
+
+.ctaBannerGhost {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 13px 24px;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #ffffff;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--ease);
+}
+
+.ctaBannerGhost:hover {
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.8);
+  transform: translateY(-1px);
+}
+
+.ctaBannerGhost:active {
+  transform: scale(0.97);
+}
+
+@media (max-width: 640px) {
+  .ctaBanner {
+    padding: 42px 22px;
+    border-radius: 22px;
+  }
 }
 
 /* Footer */
