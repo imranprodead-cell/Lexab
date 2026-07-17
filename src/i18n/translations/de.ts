@@ -108,6 +108,7 @@ const de: Record<string, string> = {
   "tpl.title": "Vorlagen",
   "tpl.sub": "Starten Sie einen Entwurf aus einer geprüften, auf Ihren Rechtsraum abgestimmten Vorlage.",
   "tpl.allCategories": "Alle Kategorien",
+  "tpl.search": "Vorlagen suchen…",
   "tpl.empty": "Keine Vorlagen in dieser Kategorie",
   "tpl.clauses": "Klauseln",
   "sig.title": "E-Signaturen",

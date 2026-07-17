@@ -108,6 +108,7 @@ const ar: Record<string, string> = {
   "tpl.title": "القوالب",
   "tpl.sub": "ابدأ مسودة من قالب موثوق ومهيَّأ للاختصاص القضائي.",
   "tpl.allCategories": "جميع الفئات",
+  "tpl.search": "ابحث في القوالب…",
   "tpl.empty": "لا توجد قوالب في هذه الفئة",
   "tpl.clauses": "بنود",
   "sig.title": "التوقيع الإلكتروني",

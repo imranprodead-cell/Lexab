@@ -388,7 +388,7 @@ export function LegalPage({ kind }: { kind: 'terms' | 'privacy' }) {
 
   return (
     <div className={styles.legalPage}>
-      <div className={styles.legalInner}>
+      <main className={styles.legalInner}>
         <div className={styles.legalTop}>
           <Link to="/" className={styles.legalBrand}>
             <Avatar size={30} />
@@ -431,7 +431,7 @@ export function LegalPage({ kind }: { kind: 'terms' | 'privacy' }) {
             ← {lang === 'ru' ? 'Назад' : 'Back'}
           </button>
         </p>
-      </div>
+      </main>
     </div>
   );
 }

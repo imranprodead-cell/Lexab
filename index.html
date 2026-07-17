@@ -1,5 +1,7 @@
 <!doctype html>
-<html lang="en">
+<!-- Default lang = ru (the CIS market this product serves); the pre-paint
+     script below overrides it per the visitor's stored/browser preference. -->
+<html lang="ru">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -8,6 +10,7 @@
     <title>LexAI — Contract Intelligence</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="canonical" href="https://lexai.app/" />
+    <link rel="alternate" hreflang="x-default" href="https://lexai.app/" />
     <script>
       // SPA: одна index.html на все маршруты — подставляем канонический URL
       // текущей страницы (краулеры, исполняющие JS, увидят правильный).
@@ -39,8 +42,8 @@
       property="og:image:alt"
       content="LexAI — contract review with verifiable citations to legislation"
     />
-    <meta property="og:locale" content="en_US" />
-    <meta property="og:locale:alternate" content="ru_RU" />
+    <meta property="og:locale" content="ru_RU" />
+    <meta property="og:locale:alternate" content="en_US" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="LexAI — AI contract intelligence" />
     <meta

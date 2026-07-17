@@ -43,12 +43,38 @@ function matchJurisdiction(text: string): string {
   return 'GB';
 }
 
+const PICKER_CODES = new Set(JURISDICTIONS.map((c) => c.code));
+
+/** Russian category labels (categories are stored as English values, localized
+ *  client-side for ru/kk/uz; other languages keep the English value). */
+const CATEGORY_RU: Record<string, string> = {
+  Confidentiality: 'Конфиденциальность',
+  Employment: 'Трудовые',
+  Commercial: 'Коммерческие',
+  Privacy: 'Приватность',
+  Fundraising: 'Инвестиции',
+  'Real Estate': 'Недвижимость',
+  Sales: 'Купля-продажа',
+  Finance: 'Финансы',
+  'IP & IT': 'IP и IT',
+  Corporate: 'Корпоративные',
+};
+
 /** Reusable clause/document library + AI contract generator. */
 export function TemplatesPage() {
   const { t, lang } = useI18n();
   usePageTitle(t('tpl.title'));
   const pushToast = useUIStore((s) => s.pushToast);
+  const uiCountry = useUIStore((s) => s.country);
   const [category, setCategory] = useState('All');
+  const [search, setSearch] = useState('');
+
+  // ru/kk/uz users see the Russian catalog labels; the English fields still
+  // drive the generator prompt.
+  const ru = lang === 'ru' || lang === 'kk' || lang === 'uz';
+  const localName = (tpl: Template) => (ru && tpl.nameRu ? tpl.nameRu : tpl.name);
+  const localDesc = (tpl: Template) => (ru && tpl.descriptionRu ? tpl.descriptionRu : tpl.description);
+  const localCategory = (c: string) => (ru ? (CATEGORY_RU[c] ?? c) : c);
 
   // The category filter is derived from the templates the SERVER returns —
   // the full list is fetched once and filtered client-side.
@@ -58,10 +84,14 @@ export function TemplatesPage() {
     () => ['All', ...Array.from(new Set(allRows.map((tpl) => tpl.category)))],
     [allRows],
   );
-  const rows = useMemo(
-    () => (category === 'All' ? allRows : allRows.filter((tpl) => tpl.category === category)),
-    [allRows, category],
-  );
+  const rows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return allRows.filter(
+      (tpl) =>
+        (category === 'All' || tpl.category === category) &&
+        (!q || `${tpl.name} ${tpl.nameRu ?? ''}`.toLowerCase().includes(q)),
+    );
+  }, [allRows, category, search]);
 
   // Generator modal state.
   const [tpl, setTpl] = useState<Template | null>(null);
@@ -89,7 +119,9 @@ export function TemplatesPage() {
 
   const openGenerator = (template: Template) => {
     setTpl(template);
-    setJurisdiction(matchJurisdiction(template.jurisdiction));
+    // Default to the app's selected country when it's an offered jurisdiction,
+    // otherwise fall back to the template's own jurisdiction.
+    setJurisdiction(PICKER_CODES.has(uiCountry) ? uiCountry : matchJurisdiction(template.jurisdiction));
     setJurisOpen(false);
     setDraft(null);
   };
@@ -232,9 +264,21 @@ export function TemplatesPage() {
             <SelectMenu
               ariaLabel="category"
               value={category}
-              options={categories.map((c) => ({ value: c, label: c === 'All' ? t('tpl.allCategories') : c }))}
+              options={categories.map((c) => ({ value: c, label: c === 'All' ? t('tpl.allCategories') : localCategory(c) }))}
               onChange={setCategory}
             />
+            <div className={styles.searchWrap}>
+              <span className={styles.searchIcon}>
+                <Icon name="search" size={16} />
+              </span>
+              <input
+                className={styles.searchInput}
+                placeholder={t('tpl.search')}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                aria-label={t('tpl.search')}
+              />
+            </div>
           </div>
 
           {loading ? (
@@ -250,10 +294,10 @@ export function TemplatesPage() {
                   <div className={styles.cardIcon}>
                     <Icon name="layout" size={20} />
                   </div>
-                  <div className={styles.cardTitle}>{template.name}</div>
-                  <div className={styles.cardDesc}>{template.description}</div>
+                  <div className={styles.cardTitle}>{localName(template)}</div>
+                  <div className={styles.cardDesc}>{localDesc(template)}</div>
                   <div className={styles.cardFoot}>
-                    <span>{template.category}</span>
+                    <span>{localCategory(template.category)}</span>
                     <span>
                       {template.jurisdiction} · {template.clauses} {t('tpl.clauses')}
                     </span>
@@ -275,7 +319,7 @@ export function TemplatesPage() {
             {!draft ? (
               <>
                 <h2 className={styles.modalTitle}>
-                  {t('tpl.genTitle')} · {tpl.name}
+                  {t('tpl.genTitle')} · {localName(tpl)}
                 </h2>
                 <form onSubmit={generate} noValidate style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   <div className={styles.formRow}>

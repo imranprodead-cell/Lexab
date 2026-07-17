@@ -152,8 +152,11 @@ export interface ContractDocument {
 export interface Template {
   id: string;
   name: string;
+  /** Russian display name (ru/kk/uz users); English `name` drives generation. */
+  nameRu?: string | null;
   category: string;
   description: string;
+  descriptionRu?: string | null;
   jurisdiction: string;
   clauses: number;
 }

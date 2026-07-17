@@ -34,18 +34,20 @@ function toSaved(row: SavedRow): SavedTemplate {
 }
 
 export function templateRoutes(app: FastifyInstance, db: Db): void {
+  // Ordered by category then name — TEXT `ORDER BY id` scrambles t10 before t2
+  // once ids pass single digits.
+  const COLS =
+    'id, name, name_ru AS "nameRu", category, description, description_ru AS "descriptionRu", jurisdiction, clauses';
   app.get('/templates', { preHandler: [app.authenticate] }, async (req): Promise<Template[]> => {
     const { category } = req.query as { category?: string };
     if (category && category !== 'All') {
       const res = await db.query<Template>(
-        'SELECT id, name, category, description, jurisdiction, clauses FROM templates WHERE category = $1 ORDER BY name',
+        `SELECT ${COLS} FROM templates WHERE category = $1 ORDER BY category, name`,
         [category],
       );
       return res.rows;
     }
-    const res = await db.query<Template>(
-      'SELECT id, name, category, description, jurisdiction, clauses FROM templates ORDER BY id',
-    );
+    const res = await db.query<Template>(`SELECT ${COLS} FROM templates ORDER BY category, name`);
     return res.rows;
   });
 

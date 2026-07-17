@@ -359,6 +359,7 @@ export function AuthPage() {
         </div>
       </header>
 
+      <main>
       <div className={styles.layout}>
         {/* ── Left: brand, hero, sign-in card ─────────────────────────────── */}
         <div className={styles.left}>
@@ -597,6 +598,7 @@ export function AuthPage() {
 
       {/* ── Landing sections below the first screen ──────────────────────── */}
       <LandingSections onStart={startSignup} />
+      </main>
 
       <TelegramWidget scrollRef={rootRef} hidden={leaving} />
     </div>

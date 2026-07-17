@@ -107,8 +107,11 @@ export interface ContractDocument {
 export interface Template {
   id: string;
   name: string;
+  /** Russian display name (shown to ru/kk/uz users; English `name` drives the LLM). */
+  nameRu?: string | null;
   category: string;
   description: string;
+  descriptionRu?: string | null;
   jurisdiction: string;
   clauses: number;
 }

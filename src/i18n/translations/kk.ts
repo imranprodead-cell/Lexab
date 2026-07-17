@@ -108,6 +108,7 @@ const kk: Record<string, string> = {
   "tpl.title": "Үлгілер",
   "tpl.sub": "Юрисдикцияға сай тексерілген үлгіден жоба бастаңыз.",
   "tpl.allCategories": "Барлық санаттар",
+  "tpl.search": "Үлгі іздеу…",
   "tpl.empty": "Бұл санатта үлгілер жоқ",
   "tpl.clauses": "тармақ",
   "sig.title": "Э-қолтаңбалар",

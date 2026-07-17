@@ -108,6 +108,7 @@ const uz: Record<string, string> = {
   "tpl.title": "Shablonlar",
   "tpl.sub": "Yurisdiksiyaga moslangan, tekshirilgan shablondan qoralamani boshlang.",
   "tpl.allCategories": "Barcha turkumlar",
+  "tpl.search": "Shablon qidirish…",
   "tpl.empty": "Bu turkumda shablonlar yoʻq",
   "tpl.clauses": "band",
   "sig.title": "E-imzolar",

@@ -205,6 +205,7 @@ export const MESSAGES: Dict = {
   'tpl.title': { ru: 'Шаблоны', en: 'Templates' },
   'tpl.sub': { ru: 'Начните черновик из проверенного шаблона под юрисдикцию.', en: 'Start a draft from a vetted, jurisdiction-ready template.' },
   'tpl.allCategories': { ru: 'Все категории', en: 'All categories' },
+  'tpl.search': { ru: 'Поиск шаблона…', en: 'Search templates…' },
   'tpl.empty': { ru: 'Нет шаблонов в этой категории', en: 'No templates in this category' },
   'tpl.clauses': { ru: 'пунктов', en: 'clauses' },
 
