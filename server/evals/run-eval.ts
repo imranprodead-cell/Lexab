@@ -157,6 +157,9 @@ async function main(): Promise<void> {
   /* ── Retrieval metrics ─────────────────────────────────────────────────── */
   let hit5 = 0, hit10 = 0, recallSum = 0;
   const retrieved = new Map<string, Awaited<ReturnType<typeof retrieveLegalContext>>>();
+  // Per-question misses land in the report so a regression is traceable to the
+  // exact question (indispensable once the golden set is 40+ rows).
+  const misses: { question: string; expected_unit_ids: string[]; top10_unit_ids: string[] }[] = [];
   for (const row of rows) {
     const hits = await retrieveLegalContext(db, { query: row.question, jurisdiction: row.jurisdiction, asOfDate: row.as_of_date, topK: 10 });
     retrieved.set(row.question, hits);
@@ -164,6 +167,7 @@ async function main(): Promise<void> {
     const ids10 = new Set(hits.map((h) => h.unitId));
     if (row.expected_unit_ids.some((id) => ids5.has(id))) hit5++;
     if (row.expected_unit_ids.some((id) => ids10.has(id))) hit10++;
+    else misses.push({ question: row.question, expected_unit_ids: row.expected_unit_ids, top10_unit_ids: hits.map((h) => h.unitId) });
     recallSum += row.expected_unit_ids.filter((id) => ids10.has(id)).length / row.expected_unit_ids.length;
   }
   const retrieval = {
@@ -172,7 +176,46 @@ async function main(): Promise<void> {
     'recall@10': +(recallSum / rows.length).toFixed(3),
   };
   report.retrieval = retrieval;
+  if (misses.length) report.misses = misses;
   console.log('\n=== RETRIEVAL ===', JSON.stringify(retrieval));
+  for (const m of misses) console.log(`  MISS: «${m.question.slice(0, 70)}» expected ${m.expected_unit_ids.join(',')}`);
+
+  /* ── Corpus self-description: which index produced these numbers ─────────── */
+  const evalJurisdiction = rows[0]?.jurisdiction;
+  if (evalJurisdiction) {
+    try {
+      const docsQ = await db.query<{ n: string | number }>(
+        `SELECT count(*) AS n FROM legal_documents WHERE jurisdiction = $1`,
+        [evalJurisdiction],
+      );
+      const chunksQ = await db.query<{ total: string | number; no_context: string | number }>(
+        `SELECT count(*) AS total, count(*) FILTER (WHERE context_summary = '') AS no_context
+         FROM chunks WHERE jurisdiction = $1`,
+        [evalJurisdiction],
+      );
+      let embedded: number | null = null;
+      try {
+        const e = await db.query<{ n: string | number }>(
+          `SELECT count(*) AS n FROM chunks WHERE jurisdiction = $1 AND embedding IS NOT NULL`,
+          [evalJurisdiction],
+        );
+        embedded = Number(e.rows[0].n);
+      } catch {
+        /* pgvector absent (dev) */
+      }
+      const total = Number(chunksQ.rows[0].total);
+      report.corpus = {
+        jurisdiction: evalJurisdiction,
+        documents: Number(docsQ.rows[0].n),
+        chunks: total,
+        contextCoverage: total ? +((total - Number(chunksQ.rows[0].no_context)) / total).toFixed(3) : 0,
+        embeddingCoverage: embedded === null ? 'n/a' : total ? +(embedded / total).toFixed(3) : 0,
+      };
+      console.log('=== CORPUS ===', JSON.stringify(report.corpus));
+    } catch {
+      /* corpus block is best-effort — never fails an eval run */
+    }
+  }
 
   /* ── Pipeline: baseline (no RAG) vs RAG ─────────────────────────────────── */
   if (!retrievalOnly) {

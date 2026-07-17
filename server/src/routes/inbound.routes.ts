@@ -28,6 +28,7 @@ import { config } from '../config.ts';
 import type { Db } from '../db.ts';
 import { ALLOWED_EXTENSIONS, extractText, fileExtension, MAX_UPLOAD_BYTES, verifyFileSignature } from '../extract.ts';
 import { badRequest, HttpError, notFound, unauthorized } from '../lib/errors.ts';
+import { encText } from '../lib/docCrypto.ts';
 import { formatSize } from '../lib/format.ts';
 import { newId } from '../lib/ids.ts';
 import { withAiRequest, withStorageReservation } from '../lib/limits.ts';
@@ -127,6 +128,8 @@ export function inboundRoutes(app: FastifyInstance, db: Db): void {
         try {
           const stored = await saveFile(buffer, fileName);
           const text = await extractText(buffer, fileName);
+          // Encrypted at rest with the inbound user's data key.
+          const storedText = text === null ? null : await encText(db, user.id, text);
           // Storage counts against the plan quota, same as POST /uploads — a
           // rejected reservation deletes the just-saved bytes (no orphan).
           await withStorageReservation(
@@ -138,7 +141,7 @@ export function inboundRoutes(app: FastifyInstance, db: Db): void {
                 .query(
                   `INSERT INTO uploads (id, user_id, file_name, size_bytes, mime, storage, storage_key, url, extracted_text)
                    VALUES ($1, $2, $3, $4, NULL, $5, $6, $7, $8)`,
-                  [newId('up'), user.id, fileName, buffer.length, stored.storage, stored.key, stored.url, text],
+                  [newId('up'), user.id, fileName, buffer.length, stored.storage, stored.key, stored.url, storedText],
                 )
                 .then(() => undefined),
             () => deleteFile(stored.storage, stored.key),

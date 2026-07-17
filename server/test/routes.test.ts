@@ -18,6 +18,9 @@ process.env.ANTHROPIC_API_KEY = '';
 process.env.DEEPSEEK_API_KEY = ''; // an ambient key must not make "no network" tests hit the real API
 process.env.LLM_FALLBACK = 'dev';
 process.env.JWT_SECRET = 'test-secret-that-is-definitely-long-enough-32+';
+// Document encryption ON for the WHOLE route suite: every upload → analysis →
+// chat → export flow below exercises encrypt-on-write / decrypt-on-read.
+process.env.DATA_ENCRYPTION_KEY = 'routes-test-master-key-0123456789abcdef!';
 process.env.SEED_DEMO_DATA = 'false';
 // Many users register from one loopback IP in this suite — lift the per-minute
 // auth cap so the rate limiter (still 10/min in production) doesn't throttle it.

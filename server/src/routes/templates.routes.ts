@@ -5,6 +5,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../db.ts';
 import { notFound } from '../lib/errors.ts';
+import { decTextStrict, encText } from '../lib/docCrypto.ts';
 import { toIso } from '../lib/format.ts';
 import { newId } from '../lib/ids.ts';
 import { assertFeature, withAiRequest } from '../lib/limits.ts';
@@ -84,7 +85,12 @@ export function templateRoutes(app: FastifyInstance, db: Db): void {
        FROM saved_templates WHERE user_id = $1 ORDER BY created_at DESC`,
       [req.currentUser.id],
     );
-    return res.rows.map(toSaved);
+    // Drafted contract text is encrypted at rest — decrypt for the wire shape.
+    const out: SavedTemplate[] = [];
+    for (const row of res.rows) {
+      out.push(toSaved({ ...row, content: await decTextStrict(db, req.currentUser.id, row.content) }));
+    }
+    return out;
   });
 
   app.post('/templates/saved', { preHandler: [app.authenticateReal] }, async (req, reply): Promise<SavedTemplate> => {
@@ -98,10 +104,11 @@ export function templateRoutes(app: FastifyInstance, db: Db): void {
       `INSERT INTO saved_templates (id, user_id, title, content, source_template_id, jurisdiction)
        VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING id, title, content, source_template_id, jurisdiction, created_at`,
-      [id, req.currentUser.id, title, content, sourceTemplateId, jurisdiction],
+      [id, req.currentUser.id, title, await encText(db, req.currentUser.id, content), sourceTemplateId, jurisdiction],
     );
     reply.code(201);
-    return toSaved(res.rows[0]);
+    // RETURNING carries the ciphertext — answer with the plaintext the user sent.
+    return toSaved({ ...res.rows[0], content });
   });
 
   app.delete('/templates/saved/:id', { preHandler: [app.authenticateReal] }, async (req, reply) => {

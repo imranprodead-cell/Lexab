@@ -24,6 +24,7 @@ import { jurisdictionCode, retrieveLegalContext } from '../rag/retrieve.ts';
 import type { RetrievedChunk } from '../rag/types.ts';
 import { validateFindings } from '../rag/validate-citations.ts';
 import { audit } from '../lib/audit.ts';
+import { decJsonFromJsonb, decText, decTextStrict, encJsonForJsonb, encText } from '../lib/docCrypto.ts';
 import { deleteFile, readFileBytes, saveFile } from '../storage.ts';
 import type { AnalysisResult, DocBlock, Redline } from '../types.ts';
 
@@ -50,13 +51,16 @@ async function loadAnalysis(db: Db, userId: string, id: string): Promise<Analysi
   // Owner, or an active team member when the linked document is shared.
   const access = await resolveAnalysisAccess(db, userId, id);
   const canEdit = access.access === 'owner' || access.access === 'admin' || access.access === 'editor';
-  const res = await db.query<AnalysisRow & { document_id: string }>(
-    `SELECT id, document_id, file_name, file_size, summary, risk_score, risk_level, clauses_reviewed, document_blocks
+  const res = await db.query<AnalysisRow & { document_id: string; user_id: string }>(
+    `SELECT id, user_id, document_id, file_name, file_size, summary, risk_score, risk_level, clauses_reviewed, document_blocks
      FROM analyses WHERE id = $1`,
     [id],
   );
   const row = res.rows[0];
   if (!row) throw notFound('Analysis not found');
+  // Encrypted values are keyed by the analysis OWNER's data key (a teammate
+  // reading a shared document decrypts with the owner's key, not their own).
+  const ownerId = row.user_id;
 
   const findings = await db.query<{ id: string; severity: 'High' | 'Medium' | 'Low'; title: string; citation: string; unit_id: string | null; redline_id: string | null; unverified: boolean }>(
     'SELECT id, severity, title, citation, unit_id, redline_id, unverified FROM findings WHERE analysis_id = $1 ORDER BY ord',
@@ -66,14 +70,25 @@ async function loadAnalysis(db: Db, userId: string, id: string): Promise<Analysi
     'SELECT id, del_text, ins_text, severity, status FROM redlines WHERE analysis_id = $1 ORDER BY ord',
     [id],
   );
-  const blocks = typeof row.document_blocks === 'string' ? JSON.parse(row.document_blocks) : row.document_blocks;
+  const blocks = (await decJsonFromJsonb(db, ownerId, row.document_blocks)) as DocBlock[] | null;
+  if (blocks === null) throw new HttpError(500, 'Document cannot be decrypted — data key mismatch');
+  const summary = await decText(db, ownerId, row.summary);
+  if (summary === null) throw new HttpError(500, 'Document cannot be decrypted — data key mismatch');
+
+  const decRedlines: Redline[] = [];
+  for (const r of redlines.rows) {
+    const delText = await decText(db, ownerId, r.del_text);
+    const insText = await decText(db, ownerId, r.ins_text);
+    if (delText === null || insText === null) throw new HttpError(500, 'Document cannot be decrypted — data key mismatch');
+    decRedlines.push({ id: r.id, delText, insText, severity: r.severity, status: r.status });
+  }
 
   return {
     id: row.id,
     documentId: row.document_id,
     fileName: row.file_name,
     fileSize: row.file_size,
-    summary: row.summary,
+    summary,
     riskScore: row.risk_score,
     riskLevel: row.risk_level,
     clausesReviewed: row.clauses_reviewed,
@@ -86,13 +101,7 @@ async function loadAnalysis(db: Db, userId: string, id: string): Promise<Analysi
       redlineId: f.redline_id,
       unverified: f.unverified,
     })),
-    redlines: redlines.rows.map((r) => ({
-      id: r.id,
-      delText: r.del_text,
-      insText: r.ins_text,
-      severity: r.severity,
-      status: r.status,
-    })),
+    redlines: decRedlines,
     document: blocks,
     canEdit,
   };
@@ -165,11 +174,20 @@ async function resolveUploadedContent(db: Db, userId: string, fileName: string):
   if (fileExtension(fileName) === '.pdf') {
     try {
       pdf = await readFileBytes(row.storage, row.storage_key);
-    } catch {
-      pdf = null; // stored file unavailable — analyse from name only
+    } catch (err) {
+      // A DECRYPTION failure must fail loud (never analyse a contract from its
+      // name alone while masking the real cause); a genuinely missing file
+      // keeps the pre-existing tolerant behaviour (analyse from name only).
+      if (err instanceof Error && /decrypt|DATA_ENCRYPTION|integrity/i.test(err.message)) throw err;
+      pdf = null;
     }
   }
-  return { text: row.extracted_text, pdf, sizeBytes: Number(row.size_bytes) };
+  // Decrypt BEFORE any prompt building — the model must see the exact
+  // plaintext it always saw (answers may not change because of encryption).
+  // A PRESENT-but-undecryptable value throws (decTextStrict), so a corrupted
+  // row can't silently downgrade the model input to "from the file name only".
+  const text = row.extracted_text === null ? null : await decTextStrict(db, userId, row.extracted_text);
+  return { text, pdf, sizeBytes: Number(row.size_bytes) };
 }
 
 async function readSource(db: Db, req: FastifyRequest): Promise<AnalysisSource> {
@@ -195,6 +213,9 @@ async function readSource(db: Db, req: FastifyRequest): Promise<AnalysisSource> 
     await assertStorageAllowance(db, req.currentUser.id, buffer.length);
     const stored = await saveFile(buffer, fileName, part.mimetype);
     const text = await extractText(buffer, fileName);
+    // Only the DB param is encrypted — the local `text` stays plaintext and is
+    // what the LLM receives below (answers unchanged by encryption).
+    const storedText = text === null ? null : await encText(db, req.currentUser.id, text);
     await withStorageReservation(
       db,
       req.currentUser.id,
@@ -204,7 +225,7 @@ async function readSource(db: Db, req: FastifyRequest): Promise<AnalysisSource> 
           .query(
             `INSERT INTO uploads (id, user_id, file_name, size_bytes, mime, storage, storage_key, url, extracted_text)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-            [newId('up'), req.currentUser.id, fileName, buffer.length, part.mimetype || null, stored.storage, stored.key, stored.url, text],
+            [newId('up'), req.currentUser.id, fileName, buffer.length, part.mimetype || null, stored.storage, stored.key, stored.url, storedText],
           )
           .then(() => undefined),
       () => deleteFile(stored.storage, stored.key),
@@ -248,6 +269,18 @@ export async function persistAnalysis(
 ): Promise<AnalysisResult> {
   const analysisId = newId('an');
   let documentId = ''; // set inside the tx; returned so the client can export
+
+  // Encrypt document content BEFORE the transaction (DEK creation is
+  // idempotent and must not extend the tx). Owner's key — not the requester's.
+  const encSummary = await encText(db, userId, gen.summary);
+  const encBlocks = await encJsonForJsonb(db, userId, gen.document);
+  const encRedlines = await Promise.all(
+    gen.redlines.map(async (r) => ({
+      ...r,
+      delText: await encText(db, userId, r.delText),
+      insText: await encText(db, userId, r.insText),
+    })),
+  );
 
   // All of the review's rows (document, versions, analysis, findings, redlines,
   // stats) commit together or not at all — a mid-write failure never leaves a
@@ -296,11 +329,11 @@ export async function persistAnalysis(
         documentId,
         source.fileName,
         source.fileSizeLabel,
-        gen.summary,
+        encSummary,
         gen.riskScore,
         gen.riskLevel,
         gen.clausesReviewed,
-        JSON.stringify(gen.document),
+        encBlocks,
       ],
     );
     for (let i = 0; i < gen.findings.length; i++) {
@@ -310,8 +343,8 @@ export async function persistAnalysis(
         [analysisId, `f${i + 1}`, i, f.severity, f.title, f.citation, f.unitId ?? null, f.redlineId ?? null, f.unverified ?? false],
       );
     }
-    for (let i = 0; i < gen.redlines.length; i++) {
-      const r = gen.redlines[i];
+    for (let i = 0; i < encRedlines.length; i++) {
+      const r = encRedlines[i];
       await tx.query(
         `INSERT INTO redlines (analysis_id, id, ord, del_text, ins_text, severity, status)
          VALUES ($1, $2, $3, $4, $5, $6, 'pending')`,
@@ -560,8 +593,13 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
         }
       }
     }
-    await resolveAnalysisAccess(db, req.currentUser.id, id, true);
-    await db.query('UPDATE analyses SET document_blocks = $2 WHERE id = $1', [id, JSON.stringify(blocks)]);
+    const patchAccess = await resolveAnalysisAccess(db, req.currentUser.id, id, true);
+    // Validation above ran on the plaintext structure; only the stored value is
+    // encrypted — with the analysis OWNER's key (teammates share the owner key).
+    await db.query('UPDATE analyses SET document_blocks = $2 WHERE id = $1', [
+      id,
+      await encJsonForJsonb(db, patchAccess.analysisUserId, blocks),
+    ]);
     // A manual edit can flatten a paragraph and drop its {redlineId} slots —
     // retire the pending suggestions that no longer appear anywhere, so the
     // "N suggestions" counters keep matching the visible document.
@@ -610,7 +648,7 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
     const status = requireOneOf(body, 'status', ['accepted', 'rejected', 'pending'] as const);
 
     // Owner or team member with edit rights.
-    await resolveAnalysisAccess(db, req.currentUser.id, id, true);
+    const rlAccess = await resolveAnalysisAccess(db, req.currentUser.id, id, true);
 
     const res = await db.query<{ id: string; del_text: string; ins_text: string; severity: 'High' | 'Medium' | 'Low'; status: 'pending' | 'accepted' | 'rejected' }>(
       `UPDATE redlines SET status = $3 WHERE analysis_id = $1 AND id = $2
@@ -619,6 +657,9 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
     );
     const row = res.rows[0];
     if (!row) throw notFound('Redline not found');
-    return { id: row.id, delText: row.del_text, insText: row.ins_text, severity: row.severity, status: row.status };
+    const delText = await decText(db, rlAccess.analysisUserId, row.del_text);
+    const insText = await decText(db, rlAccess.analysisUserId, row.ins_text);
+    if (delText === null || insText === null) throw new HttpError(500, 'Document cannot be decrypted — data key mismatch');
+    return { id: row.id, delText, insText, severity: row.severity, status: row.status };
   });
 }

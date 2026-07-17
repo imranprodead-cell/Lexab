@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { Icon } from '@/components/icons/Icon';
@@ -35,6 +35,14 @@ export function DocumentsPage() {
   const isMobile = useMediaQuery('(max-width: 700px)');
   usePageTitle(t('nav.documents'));
   const [search, setSearch] = useState('');
+  // Debounced value that actually drives the request — the input stays fully
+  // responsive, but the server-side full-content search (which decrypts the
+  // user's documents) fires only after typing pauses, not on every keystroke.
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(id);
+  }, [search]);
   const [status, setStatus] = useState('All');
   const [risk, setRisk] = useState('All');
   const [sortKey, setSortKey] = useState<SortKey>('updatedAt');
@@ -49,7 +57,7 @@ export function DocumentsPage() {
     return t('docs.daysAgo', { n: days });
   };
 
-  const query = useMemo(() => ({ search, status, risk }), [search, status, risk]);
+  const query = useMemo(() => ({ search: debouncedSearch, status, risk }), [debouncedSearch, status, risk]);
   const { data, loading, error, reload } = useAsync(
     (signal) => documentsApi.list(query, signal),
     [query.search, query.status, query.risk],

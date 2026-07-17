@@ -1,70 +1,126 @@
 /**
  * Uzbekistan ingestion runner: официальные тексты с lex.uz (русская версия).
  *
- *   npm run rag:ingest:uz              # пилотный набор
- *   npm run rag:ingest:uz -- 111181    # конкретные документы
- *   npm run rag:ingest:uz -- --force   # перепарсить без изменений источника
+ *   npm run rag:ingest:uz                        # весь список UZ_DOCS
+ *   npm run rag:ingest:uz -- 111181              # конкретные документы
+ *   npm run rag:ingest:uz -- --force             # перепарсить без изменений источника
+ *   npm run rag:ingest:uz -- --dry-run 6257291   # парсинг БЕЗ записи в БД (проба разметки)
+ *
+ * Правило корпуса: ID документов берутся ТОЛЬКО с lex.uz (проверяются вручную
+ * по названию в выводе ингеста) — никаких «предположительных» ID.
  */
 import { getDb, migrate } from '../../db.ts';
 import { newId } from '../../lib/ids.ts';
 import { fetchLexUzHtml, parseLexUzHtml } from './lex-uz.ts';
 import { upsertParsedDocument } from './upsert.ts';
 
-/** Пилот: договорное право РУз. */
-export const PILOT_UZ_DOCS = [
-  '111181', // Гражданский кодекс РУз, часть первая (1995)
-  '180550', // Гражданский кодекс РУз, часть вторая (1996)
-  '10872', // О договорно-правовой базе деятельности хозяйствующих субъектов (1998)
-  '6234906', // Об электронной цифровой подписи (ЗРУ-793, 2022 — действующий)
-  '14643', // О защите прав потребителей (1996)
+interface UzDoc {
+  id: string;
+  note: string;
+  /** Parse-coverage floor: fail loud when the parser finds fewer articles —
+   *  markup drift on lex.uz must never silently truncate a code. */
+  minArticles: number;
+}
+
+/** Корпус договорного права РУз (волна 1 = пилот + 5 приоритетных актов). */
+export const UZ_DOCS: UzDoc[] = [
+  // ── Пилот (LIVE с этапа «Узбекистан») ──────────────────────────────────────
+  { id: '111181', note: 'Гражданский кодекс РУз, часть первая (1995)', minArticles: 380 },
+  { id: '180550', note: 'Гражданский кодекс РУз, часть вторая (1996)', minArticles: 800 },
+  { id: '10872', note: 'О договорно-правовой базе деятельности хозяйствующих субъектов (1998)', minArticles: 30 },
+  { id: '6234906', note: 'Об электронной цифровой подписи (ЗРУ-793, 2022)', minArticles: 30 },
+  { id: '14643', note: 'О защите прав потребителей (1996)', minArticles: 30 },
 ];
 
+/** Обратная совместимость: прежнее имя экспорта (список голых id). */
+export const PILOT_UZ_DOCS = UZ_DOCS.map((d) => d.id);
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Article-number continuity report. Base numbers should cover 1..N almost
+ *  contiguously; missing low numbers mean the parser lost a stretch. Superscript
+ *  articles («358¹» → strips to a big outlier) are ignored via the 1..count
+ *  window, so the check doesn't cry wolf on codes that use them. */
+function gapReport(articleNums: string[]): string {
+  const bases = articleNums.map((n) => Number(n.split(/[.-]/)[0])).filter((n) => Number.isFinite(n));
+  if (!bases.length) return 'no numeric articles';
+  const set = new Set(bases);
+  const count = set.size;
+  // How many of the first `count` article numbers are absent (holes low down)?
+  let missing = 0;
+  for (let i = 1; i <= count; i++) if (!set.has(i)) missing++;
+  return `distinct base numbers ${count}` + (missing > 10 ? `  ⚠ ${missing} gaps in 1..${count}` : '');
+}
 
 async function main(): Promise<void> {
   const requested = process.argv.slice(2).filter((a) => !a.startsWith('-'));
   const force = process.argv.includes('--force');
-  const docs = requested.length ? requested : PILOT_UZ_DOCS;
+  const dryRun = process.argv.includes('--dry-run');
+  const byId = new Map(UZ_DOCS.map((d) => [d.id, d]));
+  const docs: UzDoc[] = requested.length
+    ? requested.map((id) => byId.get(id) ?? { id, note: '(не в списке UZ_DOCS)', minArticles: 1 })
+    : UZ_DOCS;
 
-  const db = await getDb();
-  await migrate(db);
+  const db = dryRun ? null : await getDb();
+  if (db) await migrate(db);
   const runId = newId('ir');
-  await db.query(`INSERT INTO ingestion_runs (id, source) VALUES ($1, 'lex.uz')`, [runId]);
+  if (db) await db.query(`INSERT INTO ingestion_runs (id, source) VALUES ($1, 'lex.uz')`, [runId]);
   let fetched = 0, changed = 0, unchanged = 0, errors = 0;
   const detail: Record<string, unknown> = {};
 
-  for (const docId of docs) {
+  for (const doc of docs) {
     try {
-      const { html, url } = await fetchLexUzHtml(docId);
+      const { html, url } = await fetchLexUzHtml(doc.id);
       fetched++;
-      const parsed = parseLexUzHtml(docId, html, url);
-      const res = await upsertParsedDocument(db, parsed, force);
-      if (res.changed) changed++; else unchanged++;
+      const parsed = parseLexUzHtml(doc.id, html, url);
       const secs = parsed.units.filter((u) => u.unitType === 'section');
-      detail[docId] = { title: parsed.title, units: parsed.units.length, articles: secs.length, changed: res.changed };
-      console.log(`[ingest:uz] ${parsed.title}: ${res.changed ? `${parsed.units.length} units (${secs.length} статей)` : 'unchanged — skipped'}`);
-      if (res.changed && secs.length) console.log(`            e.g. ${secs[Math.floor(secs.length / 2)].breadcrumb}`);
+      // Parse-coverage floor BEFORE any write.
+      if (secs.length < doc.minArticles) {
+        throw new Error(
+          `parsed only ${secs.length} articles for «${parsed.title}» (expected ≥ ${doc.minArticles}) — markup drift? refusing`,
+        );
+      }
+      if (dryRun) {
+        detail[doc.id] = { title: parsed.title, units: parsed.units.length, articles: secs.length };
+        console.log(`[dry-run] ${doc.id} «${parsed.title}»`);
+        console.log(`          units=${parsed.units.length} articles=${secs.length}  (${gapReport(secs.map((s) => s.number ?? ''))})`);
+        if (secs.length) {
+          console.log(`          first:  ${secs[0].breadcrumb}`);
+          console.log(`          middle: ${secs[Math.floor(secs.length / 2)].breadcrumb}`);
+          console.log(`          last:   ${secs[secs.length - 1].breadcrumb}`);
+        }
+      } else {
+        const res = await upsertParsedDocument(db!, parsed, force);
+        if (res.changed) changed++; else unchanged++;
+        detail[doc.id] = { title: parsed.title, units: parsed.units.length, articles: secs.length, changed: res.changed };
+        console.log(`[ingest:uz] ${parsed.title}: ${res.changed ? `${parsed.units.length} units (${secs.length} статей, ${gapReport(secs.map((s) => s.number ?? ''))})` : 'unchanged — skipped'}`);
+        if (res.changed && secs.length) console.log(`            e.g. ${secs[Math.floor(secs.length / 2)].breadcrumb}`);
+      }
     } catch (err) {
       errors++;
-      detail[docId] = { error: (err as Error).message };
-      console.error(`[ingest:uz] ${docId} FAILED: ${(err as Error).message}`);
+      detail[doc.id] = { error: (err as Error).message };
+      console.error(`[ingest:uz] ${doc.id} FAILED: ${(err as Error).message}`);
     }
     await sleep(1200); // вежливость к официальному сайту
   }
 
-  await db.query(
-    `UPDATE ingestion_runs SET finished_at = now(), docs_fetched = $2, docs_changed = $3, docs_unchanged = $4, errors = $5, detail = $6 WHERE id = $1`,
-    [runId, fetched, changed, unchanged, errors, JSON.stringify(detail)],
-  );
-  const totals = await db.query<{ docs: string; units: string; sections: string }>(
-    `SELECT count(*) AS docs,
-            (SELECT count(*) FROM legal_units u JOIN legal_documents d ON d.id = u.document_id WHERE d.jurisdiction = 'UZ') AS units,
-            (SELECT count(*) FROM legal_units u JOIN legal_documents d ON d.id = u.document_id WHERE d.jurisdiction = 'UZ' AND u.unit_type = 'section') AS sections
-     FROM legal_documents WHERE jurisdiction = 'UZ'`,
-  );
-  console.log(`\n[ingest:uz] run ${runId}: fetched ${fetched}, changed ${changed}, unchanged ${unchanged}, errors ${errors}`);
-  console.log(`[ingest:uz] корпус UZ: ${totals.rows[0].docs} документов, ${totals.rows[0].units} юнитов (${totals.rows[0].sections} статей)`);
-  await db.close();
+  if (db) {
+    await db.query(
+      `UPDATE ingestion_runs SET finished_at = now(), docs_fetched = $2, docs_changed = $3, docs_unchanged = $4, errors = $5, detail = $6 WHERE id = $1`,
+      [runId, fetched, changed, unchanged, errors, JSON.stringify(detail)],
+    );
+    const totals = await db.query<{ docs: string; units: string; sections: string }>(
+      `SELECT count(*) AS docs,
+              (SELECT count(*) FROM legal_units u JOIN legal_documents d ON d.id = u.document_id WHERE d.jurisdiction = 'UZ') AS units,
+              (SELECT count(*) FROM legal_units u JOIN legal_documents d ON d.id = u.document_id WHERE d.jurisdiction = 'UZ' AND u.unit_type = 'section') AS sections
+       FROM legal_documents WHERE jurisdiction = 'UZ'`,
+    );
+    console.log(`\n[ingest:uz] run ${runId}: fetched ${fetched}, changed ${changed}, unchanged ${unchanged}, errors ${errors}`);
+    console.log(`[ingest:uz] корпус UZ: ${totals.rows[0].docs} документов, ${totals.rows[0].units} юнитов (${totals.rows[0].sections} статей)`);
+    await db.close();
+  } else {
+    console.log(`\n[dry-run] fetched ${fetched}, errors ${errors} — БД не тронута`);
+  }
   if (errors > 0) process.exitCode = 1;
 }
 

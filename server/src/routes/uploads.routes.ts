@@ -3,17 +3,16 @@
  * GET /files/:key — serves locally stored uploads (S3 objects are served by
  * S3 itself via the returned url).
  */
-import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
-import { config } from '../config.ts';
 import type { Db } from '../db.ts';
 import { ALLOWED_EXTENSIONS, assertValidFileContent, extractText, fileExtension, MAX_UPLOAD_BYTES } from '../extract.ts';
 import { badRequest, notFound } from '../lib/errors.ts';
 import { assertStorageAllowance, withStorageReservation } from '../lib/limits.ts';
+import { encText } from '../lib/docCrypto.ts';
 import { formatSize } from '../lib/format.ts';
 import { newId } from '../lib/ids.ts';
-import { deleteFile, saveFile } from '../storage.ts';
+import { deleteFile, readFileBytes, saveFile } from '../storage.ts';
 
 const MIME_BY_EXT: Record<string, string> = {
   '.pdf': 'application/pdf',
@@ -48,6 +47,8 @@ export function uploadRoutes(app: FastifyInstance, db: Db): void {
       await assertStorageAllowance(db, req.currentUser.id, buffer.length);
       const stored = await saveFile(buffer, fileName, part.mimetype);
       const text = await extractText(buffer, fileName);
+      // Contract text is encrypted at rest with the owner's data key.
+      const storedText = text === null ? null : await encText(db, req.currentUser.id, text);
       const id = newId('up');
       await withStorageReservation(
         db,
@@ -58,7 +59,7 @@ export function uploadRoutes(app: FastifyInstance, db: Db): void {
             .query(
               `INSERT INTO uploads (id, user_id, file_name, size_bytes, mime, storage, storage_key, url, extracted_text)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-              [id, req.currentUser.id, fileName, buffer.length, part.mimetype, stored.storage, stored.key, stored.url, text],
+              [id, req.currentUser.id, fileName, buffer.length, part.mimetype, stored.storage, stored.key, stored.url, storedText],
             )
             .then(() => undefined),
         () => deleteFile(stored.storage, stored.key),
@@ -95,10 +96,11 @@ export function uploadRoutes(app: FastifyInstance, db: Db): void {
       if (shared.rows.length === 0) throw notFound('File not found');
     }
 
-    const filePath = path.join(config.dataDir, 'uploads', safe);
+    // readFileBytes transparently decrypts the at-rest envelope (legacy
+    // plaintext files pass through) — never serve ciphertext to the browser.
     let data: Buffer;
     try {
-      data = await fs.readFile(filePath);
+      data = await readFileBytes('local', safe);
     } catch {
       throw notFound('File not found');
     }

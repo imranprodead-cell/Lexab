@@ -5,6 +5,7 @@ import { config } from '../config.ts';
 import type { Db } from '../db.ts';
 import { escapeMailHtml, mailLayout, sendMail } from '../mail.ts';
 import { badRequest } from '../lib/errors.ts';
+import { encText } from '../lib/docCrypto.ts';
 import { toIso } from '../lib/format.ts';
 import { newId } from '../lib/ids.ts';
 import { dropboxSignEnabled, downloadSignedPdf, sendSignatureRequest, verifyWebhook } from '../lib/esign.ts';
@@ -79,6 +80,8 @@ export function signatureRoutes(app: FastifyInstance, db: Db): void {
     // Freeze the exact reviewed text at send time — signers see/sign this, not a
     // version the owner might edit afterward (bait-and-switch prevention).
     const contentSnapshot = await renderSignableText(db, req.currentUser.id, documentName);
+    // Stored encrypted (owner's key); the sign-by-token page decrypts server-side.
+    const storedSnapshot = contentSnapshot === null ? null : await encText(db, req.currentUser.id, contentSnapshot);
     const rawRecipients = body.recipients;
     if (!Array.isArray(rawRecipients) || rawRecipients.length === 0) {
       throw badRequest('Field "recipients" must be a non-empty array of { name, email }');
@@ -123,7 +126,7 @@ export function signatureRoutes(app: FastifyInstance, db: Db): void {
         await tx.query(
           `INSERT INTO signature_requests (id, user_id, document_name, status, sent_at, provider, provider_request_id, content_snapshot, document_id)
            VALUES ($1, $2, $3, 'Sent', now(), 'dropbox_sign', $4, $5, $6)`,
-          [id, req.currentUser.id, documentName, sent.requestId, contentSnapshot, documentId],
+          [id, req.currentUser.id, documentName, sent.requestId, storedSnapshot, documentId],
         );
         for (const r of withTokens) {
           const sig = sent.signatures.find((s) => s.email.toLowerCase() === r.email.toLowerCase());
@@ -156,7 +159,7 @@ export function signatureRoutes(app: FastifyInstance, db: Db): void {
       await tx.query(
         `INSERT INTO signature_requests (id, user_id, document_name, status, sent_at, content_snapshot, document_id)
          VALUES ($1, $2, $3, 'Sent', now(), $4, $5)`,
-        [id, req.currentUser.id, documentName, contentSnapshot, documentId],
+        [id, req.currentUser.id, documentName, storedSnapshot, documentId],
       );
       for (const r of withTokens) {
         await tx.query(

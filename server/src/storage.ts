@@ -9,6 +9,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { config } from './config.ts';
+import { decFileBuffer, encFileBuffer, encryptionEnabled } from './lib/docCrypto.ts';
 import { getSupabaseAdmin, isSupabaseConfigured } from './supabase.ts';
 
 const SIGNED_URL_TTL = 7 * 24 * 3600;
@@ -25,6 +26,16 @@ function sanitizeName(name: string): string {
 
 export async function saveFile(buffer: Buffer, fileName: string, mime?: string): Promise<StoredFile> {
   const key = `${crypto.randomBytes(12).toString('hex')}__${sanitizeName(fileName)}`;
+
+  // Encrypt-at-rest envelope (self-contained, per-file key wrapped by the
+  // master key — see lib/docCrypto.ts). Every consumer reads bytes back
+  // through readFileBytes, which transparently decrypts; the stored object
+  // itself is opaque, so provider signed URLs would serve ciphertext (the
+  // frontend never downloads via those URLs — verified).
+  if (encryptionEnabled()) {
+    buffer = encFileBuffer(buffer);
+    mime = 'application/octet-stream'; // true mime lives in uploads.mime
+  }
 
   if (config.supabaseStorageBucket && isSupabaseConfigured()) {
     const supabase = getSupabaseAdmin();
@@ -73,14 +84,16 @@ export async function saveFile(buffer: Buffer, fileName: string, mime?: string):
   return { storage: 'local', key, url: `${config.apiPrefix}/files/${key}` };
 }
 
-/** Read back a stored file's bytes (used when an analysis needs PDF content). */
+/** Read back a stored file's bytes (used when an analysis needs PDF content).
+ *  Transparently decrypts the at-rest envelope; legacy plaintext files pass
+ *  through unchanged (magic-header detection). */
 export async function readFileBytes(storage: 's3' | 'local' | 'supabase', key: string): Promise<Buffer> {
   if (storage === 'supabase') {
     const { data, error } = await getSupabaseAdmin()
       .storage.from(config.supabaseStorageBucket)
       .download(key);
     if (error) throw new Error(`Supabase Storage download failed: ${error.message}`);
-    return Buffer.from(await data.arrayBuffer());
+    return decFileBuffer(Buffer.from(await data.arrayBuffer()));
   }
   if (storage === 's3') {
     const { S3Client, GetObjectCommand } = await import('@aws-sdk/client-s3');
@@ -90,11 +103,11 @@ export async function readFileBytes(storage: 's3' | 'local' | 'supabase', key: s
     });
     const res = await client.send(new GetObjectCommand({ Bucket: config.s3Bucket, Key: key }));
     const bytes = await res.Body?.transformToByteArray();
-    return Buffer.from(bytes ?? new Uint8Array());
+    return decFileBuffer(Buffer.from(bytes ?? new Uint8Array()));
   }
   // Keys are server-generated; sanitize anyway before touching the filesystem.
   const safe = path.basename(key);
-  return fs.readFile(path.join(config.dataDir, 'uploads', safe));
+  return decFileBuffer(await fs.readFile(path.join(config.dataDir, 'uploads', safe)));
 }
 
 /**

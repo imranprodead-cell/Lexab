@@ -27,6 +27,34 @@ function resolveJwtSecret(): string {
   return crypto.randomBytes(48).toString('base64url');
 }
 
+/**
+ * Master key (KEK) for at-rest encryption of user documents (lib/docCrypto.ts).
+ *  - production: REQUIRED (≥32 chars) — refuse to start, so writes can never
+ *    happen unencrypted by accident;
+ *  - dev: optional — encryption is disabled with a loud warning (reads still
+ *    tolerate both plaintext and encrypted rows).
+ * Deliberately independent of JWT_SECRET: rotating the JWT secret must never
+ * make document data undecryptable. Generate:
+ *   node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+ */
+function resolveDataEncryptionKey(): string {
+  const provided = env('DATA_ENCRYPTION_KEY');
+  if (provided.length >= 32) return provided;
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'DATA_ENCRYPTION_KEY must be set to a strong value (at least 32 characters) in production — ' +
+        'user documents are encrypted at rest with it. Generate one with: ' +
+        `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`,
+    );
+  }
+  console.warn(
+    provided
+      ? '[config] DATA_ENCRYPTION_KEY is too short (<32 chars) — document encryption DISABLED for this dev run'
+      : '[config] DATA_ENCRYPTION_KEY is not set — document encryption DISABLED for this dev run',
+  );
+  return '';
+}
+
 /* ── DeepSeek (OpenAI-compatible API) — the cheap model for the Free plan ────
    DEEPSEEK_BASE_URL may point at the official api.deepseek.com or at a
    western host serving the open weights (Together / Fireworks / Nebius /
@@ -69,6 +97,11 @@ export const config = {
   // ORIGINAL sign-in (auth_at claim) is this old, /auth/refresh answers 401 and
   // the user re-authenticates. Limits how long a stolen token can self-renew.
   sessionMaxDays: Number(env('SESSION_MAX_DAYS', '90')),
+
+  /** Master key for at-rest document encryption (see resolveDataEncryptionKey). */
+  dataEncryptionKey: resolveDataEncryptionKey(),
+  /** Previous master key — decrypt-only, set during a key rotation window. */
+  dataEncryptionKeyPrevious: env('DATA_ENCRYPTION_KEY_PREVIOUS'),
   /** Password for the opt-in seeded demo account (only when SEED_DEMO_DATA=true). */
   seedDemoPassword: env('SEED_DEMO_PASSWORD', 'lexai-demo'),
 

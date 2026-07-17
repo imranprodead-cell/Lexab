@@ -7,7 +7,8 @@ import { Document, HeadingLevel, Packer, Paragraph, TextRun } from 'docx';
 import { buildDocxParagraphs, DOCX_NUMBERING, type DocxMode } from '../lib/docxExport.ts';
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../db.ts';
-import { badRequest, notFound } from '../lib/errors.ts';
+import { badRequest, HttpError, notFound } from '../lib/errors.ts';
+import { decJsonFromJsonb, decText, encryptionEnabled } from '../lib/docCrypto.ts';
 import { assertFeature } from '../lib/limits.ts';
 import { canEdit, resolveDocumentAccess } from '../lib/teamAccess.ts';
 import { attachmentDisposition, formatSize, toIso } from '../lib/format.ts';
@@ -88,6 +89,64 @@ function resolveSections(blocks: DocBlock[], redlines: Redline[]): { heading?: s
   return sections;
 }
 
+/** Hard ceiling on the app-side decrypt scan per request — a runaway corpus
+ *  can't turn one search into an unbounded event-loop stall. Beyond this the
+ *  content match is skipped (name/counterparty still match in SQL) and logged. */
+const SEARCH_SCAN_CAP = 400;
+
+/**
+ * Full-content search over ENCRYPTED columns. SQL cannot ILIKE ciphertext, so
+ * the candidate set — the caller's own (quota-bounded) documents — is scanned
+ * app-side in small batches: decrypt, lowercase, substring match (the same
+ * strings the old SQL `ILIKE '%needle%'` scanned: summary, blocks JSON, source
+ * text). Buffers drop per batch (bounded memory) and the loop yields to the
+ * event loop between batches (bounded latency for other tenants). Only used
+ * when encryption is ON — otherwise the caller runs plain SQL ILIKE.
+ */
+async function searchDocumentContent(db: Db, userId: string, needle: string, log: (m: string) => void): Promise<string[]> {
+  const want = needle.toLowerCase();
+  const matched = new Set<string>();
+  const all = await db.query<{ id: string; name: string }>(
+    'SELECT id, name FROM documents WHERE user_id = $1 ORDER BY updated_at DESC',
+    [userId],
+  );
+  const docs = all.rows.slice(0, SEARCH_SCAN_CAP);
+  if (all.rows.length > SEARCH_SCAN_CAP) {
+    log(`content search scanned the ${SEARCH_SCAN_CAP} most-recent of ${all.rows.length} documents (older ones matched by name only)`);
+  }
+  const BATCH = 10;
+  for (let i = 0; i < docs.length; i += BATCH) {
+    if (i > 0) await new Promise<void>((r) => setImmediate(r)); // yield between batches
+    const slice = docs.slice(i, i + BATCH);
+    const analyses = await db.query<{ document_id: string; summary: string; document_blocks: unknown }>(
+      'SELECT document_id, summary, document_blocks FROM analyses WHERE document_id = ANY($1::text[])',
+      [slice.map((d) => d.id)],
+    );
+    for (const a of analyses.rows) {
+      if (matched.has(a.document_id)) continue;
+      const summary = await decText(db, userId, a.summary);
+      if (summary !== null && summary.toLowerCase().includes(want)) {
+        matched.add(a.document_id);
+        continue;
+      }
+      const blocks = await decJsonFromJsonb(db, userId, a.document_blocks);
+      if (blocks !== null && JSON.stringify(blocks).toLowerCase().includes(want)) matched.add(a.document_id);
+    }
+    const idByName = new Map(slice.map((d) => [d.name, d.id]));
+    const uploads = await db.query<{ file_name: string; extracted_text: string | null }>(
+      'SELECT file_name, extracted_text FROM uploads WHERE user_id = $1 AND file_name = ANY($2::text[])',
+      [userId, slice.map((d) => d.name)],
+    );
+    for (const u of uploads.rows) {
+      const docId = idByName.get(u.file_name);
+      if (!docId || matched.has(docId)) continue;
+      const text = await decText(db, userId, u.extracted_text);
+      if (text !== null && text.toLowerCase().includes(want)) matched.add(docId);
+    }
+  }
+  return [...matched];
+}
+
 export function documentRoutes(app: FastifyInstance, db: Db): void {
   app.get('/documents', { preHandler: [app.authenticate] }, async (req, reply): Promise<ContractDocument[]> => {
     const q = req.query as Record<string, string | undefined>;
@@ -95,17 +154,28 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
     const where: string[] = ['user_id = $1'];
 
     if (q.search?.trim()) {
-      params.push(`%${q.search.trim()}%`);
+      const needle = q.search.trim();
+      params.push(`%${needle}%`);
       const p = `$${params.length}`;
-      // Full-content search: file name, counterparty, AI summary, clause text
-      // and the extracted text of the uploaded source file.
-      where.push(
-        `(name ILIKE ${p} OR counterparty ILIKE ${p}
-          OR EXISTS (SELECT 1 FROM analyses a WHERE a.document_id = documents.id
-                     AND (a.summary ILIKE ${p} OR a.document_blocks::text ILIKE ${p}))
-          OR EXISTS (SELECT 1 FROM uploads u WHERE u.user_id = documents.user_id
-                     AND u.file_name = documents.name AND u.extracted_text ILIKE ${p}))`,
-      );
+      if (encryptionEnabled()) {
+        // Content columns are ciphertext: name/counterparty stay in SQL; the
+        // summary/clauses/source-text match runs app-side over decrypted content
+        // (bounded, yields the loop). Skip the scan for 1-char needles — too
+        // broad to be useful and the most expensive.
+        const contentIds =
+          needle.length >= 2 ? await searchDocumentContent(db, req.currentUser.id, needle, (m) => req.log.info(m)) : [];
+        params.push(contentIds);
+        where.push(`(name ILIKE ${p} OR counterparty ILIKE ${p} OR id = ANY($${params.length}::text[]))`);
+      } else {
+        // Plaintext columns: match entirely inside Postgres (off the event loop).
+        where.push(
+          `(name ILIKE ${p} OR counterparty ILIKE ${p}
+            OR EXISTS (SELECT 1 FROM analyses a WHERE a.document_id = documents.id
+                       AND (a.summary ILIKE ${p} OR a.document_blocks::text ILIKE ${p}))
+            OR EXISTS (SELECT 1 FROM uploads u WHERE u.user_id = documents.user_id
+                       AND u.file_name = documents.name AND u.extracted_text ILIKE ${p}))`,
+        );
+      }
     }
     if (q.status && q.status !== 'All') {
       params.push(q.status);
@@ -289,12 +359,24 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
     let redlines: Redline[] = [];
     if (analysisRes.rows[0]) {
       const a = analysisRes.rows[0];
-      blocks = typeof a.document_blocks === 'string' ? JSON.parse(a.document_blocks) : a.document_blocks;
+      // Decrypt with the document OWNER's key (a teammate exports shared docs).
+      const decBlocks = (await decJsonFromJsonb(db, doc.user_id, a.document_blocks)) as DocBlock[] | null;
+      if (decBlocks === null) throw new HttpError(500, 'Document cannot be decrypted — data key mismatch');
+      blocks = decBlocks;
       const redlinesRes = await db.query<{ id: string; del_text: string; ins_text: string; severity: Redline['severity']; status: Redline['status'] }>(
         'SELECT id, del_text, ins_text, severity, status FROM redlines WHERE analysis_id = $1 ORDER BY ord',
         [a.id],
       );
-      redlines = redlinesRes.rows.map((r) => ({ id: r.id, delText: r.del_text, insText: r.ins_text, severity: r.severity, status: r.status }));
+      redlines = await Promise.all(
+        redlinesRes.rows.map(async (r) => {
+          const delText = await decText(db, doc.user_id, r.del_text);
+          const insText = await decText(db, doc.user_id, r.ins_text);
+          if (delText === null || insText === null) {
+            throw new HttpError(500, 'Document cannot be decrypted — data key mismatch');
+          }
+          return { id: r.id, delText, insText, severity: r.severity, status: r.status };
+        }),
+      );
     }
 
     // Audit under the document owner's team scope (a teammate exporting a shared

@@ -9,6 +9,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../db.ts';
 import { badRequest, HttpError, notFound } from '../lib/errors.ts';
+import { decJsonFromJsonb, decText, decTextStrict, encText } from '../lib/docCrypto.ts';
 import { bumpUsage, releaseAiRequest, reserveAiRequest, withAiRequest } from '../lib/limits.ts';
 import { resolveAnalysisAccess } from '../lib/teamAccess.ts';
 import { toIso } from '../lib/format.ts';
@@ -40,8 +41,17 @@ function toSession(r: SessionRow): ChatSession {
   };
 }
 
-/** Contract context for document Q&A: summary + clause text with redline state. */
-async function buildAnalysisContext(db: Db, userId: string, analysisId: string): Promise<string | undefined> {
+/** The session title is the user's own words (first message / file name), so it
+ *  is encrypted at rest like the messages. Decrypt each row for the wire. */
+async function toSessionDecrypted(db: Db, userId: string, r: SessionRow): Promise<ChatSession> {
+  const title = (await decText(db, userId, r.title)) ?? r.title;
+  return toSession({ ...r, title });
+}
+
+/** Contract context for document Q&A: summary + clause text with redline state.
+ *  Exported for the prompt-equality test (encryption must not change one byte
+ *  of what the model receives). */
+export async function buildAnalysisContext(db: Db, userId: string, analysisId: string): Promise<string | undefined> {
   // Owner or team member with read access to the shared document.
   try {
     await resolveAnalysisAccess(db, userId, analysisId);
@@ -54,17 +64,31 @@ async function buildAnalysisContext(db: Db, userId: string, analysisId: string):
   );
   const row = res.rows[0];
   if (!row) return undefined;
+  // Encrypted values are keyed by the analysis OWNER (row.user_id), so shared
+  // documents decrypt for teammates too. Decryption happens HERE — before the
+  // context string is assembled — so the model input is byte-identical.
+  const ownerId = row.user_id;
+  const summary = await decText(db, ownerId, row.summary);
+  const rawBlocks = (await decJsonFromJsonb(db, ownerId, row.document_blocks)) as
+    | { type: string; text?: string; segments?: (string | { redlineId: string })[] }[]
+    | null;
+  if (summary === null || rawBlocks === null) {
+    throw new HttpError(500, 'Document cannot be decrypted — data key mismatch');
+  }
 
   const redlines = await db.query<{ id: string; del_text: string; ins_text: string; status: string }>(
     'SELECT id, del_text, ins_text, status FROM redlines WHERE analysis_id = $1 ORDER BY ord',
     [analysisId],
   );
-  const byId = new Map(redlines.rows.map((r) => [r.id, r]));
-  const blocks = (
-    typeof row.document_blocks === 'string' ? JSON.parse(row.document_blocks) : row.document_blocks
-  ) as { type: string; text?: string; segments?: (string | { redlineId: string })[] }[];
+  const byId = new Map<string, { del_text: string; ins_text: string; status: string }>();
+  for (const r of redlines.rows) {
+    const delText = await decText(db, ownerId, r.del_text);
+    const insText = await decText(db, ownerId, r.ins_text);
+    if (delText === null || insText === null) throw new HttpError(500, 'Document cannot be decrypted — data key mismatch');
+    byId.set(r.id, { del_text: delText, ins_text: insText, status: r.status });
+  }
 
-  const clauses = blocks
+  const clauses = rawBlocks
     .map((b) => {
       if (b.type === 'heading') return `\n## ${b.text ?? ''}`;
       return (b.segments ?? [])
@@ -82,11 +106,14 @@ async function buildAnalysisContext(db: Db, userId: string, analysisId: string):
     'SELECT extracted_text FROM uploads WHERE user_id = $1 AND file_name = $2 ORDER BY created_at DESC LIMIT 1',
     [row.user_id, row.file_name],
   );
-  const fullText = upload.rows[0]?.extracted_text;
+  // Present-but-undecryptable text must throw, not silently drop the "Full
+  // contract text" block from the grounding context.
+  const rawFull = upload.rows[0]?.extracted_text ?? null;
+  const fullText = rawFull === null ? null : await decTextStrict(db, ownerId, rawFull);
 
   return [
     `File: ${row.file_name}`,
-    `AI review summary: ${row.summary}`,
+    `AI review summary: ${summary}`,
     `Key clauses (with accepted redlines applied):${clauses}`,
     fullText ? `Full contract text:\n${fullText}` : '',
   ]
@@ -126,7 +153,7 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
        ORDER BY pinned DESC, updated_at DESC`,
       [req.currentUser.id, archived === 'true'],
     );
-    return res.rows.map(toSession);
+    return Promise.all(res.rows.map((r) => toSessionDecrypted(db, req.currentUser.id, r)));
   });
 
   app.post('/chats', { preHandler: [app.authenticate] }, async (req, reply): Promise<ChatSession> => {
@@ -136,10 +163,11 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
     const res = await db.query<SessionRow>(
       `INSERT INTO chat_sessions (id, user_id, title) VALUES ($1, $2, $3)
        RETURNING id, title, updated_at, pinned, archived`,
-      [id, req.currentUser.id, title],
+      [id, req.currentUser.id, await encText(db, req.currentUser.id, title)],
     );
     reply.code(201);
-    return toSession(res.rows[0]);
+    // RETURNING carries the ciphertext — respond with the plaintext title.
+    return toSession({ ...res.rows[0], title });
   });
 
   // Rename / pin / archive.
@@ -153,7 +181,7 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
     const title = body.title;
     if (title !== undefined) {
       if (typeof title !== 'string' || !title.trim()) throw badRequest('Field "title" must be a non-empty string');
-      params.push(title.trim().slice(0, 300));
+      params.push(await encText(db, req.currentUser.id, title.trim().slice(0, 300)));
       sets.push(`title = $${params.length}`);
     }
     for (const flag of ['pinned', 'archived'] as const) {
@@ -170,7 +198,7 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
        RETURNING id, title, updated_at, pinned, archived`,
       params,
     );
-    return toSession(res.rows[0]);
+    return toSessionDecrypted(db, req.currentUser.id, res.rows[0]);
   });
 
   app.delete('/chats/:id', { preHandler: [app.authenticate] }, async (req, reply) => {
@@ -190,6 +218,21 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
     return row;
   }
 
+  /** Decrypt stored message texts (session owner's key) for the wire shape. */
+  async function decryptMessages(userId: string, rows: MessageRow[]): Promise<ChatMessage[]> {
+    const out: ChatMessage[] = [];
+    for (const row of rows) {
+      const text = await decText(db, userId, row.text);
+      if (row.text !== null && text === null) {
+        // Undecryptable message: skip it (never serve ciphertext) — loud in logs.
+        console.error(`[chats] message ${row.id} cannot be decrypted — skipped`);
+        continue;
+      }
+      out.push(toChatMessage({ ...row, text }));
+    }
+    return out;
+  }
+
   app.get('/chats/:id/messages', { preHandler: [app.authenticate] }, async (req): Promise<ChatMessage[]> => {
     const { id } = req.params as { id: string };
     await requireSession(req.currentUser.id, id);
@@ -198,7 +241,7 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
        FROM chat_messages WHERE session_id = $1 ORDER BY created_at`,
       [id],
     );
-    return res.rows.map(toChatMessage);
+    return decryptMessages(req.currentUser.id, res.rows);
   });
 
   // Link a finished analysis to the session so the summary card survives a
@@ -238,7 +281,7 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
        FROM chat_messages WHERE session_id = $1 ORDER BY created_at`,
       [sessionId],
     );
-    return res.rows.map(toChatMessage);
+    return decryptMessages(req.currentUser.id, res.rows);
   });
 
   // Thumbs rating on an assistant reply; value null clears the rating.
@@ -354,20 +397,32 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
       // Default legal context from the user's country selector (e.g. "German law").
       const jurisdiction = typeof body.jurisdiction === 'string' ? body.jurisdiction.slice(0, 60) : undefined;
 
-      // Persist the user's message.
+      // Persist the user's message (encrypted at rest; plaintext local `text`
+      // is what the model receives — answers unchanged by encryption).
       await db.query(
         `INSERT INTO chat_messages (id, session_id, role, kind, text) VALUES ($1, $2, 'user', 'text', $3)`,
-        [newId('m'), sessionId, text],
+        [newId('m'), sessionId, await encText(db, req.currentUser.id, text)],
       );
 
-      // Conversation history for the model (text turns only).
+      // Conversation history for the model (text turns only) — decrypted BEFORE
+      // splitHistory so the model sees the exact original turns. A turn that
+      // fails decryption is dropped with a loud log, never sent as ciphertext.
       const historyRes = await db.query<{ role: 'user' | 'assistant'; text: string | null }>(
         `SELECT role, text FROM chat_messages
          WHERE session_id = $1 AND kind = 'text' AND text IS NOT NULL
          ORDER BY created_at`,
         [sessionId],
       );
-      const turns = historyRes.rows.filter((r) => r.text).map((r): ChatTurn => ({ role: r.role, text: r.text as string }));
+      const turns: ChatTurn[] = [];
+      for (const r of historyRes.rows) {
+        if (!r.text) continue;
+        const plain = await decText(db, req.currentUser.id, r.text);
+        if (plain === null) {
+          req.log.error({ sessionId }, 'chat history turn cannot be decrypted — dropped');
+          continue;
+        }
+        turns.push({ role: r.role, text: plain });
+      }
       const history = turns.slice(0, -1); // last turn is the message we just stored
 
       // Context window: the last ~10 turns go to the model verbatim (fewer when
@@ -378,14 +433,19 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
         'SELECT context_summary, summary_covers FROM chat_sessions WHERE id = $1',
         [sessionId],
       );
-      let summary = sessRow.rows[0]?.context_summary ?? null;
+      // A summary that fails decryption is treated as absent (it is derivative
+      // and rebuilds itself) — logged, never fed to the model as ciphertext.
+      let summary = await decText(db, req.currentUser.id, sessRow.rows[0]?.context_summary ?? null);
+      if (sessRow.rows[0]?.context_summary != null && summary === null) {
+        req.log.error({ sessionId }, 'chat summary cannot be decrypted — rebuilding');
+      }
       const covers = Number(sessRow.rows[0]?.summary_covers ?? 0);
       if (older.length > covers) {
         // Plan passed through: paid-plan chats must summarize on Anthropic only.
         summary = await generateHistorySummary(summary, older.slice(covers), plan);
         await db.query('UPDATE chat_sessions SET context_summary = $2, summary_covers = $3 WHERE id = $1', [
           sessionId,
-          summary,
+          summary === null ? null : await encText(db, req.currentUser.id, summary),
           older.length,
         ]);
       }
@@ -410,7 +470,7 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
         const messageId = newId('m');
         await db.query(
           `INSERT INTO chat_messages (id, session_id, role, kind, text) VALUES ($1, $2, 'assistant', 'text', $3)`,
-          [messageId, sessionId, replyText],
+          [messageId, sessionId, await encText(db, req.currentUser.id, replyText)],
         );
         await db.query('UPDATE chat_sessions SET updated_at = now() WHERE id = $1', [sessionId]);
         // Limited plans were already counted by the reservation; count unlimited

@@ -6,7 +6,8 @@
 import type { FastifyInstance } from 'fastify';
 import { config } from '../config.ts';
 import type { Db } from '../db.ts';
-import { badRequest, notFound } from '../lib/errors.ts';
+import { badRequest, HttpError, notFound } from '../lib/errors.ts';
+import { decJsonFromJsonb, decText, decTextStrict } from '../lib/docCrypto.ts';
 import { toIso } from '../lib/format.ts';
 import { notify } from '../lib/notify.ts';
 import { escapeMailHtml, mailLayout, sendMail } from '../mail.ts';
@@ -60,12 +61,21 @@ export async function renderSignableText(db: Db, ownerId: string, fileName: stri
   );
   const row = a.rows[0];
   if (!row) return null;
-  const blocks = (typeof row.document_blocks === 'string' ? JSON.parse(row.document_blocks) : row.document_blocks) as DocBlock[];
+  // Owner-key decryption: the token-holder route works because the SERVER holds
+  // the master key — the signer needs no account.
+  const blocks = (await decJsonFromJsonb(db, ownerId, row.document_blocks)) as DocBlock[] | null;
+  if (blocks === null) throw new HttpError(500, 'Document cannot be decrypted — data key mismatch');
   const redlines = await db.query<{ id: string; del_text: string; ins_text: string; status: Redline['status'] }>(
     'SELECT id, del_text, ins_text, status FROM redlines WHERE analysis_id = $1 ORDER BY ord',
     [row.id],
   );
-  const byId = new Map(redlines.rows.map((r) => [r.id, r]));
+  const byId = new Map<string, { del_text: string; ins_text: string; status: Redline['status'] }>();
+  for (const r of redlines.rows) {
+    const delText = await decText(db, ownerId, r.del_text);
+    const insText = await decText(db, ownerId, r.ins_text);
+    if (delText === null || insText === null) throw new HttpError(500, 'Document cannot be decrypted — data key mismatch');
+    byId.set(r.id, { del_text: delText, ins_text: insText, status: r.status });
+  }
   const lines: string[] = [];
   for (const block of blocks) {
     if (block.type === 'heading') {
@@ -109,7 +119,12 @@ export function signRoutes(app: FastifyInstance, db: Db): void {
       recipient: { name: row.name, email: row.email },
       signed: row.signed,
       signedAt: row.signed_at ? toIso(row.signed_at) : null,
-      documentText: row.content_snapshot ?? (await renderSignableText(db, row.owner_id, row.document_name)),
+      // A present-but-undecryptable snapshot must FAIL, not silently fall back
+      // to a live render — the signer must see exactly the frozen text.
+      documentText:
+        row.content_snapshot !== null
+          ? await decTextStrict(db, row.owner_id, row.content_snapshot)
+          : await renderSignableText(db, row.owner_id, row.document_name),
     };
   });
 
@@ -177,7 +192,10 @@ export function signRoutes(app: FastifyInstance, db: Db): void {
 
     // Signer's copy: confirmation + the EXACT text they agreed to (the frozen
     // snapshot, not a possibly-since-edited live render).
-    const text = row.content_snapshot ?? (await renderSignableText(db, row.owner_id, row.document_name));
+    const text =
+      row.content_snapshot !== null
+        ? await decTextStrict(db, row.owner_id, row.content_snapshot)
+        : await renderSignableText(db, row.owner_id, row.document_name);
     const docHtml = text
       ? `<div style="margin-top:14px;padding:16px 18px;border:1px solid #e6e3f2;border-radius:12px;background:#faf9fe;font-family:Georgia,serif;font-size:13px;line-height:1.7;white-space:pre-wrap;color:#3b3552;">${escapeMailHtml(text.slice(0, 20000))}</div>`
       : '';

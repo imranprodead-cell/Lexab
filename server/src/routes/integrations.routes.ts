@@ -20,6 +20,7 @@ import type { Db } from '../db.ts';
 import { ALLOWED_EXTENSIONS, assertValidFileContent, extractText, fileExtension, MAX_UPLOAD_BYTES } from '../extract.ts';
 import { filenameFromDisposition, parseDriveLink } from '../lib/driveLink.ts';
 import { badRequest, HttpError, notFound } from '../lib/errors.ts';
+import { encText } from '../lib/docCrypto.ts';
 import { formatSize } from '../lib/format.ts';
 import { newId } from '../lib/ids.ts';
 import { assertStorageAllowance, withStorageReservation } from '../lib/limits.ts';
@@ -523,6 +524,8 @@ export function integrationRoutes(app: FastifyInstance, db: Db): void {
       const mime = ext === '.pdf' ? 'application/pdf' : ext === '.docx' ? DOCX_MIME : 'text/plain';
       const stored = await saveFile(buffer, name, mime);
       const text = await extractText(buffer, name);
+      // Encrypted at rest with the owner's data key (lazy migration tolerant).
+      const storedText = text === null ? null : await encText(db, req.currentUser.id, text);
       const id = newId('up');
       await withStorageReservation(
         db,
@@ -533,7 +536,7 @@ export function integrationRoutes(app: FastifyInstance, db: Db): void {
             .query(
               `INSERT INTO uploads (id, user_id, file_name, size_bytes, mime, storage, storage_key, url, extracted_text)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-              [id, req.currentUser.id, name, buffer.length, mime, stored.storage, stored.key, stored.url, text],
+              [id, req.currentUser.id, name, buffer.length, mime, stored.storage, stored.key, stored.url, storedText],
             )
             .then(() => undefined),
         () => deleteFile(stored.storage, stored.key),
@@ -617,6 +620,8 @@ export function integrationRoutes(app: FastifyInstance, db: Db): void {
       const mime = ext === '.pdf' ? 'application/pdf' : ext === '.docx' ? DOCX_MIME : 'text/plain';
       const stored = await saveFile(buffer, name, mime);
       const text = await extractText(buffer, name);
+      // Encrypted at rest with the owner's data key (lazy migration tolerant).
+      const storedText = text === null ? null : await encText(db, req.currentUser.id, text);
       const id = newId('up');
       await withStorageReservation(
         db,
@@ -627,7 +632,7 @@ export function integrationRoutes(app: FastifyInstance, db: Db): void {
             .query(
               `INSERT INTO uploads (id, user_id, file_name, size_bytes, mime, storage, storage_key, url, extracted_text)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-              [id, req.currentUser.id, name, buffer.length, mime, stored.storage, stored.key, stored.url, text],
+              [id, req.currentUser.id, name, buffer.length, mime, stored.storage, stored.key, stored.url, storedText],
             )
             .then(() => undefined),
         () => deleteFile(stored.storage, stored.key),

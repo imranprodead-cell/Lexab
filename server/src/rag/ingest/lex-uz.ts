@@ -101,6 +101,12 @@ export function parseLexUzHtml(docId: string, html: string, url: string): Parsed
   let chapter: { id: string; label: string } | null = null;
   let article: { id: string; num: string; heading: string; anchor: string; body: string[] } | null = null;
   let sections = 0;
+  // Приложения (утверждённые положения/перечни) — НЕ текст статей самого акта.
+  // До этой правки их абзацы приклеивались к последней статье; теперь после
+  // «ПРИЛОЖЕНИЕ…» контент игнорируется до следующего РАЗДЕЛ/ГЛАВА основного
+  // текста. Консервативно: «Статья N» внутри приложения — это статья
+  // приложения, не акта (id столкнулись бы с st-N), поэтому тоже пропускается.
+  let inAnnex = false;
 
   const crumb = () => [crumbRoot, part?.label, subpart?.label, chapter?.label].filter(Boolean).join(' / ');
   const flushArticle = () => {
@@ -120,10 +126,18 @@ export function parseLexUzHtml(docId: string, html: string, url: string): Parsed
   };
 
   for (const p of paras) {
+    // Начало приложения (любой класс блока) → всё дальнейшее не текст акта.
+    if (/^ПРИЛОЖЕНИЕ(\s|№|$)/iu.test(p.text)) {
+      flushArticle();
+      inAnnex = true;
+      continue;
+    }
     if (p.cls === 'TEXT_HEADER_DEFAULT') {
       const razdel = p.text.match(/^РАЗДЕЛ\s+([IVXLC\d]+)\.?\s*(.*)/i);
       const podrazdel = p.text.match(/^ПОДРАЗДЕЛ\s+([IVXLC\d]+)\.?\s*(.*)/i);
       const glava = p.text.match(/^ГЛАВА\s+(\d+(?:-\d+)?)\.?\s*(.*)/i);
+      // Структурная шапка ОСНОВНОГО текста завершает режим приложения.
+      if (razdel || podrazdel || glava) inAnnex = false;
       if (razdel) {
         flushArticle();
         const label = `Раздел ${razdel[1]}`;
@@ -150,6 +164,7 @@ export function parseLexUzHtml(docId: string, html: string, url: string): Parsed
       continue;
     }
     if (p.cls === 'CLAUSE_DEFAULT') {
+      if (inAnnex) continue; // «Статья N» приложения — не статья акта
       const statya = p.text.match(/^Статья\s+(\d+(?:[.-]\d+)*)\.?\s*(.*)/);
       if (statya) {
         flushArticle();
@@ -157,8 +172,9 @@ export function parseLexUzHtml(docId: string, html: string, url: string): Parsed
       }
       continue;
     }
-    // ACT_TEXT / BY_DEFAULT — тело текущей статьи (преамбула до первой статьи пропускается).
-    if (article) article.body.push(p.text);
+    // ACT_TEXT / BY_DEFAULT — тело текущей статьи (преамбула до первой статьи
+    // и содержимое приложений пропускаются).
+    if (article && !inAnnex) article.body.push(p.text);
   }
   flushArticle();
   if (sections === 0) throw new Error(`parsed 0 articles for lex.uz/${docId} — refusing partial save`);

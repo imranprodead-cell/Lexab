@@ -15,6 +15,7 @@ import type { FastifyInstance } from 'fastify';
 import { config } from '../config.ts';
 import type { Db } from '../db.ts';
 import { badRequest, HttpError, notFound } from '../lib/errors.ts';
+import { decJsonFromJsonb, decText } from '../lib/docCrypto.ts';
 import { toIso } from '../lib/format.ts';
 import { newId } from '../lib/ids.ts';
 import { assertFeature } from '../lib/limits.ts';
@@ -269,16 +270,22 @@ export function approvalRoutes(app: FastifyInstance, db: Db): void {
     );
     const row = a.rows[0];
     if (!row) return null;
-    const blocks = (typeof row.document_blocks === 'string' ? JSON.parse(row.document_blocks) : row.document_blocks) as {
-      type: string;
-      text?: string;
-      segments?: (string | { redlineId: string })[];
-    }[];
+    // Encrypted at rest — decrypt with the document owner's data key.
+    const blocks = (await decJsonFromJsonb(db, ownerId, row.document_blocks)) as
+      | { type: string; text?: string; segments?: (string | { redlineId: string })[] }[]
+      | null;
+    if (blocks === null) throw new HttpError(500, 'Document cannot be decrypted — data key mismatch');
     const redlines = await db.query<{ id: string; del_text: string; ins_text: string; status: string }>(
       'SELECT id, del_text, ins_text, status FROM redlines WHERE analysis_id = $1 ORDER BY ord',
       [row.id],
     );
-    const byId = new Map(redlines.rows.map((r) => [r.id, r]));
+    const byId = new Map<string, { del_text: string; ins_text: string; status: string }>();
+    for (const r of redlines.rows) {
+      const delText = await decText(db, ownerId, r.del_text);
+      const insText = await decText(db, ownerId, r.ins_text);
+      if (delText === null || insText === null) throw new HttpError(500, 'Document cannot be decrypted — data key mismatch');
+      byId.set(r.id, { del_text: delText, ins_text: insText, status: r.status });
+    }
     return blocks
       .map((b) => {
         if (b.type === 'heading') return `## ${b.text ?? ''}`;
