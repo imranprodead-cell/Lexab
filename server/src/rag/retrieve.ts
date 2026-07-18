@@ -241,6 +241,67 @@ export async function retrieveLegalContext(db: Db, params: RetrieveParams): Prom
   return (await rerank(params.query, fused)).slice(0, topK);
 }
 
+/* ── Русские цитаты: чистый разбор + таблицы алиасов ─────────────────────────
+   JS `\b` понимает только латиницу, поэтому для «ГК»/«ТК»/«ЭПК» нужны
+   юникод-границы слова через lookaround. */
+const cyrWord = (abbr: string): RegExp =>
+  new RegExp(`(?<![А-Яа-яЁёA-Za-z])${abbr}(?![А-Яа-яЁёA-Za-z])`, 'u');
+
+interface RuAlias {
+  re: RegExp;
+  pattern: string; // title ILIKE pattern
+}
+
+/** Порядок важен: первый сработавший алиас выигрывает; специфичное — выше
+ *  (ипотека раньше залога: «залог недвижимости (ипотека)»). KZ намеренно
+ *  сохраняет прежнее поведение (только развёрнутое «Гражданск…» — прежний
+ *  `\bГК\b` на кириллице никогда не срабатывал); расширение KZ-таблицы —
+ *  только вместе с прогоном KZ-eval. */
+const RU_ALIASES: Record<string, RuAlias[]> = {
+  UZ: [
+    { re: /Гражданск/i, pattern: 'Гражданский кодекс%' },
+    { re: cyrWord('ГК'), pattern: 'Гражданский кодекс%' },
+    { re: /Трудов/i, pattern: '%Трудовой кодекс%' },
+    { re: cyrWord('ТК'), pattern: '%Трудовой кодекс%' },
+    { re: /(?:Экономическ|Хозяйственн)\S*\s+процессуальн/i, pattern: '%Экономический процессуальный кодекс%' },
+    { re: cyrWord('ЭПК'), pattern: '%Экономический процессуальный кодекс%' },
+    { re: /ипотек/i, pattern: '%Об ипотеке%' },
+    { re: /залог/i, pattern: '%О залоге%' },
+    { re: /обществ\S*\s+с\s+ограниченной/i, pattern: '%с ограниченной ответственностью%' },
+    { re: cyrWord('ООО'), pattern: '%с ограниченной ответственностью%' },
+    { re: /акционерн/i, pattern: '%Об акционерных обществах%' },
+    { re: cyrWord('АО'), pattern: '%Об акционерных обществах%' },
+    { re: /аренд/i, pattern: '%Об аренде%' },
+    { re: /потребител/i, pattern: '%О защите прав потребителей%' },
+    { re: /ЗоЗПП/i, pattern: '%О защите прав потребителей%' },
+    { re: /электронн\S*\s+цифров\S*\s+подпис/i, pattern: '%Об электронной цифровой подписи%' },
+    { re: cyrWord('ЭЦП'), pattern: '%Об электронной цифровой подписи%' },
+    { re: /договорно-правов/i, pattern: '%О договорно-правовой базе%' },
+  ],
+  KZ: [{ re: /Гражданск/i, pattern: 'Гражданский кодекс%' }],
+};
+
+export interface RuCitation {
+  number: string;
+  titlePattern: string;
+}
+
+/** Разбор русской цитаты: «ст. 260 ГК», «статья 130 Трудового кодекса»,
+ *  «ст. 36 Закона "Об ипотеке"». Кавычки — высший приоритет; ни один алиас
+ *  не совпал → null (fail-closed). Чистая функция — покрыта юнит-тестами
+ *  (server/test/citations.test.ts). */
+export function parseRuCitation(citation: string, jurisdiction: string): RuCitation | null {
+  const st = citation.match(/ст(?:атья|атьи|\.)?\s*№?\s*(\d+(?:[.-]\d+)*)/i);
+  if (!st) return null;
+  const number = st[1];
+  const quoted = citation.match(/«([^»]{4,80})»|"([^"]{4,80})"/);
+  if (quoted) return { number, titlePattern: `%${(quoted[1] || quoted[2]).trim()}%` };
+  for (const alias of RU_ALIASES[jurisdiction] ?? []) {
+    if (alias.re.test(citation)) return { number, titlePattern: alias.pattern };
+  }
+  return null;
+}
+
 /** Resolve a textual citation to a unit in force.
  *  UK: "Late Payment …Act 1998, s.8"; UZ/KZ: «ст. 260 ГК», «ст. 14 Закона "О защите прав потребителей"». */
 export async function resolveCitationText(
@@ -294,13 +355,10 @@ export async function resolveCitationText(
     if (abk && byAbk[abk]) titlePattern = byAbk[abk];
     else return null;
   } else {
-    const st = citation.match(/ст(?:атья|атьи|\.)?\s*№?\s*(\d+(?:[.-]\d+)*)/i);
-    if (!st) return null;
-    number = st[1];
-    const quoted = citation.match(/«([^»]{4,80})»|"([^"]{4,80})"/);
-    if (quoted) titlePattern = `%${(quoted[1] || quoted[2]).trim()}%`;
-    else if (/\bГК\b|Гражданск/i.test(citation)) titlePattern = 'Гражданский кодекс%';
-    if (!titlePattern) return null;
+    const parsed = parseRuCitation(citation, jurisdiction);
+    if (!parsed) return null;
+    titlePattern = parsed.titlePattern;
+    number = parsed.number;
   }
 
   // Article numbering in the УЗ ГК is continuous across the two parts, so a

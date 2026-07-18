@@ -30,6 +30,14 @@ export const UZ_DOCS: UzDoc[] = [
   { id: '10872', note: 'О договорно-правовой базе деятельности хозяйствующих субъектов (1998)', minArticles: 30 },
   { id: '6234906', note: 'Об электронной цифровой подписи (ЗРУ-793, 2022)', minArticles: 30 },
   { id: '14643', note: 'О защите прав потребителей (1996)', minArticles: 30 },
+  // ── Волна 1 (ID проверены по заголовкам страниц lex.uz 2026-07-18) ─────────
+  { id: '6257291', note: 'Трудовой кодекс РУз (ЗРУ-798, 28.10.2022)', minArticles: 450 },
+  { id: '59750', note: 'О залоге (736-XII, 09.12.1992, ред. 1998)', minArticles: 40 },
+  { id: '1063361', note: 'Об ипотеке (ЗРУ-58, 04.10.2006)', minArticles: 30 },
+  { id: '8152146', note: 'Об обществах с ограниченной ответственностью (ЗРУ-1137, 21.04.2026; сменяет 310-II с 22.07.2026)', minArticles: 50 },
+  { id: '14667', note: 'Об акционерных обществах и защите прав акционеров (223-I, 1996, ред. ЗРУ-370 2014)', minArticles: 70 },
+  { id: '3523895', note: 'Экономический процессуальный кодекс РУз (ЗРУ-461, 24.01.2018)', minArticles: 280 },
+  { id: '112910', note: 'Об аренде (427-XII, 19.11.1991)', minArticles: 20 },
 ];
 
 /** Обратная совместимость: прежнее имя экспорта (список голых id). */
@@ -46,10 +54,20 @@ function gapReport(articleNums: string[]): string {
   if (!bases.length) return 'no numeric articles';
   const set = new Set(bases);
   const count = set.size;
-  // How many of the first `count` article numbers are absent (holes low down)?
+  // Window bound = the largest base number that is ≤ count. Superscript articles
+  // («183¹» → 1831) are far above any real numbering and would otherwise inflate
+  // the window (ЭПК: 39 superscripts → 39 phantom "gaps"). A lost tail is still
+  // caught by the minArticles floor.
+  let bound = 0;
+  for (const b of set) if (b <= count && b > bound) bound = b;
   let missing = 0;
-  for (let i = 1; i <= count; i++) if (!set.has(i)) missing++;
-  return `distinct base numbers ${count}` + (missing > 10 ? `  ⚠ ${missing} gaps in 1..${count}` : '');
+  for (let i = 1; i <= bound; i++) if (!set.has(i)) missing++;
+  const outliers = count - [...set].filter((b) => b <= bound).length;
+  return (
+    `distinct base numbers ${count}` +
+    (outliers > 0 ? ` (${outliers} superscript/outlier)` : '') +
+    (missing > 10 ? `  ⚠ ${missing} gaps in 1..${bound}` : '')
+  );
 }
 
 async function main(): Promise<void> {

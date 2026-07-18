@@ -92,7 +92,9 @@ async function askModel(
   // json_object mode with the schema embedded in the system prompt.
   if (isDeepSeekModel(model)) {
     if (!config.deepseekApiKey) throw new Error('DEEPSEEK_API_KEY is not set');
-    const ds = new OpenAI({ apiKey: config.deepseekApiKey, baseURL: config.deepseekBaseUrl });
+    // Hard per-request timeout: a stalled socket must fail (and retry), not
+    // hang the whole eval for hours.
+    const ds = new OpenAI({ apiKey: config.deepseekApiKey, baseURL: config.deepseekBaseUrl, timeout: 180_000, maxRetries: 2 });
     const res = await ds.chat.completions.create({
       model,
       max_tokens: 2000,

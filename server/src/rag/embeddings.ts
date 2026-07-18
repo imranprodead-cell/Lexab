@@ -33,9 +33,13 @@ export async function embedTexts(texts: string[], inputType: 'document' | 'query
   if (!embeddingsEnabled()) throw new Error('VOYAGE_API_KEY is not set');
   const live = inputType === 'query';
   const maxAttempts = live ? 1 + EMBED_QUERY_MAX_RETRIES : 8;
-  const BATCH = 12;
+  // Free-tier Voyage sometimes throttles fat batches while small requests pass:
+  // EMBED_BATCH shrinks the batch, EMBED_SLEEP_MS paces requests (batch mode only).
+  const BATCH = live ? 12 : Math.max(1, Number(process.env.EMBED_BATCH ?? 12) || 12);
+  const PACE_MS = live ? 0 : Math.max(0, Number(process.env.EMBED_SLEEP_MS ?? 0) || 0);
   const out: number[][] = [];
   for (let i = 0; i < texts.length; i += BATCH) {
+    if (i > 0 && PACE_MS > 0) await sleep(PACE_MS);
     const batch = texts.slice(i, i + BATCH);
     let lastErr: Error | null = null;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -44,7 +48,9 @@ export async function embedTexts(texts: string[], inputType: 'document' | 'query
           method: 'POST',
           headers: { authorization: `Bearer ${config.voyageApiKey}`, 'content-type': 'application/json' },
           body: JSON.stringify({ model: EMBEDDING_MODEL, input: batch, input_type: inputType }),
-          ...(live ? { signal: AbortSignal.timeout(EMBED_QUERY_TIMEOUT_MS) } : {}),
+          // Batch (document) mode gets a hard cap too — a stalled socket must
+          // throw into the retry loop, not hang an ingest/eval run forever.
+          signal: AbortSignal.timeout(live ? EMBED_QUERY_TIMEOUT_MS : 60_000),
         });
         if (res.status === 429) throw new Error('HTTP 429');
         if (res.status >= 500) throw new Error(`HTTP ${res.status}`);

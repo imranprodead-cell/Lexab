@@ -13,7 +13,9 @@
  *   npm run rag:embed          # embeddings only (after the key arrives)
  */
 import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 import { config } from '../config.ts';
+import { extractJsonObject, isDeepSeekModel } from '../llm.ts';
 import { getDb, migrate, type Db } from '../db.ts';
 import { EMBEDDING_MODEL, embeddingsEnabled, embedTexts, toVectorLiteral } from './embeddings.ts';
 
@@ -44,8 +46,33 @@ interface SectionRow {
   jurisdiction: string;
 }
 
+/* ── Annotation model routing ────────────────────────────────────────────────
+   `--annotate-model=<id>` picks the annotator; ids containing "deepseek" go to
+   the OpenAI-compatible DeepSeek client (json_object mode, schema embedded in
+   the system prompt — same pattern as llm.ts), everything else to Anthropic.
+   Token usage is accumulated and printed at the end for budget accounting. */
+
+type AnnotApi =
+  | { kind: 'anthropic'; api: Anthropic; model: string }
+  | { kind: 'deepseek'; api: OpenAI; model: string };
+
+const usage = { calls: 0, inTokens: 0, outTokens: 0 };
+
+function makeAnnotApi(model: string): AnnotApi | null {
+  if (isDeepSeekModel(model)) {
+    if (!config.deepseekApiKey) return null;
+    return {
+      kind: 'deepseek',
+      api: new OpenAI({ apiKey: config.deepseekApiKey, baseURL: config.deepseekBaseUrl, timeout: 60_000, maxRetries: 3 }),
+      model,
+    };
+  }
+  if (!config.anthropicApiKey) return null;
+  return { kind: 'anthropic', api: new Anthropic({ apiKey: config.anthropicApiKey }), model };
+}
+
 async function generateContext(
-  api: Anthropic,
+  annot: AnnotApi,
   row: Pick<SectionRow, 'language' | 'breadcrumb' | 'heading' | 'text'>,
 ): Promise<string> {
   try {
@@ -55,18 +82,41 @@ async function generateContext(
         : row.language === 'de'
           ? 'Du annotierst Gesetzesparagraphen für einen juristischen Suchindex. Schreibe zu dem Paragraphen 1-2 kurze Sätze: aus welchem Gesetz, was die Norm regelt, mit welchen Begriffen ein Jurist danach sucht. Auf Deutsch, ohne Vorwort.'
           : 'You annotate statute sections for a legal search index. Given a section, write 1-2 short sentences situating it: which act, what the provision does, key terms a lawyer would search for. Plain English, no preamble.';
-    const msg = await api.beta.messages.create({
-      model: 'claude-haiku-4-5',
+    const userContent = `Path: ${row.breadcrumb}\nHeading: ${row.heading ?? '—'}\nText:\n${row.text.slice(0, 4000)}`;
+
+    if (annot.kind === 'deepseek') {
+      const res = await annot.api.chat.completions.create({
+        model: annot.model,
+        max_tokens: 300,
+        // DeepSeek v4 reasons by default — for a 1-2 sentence annotation the
+        // thinking budget would eat the whole max_tokens (empty content).
+        ...({ thinking: { type: 'disabled' } } as Record<string, unknown>),
+        response_format: { type: 'json_object' },
+        messages: [
+          {
+            role: 'system',
+            content: `${system}\n\nReturn ONLY one valid JSON object that conforms to this JSON Schema — no markdown fences, no commentary:\n${JSON.stringify(CONTEXT_SCHEMA)}`,
+          },
+          { role: 'user', content: userContent },
+        ],
+      });
+      usage.calls++;
+      usage.inTokens += res.usage?.prompt_tokens ?? 0;
+      usage.outTokens += res.usage?.completion_tokens ?? 0;
+      const parsed = extractJsonObject(res.choices[0]?.message?.content ?? '') as { context?: string };
+      return parsed.context?.trim() ?? '';
+    }
+
+    const msg = await annot.api.beta.messages.create({
+      model: annot.model,
       max_tokens: 300,
       system,
       output_config: { format: { type: 'json_schema', schema: CONTEXT_SCHEMA as unknown as Record<string, unknown> } },
-      messages: [
-        {
-          role: 'user',
-          content: `Path: ${row.breadcrumb}\nHeading: ${row.heading ?? '—'}\nText:\n${row.text.slice(0, 4000)}`,
-        },
-      ],
+      messages: [{ role: 'user', content: userContent }],
     });
+    usage.calls++;
+    usage.inTokens += msg.usage.input_tokens;
+    usage.outTokens += msg.usage.output_tokens;
     const text = msg.content.find((b) => b.type === 'text');
     const parsed = text && text.type === 'text' ? (JSON.parse(text.text) as { context: string }) : null;
     return parsed?.context?.trim() ?? '';
@@ -76,7 +126,7 @@ async function generateContext(
   }
 }
 
-async function buildChunks(db: Db, docsFilter: string[] | null, maxAnnotate: number): Promise<{ built: number; annotated: number }> {
+async function buildChunks(db: Db, docsFilter: string[] | null, maxAnnotate: number, annotModel: string): Promise<{ built: number; annotated: number }> {
   const stale = await db.query<SectionRow>(
     `SELECT u.id, u.document_id, u.heading, u.breadcrumb, u.text, u.language,
             u.valid_from, u.valid_to, u.source_url, u.retrieved_at, u.sha256_checksum,
@@ -94,8 +144,8 @@ async function buildChunks(db: Db, docsFilter: string[] | null, maxAnnotate: num
     console.log('[index] chunks up to date');
     return { built: 0, annotated: 0 };
   }
-  console.log(`[index] building ${stale.rows.length} chunks (whole-section; AI context for up to ${maxAnnotate})…`);
-  const api = config.anthropicApiKey ? new Anthropic({ apiKey: config.anthropicApiKey }) : null;
+  console.log(`[index] building ${stale.rows.length} chunks (whole-section; AI context for up to ${maxAnnotate}, model ${annotModel})…`);
+  const api = makeAnnotApi(annotModel);
 
   let built = 0;
   let annotated = 0;
@@ -130,8 +180,8 @@ async function buildChunks(db: Db, docsFilter: string[] | null, maxAnnotate: num
 /** Enrichment pass: chunks that entered the index without an AI annotation
  *  (over the --max-annotate budget of an earlier run) get one now. The
  *  embedding is reset so the enriched text is re-vectorised. */
-async function enrichChunks(db: Db, docsFilter: string[] | null, maxAnnotate: number): Promise<{ enriched: number }> {
-  const api = config.anthropicApiKey ? new Anthropic({ apiKey: config.anthropicApiKey }) : null;
+async function enrichChunks(db: Db, docsFilter: string[] | null, maxAnnotate: number, annotModel: string): Promise<{ enriched: number }> {
+  const api = makeAnnotApi(annotModel);
   if (!api || maxAnnotate <= 0) return { enriched: 0 };
   const rows = await db.query<{ id: string; breadcrumb: string; text: string; language: string; heading: string | null }>(
     `SELECT c.id, c.breadcrumb, c.body AS text, c.language, u.heading
@@ -197,10 +247,12 @@ async function main(): Promise<void> {
   const docsFilter = docsArg ? docsArg.slice(7).split(',').filter(Boolean) : null;
   const maxArg = process.argv.find((a) => a.startsWith('--max-annotate='));
   const maxAnnotate = maxArg ? Number(maxArg.slice(15)) : Number.MAX_SAFE_INTEGER;
+  const modelArg = process.argv.find((a) => a.startsWith('--annotate-model='));
+  const annotModel = modelArg ? modelArg.slice('--annotate-model='.length) : 'claude-haiku-4-5';
   const db = await getDb();
   await migrate(db);
-  const chunkStats = embedOnly ? { built: 0, annotated: 0 } : await buildChunks(db, docsFilter, maxAnnotate);
-  const enrichStats = embedOnly ? { enriched: 0 } : await enrichChunks(db, docsFilter, maxAnnotate - chunkStats.annotated);
+  const chunkStats = embedOnly ? { built: 0, annotated: 0 } : await buildChunks(db, docsFilter, maxAnnotate, annotModel);
+  const enrichStats = embedOnly ? { enriched: 0 } : await enrichChunks(db, docsFilter, maxAnnotate - chunkStats.annotated, annotModel);
   const embedStats = await embedChunks(db);
   const totals = await db.query<{ chunks: string; with_context: string; with_embedding: string }>(
     `SELECT count(*) AS chunks,
@@ -211,6 +263,9 @@ async function main(): Promise<void> {
   console.log(
     `\n[index] done: +${chunkStats.built} chunks built, +${enrichStats.enriched} enriched, +${embedStats.embedded} embedded. Corpus: ${totals.rows[0].chunks} chunks, ${totals.rows[0].with_context} with context, ${totals.rows[0].with_embedding} with embeddings.`,
   );
+  if (usage.calls > 0) {
+    console.log(`[index] annotation usage (${annotModel}): ${usage.calls} calls, ${usage.inTokens} in / ${usage.outTokens} out tokens`);
+  }
   await db.close();
 }
 

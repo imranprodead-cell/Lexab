@@ -1,0 +1,48 @@
+{
+  "at": "2026-07-18T18:47:44.881Z",
+  "model": "deepseek-v4-pro",
+  "golden": "uz-contract-law.jsonl",
+  "questions": 47,
+  "retrieval": {
+    "hit@5": 0.936,
+    "hit@10": 0.979,
+    "recall@10": 0.961
+  },
+  "misses": [
+    {
+      "question": "Фермер берёт кредит и хочет дать в обеспечение будущий урожай и технику, которая поступит в его собственность только через полгода. Можно ли закладывать то, чего у него пока нет?",
+      "expected_unit_ids": [
+        "lu_uz_59750_st-4"
+      ],
+      "top10_unit_ids": [
+        "lu_uz_111181_st-281",
+        "lu_uz_1063361_st-16",
+        "lu_uz_111181_st-264",
+        "lu_uz_111181_st-279",
+        "lu_uz_111181_st-275",
+        "lu_uz_1063361_st-29",
+        "lu_uz_111181_st-272",
+        "lu_uz_180550_st-597",
+        "lu_uz_111181_st-283",
+        "lu_uz_111181_st-282"
+      ]
+    }
+  ],
+  "corpus": {
+    "jurisdiction": "UZ",
+    "documents": 12,
+    "chunks": 2625,
+    "contextCoverage": 1,
+    "embeddingCoverage": 1
+  },
+  "baseline": {
+    "findings": 89,
+    "citationPrecision": 0.056,
+    "unverifiedShare": 0.944
+  },
+  "rag": {
+    "findings": 76,
+    "citationPrecision": 0.974,
+    "unverifiedShare": 0.026
+  }
+}
