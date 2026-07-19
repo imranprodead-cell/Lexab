@@ -1,0 +1,86 @@
+{
+  "at": "2026-07-19T12:26:28.002Z",
+  "model": "deepseek-v4-pro",
+  "golden": "uz-contract-law.jsonl",
+  "questions": 69,
+  "retrieval": {
+    "hit@5": 0.899,
+    "hit@10": 0.957,
+    "recall@10": 0.932
+  },
+  "misses": [
+    {
+      "question": "Какому качеству должен соответствовать товар по договору купли-продажи?",
+      "expected_unit_ids": [
+        "lu_uz_180550_st-402"
+      ],
+      "top10_unit_ids": [
+        "lu_uz_180550_st-407",
+        "lu_uz_180550_st-435",
+        "lu_uz_180550_st-403",
+        "lu_uz_4674893_st-266",
+        "lu_uz_14643_st-8",
+        "lu_uz_14643_st-1",
+        "lu_uz_4674893_st-45",
+        "lu_uz_4674893_st-36",
+        "lu_uz_5382983_st-34",
+        "lu_uz_180550_st-416"
+      ]
+    },
+    {
+      "question": "Хотим продать долг нашего покупателя другой фирме. Нужно ли спрашивать у самого должника разрешение на такую передачу?",
+      "expected_unit_ids": [
+        "lu_uz_111181_st-319"
+      ],
+      "top10_unit_ids": [
+        "lu_uz_111181_st-313",
+        "lu_uz_111181_st-322",
+        "lu_uz_1063361_st-33",
+        "lu_uz_5957616_st-81",
+        "lu_uz_180550_st-492",
+        "lu_uz_111181_st-323",
+        "lu_uz_5957616_st-206",
+        "lu_uz_111181_st-316",
+        "lu_uz_111181_st-286",
+        "lu_uz_180550_st-755"
+      ]
+    },
+    {
+      "question": "Здание уже заложено одному банку по действующему кредиту. Могу ли я под это же здание взять ещё один заём у другого кредитора, и чьи требования погасят первыми, если дойдёт до продажи имущества?",
+      "expected_unit_ids": [
+        "lu_uz_111181_st-273",
+        "lu_uz_59750_st-14",
+        "lu_uz_1063361_st-29"
+      ],
+      "top10_unit_ids": [
+        "lu_uz_5957616_st-221",
+        "lu_uz_111181_st-2591",
+        "lu_uz_5957616_st-150",
+        "lu_uz_111181_st-264",
+        "lu_uz_5957616_st-126",
+        "lu_uz_59750_st-19",
+        "lu_uz_59750_st-1",
+        "lu_uz_5957616_st-96",
+        "lu_uz_4674893_st-483",
+        "lu_uz_111181_st-272"
+      ]
+    }
+  ],
+  "corpus": {
+    "jurisdiction": "UZ",
+    "documents": 20,
+    "chunks": 3790,
+    "contextCoverage": 1,
+    "embeddingCoverage": 1
+  },
+  "baseline": {
+    "findings": 132,
+    "citationPrecision": 0.068,
+    "unverifiedShare": 0.932
+  },
+  "rag": {
+    "findings": 111,
+    "citationPrecision": 1,
+    "unverifiedShare": 0
+  }
+}
