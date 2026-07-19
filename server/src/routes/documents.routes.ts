@@ -11,7 +11,7 @@ import { badRequest, HttpError, notFound } from '../lib/errors.ts';
 import { decJsonFromJsonb, decText, encryptionEnabled } from '../lib/docCrypto.ts';
 import { assertFeature } from '../lib/limits.ts';
 import { canEdit, resolveDocumentAccess } from '../lib/teamAccess.ts';
-import { attachmentDisposition, formatSize, toIso } from '../lib/format.ts';
+import { attachmentDisposition, formatSize, looksRussian, toIso } from '../lib/format.ts';
 import { buildSimplePdf } from '../lib/pdf.ts';
 import { asObject, requireOneOf, requireString } from '../lib/validate.ts';
 import { deleteFile } from '../storage.ts';
@@ -429,6 +429,19 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
       metadata: { format, ...(format === 'docx' ? { mode } : {}) },
     });
 
+    // Пометка «исходник утрачен» — на языке контента: без неё экспорт из
+    // клауз разбора выглядит как «скачалось что-то не то».
+    const blocksSample = blocks
+      .map((b) => (b.type === 'heading' ? (b.text ?? '') : (b.segments ?? []).filter((s): s is string => typeof s === 'string').join(' ')))
+      .join(' ')
+      .slice(0, 2000);
+    const noSourceNote =
+      blocks.length && !fullText
+        ? looksRussian(`${doc.name} ${blocksSample}`)
+          ? 'Внимание: исходный файл этого документа отсутствует в хранилище, поэтому ниже приведены только пункты из ИИ-разбора с правками. Загрузите файл заново и запустите анализ, чтобы экспортировать полный договор.'
+          : 'Note: the source file of this document is no longer in storage, so only the clauses from the AI review are included below. Re-upload the file and run an analysis to export the full contract.'
+        : null;
+
     if (format === 'pdf') {
       // PDF — always the flattened final document: the FULL original text with
       // accepted redlines applied; only the review excerpt when the source
@@ -436,7 +449,7 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
       const sections = fullText
         ? fullText.split(/\n{2,}/).map((t) => ({ text: t.trim() })).filter((s) => s.text)
         : blocks.length
-          ? resolveSections(blocks, redlines)
+          ? [...(noSourceNote ? [{ text: noSourceNote }] : []), ...resolveSections(blocks, redlines)]
           : [{ text: `No AI review has been run for “${doc.name}” yet — export the document after running an analysis.` }];
       const pdf = await buildSimplePdf(doc.name, sections);
       reply.header('Content-Type', 'application/pdf');
@@ -455,7 +468,10 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
             ...fullText.split('\n').map((line) => new Paragraph({ children: [new TextRun(line)] })),
           ]
         : blocks.length
-          ? buildDocxParagraphs(doc.name, blocks, redlines, mode, new Date().toISOString())
+          ? [
+              ...(noSourceNote ? [new Paragraph({ children: [new TextRun({ text: noSourceNote, italics: true })] })] : []),
+              ...buildDocxParagraphs(doc.name, blocks, redlines, mode, new Date().toISOString()),
+            ]
           : [
               new Paragraph({ text: doc.name, heading: HeadingLevel.HEADING_1 }),
               new Paragraph({ children: [new TextRun(`No AI review has been run for “${doc.name}” yet — export the document after running an analysis.`)] }),

@@ -42,3 +42,11 @@ export function toIso(value: unknown): string {
   if (typeof value === 'string') return new Date(value).toISOString();
   return new Date().toISOString();
 }
+
+/** Кириллицы больше, чем латиницы → текст русский (для локализации рамок
+ *  PDF/DOCX-экспорта по языку КОНТЕНТА, а не UI). */
+export function looksRussian(s: string): boolean {
+  const cyr = (s.match(/[а-яё]/gi) ?? []).length;
+  const lat = (s.match(/[a-z]/gi) ?? []).length;
+  return cyr > lat;
+}
