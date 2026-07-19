@@ -985,3 +985,63 @@ describe('audit log records who/what/ip and serves metadata', () => {
     assert.equal((JSON.parse(nobody.body) as unknown[]).length, 0, 'foreign actorId must match nothing');
   });
 });
+
+describe('exports serve the FULL document and real DOCX', () => {
+  it('POST /export/docx returns a real Word file (ZIP magic, Cyrillic content)', async () => {
+    const u = await makeUser();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/export/docx',
+      headers: auth(u.token),
+      payload: { title: 'Договор поставки', content: 'Раздел 1. Предмет.\nПоставщик обязуется поставить товар.' },
+    });
+    assert.equal(res.statusCode, 200, res.body);
+    assert.equal(res.headers['content-type'], 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    const bytes = Buffer.from(res.rawPayload);
+    assert.equal(bytes.subarray(0, 2).toString('latin1'), 'PK', 'DOCX must be a real ZIP (not the old HTML-as-.doc trick)');
+  });
+
+  it('document export mode=clean returns the FULL original text with accepted redlines applied', async () => {
+    const u = await makeUser();
+    await db.query("UPDATE subscriptions SET plan = 'Pro' WHERE user_id = $1", [u.id]);
+    // Анализ (dev-fallback) создаёт документ; затем подложим полный текст файла.
+    const an = await app.inject({
+      method: 'POST', url: '/api/analysis', headers: auth(u.token),
+      payload: { fileName: 'full-export.pdf', fileSize: '10 KB' },
+    });
+    assert.equal(an.statusCode, 201, an.body);
+    const parsed = JSON.parse(an.body);
+    const { encText } = await import('../src/lib/docCrypto.ts');
+    const full = 'ДОГОВОР ПОСТАВКИ № 7\n\nРаздел 1. Предмет договора.\n\nРаздел 9. Заключительные положения. Полный текст присутствует.';
+    await db.query(
+      `INSERT INTO uploads (id, user_id, file_name, size_bytes, mime, storage, storage_key, url, extracted_text)
+       VALUES ('up_fullexp', $1, 'full-export.pdf', 100, 'application/pdf', 'local', 'k_fullexp', NULL, $2)`,
+      [u.id, await encText(db, u.id, full)],
+    );
+    const res = await app.inject({
+      method: 'POST', url: `/api/documents/${parsed.documentId}/export`, headers: auth(u.token),
+      payload: { format: 'docx', mode: 'clean' },
+    });
+    assert.equal(res.statusCode, 200, res.body);
+    const bytes = Buffer.from(res.rawPayload);
+    assert.equal(bytes.subarray(0, 2).toString('latin1'), 'PK');
+    // DOCX = ZIP; текст лежит в word/document.xml (deflate). Проверяем через
+    // распаковку зипа штатным zlib по локальным заголовкам.
+    const { inflateRawSync } = await import('node:zlib');
+    let xml = '';
+    for (let off = 0; off < bytes.length - 4; ) {
+      if (bytes.readUInt32LE(off) !== 0x04034b50) break;
+      const nameLen = bytes.readUInt16LE(off + 26);
+      const extraLen = bytes.readUInt16LE(off + 28);
+      const compSize = bytes.readUInt32LE(off + 18);
+      const name = bytes.subarray(off + 30, off + 30 + nameLen).toString();
+      const data = bytes.subarray(off + 30 + nameLen + extraLen, off + 30 + nameLen + extraLen + compSize);
+      if (name === 'word/document.xml') {
+        xml = inflateRawSync(data).toString('utf8');
+        break;
+      }
+      off += 30 + nameLen + extraLen + compSize;
+    }
+    assert.ok(xml.includes('Полный текст присутствует'), 'clean export must contain the FULL original text, not just review clauses');
+  });
+});

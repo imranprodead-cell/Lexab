@@ -186,7 +186,10 @@ export function DocumentDetailPage() {
     if (!doc || exporting) return;
     setExporting(true);
     try {
-      const blob = await documentsApi.exportFile(doc.id, 'docx');
+      // 'clean' = полный финальный документ (оригинальный текст с принятыми
+      // правками) — из вкладки «Документы» пользователь ждёт весь договор,
+      // а не выжимку правок для Word.
+      const blob = await documentsApi.exportFile(doc.id, 'docx', 'clean');
       downloadBlob(blob, `${doc.name.replace(/\.[^.]+$/, '') || 'document'}.docx`);
       pushToast(t('docs.docxReady'), 'success');
     } catch (err) {

@@ -159,12 +159,15 @@ export function TemplatesPage() {
     }
   };
 
-  const downloadContent = (title: string, content: string) => {
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title></head><body><pre style="font-family:Georgia,serif;font-size:12pt;white-space:pre-wrap;">${content
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')}</pre></body></html>`;
-    const blob = new Blob([html], { type: 'application/msword' });
-    downloadBlob(blob, `${title.replace(/[^\wа-яА-ЯёЁ -]+/g, '').slice(0, 80) || 'contract'}.doc`);
+  // Настоящий Word-файл с сервера: старый трюк «HTML с расширением .doc»
+  // не открывался на телефонах и в мессенджерах.
+  const downloadContent = async (title: string, content: string) => {
+    try {
+      const blob = await templatesApi.exportDocx(title, content);
+      downloadBlob(blob, `${title.replace(/[^\wа-яА-ЯёЁ -]+/g, '').slice(0, 80) || 'contract'}.docx`);
+    } catch (err) {
+      pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
+    }
   };
 
   const copyContent = async (content: string) => {

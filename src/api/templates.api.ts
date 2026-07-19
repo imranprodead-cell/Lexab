@@ -1,6 +1,6 @@
 /** Templates API — the reusable clause/document library. */
 import type { SavedTemplate, Template } from '@/types/domain';
-import { USE_MOCK, http } from './client';
+import { USE_MOCK, http, httpBlob } from './client';
 import { db } from './mock/db';
 import { clone, delay } from './util';
 
@@ -68,6 +68,15 @@ export const templatesApi = {
       return clone(saved);
     }
     return http<SavedTemplate>('/templates/saved', { method: 'POST', body: input });
+  },
+
+  /** Настоящий .docx из текста шаблона/черновика (генерируется сервером). */
+  async exportDocx(title: string, content: string): Promise<Blob> {
+    if (USE_MOCK) {
+      await delay(120);
+      return new Blob([`${title}\n\n${content}`], { type: 'text/plain' });
+    }
+    return httpBlob('/export/docx', { method: 'POST', body: { title, content } });
   },
 
   /** Remove a saved template from the personal library. */

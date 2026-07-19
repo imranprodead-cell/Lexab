@@ -85,9 +85,11 @@ export async function buildSimplePdf(title: string, sections: Section[]): Promis
   let regular: PDFFont;
   let bold: PDFFont;
   if (bytes) {
-    // subset:true embeds only the glyphs actually used → small output.
-    regular = await doc.embedFont(bytes.regular, { subset: true });
-    bold = await doc.embedFont(bytes.bold, { subset: true });
+    // subset:false — полный шрифт (~0.5 МБ на начертание). Subset-режим
+    // @pdf-lib/fontkit ТЕРЯЕТ глифы NotoSans при рендере (текстовый слой цел,
+    // а на странице «выпавшие буквы») — воспроизведено на кириллице 2026-07-19.
+    regular = await doc.embedFont(bytes.regular, { subset: false });
+    bold = await doc.embedFont(bytes.bold, { subset: false });
   } else {
     regular = await doc.embedFont(StandardFonts.Helvetica);
     bold = await doc.embedFont(StandardFonts.HelveticaBold);

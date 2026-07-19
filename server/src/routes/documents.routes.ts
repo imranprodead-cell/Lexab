@@ -13,7 +13,7 @@ import { assertFeature } from '../lib/limits.ts';
 import { canEdit, resolveDocumentAccess } from '../lib/teamAccess.ts';
 import { attachmentDisposition, formatSize, toIso } from '../lib/format.ts';
 import { buildSimplePdf } from '../lib/pdf.ts';
-import { asObject, requireOneOf } from '../lib/validate.ts';
+import { asObject, requireOneOf, requireString } from '../lib/validate.ts';
 import { deleteFile } from '../storage.ts';
 import { audit } from '../lib/audit.ts';
 import type { ContractDocument, DocBlock, DocumentVersion, Redline } from '../types.ts';
@@ -343,6 +343,25 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
     return res.rows.map((r) => ({ id: r.id, label: r.label, author: r.author, createdAt: toIso(r.created_at), note: r.note }));
   });
 
+  /** Универсальный DOCX из простого текста (шаблоны, черновики): старый трюк
+   *  «HTML с расширением .doc» не открывается на телефонах и в мессенджерах —
+   *  отдаём настоящий Word-файл. */
+  app.post('/export/docx', { preHandler: [app.authenticate] }, async (req, reply) => {
+    const body = asObject(req.body);
+    const title = requireString(body, 'title', { min: 1, max: 300 });
+    const content = requireString(body, 'content', { min: 1, max: 500_000 });
+    const paragraphs = [
+      new Paragraph({ text: title, heading: HeadingLevel.HEADING_1 }),
+      ...content.split('\n').map((line) => new Paragraph({ children: [new TextRun(line)] })),
+    ];
+    const file = new Document({ sections: [{ children: paragraphs }] });
+    const buffer = await Packer.toBuffer(file);
+    reply.header('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    reply.header('Content-Disposition', attachmentDisposition(title, 'docx'));
+    reply.header('Cache-Control', 'no-store');
+    return reply.send(buffer);
+  });
+
   app.post('/documents/:id/export', { preHandler: [app.authenticate] }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const body = asObject(req.body);
@@ -384,6 +403,23 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
       );
     }
 
+    // ПОЛНЫЙ исходный текст договора (пока файл ещё в базе): экспорт должен
+    // отдавать весь документ на языке оригинала, а не только клаузы с
+    // правками из анализа. Принятые правки применяются к полному тексту.
+    const uploadRes = await db.query<{ extracted_text: string | null }>(
+      'SELECT extracted_text FROM uploads WHERE user_id = $1 AND file_name = $2 ORDER BY created_at DESC LIMIT 1',
+      [doc.user_id, doc.name],
+    );
+    const rawFull = uploadRes.rows[0]?.extracted_text ?? null;
+    let fullText = rawFull === null ? null : await decText(db, doc.user_id, rawFull);
+    if (fullText) {
+      for (const r of redlines) {
+        if (r.status === 'accepted' && r.delText && fullText.includes(r.delText)) {
+          fullText = fullText.replace(r.delText, r.insText);
+        }
+      }
+    }
+
     // Audit under the document owner's team scope (a teammate exporting a shared
     // doc logs against the owner, not themselves).
     await audit(db, req, {
@@ -394,10 +430,14 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
     });
 
     if (format === 'pdf') {
-      // PDF is always the flattened final text (accepted applied).
-      const sections = blocks.length
-        ? resolveSections(blocks, redlines)
-        : [{ text: `No AI review has been run for “${doc.name}” yet — export the document after running an analysis.` }];
+      // PDF — always the flattened final document: the FULL original text with
+      // accepted redlines applied; only the review excerpt when the source
+      // upload is gone.
+      const sections = fullText
+        ? fullText.split(/\n{2,}/).map((t) => ({ text: t.trim() })).filter((s) => s.text)
+        : blocks.length
+          ? resolveSections(blocks, redlines)
+          : [{ text: `No AI review has been run for “${doc.name}” yet — export the document after running an analysis.` }];
       const pdf = await buildSimplePdf(doc.name, sections);
       reply.header('Content-Type', 'application/pdf');
       reply.header('Content-Disposition', attachmentDisposition(doc.name, 'pdf'));
@@ -405,13 +445,21 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
       return reply.send(pdf);
     }
 
-    // Real .docx — tracked changes (w:ins/w:del) or clean, per `mode`.
-    const paragraphs: Paragraph[] = blocks.length
-      ? buildDocxParagraphs(doc.name, blocks, redlines, mode, new Date().toISOString())
-      : [
-          new Paragraph({ text: doc.name, heading: HeadingLevel.HEADING_1 }),
-          new Paragraph({ children: [new TextRun(`No AI review has been run for “${doc.name}” yet — export the document after running an analysis.`)] }),
-        ];
+    // Real .docx. 'clean' = ПОЛНЫЙ финальный документ (оригинальный текст с
+    // применёнными принятыми правками); 'tracked' = клаузы анализа с
+    // настоящими w:ins/w:del для Word (выжимка правок — так и задумано).
+    const paragraphs: Paragraph[] =
+      mode === 'clean' && fullText
+        ? [
+            new Paragraph({ text: doc.name, heading: HeadingLevel.HEADING_1 }),
+            ...fullText.split('\n').map((line) => new Paragraph({ children: [new TextRun(line)] })),
+          ]
+        : blocks.length
+          ? buildDocxParagraphs(doc.name, blocks, redlines, mode, new Date().toISOString())
+          : [
+              new Paragraph({ text: doc.name, heading: HeadingLevel.HEADING_1 }),
+              new Paragraph({ children: [new TextRun(`No AI review has been run for “${doc.name}” yet — export the document after running an analysis.`)] }),
+            ];
     const file = new Document({ numbering: DOCX_NUMBERING, sections: [{ children: paragraphs }] });
     const buffer = await Packer.toBuffer(file);
     reply.header('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
