@@ -4,9 +4,10 @@ import type { FastifyInstance } from 'fastify';
 import { config } from '../config.ts';
 import type { Db } from '../db.ts';
 import { escapeMailHtml, mailLayout, sendMail } from '../mail.ts';
-import { badRequest } from '../lib/errors.ts';
+import { badRequest, notFound } from '../lib/errors.ts';
+import { audit } from '../lib/audit.ts';
 import { encText } from '../lib/docCrypto.ts';
-import { toIso } from '../lib/format.ts';
+import { attachmentDisposition, toIso } from '../lib/format.ts';
 import { newId } from '../lib/ids.ts';
 import { dropboxSignEnabled, downloadSignedPdf, sendSignatureRequest, verifyWebhook } from '../lib/esign.ts';
 import { assertFeature } from '../lib/limits.ts';
@@ -14,7 +15,7 @@ import { notify } from '../lib/notify.ts';
 import { asObject, requireString } from '../lib/validate.ts';
 import { getUserByEmail } from '../plugins/auth.ts';
 import { renderSignableText } from './sign.routes.ts';
-import { readFileBytes, saveFile } from '../storage.ts';
+import { activeStorageBackend, readFileBytes, saveFile } from '../storage.ts';
 import type { SignatureRecipient, SignatureRequest } from '../types.ts';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -27,6 +28,29 @@ interface RequestRow {
 }
 
 export function signatureRoutes(app: FastifyInstance, db: Db): void {
+  /** Подписанный провайдером PDF: расшифровка через readFileBytes, только
+   *  владельцу и только для завершённых запросов. */
+  app.get('/signatures/:id/signed.pdf', { preHandler: [app.authenticate] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const row = await db.query<{ signed_file_key: string | null; document_name: string; status: string }>(
+      'SELECT signed_file_key, document_name, status FROM signature_requests WHERE id = $1 AND user_id = $2',
+      [id, req.currentUser.id],
+    );
+    const sr = row.rows[0];
+    if (!sr || sr.status !== 'Completed' || !sr.signed_file_key) {
+      throw notFound('Подписанный PDF недоступен / Signed PDF is not available');
+    }
+    const bytes = await readFileBytes(activeStorageBackend(), sr.signed_file_key);
+    await audit(db, req, {
+      type: 'file.downloaded',
+      target: { type: 'document', id, label: `${sr.document_name} (signed).pdf` },
+    });
+    reply.header('Content-Type', 'application/pdf');
+    reply.header('Content-Disposition', attachmentDisposition(`${sr.document_name} (signed)`, 'pdf'));
+    reply.header('Cache-Control', 'no-store');
+    return reply.send(bytes);
+  });
+
   app.get('/signatures', { preHandler: [app.authenticate] }, async (req): Promise<SignatureRequest[]> => {
     const requests = await db.query<RequestRow>(
       `SELECT id, document_name, status, sent_at FROM signature_requests

@@ -13,6 +13,7 @@ import { FloatingToolbar } from '@/components/workspace/FloatingToolbar';
 import { SendForSignatureModal } from '@/components/workspace/SendForSignatureModal';
 import { VersionHistoryModal } from '@/components/workspace/VersionHistoryModal';
 import { analysisApi, documentsApi, versionsApi } from '@/api';
+import { downloadBlob } from '@/lib/download';
 import { useChatStore } from '@/store/useChatStore';
 import { useUIStore } from '@/store/useUIStore';
 import { usePageTitle } from '@/hooks/usePageTitle';
@@ -141,14 +142,7 @@ export function WorkspacePage() {
     pushToast(t('ws.docxStarted'), 'success');
     try {
       const blob = await documentsApi.exportFile(analysis.documentId, 'docx', mode);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${analysis.fileName.replace(/\.[^.]+$/, '') || 'document'}.docx`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      downloadBlob(blob, `${analysis.fileName.replace(/\.[^.]+$/, '') || 'document'}.docx`);
     } catch (err) {
       pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
     }

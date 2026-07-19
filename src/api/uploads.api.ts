@@ -6,14 +6,13 @@ export interface UploadedFile {
   id: string;
   fileName: string;
   fileSize: string;
-  url: string;
 }
 
 export const uploadsApi = {
   async upload(file: File): Promise<UploadedFile> {
     if (USE_MOCK) {
       await delay(400);
-      return { id: `up_${Date.now()}`, fileName: file.name, fileSize: `${Math.round(file.size / 1024)} KB`, url: '#' };
+      return { id: `up_${Date.now()}`, fileName: file.name, fileSize: `${Math.round(file.size / 1024)} KB` };
     }
     const form = new FormData();
     form.append('file', file);

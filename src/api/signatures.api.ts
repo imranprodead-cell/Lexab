@@ -1,6 +1,7 @@
 /** E-signature API — list requests and send a document for signing. */
 import type { SignatureRequest } from '@/types/domain';
-import { USE_MOCK, http } from './client';
+import { downloadBlob } from '@/lib/download';
+import { USE_MOCK, http, httpBlob } from './client';
 import { db } from './mock/db';
 import { clone, delay } from './util';
 
@@ -32,5 +33,17 @@ export const signaturesApi = {
       return clone(request);
     }
     return http<SignatureRequest>('/signatures', { method: 'POST', body: input });
+  },
+
+  /** Скачивает подписанный провайдером PDF (только для Completed-запросов). */
+  async downloadSigned(id: string, documentName: string): Promise<void> {
+    let blob: Blob;
+    if (USE_MOCK) {
+      await delay(300);
+      blob = new Blob([`LexAI signed contract: ${documentName}`], { type: 'text/plain' });
+    } else {
+      blob = await httpBlob(`/signatures/${id}/signed.pdf`);
+    }
+    downloadBlob(blob, `${documentName.replace(/\.[^.]+$/, '') || 'contract'} (signed).pdf`);
   },
 };

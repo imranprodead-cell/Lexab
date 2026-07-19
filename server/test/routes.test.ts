@@ -886,3 +886,57 @@ describe('chat SSE streaming', () => {
     assert.equal(JSON.parse(res.body).role, 'assistant');
   });
 });
+
+describe('file downloads stay decrypted and provider-URL-free', () => {
+  it('POST /uploads returns no provider url and stores url = NULL', async () => {
+    const u = await makeUser();
+    const boundary = '----lexaiTestBoundary42';
+    const payload = Buffer.from(
+      `--${boundary}\r\n` +
+        'Content-Disposition: form-data; name="file"; filename="contract.txt"\r\n' +
+        'Content-Type: text/plain\r\n\r\n' +
+        'Договор поставки: тестовое содержимое.\r\n' +
+        `--${boundary}--\r\n`,
+    );
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/uploads',
+      headers: { ...auth(u.token), 'content-type': `multipart/form-data; boundary=${boundary}` },
+      payload,
+    });
+    assert.equal(res.statusCode, 201, res.body);
+    const body = JSON.parse(res.body);
+    assert.equal('url' in body, false, 'provider URL must not be returned (points at ciphertext)');
+    const row = await db.query<{ url: string | null }>('SELECT url FROM uploads WHERE id = $1', [body.id]);
+    assert.equal(row.rows[0].url, null, 'stored url must be NULL');
+  });
+
+  it('GET /signatures/:id/signed.pdf serves the decrypted signed PDF to the owner only', async () => {
+    const owner = await makeUser();
+    const other = await makeUser();
+    const { saveFile } = await import('../src/storage.ts');
+    const original = Buffer.from('%PDF-1.4 signed-bytes-тест');
+    const stored = await saveFile(original, 'deal (signed).pdf', 'application/pdf');
+    await db.query(
+      `INSERT INTO signature_requests (id, user_id, document_name, status, signed_file_key)
+       VALUES ('sig_dl1', $1, 'deal.pdf', 'Completed', $2)`,
+      [owner.id, stored.key],
+    );
+    await db.query(
+      `INSERT INTO signature_requests (id, user_id, document_name, status)
+       VALUES ('sig_dl2', $1, 'draft.pdf', 'Sent')`,
+      [owner.id],
+    );
+
+    const ok = await app.inject({ method: 'GET', url: '/api/signatures/sig_dl1/signed.pdf', headers: auth(owner.token) });
+    assert.equal(ok.statusCode, 200, ok.body);
+    assert.equal(ok.headers['content-type'], 'application/pdf');
+    assert.equal(ok.headers['cache-control'], 'no-store');
+    assert.ok(Buffer.from(ok.rawPayload).equals(original), 'bytes must round-trip through the encryption envelope');
+
+    const foreign = await app.inject({ method: 'GET', url: '/api/signatures/sig_dl1/signed.pdf', headers: auth(other.token) });
+    assert.equal(foreign.statusCode, 404, 'another user must not download it');
+    const notDone = await app.inject({ method: 'GET', url: '/api/signatures/sig_dl2/signed.pdf', headers: auth(owner.token) });
+    assert.equal(notDone.statusCode, 404, 'incomplete request has no signed PDF');
+  });
+});

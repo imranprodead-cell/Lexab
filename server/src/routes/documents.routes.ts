@@ -396,6 +396,7 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
       const pdf = await buildSimplePdf(doc.name, sections);
       reply.header('Content-Type', 'application/pdf');
       reply.header('Content-Disposition', attachmentDisposition(doc.name, 'pdf'));
+      reply.header('Cache-Control', 'no-store');
       return reply.send(pdf);
     }
 
@@ -410,6 +411,7 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
     const buffer = await Packer.toBuffer(file);
     reply.header('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     reply.header('Content-Disposition', attachmentDisposition(doc.name, 'docx'));
+    reply.header('Cache-Control', 'no-store');
     return reply.send(buffer);
   });
 }

@@ -1,7 +1,9 @@
 /**
- * POST /uploads — multipart `file` → { fileName, fileSize, url }.
- * GET /files/:key — serves locally stored uploads (S3 objects are served by
- * S3 itself via the returned url).
+ * POST /uploads — multipart `file` → { fileName, fileSize }.
+ * GET /files/:key — serves locally stored uploads (decrypts via readFileBytes).
+ * Provider URLs (Supabase/S3) are NEVER stored or returned: with encryption at
+ * rest they point at the LEXAIENC1 ciphertext envelope — anyone opening one
+ * would download a corrupt file. All byte-serving goes through our endpoints.
  */
 import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
@@ -58,15 +60,15 @@ export function uploadRoutes(app: FastifyInstance, db: Db): void {
           tx
             .query(
               `INSERT INTO uploads (id, user_id, file_name, size_bytes, mime, storage, storage_key, url, extracted_text)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-              [id, req.currentUser.id, fileName, buffer.length, part.mimetype, stored.storage, stored.key, stored.url, storedText],
+               VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, $8)`,
+              [id, req.currentUser.id, fileName, buffer.length, part.mimetype, stored.storage, stored.key, storedText],
             )
             .then(() => undefined),
         () => deleteFile(stored.storage, stored.key),
       );
 
       reply.code(201);
-      return { id, fileName, fileSize: formatSize(buffer.length), url: stored.url };
+      return { id, fileName, fileSize: formatSize(buffer.length) };
     },
   );
 
@@ -107,6 +109,7 @@ export function uploadRoutes(app: FastifyInstance, db: Db): void {
     const ext = fileExtension(safe);
     reply.header('Content-Type', MIME_BY_EXT[ext] ?? 'application/octet-stream');
     reply.header('Content-Disposition', `inline; filename="${safe.split('__').slice(1).join('__') || safe}"`);
+    reply.header('Cache-Control', 'no-store'); // расшифрованный контент не кэшируем
     return reply.send(data);
   });
 }

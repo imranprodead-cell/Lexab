@@ -1,4 +1,5 @@
 import { useState, useEffect, type FormEvent } from 'react';
+import { downloadBlob } from '@/lib/download';
 import { TopBar } from '@/components/layout/TopBar';
 import { InitialsAvatar } from '@/components/ui/Avatar';
 import { Badge } from '@/components/ui/Badge';
@@ -569,14 +570,7 @@ function AuditLogSection() {
   const exportCsv = async () => {
     try {
       const blob = await auditApi.downloadCsv({ group: group || undefined, q: query || undefined });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'audit-log.csv';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      downloadBlob(blob, 'audit-log.csv');
     } catch (err) {
       pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
     }

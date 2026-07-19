@@ -24,6 +24,14 @@ function sanitizeName(name: string): string {
   return path.basename(name).replace(/[^\w.-]+/g, '_').slice(0, 120) || 'file';
 }
 
+/** Бекенд, в который saveFile пишет при текущем конфиге — для чтения объектов,
+ *  у которых сохранён только key (signature_requests.signed_file_key). */
+export function activeStorageBackend(): 's3' | 'local' | 'supabase' {
+  if (config.supabaseStorageBucket && isSupabaseConfigured()) return 'supabase';
+  if (config.s3Bucket) return 's3';
+  return 'local';
+}
+
 export async function saveFile(buffer: Buffer, fileName: string, mime?: string): Promise<StoredFile> {
   const key = `${crypto.randomBytes(12).toString('hex')}__${sanitizeName(fileName)}`;
 

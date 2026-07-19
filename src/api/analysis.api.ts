@@ -6,6 +6,7 @@
  * animates steps independently (see chat store), so only this module changes.
  */
 import type { AnalysisResult, DocBlock, RedlineStatus } from '@/types/domain';
+import { downloadBlob } from '@/lib/download';
 import { USE_MOCK, http, httpBlob } from './client';
 import { db } from './mock/db';
 import { ApiError, clone, delay } from './util';
@@ -98,13 +99,6 @@ export const analysisApi = {
     } else {
       blob = await httpBlob(`/analysis/${id}/report.pdf`);
     }
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `LexAI_Report_${fileName.replace(/\.[^.]+$/, '')}.pdf`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, `LexAI_Report_${fileName.replace(/\.[^.]+$/, '')}.pdf`);
   },
 };

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { Icon } from '@/components/icons/Icon';
 import { useDismissable } from '@/hooks/useAsync';
+import { downloadBlob } from '@/lib/download';
 import { useI18n } from '@/i18n/I18nProvider';
 import { useUIStore } from '@/store/useUIStore';
 import type { ChatMessage } from '@/types/domain';
@@ -98,14 +99,7 @@ export function MessageActions({ message, onFeedback }: MessageActionsProps) {
   const downloadTxt = () => {
     setMenuOpen(false);
     const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'LexAI_reply.txt';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, 'LexAI_reply.txt');
   };
 
   const onMenuKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {

@@ -518,6 +518,8 @@ const ar: Record<string, string> = {
   "sig.copyLink": "نسخ رابط التوقيع",
   "sig.linkCopied": "تم نسخ رابط التوقيع.",
   "sig.copyHint": "أرسل إلى المستلم رابط التوقيع الخاص به (الزر على اليسار) — تُرسَل الرسائل تلقائياً بمجرد ربط مزوّد بريد.",
+  "sig.downloadSigned": "تنزيل ملف PDF الموقّع",
+  "sig.signedPdfStarted": "بدأ تنزيل ملف PDF الموقّع.",
   "sign.invalidTitle": "هذا الرابط غير صالح",
   "sign.doneTitle": "تم توقيع المستند",
   "sign.doneBody": "شكراً لك! تم تسجيل توقيعك على «{doc}» وإخطار المُرسِل بذلك.",

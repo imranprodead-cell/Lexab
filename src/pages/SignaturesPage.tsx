@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { TopBar } from '@/components/layout/TopBar';
 import { Icon } from '@/components/icons/Icon';
 import { Badge } from '@/components/ui/Badge';
-import { IconButton } from '@/components/ui/Button';
+import { Button, IconButton } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { EmptyState, ErrorState, SkeletonRows } from '@/components/ui/States';
 import { useAsync } from '@/hooks/useAsync';
@@ -188,6 +188,22 @@ export function SignaturesPage() {
                 </div>
               ))}
             </div>
+
+            {selected.status === 'Completed' ? (
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  void signaturesApi
+                    .downloadSigned(selected.id, selected.documentName)
+                    .then(() => pushToast(t('sig.signedPdfStarted'), 'success'))
+                    .catch((err: unknown) =>
+                      pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error'),
+                    );
+                }}
+              >
+                <Icon name="download" size={15} /> {t('sig.downloadSigned')}
+              </Button>
+            ) : null}
 
             <p className={styles.sigDetailHint}>{t('sig.copyHint')}</p>
           </div>

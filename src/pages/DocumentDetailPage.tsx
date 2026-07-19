@@ -11,6 +11,7 @@ import { useAsync, clearAsyncCache } from '@/hooks/useAsync';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { analysisApi, documentsApi, versionsApi } from '@/api';
 import { approvalsApi, type NewApprovalStep } from '@/api/approvals.api';
+import { downloadBlob } from '@/lib/download';
 import { billingApi } from '@/api/billing.api';
 import { TextField } from '@/components/ui/TextField';
 import { DatePicker } from '@/components/ui/DatePicker';
@@ -186,14 +187,7 @@ export function DocumentDetailPage() {
     setExporting(true);
     try {
       const blob = await documentsApi.exportFile(doc.id, 'docx');
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${doc.name.replace(/\.[^.]+$/, '') || 'document'}.docx`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      downloadBlob(blob, `${doc.name.replace(/\.[^.]+$/, '') || 'document'}.docx`);
       pushToast(t('docs.docxReady'), 'success');
     } catch (err) {
       pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');

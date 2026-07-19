@@ -886,6 +886,9 @@ export const MESSAGES: Dict = {
     en: 'Send the recipient their signing link (button on the right) — emails go out automatically once a mail provider is connected.',
   },
 
+  'sig.downloadSigned': { ru: 'Скачать подписанный PDF', en: 'Download signed PDF' },
+  'sig.signedPdfStarted': { ru: 'Скачивание подписанного PDF началось.', en: 'Signed PDF download started.' },
+
   // Public signing page
   'sign.invalidTitle': { ru: 'Ссылка недействительна', en: 'This link is not valid' },
   'sign.doneTitle': { ru: 'Документ подписан', en: 'Document signed' },

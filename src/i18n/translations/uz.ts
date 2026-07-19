@@ -518,6 +518,8 @@ const uz: Record<string, string> = {
   "sig.copyLink": "Imzo havolasini nusxalash",
   "sig.linkCopied": "Imzo havolasi nusxalandi.",
   "sig.copyHint": "Qabul qiluvchiga imzo havolasini yuboring (oʻngdagi tugma) — pochta xizmati ulangandan soʻng xatlar avtomatik yuboriladi.",
+  "sig.downloadSigned": "Imzolangan PDF-ni yuklab olish",
+  "sig.signedPdfStarted": "Imzolangan PDF yuklab olinmoqda.",
   "sign.invalidTitle": "Bu havola yaroqsiz",
   "sign.doneTitle": "Hujjat imzolandi",
   "sign.doneBody": "Rahmat! “{doc}” hujjati boʻyicha imzoyingiz qayd etildi va yuboruvchi xabardor qilindi.",

@@ -224,8 +224,8 @@ async function readSource(db: Db, req: FastifyRequest): Promise<AnalysisSource> 
         tx
           .query(
             `INSERT INTO uploads (id, user_id, file_name, size_bytes, mime, storage, storage_key, url, extracted_text)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-            [newId('up'), req.currentUser.id, fileName, buffer.length, part.mimetype || null, stored.storage, stored.key, stored.url, storedText],
+             VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, $8)`,
+            [newId('up'), req.currentUser.id, fileName, buffer.length, part.mimetype || null, stored.storage, stored.key, storedText],
           )
           .then(() => undefined),
       () => deleteFile(stored.storage, stored.key),
@@ -637,6 +637,7 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
     const pdf = await buildSimplePdf(`LexAI — Contract Review Report`, sections);
     reply.header('Content-Type', 'application/pdf');
     reply.header('Content-Disposition', attachmentDisposition(`LexAI_Report_${a.fileName}`, 'pdf'));
+    reply.header('Cache-Control', 'no-store');
     return reply.send(pdf);
   });
 

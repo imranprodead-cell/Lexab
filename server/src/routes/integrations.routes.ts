@@ -535,15 +535,15 @@ export function integrationRoutes(app: FastifyInstance, db: Db): void {
           tx
             .query(
               `INSERT INTO uploads (id, user_id, file_name, size_bytes, mime, storage, storage_key, url, extracted_text)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-              [id, req.currentUser.id, name, buffer.length, mime, stored.storage, stored.key, stored.url, storedText],
+               VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, $8)`,
+              [id, req.currentUser.id, name, buffer.length, mime, stored.storage, stored.key, storedText],
             )
             .then(() => undefined),
         () => deleteFile(stored.storage, stored.key),
       );
 
       reply.code(201);
-      return { id, fileName: name, fileSize: formatSize(buffer.length), url: stored.url };
+      return { id, fileName: name, fileSize: formatSize(buffer.length) };
     },
   );
 
@@ -631,15 +631,15 @@ export function integrationRoutes(app: FastifyInstance, db: Db): void {
           tx
             .query(
               `INSERT INTO uploads (id, user_id, file_name, size_bytes, mime, storage, storage_key, url, extracted_text)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-              [id, req.currentUser.id, name, buffer.length, mime, stored.storage, stored.key, stored.url, storedText],
+               VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, $8)`,
+              [id, req.currentUser.id, name, buffer.length, mime, stored.storage, stored.key, storedText],
             )
             .then(() => undefined),
         () => deleteFile(stored.storage, stored.key),
       );
 
       reply.code(201);
-      return { id, fileName: name, fileSize: formatSize(buffer.length), url: stored.url };
+      return { id, fileName: name, fileSize: formatSize(buffer.length) };
     },
   );
 }

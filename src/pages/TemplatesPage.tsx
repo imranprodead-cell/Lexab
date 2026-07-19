@@ -1,4 +1,5 @@
 import { useMemo, useState, type FormEvent } from 'react';
+import { downloadBlob } from '@/lib/download';
 import { TopBar } from '@/components/layout/TopBar';
 import { Icon } from '@/components/icons/Icon';
 import { Button } from '@/components/ui/Button';
@@ -163,14 +164,7 @@ export function TemplatesPage() {
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')}</pre></body></html>`;
     const blob = new Blob([html], { type: 'application/msword' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${title.replace(/[^\wа-яА-ЯёЁ -]+/g, '').slice(0, 80) || 'contract'}.doc`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    downloadBlob(blob, `${title.replace(/[^\wа-яА-ЯёЁ -]+/g, '').slice(0, 80) || 'contract'}.doc`);
   };
 
   const copyContent = async (content: string) => {

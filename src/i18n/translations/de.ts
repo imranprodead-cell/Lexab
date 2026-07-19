@@ -518,6 +518,8 @@ const de: Record<string, string> = {
   "sig.copyLink": "Signaturlink kopieren",
   "sig.linkCopied": "Signaturlink kopiert.",
   "sig.copyHint": "Senden Sie dem Empfänger seinen Signaturlink (Schaltfläche rechts) — E-Mails werden automatisch versendet, sobald ein Mail-Anbieter verbunden ist.",
+  "sig.downloadSigned": "Signiertes PDF herunterladen",
+  "sig.signedPdfStarted": "Download des signierten PDF gestartet.",
   "sign.invalidTitle": "Dieser Link ist ungültig",
   "sign.doneTitle": "Dokument signiert",
   "sign.doneBody": "Vielen Dank! Ihre Signatur für „{doc}“ wurde erfasst und der Absender wurde benachrichtigt.",
