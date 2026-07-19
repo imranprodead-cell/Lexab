@@ -277,8 +277,23 @@ const RU_ALIASES: Record<string, RuAlias[]> = {
     { re: /электронн\S*\s+цифров\S*\s+подпис/i, pattern: '%Об электронной цифровой подписи%' },
     { re: cyrWord('ЭЦП'), pattern: '%Об электронной цифровой подписи%' },
     { re: /договорно-правов/i, pattern: '%О договорно-правовой базе%' },
+    // Узбекские (латиница) формы: Fuqarolik kodeksi (FK), Mehnat kodeksi.
+    { re: /fuqarolik\s+kodeks/i, pattern: 'Гражданский кодекс%' },
+    { re: /(?<![A-Za-zА-Яа-я])FK(?:ning)?(?![A-Za-zА-Яа-я])/, pattern: 'Гражданский кодекс%' },
+    { re: /mehnat\s+kodeks/i, pattern: '%Трудовой кодекс%' },
   ],
-  KZ: [{ re: /Гражданск/i, pattern: 'Гражданский кодекс%' }],
+  KZ: [
+    { re: /Гражданск/i, pattern: 'Гражданский кодекс%' },
+    { re: cyrWord('ГК'), pattern: 'Гражданский кодекс%' },
+    // Казахские формы: Азаматтық кодекс (АК) = Гражданский кодекс.
+    { re: /Азаматты[қк]/i, pattern: 'Гражданский кодекс%' },
+    { re: cyrWord('АК'), pattern: 'Гражданский кодекс%' },
+    { re: /потребител/i, pattern: '%О защите прав потребителей%' },
+    { re: /тұтынушы/i, pattern: '%О защите прав потребителей%' },
+    { re: /электронн\S*\s+цифров\S*\s+подпис/i, pattern: '%электронной цифровой подписи%' },
+    { re: /электронды[қк]\S*\s+цифрлы[қк]/i, pattern: '%электронной цифровой подписи%' },
+    { re: cyrWord('ЭЦП'), pattern: '%электронной цифровой подписи%' },
+  ],
 };
 
 export interface RuCitation {
@@ -291,7 +306,11 @@ export interface RuCitation {
  *  не совпал → null (fail-closed). Чистая функция — покрыта юнит-тестами
  *  (server/test/citations.test.ts). */
 export function parseRuCitation(citation: string, jurisdiction: string): RuCitation | null {
-  const st = citation.match(/ст(?:атья|атьи|\.)?\s*№?\s*(\d+(?:[.-]\d+)*)/i);
+  // Номер статьи: русская форма «ст. 260», казахская «260-бап», узбекская
+  // «260-modda(si)».
+  const st =
+    citation.match(/ст(?:атья|атьи|\.)?\s*№?\s*(\d+(?:[.-]\d+)*)/i) ??
+    citation.match(/(\d+(?:\.\d+)*)\s*-\s*(?:бап|бабы|баптың|modda(?:si)?)/i);
   if (!st) return null;
   const number = st[1];
   const quoted = citation.match(/«([^»]{4,80})»|"([^"]{4,80})"/);

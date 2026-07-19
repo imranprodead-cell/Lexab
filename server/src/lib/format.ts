@@ -50,3 +50,11 @@ export function looksRussian(s: string): boolean {
   const lat = (s.match(/[a-z]/gi) ?? []).length;
   return cyr > lat;
 }
+
+/** Латиница с узбекскими маркерами (oʻ/gʻ и частотные слова) → узбекский текст.
+ *  Нужен для выбора языка рамки PDF-отчёта: для узбекского контента рамка
+ *  русская (решение продукта), а не английская. */
+export function looksUzbekLatin(s: string): boolean {
+  if (looksRussian(s)) return false;
+  return /o['ʻ’]|g['ʻ’]/.test(s) || /\b(?:va|yoki|uchun|bilan|shartnoma|tomonlar|xizmat|majburiyat|bo['ʻ’]yicha|qonun)\b/i.test(s);
+}

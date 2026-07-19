@@ -14,7 +14,7 @@ import { badRequest, HttpError, notFound } from '../lib/errors.ts';
 import { assertDocumentAllowance, assertFeature, assertStorageAllowance, bumpUsage, releaseAiRequest, reserveAiRequest, reserveDocument, withStorageReservation, withAiRequest } from '../lib/limits.ts';
 import { notify } from '../lib/notify.ts';
 import { assertCanEdit, resolveAnalysisAccess, resolveDocumentAccess } from '../lib/teamAccess.ts';
-import { attachmentDisposition, formatSize, looksRussian } from '../lib/format.ts';
+import { attachmentDisposition, formatSize, looksRussian, looksUzbekLatin } from '../lib/format.ts';
 import { buildSimplePdf } from '../lib/pdf.ts';
 import { newId } from '../lib/ids.ts';
 import { recalibrateRisk } from '../lib/riskScore.ts';
@@ -482,7 +482,15 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
         })
       : [];
     const withValidation = async (gen: GeneratedAnalysis): Promise<GeneratedAnalysis> => {
-      if (legalContext.length) return { ...gen, findings: await validateFindings(db, gen.findings, undefined, corpus ?? 'UK') };
+      if (legalContext.length) {
+        const findings = await validateFindings(db, gen.findings, undefined, corpus ?? 'UK');
+        // Синхронизация тяжести: понижение находки (unverified → Low) тянет
+        // за собой связанную правку — иначе один риск в отчёте живёт с двумя
+        // разными оценками ([Low] в находках и [High] в правках).
+        const sevByRedline = new Map(findings.filter((f) => f.redlineId).map((f) => [f.redlineId as string, f.severity]));
+        const redlines = gen.redlines.map((r) => (sevByRedline.has(r.id) ? { ...r, severity: sevByRedline.get(r.id) as typeof r.severity } : r));
+        return { ...gen, findings, redlines };
+      }
       // A jurisdiction with a law base whose check couldn't run must NOT look
       // verified — flag every citation as unconfirmed rather than silently
       // presenting model output as grounded.
@@ -633,14 +641,18 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
 
     // Рамка отчёта — на языке КОНТЕНТА анализа (русский разбор → русские
     // подписи), не UI: файл живёт дольше сессии и уходит третьим лицам.
-    const ru = looksRussian(`${a.summary} ${a.findings.map((f) => f.title).join(' ')}`);
+    const contentSample = `${a.summary} ${a.findings.map((f) => f.title).join(' ')}`;
+    // Русская рамка — для кириллического И узбекского контента (решение
+    // продукта: рынок СНГ, узбекской рамки пока нет).
+    const ru = looksRussian(contentSample) || looksUzbekLatin(contentSample);
     const SEV_RU: Record<string, string> = { High: 'Высокий', Medium: 'Средний', Low: 'Низкий' };
+    const SEV_RU_LEVEL: Record<string, string> = { High: 'Высокий', Elevated: 'Повышенный', Low: 'Низкий' };
     const STATUS_RU: Record<string, string> = { pending: 'на рассмотрении', accepted: 'принята', rejected: 'отклонена' };
     const sev = (s: string) => (ru ? (SEV_RU[s] ?? s) : s);
     const sections: { heading?: string; text?: string }[] = [
       {
         text: ru
-          ? `Файл: ${a.fileName} (${a.fileSize}) · Оценка риска: ${a.riskScore}/100 (${a.riskLevel}) · Проверено пунктов: ${a.clausesReviewed}`
+          ? `Файл: ${a.fileName} (${a.fileSize}) · Оценка риска: ${a.riskScore}/100 (${SEV_RU_LEVEL[a.riskLevel] ?? a.riskLevel}) · Проверено пунктов: ${a.clausesReviewed}`
           : `File: ${a.fileName} (${a.fileSize}) · Risk score: ${a.riskScore}/100 (${a.riskLevel}) · Clauses reviewed: ${a.clausesReviewed}`,
       },
       { heading: ru ? 'Сводка' : 'Summary' },

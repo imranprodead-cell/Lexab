@@ -63,9 +63,26 @@ test('fail-closed: нет статьи или нет акта → null', () => {
   assert.equal(parseRuCitation('ст. 5 ГК', 'XX'), null); // неизвестная юрисдикция
 });
 
-test('KZ: прежнее поведение байт-в-байт — кавычки и «Гражданск…», больше ничего', () => {
+test('KZ: базовые формы — кавычки, «Гражданск…», ГК/ЭЦП-аббревиатуры', () => {
   assert.deepEqual(kz('статья 401 Гражданского кодекса РК'), { number: '401', titlePattern: 'Гражданский кодекс%' });
-  assert.equal(kz('ст. 401 ГК РК'), null); // прежний \bГК\b на кириллице не работал — сохранено
-  assert.equal(kz('ст. 10 закона об ЭЦП'), null); // KZ-алиасов нет
+  assert.equal(kz('ст. 401 ГК РК')?.titlePattern, 'Гражданский кодекс%');
+  assert.equal(kz('ст. 10 закона об ЭЦП')?.titlePattern, '%электронной цифровой подписи%');
   assert.equal(kz('ст. 7 Закона «О защите прав потребителей»')?.titlePattern, '%О защите прав потребителей%');
+  assert.equal(kz('ст. 5 неизвестного закона'), null); // fail-closed сохранён
+});
+
+test('KZ: казахские формы — АК/Азаматтық/бап/тұтынушы/ЭЦП', () => {
+  assert.deepEqual(kz('359-бап ҚР АК'), { number: '359', titlePattern: 'Гражданский кодекс%' });
+  assert.equal(kz('ст. 401 ГК РК')?.titlePattern, 'Гражданский кодекс%');
+  assert.equal(kz('Азаматтық кодекстің 682-бабы туралы 682-бап')?.titlePattern, 'Гражданский кодекс%');
+  assert.equal(kz('тұтынушы құқықтарын қорғау туралы 7-бап')?.titlePattern, '%О защите прав потребителей%');
+  assert.equal(kz('электрондық цифрлық қолтаңба туралы 10-бап')?.titlePattern, '%электронной цифровой подписи%');
+  assert.equal(kz('ст. 10 об электронной цифровой подписи')?.titlePattern, '%электронной цифровой подписи%');
+});
+
+test('UZ: узбекские формы — FK/modda/fuqarolik/mehnat', () => {
+  assert.deepEqual(uz('FKning 706-moddasi'), { number: '706', titlePattern: 'Гражданский кодекс%' });
+  assert.equal(uz('Fuqarolik kodeksining 386-moddasi')?.titlePattern, 'Гражданский кодекс%');
+  assert.equal(uz('Mehnat kodeksining 130-moddasi')?.titlePattern, '%Трудовой кодекс%');
+  assert.equal(uz('706-modda'), null); // номер без акта → fail-closed
 });
