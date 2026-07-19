@@ -115,7 +115,11 @@ export async function buildAnalysisContext(db: Db, userId: string, analysisId: s
     `File: ${row.file_name}`,
     `AI review summary: ${summary}`,
     `Key clauses (with accepted redlines applied):${clauses}`,
-    fullText ? `Full contract text:\n${fullText}` : '',
+    // Явный маркер отсутствия полного текста: без него модель на «переведи
+    // договор» достраивает недостающие клаузы из головы.
+    fullText
+      ? `Full contract text:\n${fullText}`
+      : 'FULL CONTRACT TEXT UNAVAILABLE — only the reviewed key clauses above are available. Say so if asked to translate or quote the whole contract; never invent missing clauses.',
   ]
     .filter(Boolean)
     .join('\n\n');

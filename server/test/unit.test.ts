@@ -345,3 +345,23 @@ test('parseDriveLink: file/doc/open/uc forms, junk rejected', async () => {
   assert.equal(filenameFromDisposition("attachment; filename*=UTF-8''%D0%94%D0%BE%D0%B3.pdf"), 'Дог.pdf');
   assert.equal(filenameFromDisposition(null), null);
 });
+
+test('recalibrateRisk: потолок балла по фактической максимальной severity', async () => {
+  const { recalibrateRisk } = await import('../src/lib/riskScore.ts');
+  const f = (...sev: ('High' | 'Medium' | 'Low')[]) => sev.map((severity) => ({ severity }));
+
+  // нет находок → cap 20, Low
+  assert.deepEqual(recalibrateRisk([], 85), { riskScore: 20, riskLevel: 'Low' });
+  // только Low (включая демотированные валидатором) → cap 40
+  assert.deepEqual(recalibrateRisk(f('Low', 'Low', 'Low'), 78), { riskScore: 40, riskLevel: 'Elevated' });
+  // максимум Medium → cap 65
+  assert.deepEqual(recalibrateRisk(f('Medium', 'Low'), 90), { riskScore: 65, riskLevel: 'Elevated' });
+  // High → балл не режется
+  assert.deepEqual(recalibrateRisk(f('High', 'Low'), 88), { riskScore: 88, riskLevel: 'High' });
+  // балл ниже потолка не трогается
+  assert.deepEqual(recalibrateRisk(f('Medium'), 50), { riskScore: 50, riskLevel: 'Elevated' });
+  // после демоции High→Low высокая «шапка» падает
+  assert.deepEqual(recalibrateRisk(f('Low', 'Low'), 72), { riskScore: 40, riskLevel: 'Elevated' });
+  // riskLevel согласован с итоговым баллом (<34 Low)
+  assert.deepEqual(recalibrateRisk(f('Low'), 25), { riskScore: 25, riskLevel: 'Low' });
+});

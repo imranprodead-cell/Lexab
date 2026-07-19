@@ -17,6 +17,7 @@ import { assertCanEdit, resolveAnalysisAccess, resolveDocumentAccess } from '../
 import { attachmentDisposition, formatSize } from '../lib/format.ts';
 import { buildSimplePdf } from '../lib/pdf.ts';
 import { newId } from '../lib/ids.ts';
+import { recalibrateRisk } from '../lib/riskScore.ts';
 import { openSSE, wantsSSE } from '../lib/sse.ts';
 import { asObject, optionalString, requireOneOf, requireString } from '../lib/validate.ts';
 import { generateAnalysis, generateContractDraft, type GeneratedAnalysis } from '../llm.ts';
@@ -267,6 +268,9 @@ export async function persistAnalysis(
   gen: GeneratedAnalysis,
   chargeUserId: string = userId,
 ): Promise<AnalysisResult> {
+  // Пост-калибровка: после валидации цитат (демоция непроверенных в Low) балл
+  // риска не может превышать потолок фактической максимальной severity.
+  gen = { ...gen, ...recalibrateRisk(gen.findings, gen.riskScore) };
   const analysisId = newId('an');
   let documentId = ''; // set inside the tx; returned so the client can export
 

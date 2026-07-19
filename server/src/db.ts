@@ -67,6 +67,10 @@ async function createDb(): Promise<Db> {
     const useSsl = /supabase\.(co|com)|sslmode=require/.test(config.databaseUrl);
     const pool = new pg.Pool({
       connectionString: config.databaseUrl,
+      // Supabase session-pooler даёт всего 15 сессий на проект. Сервер + любой
+      // батч-скрипт (eval/ингест) с дефолтными max=10 вдвоём пробивают лимит
+      // (EMAXCONNSESSION). Скрипты запускаются с PG_POOL_MAX=4.
+      max: Math.max(1, Number(process.env.PG_POOL_MAX ?? 10) || 10),
       ...(useSsl ? { ssl: resolveSslOptions() } : {}),
     });
     // An idle pooled connection can error at any time (network change, pooler

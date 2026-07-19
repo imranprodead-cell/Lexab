@@ -84,6 +84,9 @@ interface DeepseekCall {
   schema?: Record<string, unknown>;
   /** Streaming: fires per text delta (chat). */
   onToken?: (delta: string) => void;
+  /** Бросить при усечении по max_tokens (шаблон/драфт: молча обрезанный
+   *  договор хуже честной ошибки — withModelRetry переиграет на Anthropic). */
+  failOnLength?: boolean;
 }
 
 /** One DeepSeek chat-completions call (streamed or not); returns the full text. */
@@ -122,6 +125,9 @@ async function runDeepseek(call: DeepseekCall): Promise<string> {
     `[llm] ${call.op}: ${call.model} (DeepSeek), in ${u?.prompt_tokens ?? '?'} / out ${u?.completion_tokens ?? '?'} tokens` +
       (u?.prompt_cache_hit_tokens ? `, cache hit ${u.prompt_cache_hit_tokens}` : ''),
   );
+  if (call.failOnLength && res.choices[0]?.finish_reason === 'length') {
+    throw new Error(`output truncated at max_tokens (${call.op})`);
+  }
   if (!text.trim()) throw new Error('empty response');
   return text;
 }
@@ -264,9 +270,13 @@ const ANALYSIS_SCHEMA = {
   properties: {
     summary: {
       type: 'string',
-      description: '2–4 sentence plain-English overview of the contract and its key legal exposure.',
+      description: "2–4 sentence plain-language overview of the contract and its key legal exposure, written in the contract's language.",
     },
-    riskScore: { type: 'integer', description: 'Overall risk 0–100 (higher = riskier).' },
+    riskScore: {
+      type: 'integer',
+      description:
+        'Overall risk 0–100. Calibrated scale: 0–20 clean/market-standard; 21–40 minor issues only; 41–65 material issues; 66–85 serious exposure; 86–100 critical. The score MUST be consistent with the highest finding severity — do not report a high score with only minor findings.',
+    },
     riskLevel: { type: 'string', enum: ['Low', 'Elevated', 'High'] },
     clausesReviewed: { type: 'integer', description: 'Number of clauses examined.' },
     findings: {
@@ -277,8 +287,8 @@ const ANALYSIS_SCHEMA = {
         required: ['severity', 'title', 'citation', 'unitId', 'redlineId'],
         properties: {
           severity: { type: 'string', enum: SEVERITY },
-          title: { type: 'string', description: 'Short title of the legal issue.' },
-          citation: { type: 'string', description: 'Statute or case-law citation for the governing jurisdiction.' },
+          title: { type: 'string', description: "Short title of the legal issue, in the contract's language." },
+          citation: { type: 'string', description: 'Statute or case-law citation in the official format of the governing jurisdiction.' },
           unitId: {
             type: 'string',
             description:
@@ -340,11 +350,12 @@ const ANALYSIS_SCHEMA = {
 
 const ANALYSIS_SYSTEM = `You are LexAI, a senior commercial contracts lawyer performing a risk review.
 Work from the supplied contract (or, when only a file name is available, infer the likely contract type from it and review a realistic model of such a contract).
+WRITE IN THE CONTRACT'S LANGUAGE: the summary, every finding title and every insText must be in the same language as the contract text (Russian contract → Russian output, English contract → English output). When only a file name is available, use the language suggested by the file name and jurisdiction. Citations always use the official citation format of the governing jurisdiction (e.g. «ст. 260 ГК» for UZ/KZ, "s.14 Sale of Goods Act 1979" for UK) regardless of output language.
 Identify the clauses with the most material legal exposure under the contract's governing jurisdiction. Cite real statutes and case law.
 Produce tracked redlines: quote the exact problematic wording as delText, and provide precise replacement wording as insText.
 Reproduce ONLY the clauses that contain redlines in the document array: a heading block (numbered, e.g. "5.  Termination") followed by a paragraph block whose segments interleave the surrounding original text with a single {redlineId} slot where the change belongs. Every redline id must appear in exactly one slot and every slot must reference an existing redline.
 When a finding is fixed by one of your redlines, set that finding's redlineId to the redline's id (r1, r2, …) so the user can click the finding and jump to the clause; use "" when a finding has no redline. Never invent ids.
-Keep it tight: 3–6 findings, 2–5 redlines, and one heading+paragraph pair per redline.`;
+Keep it tight: 0–6 findings, 0–5 redlines, and one heading+paragraph pair per redline. If the contract is genuinely clean and market-standard, say so honestly — do NOT invent issues to fill a quota.`;
 
 /** User-prompt text for the analysis request — shared by both providers. */
 function buildAnalysisPrompt(input: AnalysisInput, text: string | null): string {
@@ -525,6 +536,7 @@ function normalizeGenerated(raw: GeneratedAnalysis): GeneratedAnalysis {
 const CHAT_SYSTEM = `You are LexAI, the branded AI legal assistant of the LexAI contract-intelligence platform.
 Persona: answer like a seasoned commercial lawyer — precise, confident, businesslike, warm but never chatty. No emoji, no filler, no restating the question.
 Be BRIEF and to the point: lead with the answer in as few sentences as the question allows; use a short list only when it genuinely helps. Cite the governing statute or case law when you make a legal claim. Answer in the language the user writes in.
+GROUNDING: when asked to translate, quote or summarise the contract, use ONLY the text inside the <contract> block — never reconstruct or invent clauses that are not there. If the context says the full contract text is unavailable, state that openly and work only with the excerpts you have.
 STRICT SCOPE — legal work only: contracts and documents (analysis, risks, redlines, drafting, comparison, templates, signatures, approvals), legislation, compliance, negotiations, and questions about the LexAI product itself.
 If the user asks anything outside that scope (write code, recipes, homework, small talk, general trivia, etc.), do NOT answer it even partially. Reply with ONE short, polite sentence in the user's language saying you only help with legal questions and contract/document analysis, and invite a legal question instead.
 You are not the user's solicitor — for high-stakes decisions, recommend review by qualified counsel in one short sentence at most.`;
@@ -832,8 +844,11 @@ export interface TemplateFields {
   details: string;
 }
 
-const TEMPLATE_SYSTEM =
-  'You are LexAI, a senior commercial contracts lawyer. Draft a complete, professionally structured contract from the given template type. Use numbered clauses with headings, defined terms, and jurisdiction-appropriate boilerplate (governing law, notices, entire agreement). Write in the language of the user-provided details (default: English). Output plain text only — no markdown syntax.';
+const TEMPLATE_SYSTEM = `You are LexAI, a senior commercial contracts lawyer. Draft a COMPLETE, ready-to-review contract of the given template type — the professional register a qualified lawyer would sign off, not a layman's summary.
+Structure: title; parties block with placeholders like [ПОЛНОЕ НАИМЕНОВАНИЕ / FULL LEGAL NAME] for requisites you were not given (NEVER invent registration numbers, addresses or bank details); numbered clauses with headings covering at least: definitions (Defined Terms, capitalised and used consistently), subject matter, term, obligations of each party, price and payment, confidentiality, liability (with a sensible cap), termination, force majeure, dispute resolution, governing law, notices, entire agreement; signature blocks.
+Consistency: cross-references must point only to sections that exist; numbering continuous; a term defined once and used with the same meaning throughout — no clause may contradict another.
+Legal accuracy: use the drafting terminology of the governing jurisdiction. Do NOT cite specific statute article numbers unless you are certain they exist — prefer wording like «в соответствии с действующим законодательством» over an invented citation.
+Write in the language of the user-provided details (default: English). Output plain text only — no markdown syntax.`;
 
 export async function generateTemplateDraft(
   templateName: string,
@@ -861,6 +876,7 @@ Additional requirements: ${fields.details || '—'}`;
           maxTokens: 8000,
           system: TEMPLATE_SYSTEM,
           messages: [{ role: 'user', content: userContent }],
+          failOnLength: true, // обрезанный посреди клаузы договор → ретрай на Anthropic
         });
         return raw.trim();
       }
@@ -877,6 +893,7 @@ Additional requirements: ${fields.details || '—'}`;
       const message = await stream.finalMessage();
       logUsage('template', model, message);
       if (message.stop_reason === 'refusal') throw new Error('model refused the request');
+      if (message.stop_reason === 'max_tokens') throw new Error('output truncated at max_tokens (template)');
       return textOf(message).trim();
     });
   } catch (err) {
@@ -975,6 +992,7 @@ export async function generateContractDraft(
           system: DRAFT_SYSTEM,
           schema: DRAFT_SCHEMA as unknown as Record<string, unknown>,
           messages: [{ role: 'user', content: userContent }],
+          failOnLength: true, // обрезанный JSON-драфт → ретрай на Anthropic
         });
         const draft = normalizeDraft(extractJsonObject(raw));
         if (!draft.document.length) throw new Error('draft had no usable blocks');
@@ -994,6 +1012,7 @@ export async function generateContractDraft(
       const message = await stream.finalMessage();
       logUsage('draft', model, message);
       if (message.stop_reason === 'refusal') throw new Error('model refused the request');
+      if (message.stop_reason === 'max_tokens') throw new Error('output truncated at max_tokens (draft)');
       const text = textOf(message);
       if (!text) throw new Error('no text block in response');
       const draft = normalizeDraft(JSON.parse(text));
