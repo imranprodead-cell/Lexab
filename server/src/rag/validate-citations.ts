@@ -57,7 +57,7 @@ async function unitSupportsFinding(
   finding: Pick<Finding, 'title' | 'citation'>,
 ): Promise<boolean> {
   const system =
-    'You verify legal citations: is the quoted provision the correct legal basis for the finding? Answer true when the provision governs the legal issue the finding addresses (even if the finding also involves judgement, e.g. a reasonableness assessment). Answer false only when the provision is about a different issue.';
+    'You verify legal citations: is the quoted provision the correct legal basis for the finding? Answer true when the provision governs the legal issue the finding addresses (even if the finding also involves judgement, e.g. a reasonableness assessment). IMPORTANT: this is contract review — a finding typically cites the statute that the reviewed contract clause VIOLATES or deviates from, so the citation is correct when the provision governs that issue, INCLUDING when the contract clause contradicts the provision\'s rule (e.g. a finding about an unlimited-liability clause correctly cites the statute that caps liability). Answer false only when the provision is about a genuinely different legal issue.';
   const userContent = `Provision (${breadcrumb}):\n${unitText.slice(0, 4000)}\n\nFinding: ${finding.title}\nCited as: ${finding.citation}`;
   try {
     if (judge.kind === 'deepseek') {
