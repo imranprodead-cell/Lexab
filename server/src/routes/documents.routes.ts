@@ -273,6 +273,10 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
     );
     const row = res.rows[0];
     if (!row) throw notFound('Document not found');
+    await audit(db, req, {
+      type: body.teamShared ? 'document.shared' : 'document.unshared',
+      target: { type: 'document', id, label: row.name },
+    });
     return { ...toDocument(row), canEdit: true, mine: true };
   });
 
@@ -309,6 +313,7 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
         req.log.warn({ err, key: row.storage_key }, 'storage: delete failed');
       }
     }
+    await audit(db, req, { type: 'document.deleted', target: { type: 'document', id, label: doc.name } });
     reply.code(204);
   });
 

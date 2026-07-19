@@ -14,12 +14,14 @@ import { assertFeature } from '../lib/limits.ts';
 
 interface EventRow {
   id: string | number;
+  actor_id?: string | null;
   actor_label: string | null;
   event_type: string;
   target_type: string | null;
   target_label: string | null;
   status: string;
   ip: string | null;
+  metadata?: unknown;
   created_at: Date | string;
 }
 
@@ -68,7 +70,7 @@ export function auditRoutes(app: FastifyInstance, db: Db): void {
 
     const total = await db.query<{ count: string | number }>(`SELECT count(*) AS count FROM audit_events WHERE ${where}`, params);
     const rows = await db.query<EventRow>(
-      `SELECT id, actor_label, event_type, target_type, target_label, status, ip, created_at
+      `SELECT id, actor_id, actor_label, event_type, target_type, target_label, status, ip, metadata, created_at
        FROM audit_events WHERE ${where}
        ORDER BY created_at DESC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`,
       params,
@@ -76,12 +78,16 @@ export function auditRoutes(app: FastifyInstance, db: Db): void {
     reply.header('X-Total-Count', String(total.rows[0]?.count ?? 0));
     return rows.rows.map((r) => ({
       id: String(r.id),
+      actorId: r.actor_id ?? null,
       actor: r.actor_label,
       type: r.event_type,
       targetType: r.target_type,
       target: r.target_label,
       status: r.status,
       ip: r.ip,
+      // metadata пишется нашим кодом и по построению не содержит контента
+      // документов (только счётчики/имена/флаги) — отдаём как есть.
+      metadata: typeof r.metadata === 'string' ? JSON.parse(r.metadata || '{}') : (r.metadata ?? {}),
       at: new Date(r.created_at).toISOString(),
     }));
   });

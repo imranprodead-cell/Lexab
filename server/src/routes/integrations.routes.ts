@@ -20,6 +20,7 @@ import type { Db } from '../db.ts';
 import { ALLOWED_EXTENSIONS, assertValidFileContent, extractText, fileExtension, MAX_UPLOAD_BYTES } from '../extract.ts';
 import { filenameFromDisposition, parseDriveLink } from '../lib/driveLink.ts';
 import { badRequest, HttpError, notFound } from '../lib/errors.ts';
+import { audit } from '../lib/audit.ts';
 import { encText } from '../lib/docCrypto.ts';
 import { formatSize } from '../lib/format.ts';
 import { newId } from '../lib/ids.ts';
@@ -542,6 +543,11 @@ export function integrationRoutes(app: FastifyInstance, db: Db): void {
         () => deleteFile(stored.storage, stored.key),
       );
 
+      await audit(db, req, {
+        type: 'file.uploaded',
+        target: { type: 'document', id, label: name },
+        metadata: { sizeBytes: buffer.length, source: 'cloud-import' },
+      });
       reply.code(201);
       return { id, fileName: name, fileSize: formatSize(buffer.length) };
     },
@@ -638,6 +644,11 @@ export function integrationRoutes(app: FastifyInstance, db: Db): void {
         () => deleteFile(stored.storage, stored.key),
       );
 
+      await audit(db, req, {
+        type: 'file.uploaded',
+        target: { type: 'document', id, label: name },
+        metadata: { sizeBytes: buffer.length, source: 'cloud-import' },
+      });
       reply.code(201);
       return { id, fileName: name, fileSize: formatSize(buffer.length) };
     },

@@ -15,6 +15,7 @@ import type { FastifyInstance } from 'fastify';
 import { config } from '../config.ts';
 import type { Db } from '../db.ts';
 import { badRequest, HttpError, notFound } from '../lib/errors.ts';
+import { audit } from '../lib/audit.ts';
 import { decJsonFromJsonb, decText } from '../lib/docCrypto.ts';
 import { toIso } from '../lib/format.ts';
 import { newId } from '../lib/ids.ts';
@@ -175,6 +176,11 @@ export function approvalRoutes(app: FastifyInstance, db: Db): void {
       action: { kind: 'open', data: `/documents/${documentId}` },
     });
 
+    await audit(db, req, {
+      type: 'approval.started',
+      target: { type: 'document', id: documentId, label: access.doc.name },
+      metadata: { steps: steps.length },
+    });
     reply.code(201);
     return {
       id: flowId,
@@ -345,6 +351,16 @@ export function approvalRoutes(app: FastifyInstance, db: Db): void {
       [row.id, decision, comment],
     );
     if (decided.rows.length === 0) throw badRequest('Решение по этому шагу уже принято');
+
+    // Публичный маршрут: актор — согласующий по токену (не сессия); req даёт IP.
+    await audit(db, req, {
+      type: 'approval.decided',
+      teamOwnerId: row.owner_id,
+      actorId: null,
+      actorLabel: `${row.approver_name} <${row.approver_email}>`,
+      target: { type: 'document', id: row.document_id ?? undefined, label: row.document_name },
+      metadata: { decision },
+    });
 
     if (decision === 'rejected') {
       await db.query(`UPDATE approval_flows SET status = 'rejected' WHERE id = $1`, [row.flow_id]);

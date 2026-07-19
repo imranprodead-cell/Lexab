@@ -328,13 +328,13 @@ export function ssoRoutes(app: FastifyInstance, db: Db): void {
       // Guard #3: the IdP-asserted email's domain MUST equal the verified team
       // domain — otherwise a rogue IdP could mint sessions for other domains.
       if (domainOf(email) !== cfg.email_domain) {
-        await audit(db, null, { type: 'sso.enforcement_denied', teamOwnerId: ownerId, actorLabel: email, status: 'denied', metadata: { reason: 'domain_mismatch' } });
+        await audit(db, req, { type: 'sso.enforcement_denied', teamOwnerId: ownerId, actorLabel: email, status: 'denied', metadata: { reason: 'domain_mismatch' } });
         return fail('domain_mismatch');
       }
 
       const user = await jitProvision(db, cfg, email, profile.name ?? email.split('@')[0]);
       if (user === 'team_full') return fail('team_full');
-      await audit(db, null, { type: 'sso.login', teamOwnerId: ownerId, actorId: user.id, actorLabel: email });
+      await audit(db, req, { type: 'sso.login', teamOwnerId: ownerId, actorId: user.id, actorLabel: email });
 
       const code = crypto.randomBytes(24).toString('base64url');
       await db.query('INSERT INTO login_codes (code, user_id) VALUES ($1, $2)', [code, user.id]);

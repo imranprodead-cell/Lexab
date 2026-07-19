@@ -940,3 +940,48 @@ describe('file downloads stay decrypted and provider-URL-free', () => {
     assert.equal(notDone.statusCode, 404, 'incomplete request has no signed PDF');
   });
 });
+
+describe('audit log records who/what/ip and serves metadata', () => {
+  it('ai.analysis carries actor + ip; document.deleted is logged; actorId filter and metadata work', async () => {
+    const u = await makeUser();
+    await db.query("UPDATE subscriptions SET plan = 'Business' WHERE user_id = $1", [u.id]);
+
+    // Анализ (dev-fallback LLM) → событие ai.analysis с актором и IP.
+    const an = await app.inject({
+      method: 'POST',
+      url: '/api/analysis',
+      headers: auth(u.token),
+      payload: { fileName: 'audit-test.pdf', fileSize: '10 KB' },
+    });
+    assert.equal(an.statusCode, 201, an.body);
+    const documentId = JSON.parse(an.body).documentId;
+
+    // Удаление документа → document.deleted.
+    const del = await app.inject({ method: 'DELETE', url: `/api/documents/${documentId}`, headers: auth(u.token) });
+    assert.equal(del.statusCode, 204, del.body);
+
+    const list = await app.inject({ method: 'GET', url: '/api/audit/events', headers: auth(u.token) });
+    assert.equal(list.statusCode, 200, list.body);
+    const events = JSON.parse(list.body) as {
+      type: string; actor: string | null; actorId: string | null; ip: string | null; metadata?: Record<string, unknown>;
+    }[];
+
+    const analysisEv = events.find((e) => e.type === 'ai.analysis');
+    assert.ok(analysisEv, 'ai.analysis must be logged');
+    assert.equal(analysisEv!.actor, u.email, 'actor email must be recorded');
+    assert.ok(analysisEv!.ip, 'ip must be recorded (req is passed through)');
+    assert.equal(analysisEv!.metadata?.feature, 'analysis', 'metadata must be served to the client');
+
+    const deletedEv = events.find((e) => e.type === 'document.deleted');
+    assert.ok(deletedEv, 'document.deleted must be logged');
+
+    const uploadedEv = events.find((e) => e.type === 'file.uploaded');
+    assert.ok(uploadedEv === undefined || uploadedEv.actor === u.email, 'file.uploaded (if present) carries the actor');
+
+    // Фильтр по актору: свой id → события есть; чужой id → пусто.
+    const mine = await app.inject({ method: 'GET', url: `/api/audit/events?actorId=${u.id}`, headers: auth(u.token) });
+    assert.ok((JSON.parse(mine.body) as unknown[]).length > 0, 'actorId filter must match own events');
+    const nobody = await app.inject({ method: 'GET', url: '/api/audit/events?actorId=u_ghost', headers: auth(u.token) });
+    assert.equal((JSON.parse(nobody.body) as unknown[]).length, 0, 'foreign actorId must match nothing');
+  });
+});

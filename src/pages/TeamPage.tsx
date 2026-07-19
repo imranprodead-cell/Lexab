@@ -525,6 +525,9 @@ function AuditLogSection() {
   const { t } = useI18n();
   const pushToast = useUIStore((s) => s.pushToast);
   const [group, setGroup] = useState('');
+  const [actorId, setActorId] = useState('');
+  /** Акторы, встреченные в загруженных строках — источник фильтра «Кто». */
+  const [actors, setActors] = useState<{ id: string; label: string }[]>([]);
   const [search, setSearch] = useState('');
   /** Debounced copy of `search`: the server is asked 300ms after typing stops. */
   const [query, setQuery] = useState('');
@@ -549,10 +552,15 @@ function AuditLogSection() {
     let cancelled = false;
     setLoading(true);
     auditApi
-      .list({ group: group || undefined, q: query || undefined, page, pageSize: PAGE_SIZE })
+      .list({ group: group || undefined, actorId: actorId || undefined, q: query || undefined, page, pageSize: PAGE_SIZE })
       .then((data) => {
         if (cancelled) return;
         setRows((prev) => (page === 1 ? data : [...prev, ...data]));
+        setActors((prev) => {
+          const seen = new Map(prev.map((a) => [a.id, a.label]));
+          for (const r of data) if (r.actorId && r.actor && !seen.has(r.actorId)) seen.set(r.actorId, r.actor);
+          return [...seen.entries()].map(([id, label]) => ({ id, label }));
+        });
         setHasMore(data.length === PAGE_SIZE);
         setLocked(false);
       })
@@ -565,11 +573,18 @@ function AuditLogSection() {
     return () => {
       cancelled = true;
     };
-  }, [group, query, page, pushToast, t]);
+  }, [group, actorId, query, page, pushToast, t]);
+
+  /** Человекочитаемая подпись события; неизвестный тип показываем как есть. */
+  const eventLabel = (type: string) => {
+    const key = `audit.event.${type}`;
+    const label = t(key);
+    return label === key ? type : label;
+  };
 
   const exportCsv = async () => {
     try {
-      const blob = await auditApi.downloadCsv({ group: group || undefined, q: query || undefined });
+      const blob = await auditApi.downloadCsv({ group: group || undefined, actorId: actorId || undefined, q: query || undefined });
       downloadBlob(blob, 'audit-log.csv');
     } catch (err) {
       pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
@@ -599,6 +614,24 @@ function AuditLogSection() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
+          </span>
+          <span className={styles.auditSelectWrap}>
+            <select
+              className={styles.auditFilter}
+              value={actorId}
+              onChange={(e) => {
+                setPage(1);
+                setActorId(e.target.value);
+              }}
+            >
+              <option value="">{t('audit.allActors')}</option>
+              {actors.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.label}
+                </option>
+              ))}
+            </select>
+            <Icon name="chevron" size={14} className={styles.auditSelectChevron} />
           </span>
           <span className={styles.auditSelectWrap}>
             <select
@@ -643,9 +676,16 @@ function AuditLogSection() {
                   <td className={`${styles.td} ${styles.metaText}`}>{new Date(r.at).toLocaleString()}</td>
                   <td className={styles.td}>{r.actor ?? '—'}</td>
                   <td className={styles.td}>
-                    <span className={styles.auditType} data-status={r.status}>
-                      {r.type}
+                    <span className={styles.auditType} data-status={r.status} title={r.type}>
+                      {eventLabel(r.type)}
                     </span>
+                    {r.metadata && Object.keys(r.metadata).length ? (
+                      <div className={styles.metaText}>
+                        {Object.entries(r.metadata)
+                          .map(([k, v]) => `${k}: ${String(v)}`)
+                          .join(' · ')}
+                      </div>
+                    ) : null}
                   </td>
                   <td className={`${styles.td} ${styles.hideSm}`}>{r.target ?? '—'}</td>
                   <td className={`${styles.td} ${styles.hideSm} ${styles.metaText}`}>{r.ip ?? '—'}</td>

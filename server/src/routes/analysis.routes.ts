@@ -267,6 +267,10 @@ export async function persistAnalysis(
   source: AnalysisSource,
   gen: GeneratedAnalysis,
   chargeUserId: string = userId,
+  // Для журнала: req даёт ip/user-agent/email актора; inbound-email передаёт
+  // null + actorLabel (email отправителя).
+  req: FastifyRequest | null = null,
+  actorLabel?: string,
 ): Promise<AnalysisResult> {
   // Пост-калибровка: после валидации цитат (демоция непроверенных в Low) балл
   // риска не может превышать потолок фактической максимальной severity.
@@ -393,10 +397,11 @@ export async function persistAnalysis(
 
   // Audit: who ran an analysis (scoped to the document owner's team). NEVER the
   // contract text — only { feature, ok } per the Privacy Policy.
-  await audit(db, null, {
+  await audit(db, req, {
     type: 'ai.analysis',
     teamOwnerId: userId,
     actorId: chargeUserId,
+    ...(actorLabel ? { actorLabel } : {}),
     target: { type: 'document', id: documentId, label: source.fileName },
     metadata: { feature: 'analysis', ok: true },
   });
@@ -428,6 +433,7 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
 
     // Atomic AI reservation right before the model call; released on failure.
     const draft = await withAiRequest(db, req.currentUser.id, (plan) => generateContractDraft(prompt, jurisdiction, plan));
+    await audit(db, req, { type: 'ai.draft', target: { type: 'document', label: draft.title }, metadata: { feature: 'draft', ok: true } });
 
     const draftText = draft.document
       .map((b) => (b.type === 'heading' ? (b.text ?? '') : (b.segments ?? []).join('')))
@@ -450,7 +456,7 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
       pdf: null,
       jurisdiction,
     };
-    const result = await persistAnalysis(db, req.currentUser.id, source, gen);
+    const result = await persistAnalysis(db, req.currentUser.id, source, gen, req.currentUser.id, req);
     reply.code(201);
     return result;
   });
@@ -505,7 +511,7 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
           await generateAnalysis({ fileName: source.fileName, text: source.text, pdf: source.pdf, jurisdiction: source.jurisdiction, plan, legalContext }),
         );
         sse.send('step', { index: 2, label: ANALYSIS_STEPS[2] });
-        const result = await persistAnalysis(db, source.ownerUserId ?? req.currentUser.id, source, gen, req.currentUser.id);
+        const result = await persistAnalysis(db, source.ownerUserId ?? req.currentUser.id, source, gen, req.currentUser.id, req);
         await countOnSuccess();
         sse.send('result', result);
       } catch (err) {
@@ -524,7 +530,7 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
       const gen = await withValidation(
         await generateAnalysis({ fileName: source.fileName, text: source.text, pdf: source.pdf, jurisdiction: source.jurisdiction, plan, legalContext }),
       );
-      const result = await persistAnalysis(db, source.ownerUserId ?? req.currentUser.id, source, gen, req.currentUser.id);
+      const result = await persistAnalysis(db, source.ownerUserId ?? req.currentUser.id, source, gen, req.currentUser.id, req);
       await countOnSuccess();
       reply.code(201);
       return result;
@@ -662,6 +668,16 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
     );
     const row = res.rows[0];
     if (!row) throw notFound('Redline not found');
+    // Метаданные — только id правки и статус, НИКОГДА не текст изменений
+    // (содержимое договора конфиденциально и зашифровано at-rest).
+    if (status !== 'pending') {
+      await audit(db, req, {
+        type: status === 'accepted' ? 'redline.accepted' : 'redline.rejected',
+        teamOwnerId: rlAccess.analysisUserId,
+        target: { type: 'document', id, label: rid },
+        metadata: { redlineId: rid },
+      });
+    }
     const delText = await decText(db, rlAccess.analysisUserId, row.del_text);
     const insText = await decText(db, rlAccess.analysisUserId, row.ins_text);
     if (delText === null || insText === null) throw new HttpError(500, 'Document cannot be decrypted — data key mismatch');

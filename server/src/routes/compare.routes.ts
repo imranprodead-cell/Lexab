@@ -10,6 +10,7 @@ import type { FastifyInstance } from 'fastify';
 import type { Db } from '../db.ts';
 import { ALLOWED_EXTENSIONS, assertValidFileContent, extractText, fileExtension, MAX_UPLOAD_BYTES } from '../extract.ts';
 import { badRequest } from '../lib/errors.ts';
+import { audit } from '../lib/audit.ts';
 import { assertFeature, withAiRequest } from '../lib/limits.ts';
 import { generateCompare, type CompareResult } from '../llm.ts';
 
@@ -48,6 +49,11 @@ export function compareRoutes(app: FastifyInstance, db: Db): void {
     const result = await withAiRequest(db, req.currentUser.id, (plan) =>
       generateCompare(textA, textB, a.name, b.name, plan),
     );
+    await audit(db, req, {
+      type: 'ai.compare',
+      target: { type: 'document', label: `${a.name} ↔ ${b.name}` },
+      metadata: { feature: 'compare', ok: true },
+    });
     return { ...result, fileA: a.name, fileB: b.name };
   });
 }

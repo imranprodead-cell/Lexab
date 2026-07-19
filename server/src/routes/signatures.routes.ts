@@ -166,6 +166,11 @@ export function signatureRoutes(app: FastifyInstance, db: Db): void {
         bodyEn: documentName,
         action: { kind: 'open', data: '/signatures' },
       });
+      await audit(db, req, {
+        type: 'signature.requested',
+        target: { type: 'document', id: documentId, label: documentName },
+        metadata: { recipients: recipients.length, provider: 'dropbox_sign' },
+      });
       reply.code(201);
       return {
         id,
@@ -222,6 +227,11 @@ export function signatureRoutes(app: FastifyInstance, db: Db): void {
       action: { kind: 'open', data: '/signatures' },
     });
 
+    await audit(db, req, {
+      type: 'signature.requested',
+      target: { type: 'document', id: documentId, label: documentName },
+      metadata: { recipients: recipients.length, provider: 'in-app' },
+    });
     reply.code(201);
     return {
       id,
@@ -319,6 +329,13 @@ export function signatureRoutes(app: FastifyInstance, db: Db): void {
             [request.id, signedKey],
           );
           if (done.rows.length) {
+            await audit(db, null, {
+              type: 'signature.completed',
+              teamOwnerId: request.user_id,
+              actorId: null,
+              actorLabel: 'Dropbox Sign',
+              target: { type: 'document', label: request.document_name },
+            });
             await notify(db, request.user_id, 'esign', 'Документ подписан', 'Document signed', {
               bodyRu: request.document_name,
               bodyEn: request.document_name,

@@ -9,6 +9,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../db.ts';
 import { badRequest, HttpError, notFound } from '../lib/errors.ts';
+import { audit } from '../lib/audit.ts';
 import { decJsonFromJsonb, decText, decTextStrict, encText } from '../lib/docCrypto.ts';
 import { bumpUsage, releaseAiRequest, reserveAiRequest, withAiRequest } from '../lib/limits.ts';
 import { resolveAnalysisAccess } from '../lib/teamAccess.ts';
@@ -480,6 +481,7 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
         // Limited plans were already counted by the reservation; count unlimited
         // plans post-hoc for analytics.
         if (!reserved) await bumpUsage(db, req.currentUser.id, { ai: 1 });
+        await audit(db, req, { type: 'ai.chat', target: { type: 'chat', id: sessionId }, metadata: { feature: 'chat', ok: true } });
         return { id: messageId, role: 'assistant', kind: 'text', text: replyText };
       };
 

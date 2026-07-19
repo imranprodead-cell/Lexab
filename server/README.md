@@ -162,3 +162,11 @@ risk 41, 27 high-risk findings, 216 hours saved).
 - Rate limits: 300/min global, 10/min on `/auth/*` and `/analysis`, 20/min on
   `/uploads`. Virus-scanning uploads (e.g. ClamAV) is recommended before
   production exposure.
+
+## Reverse proxy & audit-log IPs
+
+Behind nginx/Cloudflare set `TRUST_PROXY=true` (or the number of trusted hops)
+in `.env` — otherwise `request.ip`, and therefore the IP column of the audit
+log, records the proxy's address instead of the client's. Deploy artefacts must
+also include `server/assets/fonts` (NotoSans): without it the PDF report falls
+back to Helvetica, which cannot encode Cyrillic.

@@ -7,6 +7,7 @@ import type { FastifyInstance } from 'fastify';
 import { config } from '../config.ts';
 import type { Db } from '../db.ts';
 import { badRequest, HttpError, notFound } from '../lib/errors.ts';
+import { audit } from '../lib/audit.ts';
 import { decJsonFromJsonb, decText, decTextStrict } from '../lib/docCrypto.ts';
 import { toIso } from '../lib/format.ts';
 import { notify } from '../lib/notify.ts';
@@ -165,6 +166,13 @@ export function signRoutes(app: FastifyInstance, db: Db): void {
           [row.owner_id, row.document_name],
         );
       }
+      await audit(db, req, {
+        type: 'signature.completed',
+        teamOwnerId: row.owner_id,
+        actorId: null,
+        actorLabel: name,
+        target: { type: 'document', id: row.document_id ?? undefined, label: row.document_name },
+      });
       await notify(db, row.owner_id, 'esign', 'Все подписи получены', 'All signatures collected', {
         bodyRu: `${row.document_name} · последняя подпись: ${name}`,
         bodyEn: `${row.document_name} · last signed by ${name}`,

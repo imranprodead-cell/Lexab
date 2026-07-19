@@ -10,6 +10,7 @@ import type { FastifyInstance } from 'fastify';
 import type { Db } from '../db.ts';
 import { ALLOWED_EXTENSIONS, assertValidFileContent, extractText, fileExtension, MAX_UPLOAD_BYTES } from '../extract.ts';
 import { badRequest, notFound } from '../lib/errors.ts';
+import { audit } from '../lib/audit.ts';
 import { assertStorageAllowance, withStorageReservation } from '../lib/limits.ts';
 import { encText } from '../lib/docCrypto.ts';
 import { formatSize } from '../lib/format.ts';
@@ -67,6 +68,11 @@ export function uploadRoutes(app: FastifyInstance, db: Db): void {
         () => deleteFile(stored.storage, stored.key),
       );
 
+      await audit(db, req, {
+        type: 'file.uploaded',
+        target: { type: 'document', id, label: fileName },
+        metadata: { sizeBytes: buffer.length },
+      });
       reply.code(201);
       return { id, fileName, fileSize: formatSize(buffer.length) };
     },

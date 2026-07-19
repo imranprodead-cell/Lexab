@@ -28,6 +28,7 @@ import { config } from '../config.ts';
 import type { Db } from '../db.ts';
 import { ALLOWED_EXTENSIONS, extractText, fileExtension, MAX_UPLOAD_BYTES, verifyFileSignature } from '../extract.ts';
 import { badRequest, HttpError, notFound, unauthorized } from '../lib/errors.ts';
+import { audit } from '../lib/audit.ts';
 import { encText } from '../lib/docCrypto.ts';
 import { formatSize } from '../lib/format.ts';
 import { newId } from '../lib/ids.ts';
@@ -147,6 +148,15 @@ export function inboundRoutes(app: FastifyInstance, db: Db): void {
             () => deleteFile(stored.storage, stored.key),
           );
 
+          await audit(db, null, {
+            type: 'file.uploaded',
+            teamOwnerId: user.id,
+            actorId: user.id,
+            actorLabel: user.email,
+            target: { type: 'document', label: fileName },
+            metadata: { sizeBytes: buffer.length, source: 'inbound-email' },
+          });
+
           const source = {
             fileName,
             fileSizeLabel: formatSize(buffer.length),
@@ -158,7 +168,9 @@ export function inboundRoutes(app: FastifyInstance, db: Db): void {
           // path — email intake must not be a free-analysis bypass.
           const analysis = await withAiRequest(db, user.id, async (plan) => {
             const gen = await generateAnalysis({ fileName, text: source.text, pdf: source.pdf, plan });
-            return persistAnalysis(db, user.id, source, gen);
+            // req тут — вебхук почтового провайдера, не пользователь; актора
+            // подписываем email-ом отправителя письма.
+            return persistAnalysis(db, user.id, source, gen, user.id, null, user.email);
           });
           results.push({ fileName, analysisId: analysis.id });
         } catch (err) {

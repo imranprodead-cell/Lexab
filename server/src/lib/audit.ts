@@ -52,6 +52,9 @@ export type AuditEventType =
   | 'ai.chat'
   | 'ai.draft'
   | 'ai.compare'
+  // redlines (метаданные — только id правки, НИКОГДА не текст изменений)
+  | 'redline.accepted'
+  | 'redline.rejected'
   // files
   | 'file.uploaded'
   | 'file.deleted'

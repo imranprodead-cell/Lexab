@@ -4,12 +4,14 @@ import { delay } from './util';
 
 export interface AuditEvent {
   id: string;
+  actorId: string | null;
   actor: string | null;
   type: string;
   targetType: string | null;
   target: string | null;
   status: 'ok' | 'error' | 'denied';
   ip: string | null;
+  metadata?: Record<string, unknown>;
   at: string;
 }
 

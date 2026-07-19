@@ -13,7 +13,7 @@
  *   POST   /team/invitations/accept-by-token { token } — accept from the bell
  */
 import crypto from 'node:crypto';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { config } from '../config.ts';
 import type { Db } from '../db.ts';
 import { badRequest, HttpError, notFound } from '../lib/errors.ts';
@@ -88,6 +88,7 @@ async function acceptInvitation(
   db: Db,
   user: { id: string; email: string; name: string; email_verified?: boolean },
   where: { id?: string; token?: string },
+  req: FastifyRequest | null = null,
 ): Promise<void> {
   if (!user.email_verified) {
     throw new HttpError(403, 'Подтвердите почту, чтобы принять приглашение / Verify your email to accept the invitation');
@@ -101,8 +102,8 @@ async function acceptInvitation(
   );
   const row = res.rows[0];
   if (!row) throw notFound('Приглашение не найдено или уже принято / Invitation not found or already accepted');
-  // Logged under the team owner's scope (the acceptor is the actor). No req here.
-  await audit(db, null, {
+  // Logged under the team owner's scope (the acceptor is the actor).
+  await audit(db, req, {
     type: 'team.invite_accepted',
     teamOwnerId: row.owner_user_id,
     actorId: user.id,
@@ -351,7 +352,7 @@ export function teamRoutes(app: FastifyInstance, db: Db): void {
 
   app.post('/team/invitations/:id/accept', { preHandler: [app.authenticate] }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    await acceptInvitation(db, req.currentUser, { id });
+    await acceptInvitation(db, req.currentUser, { id }, req);
     reply.code(204);
   });
 
@@ -359,7 +360,7 @@ export function teamRoutes(app: FastifyInstance, db: Db): void {
   app.post('/team/invitations/accept-by-token', { preHandler: [app.authenticate] }, async (req, reply) => {
     const body = asObject(req.body);
     const token = requireString(body, 'token', { min: 8, max: 100 });
-    await acceptInvitation(db, req.currentUser, { token });
+    await acceptInvitation(db, req.currentUser, { token }, req);
     reply.code(204);
   });
 
