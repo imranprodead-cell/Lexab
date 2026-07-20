@@ -1,11 +1,14 @@
 /** HTTP error with a user-facing message ({ message } is the API error shape). */
 export class HttpError extends Error {
   readonly status: number;
+  /** Optional machine-readable code the client can branch on (e.g. 'totp_required'). */
+  readonly code?: string;
 
-  constructor(status: number, message: string) {
+  constructor(status: number, message: string, code?: string) {
     super(message);
     this.name = 'HttpError';
     this.status = status;
+    this.code = code;
   }
 }
 

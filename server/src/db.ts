@@ -28,6 +28,23 @@ export interface Db extends Queryable {
    * all roll back if `fn` throws — so a multi-step write can't leave orphans.
    */
   withTx<T>(fn: (tx: Queryable) => Promise<T>): Promise<T>;
+  /**
+   * Run `fn` while holding a cluster-wide Postgres advisory lock (session-level,
+   * on a dedicated connection). Used to serialize migrations across replicas so
+   * two cold-starting instances can't both apply the same migration. Absent on
+   * PGlite (single process → no race possible), so callers must treat it as
+   * optional and fall back to running `fn` directly.
+   * `fn` receives a queryable bound to the SAME connection that holds the lock —
+   * running the work through the pool instead would need a second connection
+   * and deadlock a PG_POOL_MAX=1 boot.
+   */
+  withLock?<T>(key: number, fn: (locked: LockedQueryable) => Promise<T>): Promise<T>;
+}
+
+/** Query surface handed to a withLock callback (bound to the lock connection). */
+export interface LockedQueryable {
+  query<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
+  exec(sql: string): Promise<void>;
 }
 
 let dbPromise: Promise<Db> | null = null;
@@ -109,6 +126,29 @@ async function createDb(): Promise<Db> {
           client.release();
         }
       },
+      withLock: async (key, fn) => {
+        // Hold a session-level advisory lock on a dedicated client for the whole
+        // callback. Other replicas' pg_advisory_lock() blocks until we release,
+        // so migrations run one replica at a time. The callback works through
+        // THIS client (not the pool) — see the interface note re PG_POOL_MAX=1.
+        const client = await pool.connect();
+        try {
+          await client.query('SELECT pg_advisory_lock($1)', [key]);
+          return await fn({
+            query: async (sql, params) => ({ rows: (await client.query(sql, params as never[])).rows as never[] }),
+            exec: async (sql) => {
+              await client.query(sql);
+            },
+          });
+        } finally {
+          try {
+            await client.query('SELECT pg_advisory_unlock($1)', [key]);
+          } catch {
+            /* connection already broken — the lock releases when it closes */
+          }
+          client.release();
+        }
+      },
       close: () => pool.end(),
     };
   }
@@ -150,19 +190,33 @@ export async function migrate(db: Db): Promise<string[]> {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const dir = path.join(here, '..', 'migrations');
   const files = fs.readdirSync(dir).filter((f) => f.endsWith('.sql')).sort();
-  const applied = new Set(
-    (await db.query<{ name: string }>('SELECT name FROM schema_migrations')).rows.map((r) => r.name),
-  );
   const ran: string[] = [];
-  for (const file of files) {
-    if (applied.has(file)) continue;
-    const sql = fs.readFileSync(path.join(dir, file), 'utf8');
-    // Apply + record atomically, so a crash (or a racing second process)
-    // can never leave a migration half-applied but unrecorded.
-    await db.exec(
-      `BEGIN;\n${sql}\nINSERT INTO schema_migrations (name) VALUES ('${file.replace(/'/g, "''")}');\nCOMMIT;`,
+
+  // Read the ledger and apply every pending migration. Run INSIDE the advisory
+  // lock (below) and THROUGH the lock's own connection, so a replica that
+  // acquired the lock before us is reflected in `applied` — and a PG_POOL_MAX=1
+  // deployment can still boot (lock + DDL share one connection).
+  const applyPending = async (q: { query: Db['query']; exec: Db['exec'] } = db): Promise<void> => {
+    const applied = new Set(
+      (await q.query<{ name: string }>('SELECT name FROM schema_migrations')).rows.map((r) => r.name),
     );
-    ran.push(file);
-  }
+    for (const file of files) {
+      if (applied.has(file)) continue;
+      const sql = fs.readFileSync(path.join(dir, file), 'utf8');
+      // Apply + record atomically, so a crash can never leave a migration
+      // half-applied but unrecorded.
+      await q.exec(
+        `BEGIN;\n${sql}\nINSERT INTO schema_migrations (name) VALUES ('${file.replace(/'/g, "''")}');\nCOMMIT;`,
+      );
+      ran.push(file);
+    }
+  };
+
+  // Serialize concurrent boots (multiple replicas cold-starting on the same DB)
+  // so they can't both apply the same non-idempotent migration and crash one
+  // instance on a duplicate CREATE. PGlite has no cross-process race → run direct.
+  const MIGRATION_LOCK_KEY = 741_852_963; // arbitrary fixed key shared by all replicas
+  if (db.withLock) await db.withLock(MIGRATION_LOCK_KEY, (locked) => applyPending(locked));
+  else await applyPending();
   return ran;
 }

@@ -24,6 +24,9 @@ export interface ActiveBlock {
   index: number;
   type: DocBlockType;
   align: 'left' | 'center' | 'right';
+  /** Heading level (1 or 2); undefined for non-heading blocks. Drives the
+   *  style dropdown so an H1 shows "Heading 1" instead of always "Heading 2". */
+  level?: 1 | 2;
 }
 
 /** Imperative editor commands the top toolbar calls into. */
@@ -146,6 +149,9 @@ export const DocumentViewer = forwardRef<DocEditorHandle, DocumentViewerProps>(f
   const blockRefs = useRef(new Map<number, HTMLElement>());
   /** The DOM node of the block currently being edited (for execCommand). */
   const activeElRef = useRef<HTMLElement | null>(null);
+  /** Nonce of the last finding-click we scrolled to, so a mere identity change
+   *  of `analysis.document` never re-triggers the jump. */
+  const consumedAnchorNonce = useRef<number | null>(null);
 
   const resolveSlot = (redlineId: string): string => {
     const rl = redlineById.get(redlineId);
@@ -167,15 +173,19 @@ export const DocumentViewer = forwardRef<DocEditorHandle, DocumentViewerProps>(f
   };
 
   // Click a finding → scroll to and flash the clause whose paragraph carries
-  // that redline. Re-runs whenever the anchor nonce changes (repeat clicks).
+  // that redline. Only a NEW click (fresh nonce) jumps; a plain identity change
+  // of `analysis.document` (block edit, undo/redo, reanalyze) must NOT yank the
+  // view back to the old finding and re-flash. Repeat clicks on the same finding
+  // carry a fresh nonce, so they still scroll.
   useEffect(() => {
-    if (!anchor) return;
+    if (!anchor || anchor.nonce === consumedAnchorNonce.current) return;
     const targetIdx = analysis.document.findIndex((b) =>
       (b.segments ?? []).some((s) => isRedlineSlot(s) && s.redlineId === anchor.redlineId),
     );
     if (targetIdx < 0) return;
     const el = blockRefs.current.get(targetIdx);
-    if (!el) return;
+    if (!el) return; // block not mounted yet — retry on the next render
+    consumedAnchorNonce.current = anchor.nonce; // this click is now handled
     el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     setFlashIdx(targetIdx);
     const timer = setTimeout(() => setFlashIdx(null), 1300);
@@ -212,7 +222,7 @@ export const DocumentViewer = forwardRef<DocEditorHandle, DocumentViewerProps>(f
 
   const reportActive = (index: number) => {
     const b = analysis.document[index];
-    onActiveChange?.({ index, type: b.type, align: b.align ?? 'left' });
+    onActiveChange?.({ index, type: b.type, align: b.align ?? 'left', level: b.level });
   };
 
   /** Serialize the open editor into a fresh block, apply `mutate`, persist, and

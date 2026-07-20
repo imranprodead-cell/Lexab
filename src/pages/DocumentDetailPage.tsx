@@ -1,15 +1,18 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { Icon } from '@/components/icons/Icon';
 import { Badge, RiskBadge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
+import { Spinner } from '@/components/ui/Spinner';
 import { ErrorState, SkeletonRows } from '@/components/ui/States';
 import { SendForSignatureModal } from '@/components/workspace/SendForSignatureModal';
+import { ExpiryChip } from '@/components/contracts/ExpiryChip';
+import { ObligationList } from '@/components/contracts/ObligationList';
 import { useAsync, clearAsyncCache } from '@/hooks/useAsync';
 import { usePageTitle } from '@/hooks/usePageTitle';
-import { analysisApi, documentsApi, versionsApi } from '@/api';
+import { analysisApi, contractsApi, documentsApi, versionsApi, workflowsApi, ApiError } from '@/api';
 import { approvalsApi, type NewApprovalStep } from '@/api/approvals.api';
 import { downloadBlob } from '@/lib/download';
 import { billingApi } from '@/api/billing.api';
@@ -19,7 +22,7 @@ import { RoleSelect } from '@/components/ui/RoleSelect';
 import { useChatStore } from '@/store/useChatStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useI18n } from '@/i18n/I18nProvider';
-import type { ContractStatus } from '@/types/domain';
+import type { ContractRow, ContractStatus, Severity, WorkflowRun, WorkflowStepInput } from '@/types/domain';
 import styles from './pages.module.css';
 
 const STATUS_TONE: Record<ContractStatus, string> = {
@@ -28,6 +31,170 @@ const STATUS_TONE: Record<ContractStatus, string> = {
   Reviewed: 'var(--accent)',
   Signed: 'var(--sev-low)',
 };
+
+const WORKFLOW_POLL_MS = 2500;
+
+/** One approver row draft. A stable `key` keeps select state from leaking into
+ *  a neighbour when a row is removed; `day` is a plain local day (→ ISO only on
+ *  submit, so no TZ off-by-one). Shared by the approval and workflow modals. */
+interface ApproverDraft {
+  key: number;
+  name: string;
+  email: string;
+  role: string;
+  day: string | null;
+}
+
+let approverKeySeq = 0;
+const emptyApprover = (): ApproverDraft => ({ key: ++approverKeySeq, name: '', email: '', role: '', day: null });
+
+/** Validate + convert approver drafts into API-ready steps; null when invalid. */
+function draftsToApprovers(drafts: ApproverDraft[]): NewApprovalStep[] | null {
+  const cleaned: NewApprovalStep[] = drafts
+    .map((s) => ({
+      name: s.name.trim(),
+      email: s.email.trim(),
+      role: s.role.trim() || undefined,
+      // 18:00 local time on the picked day.
+      dueAt: s.day ? new Date(`${s.day}T18:00:00`).toISOString() : undefined,
+    }))
+    .filter((s) => s.name || s.email);
+  if (cleaned.length === 0 || cleaned.some((s) => !s.name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.email))) return null;
+  return cleaned;
+}
+
+/** The ordered approver mini-form reused by the approval workflow modal and the
+ *  agentic-workflow «send for approval» step. */
+function ApproverStepsEditor({
+  steps,
+  setSteps,
+  max = 10,
+}: {
+  steps: ApproverDraft[];
+  setSteps: React.Dispatch<React.SetStateAction<ApproverDraft[]>>;
+  max?: number;
+}) {
+  const { t } = useI18n();
+  const update = (key: number, patch: Partial<ApproverDraft>) =>
+    setSteps((s) => s.map((x) => (x.key === key ? { ...x, ...patch } : x)));
+  return (
+    <>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {steps.map((s, i) => (
+          <div key={s.key} className={styles.apprStepForm}>
+            <div className={styles.apprStepFormHead}>
+              <span className={styles.apprStepNum}>{t('appr.stepN', { n: i + 1 })}</span>
+              {steps.length > 1 ? (
+                <button type="button" className={styles.apprRemove} onClick={() => setSteps((x) => x.filter((step) => step.key !== s.key))}>
+                  <Icon name="x" size={14} />
+                </button>
+              ) : null}
+            </div>
+            <div className={styles.formRow}>
+              <TextField placeholder={t('appr.name')} value={s.name} onChange={(e) => update(s.key, { name: e.target.value })} />
+              <TextField placeholder="email@company.com" type="email" value={s.email} onChange={(e) => update(s.key, { email: e.target.value })} />
+            </div>
+            <div className={styles.formRow}>
+              <RoleSelect ariaLabel={t('appr.role')} value={s.role} onChange={(role) => update(s.key, { role })} />
+              <DatePicker
+                ariaLabel={t('appr.deadline')}
+                placeholder={t('appr.deadline')}
+                value={s.day}
+                onChange={(day) => update(s.key, { day })}
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+      {steps.length < max ? (
+        <button type="button" className={styles.apprAdd} onClick={() => setSteps((x) => [...x, emptyApprover()])}>
+          <Icon name="plus" size={15} /> {t('appr.addStep')}
+        </button>
+      ) : null}
+    </>
+  );
+}
+
+/** «Сроки и обязательства» — key terms extracted from the contract (CLM).
+ *  Renders nothing when the plan lacks the feature (402) or the document has
+ *  no extracted terms (404). */
+function ContractTermsCard({ documentId, reloadKey = 0 }: { documentId: string; reloadKey?: number }) {
+  const { t, lang } = useI18n();
+  const [row, setRow] = useState<ContractRow | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    const controller = new AbortController();
+    contractsApi
+      .get(documentId, controller.signal)
+      .then((r) => {
+        if (alive) setRow(r);
+      })
+      .catch(() => undefined); // 404/402 → hide the card silently
+    return () => {
+      alive = false;
+      controller.abort();
+    };
+  }, [documentId, reloadKey]);
+
+  if (!row) return null;
+  const { terms } = row;
+  const formatDate = (iso: string): string =>
+    new Date(iso).toLocaleDateString(lang === 'ru' ? 'ru-RU' : 'en-GB', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
+
+  return (
+    <section className={styles.section} style={{ marginTop: 24 }}>
+      <h2 className={styles.sectionTitle} style={{ marginBottom: 14 }}>
+        {t('contracts.termsTitle')}
+      </h2>
+      <div className={styles.docMetaGrid} style={{ marginBottom: 16 }}>
+        <div className={styles.docMetaCell}>
+          <span className={styles.docMetaLabel}>{t('contracts.effective')}</span>
+          <span className={styles.metaText}>{terms.effectiveDate ? formatDate(terms.effectiveDate) : '—'}</span>
+        </div>
+        <div className={styles.docMetaCell}>
+          <span className={styles.docMetaLabel}>{t('contracts.col.expiry')}</span>
+          {terms.expiryDate ? (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span className={styles.metaText}>{formatDate(terms.expiryDate)}</span>
+              <ExpiryChip days={terms.daysToExpiry} />
+            </span>
+          ) : (
+            <span className={styles.metaText}>—</span>
+          )}
+        </div>
+        <div className={styles.docMetaCell}>
+          <span className={styles.docMetaLabel}>{t('contracts.col.auto')}</span>
+          {terms.autoRenew ? (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <Badge color="accent">{t('contracts.autoBadge')}</Badge>
+              {terms.renewalNoticeDays != null ? (
+                <span className={styles.metaText}>{t('contracts.noticeDays', { n: terms.renewalNoticeDays })}</span>
+              ) : null}
+            </span>
+          ) : (
+            <span className={styles.metaText}>—</span>
+          )}
+        </div>
+        <div className={styles.docMetaCell}>
+          <span className={styles.docMetaLabel}>{t('contracts.col.value')}</span>
+          <span className={styles.metaText}>
+            {terms.contractValue ? `${terms.contractValue}${terms.currency ? ` ${terms.currency}` : ''}` : '—'}
+          </span>
+        </div>
+        <div className={styles.docMetaCell}>
+          <span className={styles.docMetaLabel}>{t('contracts.col.law')}</span>
+          <span className={styles.metaText}>{terms.governingLaw ?? '—'}</span>
+        </div>
+      </div>
+      {row.obligations.length > 0 ? <ObligationList documentId={documentId} obligations={row.obligations} /> : null}
+    </section>
+  );
+}
 
 /** Detail view for a single contract: metadata, versions, and actions. */
 export function DocumentDetailPage() {
@@ -53,25 +220,12 @@ export function DocumentDetailPage() {
   const flow = (approvals.data ?? [])[0] ?? null;
   const planAllowsApprovals = ['Pro', 'Business', 'Enterprise'].includes(limits?.plan ?? '');
 
-  // Create-approval modal state. Steps carry a stable key (so removing one
-  // doesn't leak select state into its neighbour) and the deadline as a plain
-  // local day — it becomes an ISO timestamp only on submit (no TZ off-by-one).
-  interface StepDraft {
-    key: number;
-    name: string;
-    email: string;
-    role: string;
-    day: string | null;
-  }
-  const stepKeyRef = useRef(0);
-  const emptyStep = (): StepDraft => ({ key: ++stepKeyRef.current, name: '', email: '', role: '', day: null });
+  // Create-approval modal state. Rows carry a stable key + a plain local day
+  // (see ApproverDraft) so the shared editor stays TZ-safe.
   const [apprOpen, setApprOpen] = useState(false);
-  const [apprSteps, setApprSteps] = useState<StepDraft[]>(() => [emptyStep()]);
+  const [apprSteps, setApprSteps] = useState<ApproverDraft[]>(() => [emptyApprover()]);
   const [apprBusy, setApprBusy] = useState(false);
   const [apprError, setApprError] = useState<string | null>(null);
-
-  const updateStep = (key: number, patch: Partial<StepDraft>) =>
-    setApprSteps((s) => s.map((x) => (x.key === key ? { ...x, ...patch } : x)));
 
   const startApproval = () => {
     if (!planAllowsApprovals) {
@@ -79,22 +233,14 @@ export function DocumentDetailPage() {
       navigate('/plans');
       return;
     }
-    setApprSteps([emptyStep()]);
+    setApprSteps([emptyApprover()]);
     setApprError(null);
     setApprOpen(true);
   };
 
   const submitApproval = async () => {
-    const cleaned: NewApprovalStep[] = apprSteps
-      .map((s) => ({
-        name: s.name.trim(),
-        email: s.email.trim(),
-        role: s.role.trim() || undefined,
-        // 18:00 local time on the picked day.
-        dueAt: s.day ? new Date(`${s.day}T18:00:00`).toISOString() : undefined,
-      }))
-      .filter((s) => s.name || s.email);
-    if (cleaned.length === 0 || cleaned.some((s) => !s.name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s.email))) {
+    const cleaned = draftsToApprovers(apprSteps);
+    if (!cleaned) {
       setApprError(t('appr.errSteps'));
       return;
     }
@@ -110,6 +256,118 @@ export function DocumentDetailPage() {
     } finally {
       setApprBusy(false);
     }
+  };
+
+  // ── Agentic workflow: launcher (step-picker modal) + polled progress ──────
+  const [wfOpen, setWfOpen] = useState(false);
+  const [wfBusy, setWfBusy] = useState(false);
+  const [wfError, setWfError] = useState<string | null>(null);
+  const [wfAnalyze, setWfAnalyze] = useState(true);
+  const [wfRedlines, setWfRedlines] = useState(true);
+  const [wfSeverity, setWfSeverity] = useState<Severity>('High');
+  const [wfApproval, setWfApproval] = useState(false);
+  const [wfApprovers, setWfApprovers] = useState<ApproverDraft[]>(() => [emptyApprover()]);
+  const [run, setRun] = useState<WorkflowRun | null>(null);
+  const [termsKey, setTermsKey] = useState(0);
+  const runDoneRef = useRef(false);
+
+  const runActive = !!run && (run.status === 'queued' || run.status === 'running');
+
+  const openWorkflow = () => {
+    if (!planAllowsApprovals) {
+      pushToast(t('workflow.upgrade'), 'error');
+      navigate('/plans');
+      return;
+    }
+    setWfAnalyze(true);
+    setWfRedlines(true);
+    setWfSeverity('High');
+    setWfApproval(false);
+    setWfApprovers([emptyApprover()]);
+    setWfError(null);
+    setWfOpen(true);
+  };
+
+  const submitWorkflow = async () => {
+    const steps: WorkflowStepInput[] = [];
+    if (wfAnalyze) steps.push({ kind: 'analyze' });
+    if (wfRedlines) steps.push({ kind: 'apply-redlines', minSeverity: wfSeverity });
+    if (wfApproval) {
+      const approvers = draftsToApprovers(wfApprovers);
+      if (!approvers) {
+        setWfError(t('appr.errSteps'));
+        return;
+      }
+      steps.push({ kind: 'send-for-approval', approvers });
+    }
+    if (steps.length === 0) {
+      setWfError(t('workflow.errEmpty'));
+      return;
+    }
+    setWfBusy(true);
+    setWfError(null);
+    try {
+      const created = await workflowsApi.run(id, steps);
+      runDoneRef.current = false;
+      setRun(created);
+      setWfOpen(false);
+      pushToast(t('workflow.started'), 'success');
+    } catch (err) {
+      const status = err instanceof ApiError ? err.status : 0;
+      const message = err instanceof Error && err.message ? err.message : t('common.error');
+      // Plan gate / non-owner / already-active flow — surface the server message.
+      if (status === 402 || status === 403 || status === 409) {
+        pushToast(message, 'error');
+        setWfOpen(false);
+      } else {
+        setWfError(message);
+      }
+    } finally {
+      setWfBusy(false);
+    }
+  };
+
+  // Poll the active run until it finishes, then stop. Re-armed only on id/status
+  // change, so the interval survives progress updates and cleans up on unmount.
+  const runId = run?.id;
+  const runStatus = run?.status;
+  useEffect(() => {
+    if (!runId || runStatus === 'done' || runStatus === 'failed') return;
+    let cancelled = false;
+    const poll = () =>
+      workflowsApi
+        .get(runId)
+        .then((r) => {
+          if (!cancelled) setRun(r);
+        })
+        .catch(() => undefined);
+    poll();
+    const iv = setInterval(poll, WORKFLOW_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(iv);
+    };
+  }, [runId, runStatus]);
+
+  // A finished run may have re-analysed, accepted redlines and started an
+  // approval flow — pull fresh data so all of that shows up. Fires once per run.
+  useEffect(() => {
+    if (run?.status === 'done' && !runDoneRef.current) {
+      runDoneRef.current = true;
+      reload();
+      approvals.reload();
+      setTermsKey((k) => k + 1);
+      pushToast(t('workflow.done'), 'success');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [run?.status]);
+
+  /** Per-step visual state for the progress checklist. */
+  const wfStepState = (r: WorkflowRun, i: number): 'done' | 'active' | 'failed' | 'pending' => {
+    if (r.status === 'done') return 'done';
+    if (i < r.currentStep) return 'done';
+    if (i === r.currentStep) return r.status === 'failed' ? 'failed' : 'active';
+    return 'pending';
   };
 
   const cancelApproval = async () => {
@@ -309,6 +567,70 @@ export function DocumentDetailPage() {
                 </p>
               </Modal>
 
+              <ContractTermsCard documentId={id} reloadKey={termsKey} />
+
+              <section className={styles.section} style={{ marginTop: 24 }}>
+                <div className={styles.apprHead}>
+                  <h2 className={styles.sectionTitle} style={{ margin: 0 }}>
+                    {t('workflow.title')}
+                  </h2>
+                  {doc.mine !== false && !runActive ? (
+                    <Button size="sm" icon={planAllowsApprovals ? 'sparkle' : 'shield'} onClick={openWorkflow}>
+                      {t('workflow.run')}
+                    </Button>
+                  ) : null}
+                </div>
+
+                {!run ? (
+                  <p className={styles.apprEmpty}>{planAllowsApprovals ? t('workflow.empty') : t('workflow.upgrade')}</p>
+                ) : (
+                  <>
+                    <div className={styles.apprStatusRow}>
+                      <Badge
+                        color={
+                          run.status === 'done'
+                            ? 'var(--sev-low)'
+                            : run.status === 'failed'
+                              ? 'var(--sev-high)'
+                              : 'var(--accent)'
+                        }
+                        plain
+                      >
+                        {run.status === 'done'
+                          ? t('workflow.badgeDone')
+                          : run.status === 'failed'
+                            ? t('workflow.badgeFailed')
+                            : t('workflow.badgeRunning')}
+                      </Badge>
+                    </div>
+                    <div className={styles.wfChecklist}>
+                      {run.steps.map((step, i) => {
+                        const state = wfStepState(run, i);
+                        return (
+                          <div key={i} className={styles.wfStep}>
+                            <span className={styles.wfStepIcon}>
+                              {state === 'done' ? (
+                                <Icon name="check" size={16} color="var(--sev-low)" />
+                              ) : state === 'active' ? (
+                                <Spinner size={14} />
+                              ) : state === 'failed' ? (
+                                <Icon name="x" size={16} color="var(--sev-high)" />
+                              ) : (
+                                <span className={styles.apprDot} style={{ background: 'var(--border)' }} />
+                              )}
+                            </span>
+                            <span className={`${styles.wfStepLabel} ${state === 'pending' ? styles.wfStepPending : ''}`}>
+                              {step.label}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {run.status === 'failed' && run.error ? <p className={styles.wfRunError}>{run.error}</p> : null}
+                  </>
+                )}
+              </section>
+
               <section className={styles.section} style={{ marginTop: 24 }}>
                 <div className={styles.apprHead}>
                   <h2 className={styles.sectionTitle} style={{ margin: 0 }}>
@@ -402,43 +724,98 @@ export function DocumentDetailPage() {
                 }
               >
                 <p className={styles.apprHint}>{t('appr.modalHint')}</p>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                  {apprSteps.map((s, i) => (
-                    <div key={s.key} className={styles.apprStepForm}>
-                      <div className={styles.apprStepFormHead}>
-                        <span className={styles.apprStepNum}>{t('appr.stepN', { n: i + 1 })}</span>
-                        {apprSteps.length > 1 ? (
-                          <button type="button" className={styles.apprRemove} onClick={() => setApprSteps((x) => x.filter((step) => step.key !== s.key))}>
-                            <Icon name="x" size={14} />
-                          </button>
-                        ) : null}
-                      </div>
-                      <div className={styles.formRow}>
-                        <TextField placeholder={t('appr.name')} value={s.name} onChange={(e) => updateStep(s.key, { name: e.target.value })} />
-                        <TextField placeholder="email@company.com" type="email" value={s.email} onChange={(e) => updateStep(s.key, { email: e.target.value })} />
-                      </div>
-                      <div className={styles.formRow}>
-                        <RoleSelect
-                          ariaLabel={t('appr.role')}
-                          value={s.role}
-                          onChange={(role) => updateStep(s.key, { role })}
-                        />
-                        <DatePicker
-                          ariaLabel={t('appr.deadline')}
-                          placeholder={t('appr.deadline')}
-                          value={s.day}
-                          onChange={(day) => updateStep(s.key, { day })}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                <ApproverStepsEditor steps={apprSteps} setSteps={setApprSteps} />
                 {apprError ? <p style={{ color: 'var(--danger)', fontSize: 13, margin: '10px 0 0' }}>{apprError}</p> : null}
-                {apprSteps.length < 10 ? (
-                  <button type="button" className={styles.apprAdd} onClick={() => setApprSteps((x) => [...x, emptyStep()])}>
-                    <Icon name="plus" size={15} /> {t('appr.addStep')}
-                  </button>
-                ) : null}
+              </Modal>
+
+              <Modal
+                open={wfOpen}
+                title={t('workflow.modalTitle')}
+                onClose={() => setWfOpen(false)}
+                maxWidth={560}
+                footer={
+                  <>
+                    <Button variant="ghost" onClick={() => setWfOpen(false)}>
+                      {t('common.cancel')}
+                    </Button>
+                    <Button variant="primary" icon="sparkle" disabled={wfBusy} onClick={() => void submitWorkflow()}>
+                      {wfBusy ? t('common.loading') : t('workflow.submit')}
+                    </Button>
+                  </>
+                }
+              >
+                <p className={styles.apprHint}>{t('workflow.modalHint')}</p>
+                <div className={styles.wfOptions}>
+                  <div className={`${styles.wfOption} ${wfAnalyze ? styles.wfOptionOn : ''}`}>
+                    <label className={styles.wfOptionHead}>
+                      <input
+                        type="checkbox"
+                        className={styles.wfCheck}
+                        checked={wfAnalyze}
+                        onChange={(e) => setWfAnalyze(e.target.checked)}
+                      />
+                      <span className={styles.wfOptionText}>
+                        <span className={styles.wfOptionTitle}>{t('workflow.stepAnalyze')}</span>
+                        <span className={styles.wfOptionDesc}>{t('workflow.stepAnalyzeDesc')}</span>
+                      </span>
+                    </label>
+                  </div>
+
+                  <div className={`${styles.wfOption} ${wfRedlines ? styles.wfOptionOn : ''}`}>
+                    <label className={styles.wfOptionHead}>
+                      <input
+                        type="checkbox"
+                        className={styles.wfCheck}
+                        checked={wfRedlines}
+                        onChange={(e) => setWfRedlines(e.target.checked)}
+                      />
+                      <span className={styles.wfOptionText}>
+                        <span className={styles.wfOptionTitle}>{t('workflow.stepRedlines')}</span>
+                        <span className={styles.wfOptionDesc}>{t('workflow.stepRedlinesDesc')}</span>
+                      </span>
+                    </label>
+                    {wfRedlines ? (
+                      <div className={styles.wfOptionBody}>
+                        <span className={styles.label}>{t('workflow.minSeverity')}</span>
+                        <span className={styles.auditSelectWrap} style={{ display: 'flex', maxWidth: 220 }}>
+                          <select
+                            className={styles.auditFilter}
+                            style={{ width: '100%' }}
+                            aria-label={t('workflow.minSeverity')}
+                            value={wfSeverity}
+                            onChange={(e) => setWfSeverity(e.target.value as Severity)}
+                          >
+                            <option value="High">{t('sev.High')}</option>
+                            <option value="Medium">{t('sev.Medium')}</option>
+                            <option value="Low">{t('sev.Low')}</option>
+                          </select>
+                          <Icon name="chevron" size={14} className={styles.auditSelectChevron} />
+                        </span>
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className={`${styles.wfOption} ${wfApproval ? styles.wfOptionOn : ''}`}>
+                    <label className={styles.wfOptionHead}>
+                      <input
+                        type="checkbox"
+                        className={styles.wfCheck}
+                        checked={wfApproval}
+                        onChange={(e) => setWfApproval(e.target.checked)}
+                      />
+                      <span className={styles.wfOptionText}>
+                        <span className={styles.wfOptionTitle}>{t('workflow.stepApproval')}</span>
+                        <span className={styles.wfOptionDesc}>{t('workflow.stepApprovalDesc')}</span>
+                      </span>
+                    </label>
+                    {wfApproval ? (
+                      <div className={styles.wfOptionBody}>
+                        <ApproverStepsEditor steps={wfApprovers} setSteps={setWfApprovers} />
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+                {wfError ? <p style={{ color: 'var(--danger)', fontSize: 13, margin: '10px 0 0' }}>{wfError}</p> : null}
               </Modal>
 
               <section className={styles.section} style={{ marginTop: 24 }}>

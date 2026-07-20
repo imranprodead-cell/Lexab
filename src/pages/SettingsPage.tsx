@@ -9,8 +9,10 @@ import { TextField } from '@/components/ui/TextField';
 import { SkeletonRows } from '@/components/ui/States';
 import { useAsync, useDismissable } from '@/hooks/useAsync';
 import { usePageTitle } from '@/hooks/usePageTitle';
-import { billingApi, userApi } from '@/api';
+import { billingApi, securityApi, userApi } from '@/api';
+import type { TwoFactorSetup } from '@/api';
 import { authApi } from '@/api/auth.api';
+import { ApiError } from '@/api/util';
 import { integrationsApi, type CloudProvider } from '@/api/integrations.api';
 import { USE_MOCK } from '@/api/client';
 import { useUIStore } from '@/store/useUIStore';
@@ -574,6 +576,10 @@ export function SettingsPage() {
                 </div>
               </div>
 
+              <TwoFactorSection />
+              <SessionsSection />
+              <DataExportSection />
+
               <div className={styles.dangerZone}>
                 <div className={styles.dangerTitle}>
                   <Icon name="alert" size={15} color="var(--danger)" />
@@ -647,4 +653,268 @@ function initialsOf(name: string): string {
   if (parts.length === 0) return '?';
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+/** Relative time in the interface language (falls back to the raw string). */
+function relativeTime(iso: string | undefined, lang: string, fallback: string): string {
+  if (!iso) return fallback;
+  const ms = new Date(iso).getTime();
+  if (Number.isNaN(ms)) return fallback;
+  const rtf = new Intl.RelativeTimeFormat(lang === 'ru' ? 'ru' : 'en', { numeric: 'auto' });
+  const minutes = Math.round((Date.now() - ms) / 60_000);
+  if (minutes < 60) return rtf.format(-Math.max(minutes, 0), 'minute');
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return rtf.format(-hours, 'hour');
+  return rtf.format(-Math.round(hours / 24), 'day');
+}
+
+/** Two-factor authentication (TOTP): enrol with an authenticator app, reveal
+ *  the backup codes once, or disable with the account password. */
+function TwoFactorSection() {
+  const { t } = useI18n();
+  const pushToast = useUIStore((s) => s.pushToast);
+  const status = useAsync((signal) => securityApi.twofa.status(signal), []);
+  const [setup, setSetup] = useState<TwoFactorSetup | null>(null);
+  const [code, setCode] = useState('');
+  const [backupCodes, setBackupCodes] = useState<string[] | null>(null);
+  const [disarming, setDisarming] = useState(false);
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const copy = (text: string) => {
+    void navigator.clipboard
+      ?.writeText(text)
+      .then(() => pushToast(t('sec.copied'), 'success'))
+      .catch(() => undefined);
+  };
+
+  const begin = async () => {
+    setBusy(true);
+    try {
+      setSetup(await securityApi.twofa.setup());
+      setCode('');
+    } catch (err) {
+      pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const confirm = async () => {
+    setBusy(true);
+    try {
+      const r = await securityApi.twofa.enable(code.trim());
+      setBackupCodes(r.backupCodes);
+      setSetup(null);
+      setCode('');
+    } catch (err) {
+      const wrong = err instanceof ApiError && err.status === 400;
+      pushToast(wrong ? t('sec.2fa.invalidCode') : err instanceof Error && err.message ? err.message : t('common.error'), 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const disable = async () => {
+    setBusy(true);
+    try {
+      await securityApi.twofa.disable(password);
+      setPassword('');
+      setDisarming(false);
+      pushToast(t('sec.2fa.disabled'), 'default');
+      status.reload();
+    } catch (err) {
+      const wrong = err instanceof ApiError && err.status === 401;
+      pushToast(wrong ? t('sec.2fa.wrongPassword') : err instanceof Error && err.message ? err.message : t('common.error'), 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const grouped = (secret: string) => secret.replace(/(.{4})(?=.)/g, '$1 ');
+
+  return (
+    <div className={styles.secSub}>
+      <h3 className={styles.secSubTitle}>{t('sec.2fa.title')}</h3>
+      <p className={styles.secSubText}>{t('sec.2fa.sub')}</p>
+
+      {backupCodes ? (
+        <div className={styles.backupBox}>
+          <div className={styles.backupWarn}>
+            <Icon name="alert" size={15} color="var(--sev-med)" />
+            <span>
+              <strong>{t('sec.2fa.backupTitle')}</strong> — {t('sec.2fa.backupWarn')}
+            </span>
+          </div>
+          <div className={styles.backupGrid}>
+            {backupCodes.map((c) => (
+              <code key={c} className={styles.backupCode}>
+                {c}
+              </code>
+            ))}
+          </div>
+          <div className={styles.secActions}>
+            <Button size="sm" variant="secondary" icon="copy" onClick={() => copy(backupCodes.join('\n'))}>
+              {t('sec.2fa.copyCodes')}
+            </Button>
+            <Button size="sm" variant="primary" icon="check" onClick={() => { setBackupCodes(null); status.reload(); }}>
+              {t('sec.2fa.backupSaved')}
+            </Button>
+          </div>
+        </div>
+      ) : status.data?.enabled ? (
+        <div>
+          <span className={styles.secStatusOn}>
+            <Icon name="shield" size={15} color="var(--sev-low)" />
+            {t('sec.2fa.enabled')} · {t('sec.2fa.remaining', { n: status.data.backupCodesRemaining })}
+          </span>
+          {disarming ? (
+            <div className={styles.secStack} style={{ marginTop: 12 }}>
+              <TextField
+                label={t('sec.2fa.passwordLabel')}
+                name="disable2faPassword"
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+              <div className={styles.secActions}>
+                <Button size="sm" onClick={() => { setDisarming(false); setPassword(''); }}>
+                  {t('common.cancel')}
+                </Button>
+                <Button size="sm" className={styles.dangerBtn} icon="shield" disabled={busy || !password} onClick={() => void disable()}>
+                  {busy ? t('common.loading') : t('sec.2fa.confirmDisable')}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div style={{ marginTop: 12 }}>
+              <Button size="sm" onClick={() => setDisarming(true)}>
+                {t('sec.2fa.disable')}
+              </Button>
+            </div>
+          )}
+        </div>
+      ) : setup ? (
+        <div className={styles.secStack}>
+          <p className={styles.secSubText} style={{ margin: 0 }}>{t('sec.2fa.setupIntro')}</p>
+          <div className={styles.secKeyRow}>
+            <span className={styles.label}>{t('sec.2fa.keyLabel')}</span>
+            <code className={styles.secKey} onClick={() => copy(setup.secret)} title={t('sec.copyHint')}>
+              {grouped(setup.secret)}
+            </code>
+          </div>
+          <div className={styles.secKeyRow}>
+            <span className={styles.label}>{t('sec.2fa.uriLabel')}</span>
+            <code className={styles.secUri} onClick={() => copy(setup.otpauthUri)} title={t('sec.copyHint')}>
+              {setup.otpauthUri}
+            </code>
+          </div>
+          <TextField
+            label={t('sec.2fa.codeLabel')}
+            name="enable2faCode"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+          />
+          <div className={styles.secActions}>
+            <Button size="sm" onClick={() => { setSetup(null); setCode(''); }}>
+              {t('common.cancel')}
+            </Button>
+            <Button size="sm" variant="primary" icon="check" disabled={busy || code.trim().length < 6} onClick={() => void confirm()}>
+              {busy ? t('common.loading') : t('sec.2fa.confirm')}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <Button size="sm" variant="secondary" icon="shield" disabled={busy || status.loading} onClick={() => void begin()}>
+          {busy ? t('common.loading') : t('sec.2fa.enable')}
+        </Button>
+      )}
+    </div>
+  );
+}
+
+/** Active sessions with a "sign out everywhere" that rotates the current token. */
+function SessionsSection() {
+  const { t, lang } = useI18n();
+  const pushToast = useUIStore((s) => s.pushToast);
+  const adoptSession = useAuthStore((s) => s.adoptSession);
+  const sessions = useAsync((signal) => securityApi.sessions.list(signal), []);
+  const [busy, setBusy] = useState(false);
+
+  const revoke = async () => {
+    setBusy(true);
+    try {
+      const rotated = await securityApi.sessions.revokeOthers();
+      // Revoking rotates our own token — adopt it (same place login persists it)
+      // or the next request signs us out.
+      adoptSession(rotated.token, rotated.user);
+      pushToast(t('sec.sessions.revoked'), 'success');
+      sessions.reload();
+    } catch (err) {
+      pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className={styles.secSub}>
+      <h3 className={styles.secSubTitle}>{t('sec.sessions.title')}</h3>
+      <p className={styles.secSubText}>{t('sec.sessions.sub')}</p>
+
+      {sessions.loading ? (
+        <SkeletonRows rows={2} height={44} />
+      ) : (
+        <div className={styles.sessionList}>
+          {(sessions.data ?? []).map((s) => (
+            <div key={s.id} className={styles.sessionRow}>
+              <Icon name="clock" size={16} color="var(--mut)" />
+              <div className={styles.sessionText}>
+                <span className={styles.sessionDevice}>{s.userAgent || t('sec.sessions.unknownDevice')}</span>
+                <span className={styles.sessionMeta}>
+                  {s.ip} · {relativeTime(s.lastSeenAt, lang, s.lastSeenAt)}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div style={{ marginTop: 12 }}>
+        <Button size="sm" icon="logout" disabled={busy} onClick={() => void revoke()}>
+          {busy ? t('common.loading') : t('sec.sessions.signOutAll')}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/** GDPR data portability: download the full account export as a JSON file. */
+function DataExportSection() {
+  const { t } = useI18n();
+  const pushToast = useUIStore((s) => s.pushToast);
+  const [busy, setBusy] = useState(false);
+
+  const download = async () => {
+    setBusy(true);
+    try {
+      await securityApi.exportData();
+    } catch (err) {
+      pushToast(err instanceof Error && err.message ? err.message : t('sec.export.failed'), 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className={styles.secSub}>
+      <h3 className={styles.secSubTitle}>{t('sec.export.title')}</h3>
+      <p className={styles.secSubText}>{t('sec.export.sub')}</p>
+      <Button size="sm" variant="secondary" icon="download" disabled={busy} onClick={() => void download()}>
+        {busy ? t('common.loading') : t('sec.export.button')}
+      </Button>
+    </div>
+  );
 }

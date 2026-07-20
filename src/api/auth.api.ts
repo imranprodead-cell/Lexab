@@ -7,9 +7,15 @@ export interface AuthSession {
   user: UserProfile;
 }
 
+/** Second factor supplied on a re-submit after a `totp_required` challenge. */
+export interface TwoFactorCredential {
+  code?: string;
+  backupCode?: string;
+}
+
 export const authApi = {
-  login(email: string, password: string): Promise<AuthSession> {
-    return http<AuthSession>('/auth/login', { method: 'POST', body: { email, password } });
+  login(email: string, password: string, twoFactor?: TwoFactorCredential): Promise<AuthSession> {
+    return http<AuthSession>('/auth/login', { method: 'POST', body: { email, password, ...twoFactor } });
   },
 
   /** Creates the account and sends a confirmation letter — no session until verified. */
@@ -48,11 +54,13 @@ export const authApi = {
     await http<void>('/auth/reset', { method: 'POST', body: { email } });
   },
 
-  /** Set a new password using the emailed token; returns a fresh session. */
-  async confirmReset(token: string, password: string): Promise<{ token: string; user: UserProfile }> {
+  /** Set a new password using the emailed token; returns a fresh session.
+   *  Аккаунты с 2FA получают challenge `totp_required` — повторный вызов с
+   *  twoFactor ({code} или {backupCode}), как и login. */
+  async confirmReset(token: string, password: string, twoFactor?: TwoFactorCredential): Promise<{ token: string; user: UserProfile }> {
     return http<{ token: string; user: UserProfile }>('/auth/reset/confirm', {
       method: 'POST',
-      body: { token, password },
+      body: { token, password, ...twoFactor },
     });
   },
 

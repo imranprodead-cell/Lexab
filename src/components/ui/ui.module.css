@@ -162,6 +162,12 @@
   background: var(--hover);
   border: 1px dashed var(--border);
 }
+.verifyDeviation {
+  color: var(--sev-med);
+  background: color-mix(in srgb, var(--sev-med) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--sev-med) 34%, transparent);
+  font-weight: 600;
+}
 .citeRow {
   display: flex;
   align-items: center;

@@ -14,6 +14,8 @@ import { notify } from '../lib/notify.ts';
 import { escapeMailHtml, mailLayout, sendMail } from '../mail.ts';
 import { asObject, requireString } from '../lib/validate.ts';
 import { getUserByEmail } from '../plugins/auth.ts';
+import { buildSimplePdf } from '../lib/pdf.ts';
+import { saveFile } from '../storage.ts';
 import type { DocBlock, Redline } from '../types.ts';
 
 interface RecipientRow {
@@ -154,42 +156,108 @@ export function signRoutes(app: FastifyInstance, db: Db): void {
       [row.request_id],
     );
     const remaining = Number(left.rows[0]?.count ?? 0);
-    if (remaining === 0) {
-      await db.query(`UPDATE signature_requests SET status = 'Completed' WHERE id = $1`, [row.request_id]);
-      // Mark THIS document signed — by id when the request is bound to one, so a
-      // different document that merely shares the name isn't touched.
-      if (row.document_id) {
-        await db.query(`UPDATE documents SET status = 'Signed', updated_at = now() WHERE id = $1`, [row.document_id]);
-      } else {
-        await db.query(
-          `UPDATE documents SET status = 'Signed', updated_at = now() WHERE user_id = $1 AND name = $2`,
-          [row.owner_id, row.document_name],
-        );
+
+    // Frozen snapshot (or live-render fallback) of the signed text — computed
+    // once, reused for the completion PDF below and the signer's emailed copy.
+    // Подпись уже проставлена выше (атомарный claim) — нерасшифровываемый
+    // снимок (ротация ключа, порча строки) НЕ должен ронять запрос: иначе
+    // полностью подписанный запрос навсегда зависает без Completed. Честный
+    // компромисс: завершаем без текста (PDF/письмо без тела, всё остальное —
+    // статусы, уведомления, аудит — выполняется).
+    let text: string | null = null;
+    try {
+      text =
+        row.content_snapshot !== null
+          ? await decTextStrict(db, row.owner_id, row.content_snapshot)
+          : await renderSignableText(db, row.owner_id, row.document_name);
+    } catch (err) {
+      req.log.error(err, 'esign: frozen snapshot undecryptable — completing without the text body');
+      try {
+        text = await renderSignableText(db, row.owner_id, row.document_name);
+      } catch {
+        text = null;
       }
-      await audit(db, req, {
-        type: 'signature.completed',
-        teamOwnerId: row.owner_id,
-        actorId: null,
-        actorLabel: name,
-        target: { type: 'document', id: row.document_id ?? undefined, label: row.document_name },
-      });
-      await notify(db, row.owner_id, 'esign', 'Все подписи получены', 'All signatures collected', {
-        bodyRu: `${row.document_name} · последняя подпись: ${name}`,
-        bodyEn: `${row.document_name} · last signed by ${name}`,
-        action: { kind: 'open', data: '/signatures' },
-      });
-      // Email the owner that the document is fully signed.
-      void sendMail({
-        to: row.owner_email,
-        subject: `Документ подписан: ${row.document_name}`,
-        html: mailLayout(
-          'Все подписи получены',
-          `<p>Документ <strong>${escapeMailHtml(row.document_name)}</strong> подписан всеми получателями.</p>
-           <p>Последняя подпись: <strong>${escapeMailHtml(name)}</strong>. Статус запроса в LexAI — «Completed».</p>`,
-          'Открыть раздел «Подписи»',
-          `${config.appBaseUrl}/signatures`,
-        ),
-      });
+    }
+
+    if (remaining === 0) {
+      // Idempotent completion: if the two last signers POST at once, both can
+      // observe remaining===0 — only the request that actually flips to
+      // Completed runs the one-time side effects (PDF build, owner email,
+      // notify, audit, document status), so nothing fires twice. Mirrors the
+      // Dropbox Sign webhook path.
+      const done = await db.query(
+        `UPDATE signature_requests SET status = 'Completed' WHERE id = $1 AND status <> 'Completed' RETURNING id`,
+        [row.request_id],
+      );
+      if (done.rows.length) {
+        // Built-in (typed-name) flow: no provider produces a signed PDF, so we
+        // generate one here and store its key in the SAME column the webhook
+        // uses (signed_file_key) — that makes GET /signatures/:id/signed.pdf
+        // work in the built-in mode. A PDF failure must NOT undo completion;
+        // the request stays Completed and the download simply isn't offered.
+        try {
+          const signers = await db.query<{
+            name: string;
+            signature_name: string | null;
+            signed_at: Date | string | null;
+          }>(
+            'SELECT name, signature_name, signed_at FROM signature_recipients WHERE request_id = $1 ORDER BY ord',
+            [row.request_id],
+          );
+          const sections: { heading?: string; text?: string }[] = [];
+          if (text) sections.push({ text });
+          sections.push({ heading: 'Подписи / Signatures' });
+          for (const s of signers.rows) {
+            const who = s.signature_name ?? s.name;
+            const when = s.signed_at ? toIso(s.signed_at) : '';
+            sections.push({
+              text: `${who}${when ? ` — ${when}` : ''} · подписано электронически / signed electronically`,
+            });
+          }
+          const pdf = await buildSimplePdf(row.document_name, sections);
+          const saved = await saveFile(pdf, `${row.document_name} (signed).pdf`, 'application/pdf');
+          await db.query('UPDATE signature_requests SET signed_file_key = $2 WHERE id = $1', [
+            row.request_id,
+            saved.key,
+          ]);
+        } catch (err) {
+          req.log.warn(err, 'esign: signed PDF generation failed — request stays Completed without a downloadable PDF');
+        }
+        // Mark THIS document signed — by id when the request is bound to one, so a
+        // different document that merely shares the name isn't touched.
+        if (row.document_id) {
+          await db.query(`UPDATE documents SET status = 'Signed', updated_at = now() WHERE id = $1`, [row.document_id]);
+        } else {
+          await db.query(
+            `UPDATE documents SET status = 'Signed', updated_at = now() WHERE user_id = $1 AND name = $2`,
+            [row.owner_id, row.document_name],
+          );
+        }
+        await audit(db, req, {
+          type: 'signature.completed',
+          teamOwnerId: row.owner_id,
+          actorId: null,
+          actorLabel: name,
+          target: { type: 'document', id: row.document_id ?? undefined, label: row.document_name },
+        });
+        await notify(db, row.owner_id, 'esign', 'Все подписи получены', 'All signatures collected', {
+          bodyRu: `${row.document_name} · последняя подпись: ${name}`,
+          bodyEn: `${row.document_name} · last signed by ${name}`,
+          action: { kind: 'open', data: '/signatures' },
+        });
+        // Email the owner that the document is fully signed.
+        void sendMail({
+          to: row.owner_email,
+          subject: `Документ подписан: ${row.document_name}`,
+          html: mailLayout(
+            'Все подписи получены',
+            `<p>Документ <strong>${escapeMailHtml(row.document_name)}</strong> подписан всеми получателями.</p>
+             <p>Последняя подпись: <strong>${escapeMailHtml(name)}</strong>. Статус запроса в LexAI — «Completed».</p>`,
+            'Открыть раздел «Подписи»',
+            `${config.appBaseUrl}/signatures`,
+          ),
+        });
+      }
     } else {
       await notify(db, row.owner_id, 'esign', 'Получена подпись', 'Signature received', {
         bodyRu: `${row.document_name} · ${name}`,
@@ -199,11 +267,7 @@ export function signRoutes(app: FastifyInstance, db: Db): void {
     }
 
     // Signer's copy: confirmation + the EXACT text they agreed to (the frozen
-    // snapshot, not a possibly-since-edited live render).
-    const text =
-      row.content_snapshot !== null
-        ? await decTextStrict(db, row.owner_id, row.content_snapshot)
-        : await renderSignableText(db, row.owner_id, row.document_name);
+    // snapshot computed above, not a possibly-since-edited live render).
     const docHtml = text
       ? `<div style="margin-top:14px;padding:16px 18px;border:1px solid #e6e3f2;border-radius:12px;background:#faf9fe;font-family:Georgia,serif;font-size:13px;line-height:1.7;white-space:pre-wrap;color:#3b3552;">${escapeMailHtml(text.slice(0, 20000))}</div>`
       : '';

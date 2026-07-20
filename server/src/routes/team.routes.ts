@@ -224,11 +224,19 @@ export function teamRoutes(app: FastifyInstance, db: Db): void {
     const id = newId('tm');
     const token = crypto.randomBytes(24).toString('base64url');
     const color = ROLE_COLORS[role] ?? 'var(--mut)';
-    await db.query(
+    // email is already lowercased by requireEmail, so it matches the UNIQUE
+    // index team_members(owner_user_id, email). ON CONFLICT makes the insert
+    // race-safe: if two invites for the same email hit at once, only one row
+    // is created. When we lose the race the row is not returned — treat it
+    // exactly like the SELECT "already invited" fast path above.
+    const inserted = await db.query<{ id: string }>(
       `INSERT INTO team_members (id, owner_user_id, name, email, role, status, color, title_label, invite_token)
-       VALUES ($1, $2, $3, $4, $5, 'invited', $6, $7, $8)`,
+       VALUES ($1, $2, $3, $4, $5, 'invited', $6, $7, $8)
+       ON CONFLICT (owner_user_id, email) DO NOTHING
+       RETURNING id`,
       [id, req.currentUser.id, name || email, email, role, color, title, token],
     );
+    if (!inserted.rows[0]) throw new HttpError(409, 'Этот пользователь уже приглашён или состоит в команде');
 
     // If the invitee already has an account, ping them in-app with an
     // Accept button right in the bell (mirrors the email).

@@ -13,7 +13,7 @@
     "migrate": "node --env-file-if-exists=.env src/migrate.ts",
     "seed": "node --env-file-if-exists=.env src/seed.ts",
     "typecheck": "tsc --noEmit",
-    "test": "node --test test/*.test.ts",
+    "test": "ALLOW_INSECURE_SECRETS=1 node --test test/*.test.ts",
     "smoke": "bash scripts/smoke.sh",
     "check:supabase": "node --env-file-if-exists=.env scripts/check-supabase.ts",
     "rag:ingest": "node --env-file-if-exists=.env src/rag/ingest/run-ingest.ts",

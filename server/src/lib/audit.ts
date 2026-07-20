@@ -26,6 +26,11 @@ export type AuditEventType =
   | 'auth.password_reset'
   | 'auth.account_deleted'
   | 'auth.google_login'
+  | 'auth.totp_enabled'
+  | 'auth.totp_disabled'
+  | 'auth.sessions_revoked'
+  | 'user.data_exported'
+  | 'document.retention_purged'
   | 'security.bruteforce_alert'
   // team / users (some reserved for features not built yet)
   | 'team.invited'
@@ -71,6 +76,12 @@ export type AuditEventType =
   | 'signature.completed'
   | 'approval.started'
   | 'approval.decided'
+  | 'approval.cancelled'
+  // agentic workflows (Этап 4) — метаданные шагов, без текста договора
+  | 'workflow.started'
+  | 'workflow.step'
+  | 'workflow.completed'
+  | 'workflow.failed'
   // billing
   | 'billing.checkout'
   | 'billing.canceled'

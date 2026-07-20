@@ -32,6 +32,8 @@ export interface Finding {
   redlineId?: string | null;
   /** True when citation validation could not confirm the source. */
   unverified?: boolean;
+  /** True when this clause deviates from an active team playbook position. */
+  playbookDeviation?: boolean;
 }
 
 /** A tracked change the AI proposes inside the document. */
@@ -169,6 +171,110 @@ export interface SavedTemplate {
   sourceTemplateId?: string;
   jurisdiction?: string;
   createdAt: string;
+}
+
+/**
+ * A team "playbook": a set of standard positions (rules) the AI checks each
+ * analysed contract against, flagging clauses that deviate. `jurisdiction` is
+ * one of the corpus codes (UK/UZ/KZ/DE/US/CA/AE) or null for a global playbook.
+ */
+export interface Playbook {
+  id: string;
+  name: string;
+  jurisdiction: string | null;
+  active: boolean;
+  rules: string[];
+  createdAt: string; // ISO
+  updatedAt: string; // ISO
+}
+
+/** A tracked obligation extracted from a contract (CLM). Dates are date-only ISO (YYYY-MM-DD). */
+export interface ContractObligation {
+  id: string;
+  text: string;
+  dueDate: string | null;
+  responsible: string | null;
+  done: boolean;
+}
+
+/** Key terms extracted from an analysed contract. `daysToExpiry` is computed server-side. */
+export interface ContractTermsInfo {
+  effectiveDate: string | null;
+  expiryDate: string | null;
+  daysToExpiry: number | null;
+  autoRenew: boolean | null;
+  renewalNoticeDays: number | null;
+  contractValue: string | null;
+  currency: string | null;
+  governingLaw: string | null;
+  extractedAt: string; // ISO
+}
+
+/** One row of the contract-lifecycle register (own + team-shared documents). */
+export interface ContractRow {
+  documentId: string;
+  name: string;
+  counterparty: string;
+  risk: string;
+  status: string;
+  mine: boolean;
+  terms: ContractTermsInfo;
+  obligations: ContractObligation[];
+}
+
+/** One file inside a batch review job. Populated as the queue processes it. */
+export interface BatchItem {
+  id: string;
+  fileName: string;
+  status: 'queued' | 'processing' | 'done' | 'error';
+  documentId: string | null;
+  analysisId: string | null;
+  riskScore: number | null;
+  riskLevel: string | null;
+  findingsCount: number | null;
+  error: string | null;
+}
+
+/** A batch review job: a set of uploaded contracts analysed together (Pro+). */
+export interface BatchJob {
+  id: string;
+  status: 'queued' | 'processing' | 'done';
+  total: number;
+  done: number;
+  failed: number;
+  createdAt: string; // ISO
+  /** Present on GET /batch/:id (per-file rows); absent on the history list. */
+  items?: BatchItem[];
+}
+
+/** One approver of a `send-for-approval` workflow step (mirrors NewApprovalStep). */
+export interface WorkflowApprover {
+  name: string;
+  email: string;
+  role?: string | null;
+  dueAt?: string | null;
+}
+
+/** A single step requested when launching an agentic workflow (order matters). */
+export type WorkflowStepInput =
+  | { kind: 'analyze' }
+  | { kind: 'apply-redlines'; minSeverity: Severity }
+  | { kind: 'send-for-approval'; approvers: WorkflowApprover[] };
+
+/**
+ * An agentic workflow run over one document: a queued chain of steps (analyse,
+ * auto-accept redlines, send for approval) polled for progress. Pro+ feature.
+ * The server returns a ready-made display `label` per step — render it as-is.
+ */
+export interface WorkflowRun {
+  id: string;
+  documentId: string | null;
+  analysisId: string | null;
+  status: 'queued' | 'running' | 'done' | 'failed';
+  steps: { kind: string; label: string }[];
+  currentStep: number;
+  error: string | null;
+  createdAt: string; // ISO
 }
 
 export type SignatureStatus = 'Draft' | 'Sent' | 'Viewed' | 'Completed' | 'Declined';

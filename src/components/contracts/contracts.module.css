@@ -1,0 +1,46 @@
+/* Obligations extracted from a contract (CLM) — checkbox list shared by the
+   contracts register and the document detail card. */
+
+.obList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.obRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.obCheck {
+  margin-top: 2px;
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.obCheck:disabled {
+  cursor: wait;
+}
+.obText {
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--text);
+}
+.obTextDone {
+  color: var(--mut);
+  text-decoration: line-through;
+}
+.obMeta {
+  font-size: 12px;
+  color: var(--mut);
+  font-family: var(--font-label);
+  margin-top: 2px;
+}
+.obOverdue {
+  color: var(--sev-high);
+  font-weight: 600;
+}

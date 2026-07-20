@@ -16,6 +16,9 @@ export function fallbackAnalysis(fileName: string, jurisdiction?: string | null)
   const riskScore = 45 + (h % 31); // 45–75
   const riskLevel = riskScore < 34 ? 'Low' : riskScore < 67 ? 'Elevated' : 'High';
   const baseName = fileName.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ');
+  // CLM demo terms: dates relative to today so the /contracts dashboard shows
+  // live-looking "expiring soon" data (offset still derived from the name hash).
+  const isoInDays = (days: number): string => new Date(Date.now() + days * 86_400_000).toISOString().slice(0, 10);
 
   return {
     summary:
@@ -85,6 +88,27 @@ export function fallbackAnalysis(fileName: string, jurisdiction?: string | null)
         ],
       },
     ],
+    terms: {
+      effectiveDate: isoInDays(-180),
+      expiryDate: isoInDays(25 + (h % 60)), // 25–84 days out — lands in the 30/60/90 buckets
+      autoRenew: h % 2 === 0,
+      renewalNoticeDays: 30,
+      contractValue: null,
+      currency: null,
+      governingLaw: jurisdiction || 'England and Wales',
+      obligations: [
+        {
+          text: 'Return all Company property and confidential materials upon termination',
+          dueDate: null,
+          responsible: 'Employee',
+        },
+        {
+          text: 'Give written notice of non-renewal at least 30 days before the expiry date',
+          dueDate: isoInDays(14),
+          responsible: 'Company',
+        },
+      ],
+    },
   };
 }
 

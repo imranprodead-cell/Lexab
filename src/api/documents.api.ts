@@ -31,14 +31,35 @@ export const documentsApi = {
       }
       return rows;
     }
-    const params = new URLSearchParams();
-    if (query.search) params.set('search', query.search);
-    if (query.status) params.set('status', query.status);
-    if (query.risk) params.set('risk', query.risk);
-    // Server default is 50 — ask for its maximum so the client-side counter,
-    // sorting and pagination see the whole library.
-    params.set('pageSize', '200');
-    return http<ContractDocument[]>(`/documents?${params.toString()}`, { signal });
+    const base = new URLSearchParams();
+    if (query.search) base.set('search', query.search);
+    if (query.status) base.set('status', query.status);
+    if (query.risk) base.set('risk', query.risk);
+    // The server paginates only the caller's OWN documents (pageSize capped at
+    // 200 server-side) and appends the team-shared documents to EVERY page. So
+    // one request can never see past the first 200 owned docs: a user with more
+    // loses the older ones and the client-side counter/sort run on a partial
+    // set. Walk every server page and merge, de-duplicating by id (shared docs
+    // repeat on each page). Because only the OWN documents are paged, a page
+    // that returns fewer than a full 200 owned docs is the last one — no need
+    // to read X-Total-Count (which client.ts's http() does not expose). The
+    // merged length then equals the real total, so the counter and the
+    // name/risk/status sort operate on the whole library.
+    const PAGE_SIZE = 200; // server's hard maximum
+    const MAX_PAGES = 50; // safety ceiling (10k owned docs) against a runaway loop
+    const byId = new Map<string, ContractDocument>();
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      const params = new URLSearchParams(base);
+      params.set('pageSize', String(PAGE_SIZE));
+      params.set('page', String(page));
+      const rows = await http<ContractDocument[]>(`/documents?${params.toString()}`, { signal });
+      for (const doc of rows) byId.set(doc.id, doc);
+      // Shared docs carry `sharedBy`; owned ones never do. Only owned docs are
+      // paged, so a short page of owned docs means there is nothing after it.
+      const ownInPage = rows.reduce((n, d) => (d.sharedBy ? n : n + 1), 0);
+      if (ownInPage < PAGE_SIZE) break;
+    }
+    return [...byId.values()];
   },
 
   async get(id: string, signal?: AbortSignal): Promise<ContractDocument> {

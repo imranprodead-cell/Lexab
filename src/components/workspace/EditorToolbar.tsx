@@ -26,7 +26,7 @@ type StyleValue = 'h1' | 'h2' | 'p' | 'bullet' | 'numbered';
 
 function styleOfActive(active: ActiveBlock | null): StyleValue {
   if (!active) return 'p';
-  if (active.type === 'heading') return 'h2';
+  if (active.type === 'heading') return active.level === 1 ? 'h1' : 'h2';
   if (active.type === 'bullet') return 'bullet';
   if (active.type === 'numbered') return 'numbered';
   return 'p';

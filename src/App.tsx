@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { RouterProvider } from 'react-router-dom';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
+import { ToastHost } from '@/components/ui/ToastHost';
 import { prefetchAllPages, router } from '@/router/routes';
 
 export default function App() {
@@ -19,6 +20,9 @@ export default function App() {
           // only flashes, so the fallback stays intentionally blank.
           fallbackElement={<div style={{ minHeight: '100vh' }} />}
         />
+        {/* Mounted at the app root (not in AppShell) so toasts show on public
+            routes too — AuthPage, reset-password, sign, etc. Portals to body. */}
+        <ToastHost />
       </I18nProvider>
     </ErrorBoundary>
   );

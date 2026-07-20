@@ -7,6 +7,8 @@ import { Document, HeadingLevel, Packer, Paragraph, TextRun } from 'docx';
 import { buildDocxParagraphs, DOCX_NUMBERING, type DocxMode } from '../lib/docxExport.ts';
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../db.ts';
+import { config } from '../config.ts';
+import { deleteFile } from '../storage.ts';
 import { badRequest, HttpError, notFound } from '../lib/errors.ts';
 import { decJsonFromJsonb, decText, encryptionEnabled } from '../lib/docCrypto.ts';
 import { assertFeature } from '../lib/limits.ts';
@@ -14,7 +16,6 @@ import { canEdit, resolveDocumentAccess } from '../lib/teamAccess.ts';
 import { attachmentDisposition, formatSize, looksRussian, toIso } from '../lib/format.ts';
 import { buildSimplePdf } from '../lib/pdf.ts';
 import { asObject, requireOneOf, requireString } from '../lib/validate.ts';
-import { deleteFile } from '../storage.ts';
 import { audit } from '../lib/audit.ts';
 import type { ContractDocument, DocBlock, DocumentVersion, Redline } from '../types.ts';
 
@@ -151,7 +152,7 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
   app.get('/documents', { preHandler: [app.authenticate] }, async (req, reply): Promise<ContractDocument[]> => {
     const q = req.query as Record<string, string | undefined>;
     const params: unknown[] = [req.currentUser.id];
-    const where: string[] = ['user_id = $1'];
+    const where: string[] = ['user_id = $1', 'deleted_at IS NULL'];
 
     if (q.search?.trim()) {
       const needle = q.search.trim();
@@ -215,6 +216,7 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
     const sharedParams: unknown[] = [req.currentUser.id];
     const sharedWhere: string[] = [
       `documents.team_shared`,
+      `documents.deleted_at IS NULL`,
       `documents.user_id IN (
          SELECT owner_user_id FROM team_members
          WHERE member_user_id = $1 AND status = 'active')`,
@@ -284,35 +286,19 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
   app.delete('/documents/:id', { preHandler: [app.authenticate] }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const res = await db.query<{ name: string }>(
-      'SELECT name FROM documents WHERE id = $1 AND user_id = $2',
+      'SELECT name FROM documents WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL',
       [id, req.currentUser.id],
     );
     const doc = res.rows[0];
     if (!doc) throw notFound('Document not found');
-    // Remember where the bytes live BEFORE the rows are gone.
-    const files = await db.query<{ storage: 's3' | 'local' | 'supabase'; storage_key: string }>(
-      'SELECT storage, storage_key FROM uploads WHERE user_id = $1 AND file_name = $2',
-      [req.currentUser.id, doc.name],
-    );
-    // Analyses reference the document with ON DELETE SET NULL — remove them
-    // explicitly (findings/redlines cascade), then the document (versions cascade),
-    // then the stored uploads so the storage quota is freed. All atomic: a
-    // partial delete never leaves dangling analyses or orphaned uploads.
-    // NOTE: uploads are still matched by (user_id, file_name); a stable
-    // document_id link is a documented follow-up (filename→id migration).
-    await db.withTx(async (tx) => {
-      await tx.query('DELETE FROM analyses WHERE document_id = $1 AND user_id = $2', [id, req.currentUser.id]);
-      await tx.query('DELETE FROM documents WHERE id = $1', [id]);
-      await tx.query('DELETE FROM uploads WHERE user_id = $1 AND file_name = $2', [req.currentUser.id, doc.name]);
-    });
-    // Best effort: a failed storage delete must not resurrect the DB rows.
-    for (const row of files.rows) {
-      try {
-        await deleteFile(row.storage, row.storage_key);
-      } catch (err) {
-        req.log.warn({ err, key: row.storage_key }, 'storage: delete failed');
-      }
-    }
+    // Soft-delete (retention policy — Этап 5): the document is hidden everywhere
+    // and unshared immediately, but its rows + bytes are kept for the retention
+    // window so an accidental delete can be recovered. checkRetention() then
+    // crypto-shreds it for good (rows + file bytes) past config.dataRetentionDays.
+    await db.query('UPDATE documents SET deleted_at = now(), team_shared = false, updated_at = now() WHERE id = $1', [id]);
+    // Активные согласования удаляемого документа отменяются: внешняя ссылка
+    // /approve/:token перестаёт показывать текст, напоминания прекращаются.
+    await db.query("UPDATE approval_flows SET status = 'cancelled' WHERE document_id = $1 AND status = 'active'", [id]);
     await audit(db, req, { type: 'document.deleted', target: { type: 'document', id, label: doc.name } });
     reply.code(204);
   });
@@ -374,15 +360,17 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
     const { doc } = await resolveDocumentAccess(db, req.currentUser.id, id);
 
     // Latest analysis for this document → blocks + redline states.
-    const analysisRes = await db.query<{ id: string; document_blocks: DocBlock[] | string }>(
-      `SELECT id, document_blocks FROM analyses WHERE document_id = $1
+    const analysisRes = await db.query<{ id: string; document_blocks: DocBlock[] | string; upload_id: string | null }>(
+      `SELECT id, document_blocks, upload_id FROM analyses WHERE document_id = $1
        ORDER BY created_at DESC LIMIT 1`,
       [id],
     );
     let blocks: DocBlock[] = [];
     let redlines: Redline[] = [];
+    let uploadId: string | null = null;
     if (analysisRes.rows[0]) {
       const a = analysisRes.rows[0];
+      uploadId = a.upload_id;
       // Decrypt with the document OWNER's key (a teammate exports shared docs).
       const decBlocks = (await decJsonFromJsonb(db, doc.user_id, a.document_blocks)) as DocBlock[] | null;
       if (decBlocks === null) throw new HttpError(500, 'Document cannot be decrypted — data key mismatch');
@@ -406,18 +394,62 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
     // ПОЛНЫЙ исходный текст договора (пока файл ещё в базе): экспорт должен
     // отдавать весь документ на языке оригинала, а не только клаузы с
     // правками из анализа. Принятые правки применяются к полному тексту.
-    const uploadRes = await db.query<{ extracted_text: string | null }>(
-      'SELECT extracted_text FROM uploads WHERE user_id = $1 AND file_name = $2 ORDER BY created_at DESC LIMIT 1',
-      [doc.user_id, doc.name],
-    );
+    // Берём тот САМЫЙ upload, из которого сделан анализ (analyses.upload_id) —
+    // иначе при двух файлах с одним именем взяли бы чужой (новейший) текст.
+    // Старые анализы без upload_id → откат к поиску по имени файла (как раньше).
+    const uploadRes = uploadId
+      ? await db.query<{ extracted_text: string | null }>(
+          'SELECT extracted_text FROM uploads WHERE id = $1 AND user_id = $2',
+          [uploadId, doc.user_id],
+        )
+      : await db.query<{ extracted_text: string | null }>(
+          'SELECT extracted_text FROM uploads WHERE user_id = $1 AND file_name = $2 ORDER BY created_at DESC LIMIT 1',
+          [doc.user_id, doc.name],
+        );
     const rawFull = uploadRes.rows[0]?.extracted_text ?? null;
     let fullText = rawFull === null ? null : await decText(db, doc.user_id, rawFull);
     if (fullText) {
+      // Apply every ACCEPTED redline to the full source text — robustly, so the
+      // clean export can't silently ship the old (risky) wording:
+      //  • ALL occurrences (not just the first) — a repeated clause is fully fixed;
+      //  • whitespace-tolerant match (\s+) — the model quotes normalised text
+      //    while PDF/DOCX extraction keeps newlines/double spaces inside a clause;
+      //  • a FUNCTION replacement — so `$&`, `$$` etc. in the new wording are
+      //    inserted literally, never interpreted as replacement patterns.
+      // Anything that still can't be placed (empty delText = a pure insertion, or
+      // wording not found even fuzzily) is collected and appended as a visible
+      // note rather than dropped without a trace.
+      const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const unapplied: Redline[] = [];
+      let text: string = fullText;
       for (const r of redlines) {
-        if (r.status === 'accepted' && r.delText && fullText.includes(r.delText)) {
-          fullText = fullText.replace(r.delText, r.insText);
+        if (r.status !== 'accepted') continue;
+        if (!r.delText.trim()) {
+          unapplied.push(r);
+          continue;
+        }
+        const pattern = new RegExp(escapeRe(r.delText).replace(/\s+/g, '\\s+'), 'g');
+        let hit = false;
+        const next = text.replace(pattern, () => {
+          hit = true;
+          return r.insText;
+        });
+        if (hit) text = next;
+        else unapplied.push(r);
+      }
+      if (unapplied.length) {
+        const ru = looksRussian(text);
+        const header = ru
+          ? '\n\n— Принятые изменения, которые не удалось автоматически вставить в исходный текст (примените вручную):'
+          : '\n\n— Accepted changes that could not be merged into the source text automatically (apply manually):';
+        text += header;
+        for (const r of unapplied) {
+          text += r.delText.trim()
+            ? `\n• ${ru ? 'Было' : 'Was'}: «${r.delText}» → ${ru ? 'Стало' : 'Now'}: «${r.insText}»`
+            : `\n• ${ru ? 'Добавить' : 'Add'}: «${r.insText}»`;
         }
       }
+      fullText = text;
     }
 
     // Audit under the document owner's team scope (a teammate exporting a shared
@@ -483,4 +515,59 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
     reply.header('Cache-Control', 'no-store');
     return reply.send(buffer);
   });
+}
+
+/**
+ * Retention purge (Этап 5): crypto-shred documents soft-deleted longer ago than
+ * config.dataRetentionDays — destroy the rows (analyses/findings/redlines/
+ * versions/contract terms cascade) and the stored file bytes, so the ciphertext
+ * is gone for good. Idempotent; runs on a daily interval (index.ts).
+ */
+export async function checkRetention(db: Db): Promise<void> {
+  const due = await db.query<{ id: string; user_id: string; name: string; deleted_at: Date | string }>(
+    `SELECT id, user_id, name, deleted_at FROM documents
+     WHERE deleted_at IS NOT NULL AND deleted_at < now() - ($1 || ' days')::interval
+     LIMIT 500`,
+    [String(config.dataRetentionDays)],
+  );
+  for (const doc of due.rows) {
+    // Uploads are matched by (user_id, file_name) — but a LIVE document of the
+    // same name may exist (re-uploading a file whose old copy sits in the
+    // retention trash creates a fresh document). NEVER touch bytes a live
+    // document relies on: better a leaked file than a destroyed live contract.
+    // Additionally, only uploads created BEFORE the document was trashed can
+    // belong to it — a same-name file uploaded later (fresh upload awaiting
+    // analysis, a queued batch item) must never be purged with the old doc.
+    const liveSameName = await db.query(
+      'SELECT 1 FROM documents WHERE user_id = $1 AND name = $2 AND deleted_at IS NULL LIMIT 1',
+      [doc.user_id, doc.name],
+    );
+    const purgeUploads = !liveSameName.rows[0];
+    const files = purgeUploads
+      ? await db.query<{ storage: 's3' | 'local' | 'supabase'; storage_key: string }>(
+          'SELECT storage, storage_key FROM uploads WHERE user_id = $1 AND file_name = $2 AND created_at <= $3',
+          [doc.user_id, doc.name, doc.deleted_at],
+        )
+      : { rows: [] as { storage: 's3' | 'local' | 'supabase'; storage_key: string }[] };
+    await db.withTx(async (tx) => {
+      await tx.query('DELETE FROM analyses WHERE document_id = $1', [doc.id]);
+      await tx.query('DELETE FROM documents WHERE id = $1', [doc.id]);
+      if (purgeUploads) {
+        await tx.query('DELETE FROM uploads WHERE user_id = $1 AND file_name = $2 AND created_at <= $3', [doc.user_id, doc.name, doc.deleted_at]);
+      }
+    });
+    for (const row of files.rows) {
+      try {
+        await deleteFile(row.storage, row.storage_key);
+      } catch {
+        /* best effort — a failed storage delete must not block the purge */
+      }
+    }
+    await audit(db, null, {
+      type: 'document.retention_purged',
+      teamOwnerId: doc.user_id,
+      actorId: null,
+      target: { type: 'document', id: doc.id, label: doc.name },
+    });
+  }
 }

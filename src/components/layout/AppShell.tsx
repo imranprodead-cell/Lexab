@@ -3,7 +3,6 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { SideRail } from './SideRail';
 import { CommandPalette } from './CommandPalette';
 import { OnboardingModal } from './OnboardingModal';
-import { ToastHost } from '@/components/ui/ToastHost';
 import { authApi } from '@/api/auth.api';
 import { useKeyboardShortcuts } from '@/hooks/useKeyboardShortcuts';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
@@ -88,7 +87,6 @@ export function AppShell() {
           <Outlet />
         </div>
       </div>
-      <ToastHost />
       <CommandPalette />
       <OnboardingModal />
     </div>

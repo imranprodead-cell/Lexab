@@ -10,6 +10,8 @@ import type { Db } from '../db.ts';
 import { badRequest, HttpError, unauthorized } from '../lib/errors.ts';
 import { newId } from '../lib/ids.ts';
 import { hashPassword, verifyPassword } from '../lib/passwords.ts';
+import { isPasswordBreached } from '../lib/hibp.ts';
+import { consumeBackupCode, recordSession, verifyUserTotp } from './security.routes.ts';
 import { asObject, requireEmail, requireString } from '../lib/validate.ts';
 import { escapeMailHtml, mailLayout, sendMail } from '../mail.ts';
 import { notify } from '../lib/notify.ts';
@@ -47,6 +49,9 @@ function dummyHash(): Promise<string> {
 // Google" button on the login screen, not by a distinct error here.
 const LOGIN_FAILED = 'Неверный email или пароль / Invalid email or password';
 
+const BREACHED_PASSWORD_MSG =
+  'Этот пароль встречается в утечках данных — выберите другой / This password appears in known data breaches — choose a different one';
+
 export async function sendVerificationMail(db: Db, userId: string, email: string, name: string): Promise<void> {
   const token = newToken();
   // The link expires (24h) — a verification token must not stay valid forever
@@ -75,6 +80,10 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
     const name = requireString(body, 'name', { min: 1, max: 200 });
     const email = requireEmail(body);
     const password = requireString(body, 'password', { min: 8, max: 200 });
+    // Reject passwords known to be breached (HIBP k-anonymity; fail-open). Done
+    // BEFORE the enumeration-safe existing-account branch so a weak password is
+    // caught even when re-registering — the message reveals nothing about the email.
+    if (await isPasswordBreached(password)) throw new HttpError(400, BREACHED_PASSWORD_MSG);
 
     const existing = await getUserByEmail(db, email);
     if (existing) {
@@ -141,15 +150,23 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
   app.post('/auth/verify', { config: RATE_LIMIT }, async (req) => {
     const body = asObject(req.body);
     const token = requireString(body, 'token', { min: 10, max: 100 });
-    const res = await db.query<{ id: string }>(
-      `UPDATE users SET email_verified = true, verify_token = NULL, verify_expires = NULL
-       WHERE verify_token = $1 AND verify_expires > now() RETURNING id`,
+    // Find the user by the token FIRST and check SSO BEFORE any mutation, so an
+    // SSO-only member gets the clear 403 with NO side effects (their token is
+    // not consumed and email_verified is left untouched).
+    const found = await db.query<{ id: string; email: string }>(
+      `SELECT id, email FROM users WHERE verify_token = $1 AND verify_expires > now()`,
       [token],
     );
-    if (!res.rows[0]) throw badRequest('Ссылка недействительна, истекла или уже использована — запросите письмо ещё раз');
+    const row = found.rows[0];
+    if (!row) throw badRequest('Ссылка недействительна, истекла или уже использована — запросите письмо ещё раз');
+    await assertSsoNotRequired(db, { id: row.id, email: row.email });
+    // Only now consume the token and mark the mailbox proven.
+    await db.query(
+      `UPDATE users SET email_verified = true, verify_token = NULL, verify_expires = NULL WHERE id = $1`,
+      [row.id],
+    );
     // Owning the mailbox proves the email → sign the user in right away.
-    const user = (await getUserById(db, res.rows[0].id)) as UserRow;
-    await assertSsoNotRequired(db, { id: user.id, email: user.email });
+    const user = (await getUserById(db, row.id)) as UserRow;
     return { ok: true, token: signToken(app, user), user: toProfile(user) };
   });
 
@@ -225,7 +242,27 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
     }
     // If the user's org enforces SSO, password login is blocked (owner exempt).
     await assertSsoNotRequired(db, { id: user.id, email: user.email });
+
+    // Second factor: when 2FA is enabled, a correct password alone is not enough.
+    // The client re-submits with { code } (TOTP) or { backupCode } (recovery).
+    const suppliedCode = typeof body.code === 'string' ? body.code : undefined;
+    const totp = await verifyUserTotp(db, user.id, suppliedCode);
+    if (totp === 'required') {
+      const backup = typeof body.backupCode === 'string' ? body.backupCode : undefined;
+      const used = backup ? await consumeBackupCode(db, user.id, backup) : false;
+      if (!used) {
+        // The bare password step of a NORMAL 2FA login is a challenge, not a
+        // failure — logging it would let every successful 2FA sign-in feed the
+        // brute-force detector. Only a supplied-but-WRONG code counts as failed.
+        if (suppliedCode !== undefined || backup !== undefined) await onFailure();
+        // Distinct, non-enumerating: the password already verified above, so this
+        // only tells an already-authenticated-by-password caller to add the code.
+        throw new HttpError(401, 'Нужен код двухфакторной аутентификации / Two-factor code required', 'totp_required');
+      }
+    }
+
     await audit(db, req, { type: 'auth.login', actorId: user.id, actorLabel: user.email, teamOwnerId: user.id });
+    await recordSession(db, user.id, req.ip, req.headers['user-agent']);
     return { token: signToken(app, user), user: toProfile(user) };
   });
 
@@ -250,6 +287,15 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
     const authAt = payload?.auth_at ?? payload?.iat ?? Math.floor(Date.now() / 1000);
     if (Date.now() / 1000 - authAt > config.sessionMaxDays * 86400) throw unauthorized();
     await audit(db, req, { type: 'auth.refresh', teamOwnerId: req.currentUser.id });
+    // Сессии — visibility-контроль без привязки токен↔строка: считаем живой ту,
+    // что была активна последней (лучшее приближение), и штампуем её.
+    void db
+      .query(
+        `UPDATE user_sessions SET last_seen_at = now()
+         WHERE id = (SELECT id FROM user_sessions WHERE user_id = $1 ORDER BY last_seen_at DESC LIMIT 1)`,
+        [req.currentUser.id],
+      )
+      .catch(() => undefined);
     return { token: signToken(app, req.currentUser, authAt), user: toProfile(req.currentUser) };
   });
 
@@ -297,13 +343,31 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
     const body = asObject(req.body);
     const token = requireString(body, 'token', { min: 10, max: 100 });
     const password = requireString(body, 'password', { min: 8, max: 200 });
+    if (await isPasswordBreached(password)) throw new HttpError(400, BREACHED_PASSWORD_MSG);
 
-    const found = await db.query<{ id: string }>(
-      `SELECT id FROM users WHERE reset_token = $1 AND reset_expires > now()`,
+    const found = await db.query<{ id: string; email: string }>(
+      `SELECT id, email FROM users WHERE reset_token = $1 AND reset_expires > now()`,
       [token],
     );
     const row = found.rows[0];
     if (!row) throw badRequest('Ссылка недействительна или истекла — запросите сброс ещё раз');
+    // Check SSO BEFORE mutating anything: an SSO-only member must get the clear
+    // 403 without their password being silently changed or token_version bumped
+    // (which would otherwise leave them altered but without a session).
+    await assertSsoNotRequired(db, { id: row.id, email: row.email });
+
+    // 2FA: сброс пароля не должен обходить второй фактор — иначе доступ к
+    // почте равен захвату аккаунта несмотря на включённую 2FA. Челлендж
+    // бросается ДО каких-либо мутаций: reset-токен не расходуется, пользователь
+    // повторяет запрос с кодом (или резервным кодом).
+    const resetTotp = await verifyUserTotp(db, row.id, typeof body.code === 'string' ? body.code : undefined);
+    if (resetTotp === 'required') {
+      const backup = typeof body.backupCode === 'string' ? body.backupCode : undefined;
+      const used = backup ? await consumeBackupCode(db, row.id, backup) : false;
+      if (!used) {
+        throw new HttpError(401, 'Нужен код двухфакторной аутентификации / Two-factor code required', 'totp_required');
+      }
+    }
 
     const passwordHash = await hashPassword(password);
     await db.query(
@@ -314,7 +378,6 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
     );
     // Owning the mailbox proves the email → auto-login with a fresh session.
     const fresh = (await getUserById(db, row.id)) as UserRow;
-    await assertSsoNotRequired(db, { id: fresh.id, email: fresh.email });
     await audit(db, req, { type: 'auth.password_reset', actorId: fresh.id, actorLabel: fresh.email, teamOwnerId: fresh.id });
     return { token: signToken(app, fresh), user: toProfile(fresh) };
   });
@@ -325,6 +388,7 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
     const body = asObject(req.body);
     const currentPassword = requireString(body, 'currentPassword', { min: 1, max: 200 });
     const newPassword = requireString(body, 'newPassword', { min: 8, max: 200 });
+    if (await isPasswordBreached(newPassword)) throw new HttpError(400, BREACHED_PASSWORD_MSG);
 
     const user = await getUserByEmail(db, req.currentUser.email);
     if (!user || !(await verifyPassword(currentPassword, user.password_hash))) {
@@ -354,7 +418,19 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
       [req.currentUser.id],
     );
     // Log before the CASCADE removes the user (and their own audit rows).
-    await audit(db, req, { type: 'auth.account_deleted', teamOwnerId: req.currentUser.id });
+    // If this user is a member of someone ELSE's team, attribute the deletion to
+    // that team OWNER: audit_events.team_owner_id → the owner, who is NOT being
+    // deleted, so their row survives the CASCADE and the owner keeps a visible
+    // record of the member leaving. For a solo user (no external owner) we keep
+    // teamOwnerId = self on purpose — the event is written under the user's own
+    // row and the CASCADE wipes it, which is the intended GDPR self-erasure
+    // (migration 030), not a lost trail.
+    const owner = await db.query<{ owner_user_id: string }>(
+      'SELECT owner_user_id FROM team_members WHERE member_user_id = $1 AND owner_user_id <> $1 LIMIT 1',
+      [req.currentUser.id],
+    );
+    const auditOwnerId = owner.rows[0]?.owner_user_id ?? req.currentUser.id;
+    await audit(db, req, { type: 'auth.account_deleted', teamOwnerId: auditOwnerId });
     await db.query('DELETE FROM users WHERE id = $1', [req.currentUser.id]);
     // Best effort: a failed storage delete must not keep the account alive.
     for (const row of files.rows) {

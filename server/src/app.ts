@@ -29,6 +29,11 @@ import { teamRoutes } from './routes/team.routes.ts';
 import { auditRoutes } from './routes/audit.routes.ts';
 import { ssoRoutes } from './routes/sso.routes.ts';
 import { templateRoutes } from './routes/templates.routes.ts';
+import { playbookRoutes } from './routes/playbooks.routes.ts';
+import { contractRoutes } from './routes/contracts.routes.ts';
+import { batchRoutes } from './routes/batch.routes.ts';
+import { workflowRoutes } from './routes/workflows.routes.ts';
+import { securityRoutes } from './routes/security.routes.ts';
 import { uploadRoutes } from './routes/uploads.routes.ts';
 import { userRoutes } from './routes/user.routes.ts';
 
@@ -104,7 +109,7 @@ export async function buildApp(db: Db): Promise<FastifyInstance> {
   // Uniform error shape: non-2xx + { message } (what the frontend surfaces).
   app.setErrorHandler((err, req, reply) => {
     if (err instanceof HttpError) {
-      return reply.code(err.status).send({ message: err.message });
+      return reply.code(err.status).send(err.code ? { message: err.message, code: err.code } : { message: err.message });
     }
     const statusCode = (err as { statusCode?: number }).statusCode;
     if (statusCode === 429) {
@@ -147,6 +152,7 @@ export async function buildApp(db: Db): Promise<FastifyInstance> {
       authRoutes(api, db);
       googleRoutes(api, db);
       userRoutes(api, db);
+      securityRoutes(api, db);
       chatRoutes(api, db);
       analysisRoutes(api, db);
       compareRoutes(api, db);
@@ -156,6 +162,10 @@ export async function buildApp(db: Db): Promise<FastifyInstance> {
       signRoutes(api, db);
       approvalRoutes(api, db);
       templateRoutes(api, db);
+      playbookRoutes(api, db);
+      contractRoutes(api, db);
+      batchRoutes(api, db);
+      workflowRoutes(api, db);
       signatureRoutes(api, db);
       analyticsRoutes(api, db);
       notificationRoutes(api, db);

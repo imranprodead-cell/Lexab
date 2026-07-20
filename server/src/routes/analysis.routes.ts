@@ -11,7 +11,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Db } from '../db.ts';
 import { ALLOWED_EXTENSIONS, assertValidFileContent, extractText, fileExtension, MAX_UPLOAD_BYTES } from '../extract.ts';
 import { badRequest, HttpError, notFound } from '../lib/errors.ts';
-import { assertDocumentAllowance, assertFeature, assertStorageAllowance, bumpUsage, releaseAiRequest, reserveAiRequest, reserveDocument, withStorageReservation, withAiRequest } from '../lib/limits.ts';
+import { assertDocumentAllowance, assertFeature, assertStorageAllowance, bumpUsage, planHasFeature, releaseAiRequest, reserveAiRequest, reserveDocument, withStorageReservation, withAiRequest } from '../lib/limits.ts';
 import { notify } from '../lib/notify.ts';
 import { assertCanEdit, resolveAnalysisAccess, resolveDocumentAccess } from '../lib/teamAccess.ts';
 import { attachmentDisposition, formatSize, looksRussian, looksUzbekLatin } from '../lib/format.ts';
@@ -63,8 +63,8 @@ async function loadAnalysis(db: Db, userId: string, id: string): Promise<Analysi
   // reading a shared document decrypts with the owner's key, not their own).
   const ownerId = row.user_id;
 
-  const findings = await db.query<{ id: string; severity: 'High' | 'Medium' | 'Low'; title: string; citation: string; unit_id: string | null; redline_id: string | null; unverified: boolean }>(
-    'SELECT id, severity, title, citation, unit_id, redline_id, unverified FROM findings WHERE analysis_id = $1 ORDER BY ord',
+  const findings = await db.query<{ id: string; severity: 'High' | 'Medium' | 'Low'; title: string; citation: string; unit_id: string | null; redline_id: string | null; unverified: boolean; playbook_deviation: boolean }>(
+    'SELECT id, severity, title, citation, unit_id, redline_id, unverified, playbook_deviation FROM findings WHERE analysis_id = $1 ORDER BY ord',
     [id],
   );
   const redlines = await db.query<Redline & { del_text: string; ins_text: string }>(
@@ -101,6 +101,7 @@ async function loadAnalysis(db: Db, userId: string, id: string): Promise<Analysi
       unitId: f.unit_id,
       redlineId: f.redline_id,
       unverified: f.unverified,
+      playbookDeviation: f.playbook_deviation,
     })),
     redlines: decRedlines,
     document: blocks,
@@ -118,11 +119,15 @@ export interface AnalysisSource {
   jurisdiction?: string | null;
   /** Re-analysis of a shared document: persist under this user (the owner). */
   ownerUserId?: string;
+  /** The exact upload this analysis is built from (uploads.id). Persisted on the
+   *  analysis so re-analysis / chat grounding / export read the RIGHT file even
+   *  when two uploads share a name. Null for re-analysis of legacy rows. */
+  uploadId?: string | null;
 }
 
 /** Render document blocks to plain text with the CURRENT redline states applied
  *  (accepted → new wording, otherwise the original) — the visible draft. */
-function blocksToDraftText(blocks: DocBlock[], redlines: Redline[]): string {
+export function blocksToDraftText(blocks: DocBlock[], redlines: Redline[]): string {
   const byId = new Map(redlines.map((r) => [r.id, r]));
   const lines: string[] = [];
   for (const block of blocks) {
@@ -149,28 +154,47 @@ function blocksToDraftText(blocks: DocBlock[], redlines: Redline[]): string {
 
 /** Re-analysis: build the source from an existing analysis' current draft.
  *  Requires edit rights; the result is persisted under the document owner. */
-async function sourceFromAnalysis(db: Db, userId: string, analysisId: string): Promise<AnalysisSource> {
+export async function sourceFromAnalysis(db: Db, userId: string, analysisId: string): Promise<AnalysisSource> {
   const access = await resolveAnalysisAccess(db, userId, analysisId, true);
   const a = await loadAnalysis(db, userId, analysisId);
+  const ownerId = access.analysisUserId;
+  // Re-analysis must review the WHOLE contract. For an uploaded document,
+  // blocksToDraftText holds only the clauses that carried redlines (the model is
+  // told to reproduce just those), so re-analysing it would review 2–3 clauses
+  // and could even declare the contract "clean". Prefer the full original text
+  // from the exact upload this analysis was built from; fall back to the draft
+  // blocks for prompt-drafts (no upload) and legacy rows without a link.
+  const linked = await db.query<{ upload_id: string | null }>('SELECT upload_id FROM analyses WHERE id = $1', [analysisId]);
+  const uploadId = linked.rows[0]?.upload_id ?? null;
+  let fullText: string | null = null;
+  if (uploadId) {
+    const up = await db.query<{ extracted_text: string | null }>(
+      'SELECT extracted_text FROM uploads WHERE id = $1 AND user_id = $2',
+      [uploadId, ownerId],
+    );
+    const raw = up.rows[0]?.extracted_text ?? null;
+    fullText = raw === null ? null : await decTextStrict(db, ownerId, raw);
+  }
   return {
     fileName: a.fileName,
     fileSizeLabel: a.fileSize,
     sizeBytes: 0,
-    text: blocksToDraftText(a.document, a.redlines),
+    text: fullText ?? blocksToDraftText(a.document, a.redlines),
     pdf: null,
-    ownerUserId: access.analysisUserId,
+    ownerUserId: ownerId,
+    uploadId,
   };
 }
 
 /** Resolve the contract content for JSON-mode requests from the uploads table. */
-async function resolveUploadedContent(db: Db, userId: string, fileName: string): Promise<{ text: string | null; pdf: Buffer | null; sizeBytes: number }> {
-  const res = await db.query<{ storage: 's3' | 'local' | 'supabase'; storage_key: string; extracted_text: string | null; size_bytes: number }>(
-    `SELECT storage, storage_key, extracted_text, size_bytes FROM uploads
+async function resolveUploadedContent(db: Db, userId: string, fileName: string): Promise<{ text: string | null; pdf: Buffer | null; sizeBytes: number; uploadId: string | null }> {
+  const res = await db.query<{ id: string; storage: 's3' | 'local' | 'supabase'; storage_key: string; extracted_text: string | null; size_bytes: number }>(
+    `SELECT id, storage, storage_key, extracted_text, size_bytes FROM uploads
      WHERE user_id = $1 AND file_name = $2 ORDER BY created_at DESC LIMIT 1`,
     [userId, fileName],
   );
   const row = res.rows[0];
-  if (!row) return { text: null, pdf: null, sizeBytes: 0 };
+  if (!row) return { text: null, pdf: null, sizeBytes: 0, uploadId: null };
   let pdf: Buffer | null = null;
   if (fileExtension(fileName) === '.pdf') {
     try {
@@ -188,7 +212,7 @@ async function resolveUploadedContent(db: Db, userId: string, fileName: string):
   // A PRESENT-but-undecryptable value throws (decTextStrict), so a corrupted
   // row can't silently downgrade the model input to "from the file name only".
   const text = row.extracted_text === null ? null : await decTextStrict(db, userId, row.extracted_text);
-  return { text, pdf, sizeBytes: Number(row.size_bytes) };
+  return { text, pdf, sizeBytes: Number(row.size_bytes), uploadId: row.id };
 }
 
 async function readSource(db: Db, req: FastifyRequest): Promise<AnalysisSource> {
@@ -213,10 +237,21 @@ async function readSource(db: Db, req: FastifyRequest): Promise<AnalysisSource> 
     // plan's storage quota and show up in the usage numbers.
     await assertStorageAllowance(db, req.currentUser.id, buffer.length);
     const stored = await saveFile(buffer, fileName, part.mimetype);
-    const text = await extractText(buffer, fileName);
+    // extractText can reject (e.g. a decompression-bomb docx) AFTER the bytes are
+    // already stored but BEFORE the uploads row exists — the storage-reservation
+    // compensation only fires on an INSERT failure, so clean up here or the file
+    // orphans.
+    let text: string | null;
+    try {
+      text = await extractText(buffer, fileName);
+    } catch (err) {
+      await deleteFile(stored.storage, stored.key).catch(() => undefined);
+      throw err;
+    }
     // Only the DB param is encrypted — the local `text` stays plaintext and is
     // what the LLM receives below (answers unchanged by encryption).
     const storedText = text === null ? null : await encText(db, req.currentUser.id, text);
+    const uploadId = newId('up');
     await withStorageReservation(
       db,
       req.currentUser.id,
@@ -226,7 +261,7 @@ async function readSource(db: Db, req: FastifyRequest): Promise<AnalysisSource> 
           .query(
             `INSERT INTO uploads (id, user_id, file_name, size_bytes, mime, storage, storage_key, url, extracted_text)
              VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, $8)`,
-            [newId('up'), req.currentUser.id, fileName, buffer.length, part.mimetype || null, stored.storage, stored.key, storedText],
+            [uploadId, req.currentUser.id, fileName, buffer.length, part.mimetype || null, stored.storage, stored.key, storedText],
           )
           .then(() => undefined),
       () => deleteFile(stored.storage, stored.key),
@@ -238,6 +273,7 @@ async function readSource(db: Db, req: FastifyRequest): Promise<AnalysisSource> 
       text,
       pdf: fileExtension(fileName) === '.pdf' ? buffer : null,
       jurisdiction,
+      uploadId,
     };
   }
 
@@ -254,7 +290,7 @@ async function readSource(db: Db, req: FastifyRequest): Promise<AnalysisSource> 
   const fileName = requireString(body, 'fileName', { min: 1, max: 300 });
   const fileSizeLabel = requireString(body, 'fileSize', { min: 1, max: 50 });
   const uploaded = await resolveUploadedContent(db, req.currentUser.id, fileName);
-  return { fileName, fileSizeLabel, sizeBytes: uploaded.sizeBytes, text: uploaded.text, pdf: uploaded.pdf, jurisdiction };
+  return { fileName, fileSizeLabel, sizeBytes: uploaded.sizeBytes, text: uploaded.text, pdf: uploaded.pdf, jurisdiction, uploadId: uploaded.uploadId };
 }
 
 /** Persist the generated analysis and all side effects; return the wire shape.
@@ -290,28 +326,71 @@ export async function persistAnalysis(
     })),
   );
 
+  // CLM (Этап 2): условия договора. Шифрование и чтение прежних обязательств —
+  // ДО транзакции (encText/decText ходят в БД за ключом; вложенный запрос
+  // внутри withTx на односоединённой PGlite зависает).
+  const terms = gen.terms ?? null;
+  const encContractValue = terms?.contractValue ? await encText(db, userId, terms.contractValue) : null;
+  const encObligations: { textEnc: string; dueDate: string | null; responsible: string | null; done: boolean; reminded: boolean }[] = [];
+  if (terms) {
+    // Переанализ того же ЖИВОГО документа: сохраняем пользовательские отметки
+    // «выполнено» и не шлём повторные напоминания по тем же обязательствам.
+    // Ключ переноса — текст + срок: обязательство с НОВОЙ датой — это новый
+    // дедлайн (напоминание должно прийти заново), а мягко удалённый документ
+    // в переносе не участвует (его отметки не должны перетекать на свежий).
+    const prior = new Map<string, { done: boolean; reminded: boolean }>();
+    const carryKey = (text: string, dueDate: string | null) => `${text}\u0000${dueDate ?? ''}`;
+    const priorDoc = await db.query<{ id: string }>(
+      'SELECT id FROM documents WHERE user_id = $1 AND name = $2 AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1',
+      [userId, source.fileName],
+    );
+    if (priorDoc.rows[0]) {
+      const old = await db.query<{ text_enc: string; due_date: string | null; done: boolean; reminded: boolean }>(
+        "SELECT text_enc, to_char(due_date, 'YYYY-MM-DD') AS due_date, done, reminded FROM contract_obligations WHERE document_id = $1",
+        [priorDoc.rows[0].id],
+      );
+      for (const o of old.rows) {
+        const t = await decText(db, userId, o.text_enc);
+        if (t !== null) prior.set(carryKey(t, o.due_date), { done: o.done, reminded: o.reminded });
+      }
+    }
+    for (const o of terms.obligations) {
+      const kept = prior.get(carryKey(o.text, o.dueDate));
+      encObligations.push({
+        textEnc: await encText(db, userId, o.text),
+        dueDate: o.dueDate,
+        responsible: o.responsible,
+        done: kept?.done ?? false,
+        reminded: kept?.reminded ?? false,
+      });
+    }
+  }
+
   // All of the review's rows (document, versions, analysis, findings, redlines,
   // stats) commit together or not at all — a mid-write failure never leaves a
   // half-saved analysis. Notifications are non-critical and run after commit.
   await db.withTx(async (tx) => {
-    // Upsert the document row backing the Documents page.
+    // Upsert the document row backing the Documents page. A soft-deleted doc of
+    // the same name is skipped, so re-analysing a file whose old copy is in the
+    // retention trash creates a fresh document instead of reviving the deleted one.
     const existingDoc = await tx.query<{ id: string }>(
-      'SELECT id FROM documents WHERE user_id = $1 AND name = $2 ORDER BY updated_at DESC LIMIT 1',
+      'SELECT id FROM documents WHERE user_id = $1 AND name = $2 AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1',
       [userId, source.fileName],
     );
     if (existingDoc.rows[0]) {
       documentId = existingDoc.rows[0].id;
       await tx.query(
         `UPDATE documents SET status = 'In review', risk = $2, size_bytes = GREATEST(size_bytes, $3),
-                jurisdiction = COALESCE($4, jurisdiction), updated_at = now() WHERE id = $1`,
-        [documentId, gen.riskLevel, source.sizeBytes, source.jurisdiction ?? null],
+                jurisdiction = COALESCE($4, jurisdiction), counterparty = COALESCE($5, counterparty),
+                updated_at = now() WHERE id = $1`,
+        [documentId, gen.riskLevel, source.sizeBytes, source.jurisdiction ?? null, gen.counterparty ?? null],
       );
     } else {
       documentId = newId('d');
       await tx.query(
         `INSERT INTO documents (id, user_id, name, counterparty, status, risk, jurisdiction, size_bytes)
-         VALUES ($1, $2, $3, '—', 'In review', $4, $5, $6)`,
-        [documentId, userId, source.fileName, gen.riskLevel, source.jurisdiction ?? '—', source.sizeBytes],
+         VALUES ($1, $2, $3, $4, 'In review', $5, $6, $7)`,
+        [documentId, userId, source.fileName, gen.counterparty ?? '—', gen.riskLevel, source.jurisdiction ?? '—', source.sizeBytes],
       );
       // Atomic doc-quota reservation inside this tx — a 402 rolls back the new
       // document too, and concurrent creates can't both slip past the limit.
@@ -329,8 +408,8 @@ export async function persistAnalysis(
     );
 
     await tx.query(
-      `INSERT INTO analyses (id, user_id, document_id, file_name, file_size, summary, risk_score, risk_level, clauses_reviewed, document_blocks)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      `INSERT INTO analyses (id, user_id, document_id, file_name, file_size, summary, risk_score, risk_level, clauses_reviewed, document_blocks, upload_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
       [
         analysisId,
         userId,
@@ -342,13 +421,14 @@ export async function persistAnalysis(
         gen.riskLevel,
         gen.clausesReviewed,
         encBlocks,
+        source.uploadId ?? null,
       ],
     );
     for (let i = 0; i < gen.findings.length; i++) {
       const f = gen.findings[i];
       await tx.query(
-        'INSERT INTO findings (analysis_id, id, ord, severity, title, citation, unit_id, redline_id, unverified) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)',
-        [analysisId, `f${i + 1}`, i, f.severity, f.title, f.citation, f.unitId ?? null, f.redlineId ?? null, f.unverified ?? false],
+        'INSERT INTO findings (analysis_id, id, ord, severity, title, citation, unit_id, redline_id, unverified, playbook_deviation) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)',
+        [analysisId, `f${i + 1}`, i, f.severity, f.title, f.citation, f.unitId ?? null, f.redlineId ?? null, f.unverified ?? false, f.playbookDeviation ?? false],
       );
     }
     for (let i = 0; i < encRedlines.length; i++) {
@@ -360,12 +440,54 @@ export async function persistAnalysis(
       );
     }
 
+    // CLM: upsert условий договора. Флаги напоминаний сбрасываются только
+    // когда соответствующая дата реально изменилась — иначе повторный анализ
+    // с теми же сроками прислал бы дубль напоминания.
+    if (terms) {
+      await tx.query(
+        `INSERT INTO contract_terms (document_id, effective_date, expiry_date, auto_renew, renewal_notice_days, contract_value_enc, currency, governing_law)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (document_id) DO UPDATE SET
+           effective_date = EXCLUDED.effective_date,
+           expiry_date = EXCLUDED.expiry_date,
+           auto_renew = EXCLUDED.auto_renew,
+           renewal_notice_days = EXCLUDED.renewal_notice_days,
+           contract_value_enc = EXCLUDED.contract_value_enc,
+           currency = EXCLUDED.currency,
+           governing_law = EXCLUDED.governing_law,
+           -- Сброс «напомнено» — только при СУЩЕСТВЕННОМ изменении даты: дрейф
+           -- извлечения на ≤3 дня не должен присылать то же напоминание заново.
+           expiry_reminded = CASE
+             WHEN contract_terms.expiry_date IS NOT DISTINCT FROM EXCLUDED.expiry_date THEN contract_terms.expiry_reminded
+             WHEN contract_terms.expiry_date IS NULL OR EXCLUDED.expiry_date IS NULL THEN false
+             WHEN ABS(EXCLUDED.expiry_date - contract_terms.expiry_date) > 3 THEN false
+             ELSE contract_terms.expiry_reminded END,
+           renewal_reminded = CASE
+             WHEN contract_terms.renewal_notice_days IS DISTINCT FROM EXCLUDED.renewal_notice_days THEN false
+             WHEN contract_terms.expiry_date IS NOT DISTINCT FROM EXCLUDED.expiry_date THEN contract_terms.renewal_reminded
+             WHEN contract_terms.expiry_date IS NULL OR EXCLUDED.expiry_date IS NULL THEN false
+             WHEN ABS(EXCLUDED.expiry_date - contract_terms.expiry_date) > 3 THEN false
+             ELSE contract_terms.renewal_reminded END,
+           extracted_at = now()`,
+        [documentId, terms.effectiveDate, terms.expiryDate, terms.autoRenew, terms.renewalNoticeDays, encContractValue, terms.currency, terms.governingLaw],
+      );
+      await tx.query('DELETE FROM contract_obligations WHERE document_id = $1', [documentId]);
+      for (let i = 0; i < encObligations.length; i++) {
+        const o = encObligations[i];
+        await tx.query(
+          'INSERT INTO contract_obligations (id, document_id, ord, text_enc, due_date, responsible, reminded, done) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+          [newId('ob'), documentId, i, o.textEnc, o.dueDate, o.responsible, o.reminded, o.done],
+        );
+      }
+    }
+
     // Analytics + usage are attributed to whoever ran the review (the requester
     // for shared team documents) — their allowance was checked, their stats move.
-    await tx.query('INSERT INTO review_events (id, user_id, risk_score) VALUES ($1, $2, $3)', [
+    await tx.query('INSERT INTO review_events (id, user_id, risk_score, analysis_id) VALUES ($1, $2, $3, $4)', [
       newId('re'),
       chargeUserId,
       gen.riskScore,
+      analysisId,
     ]);
     const bump = { High: 0, Medium: 0, Low: 0 };
     for (const f of gen.findings) bump[f.severity]++;
@@ -415,10 +537,105 @@ export async function persistAnalysis(
     riskScore: gen.riskScore,
     riskLevel: gen.riskLevel,
     clausesReviewed: gen.clausesReviewed,
-    findings: gen.findings.map((f, i) => ({ id: `f${i + 1}`, ...f })),
+    findings: gen.findings.map((f, i) => ({ id: `f${i + 1}`, ...f, playbookDeviation: f.playbookDeviation ?? false })),
     redlines: gen.redlines.map((r) => ({ ...r, status: 'pending' as const })),
     document: gen.document,
   };
+}
+
+/** The account whose playbook applies when `userId` runs a review: their team's
+ *  owner when they are an active member, otherwise themselves. */
+async function resolvePlaybookOwner(db: Db, userId: string): Promise<string> {
+  const res = await db.query<{ owner_user_id: string }>(
+    "SELECT owner_user_id FROM team_members WHERE member_user_id = $1 AND status = 'active' AND owner_user_id <> $1 LIMIT 1",
+    [userId],
+  );
+  return res.rows[0]?.owner_user_id ?? userId;
+}
+
+/** Load the active playbook's rules as one prompt-ready text block for the given
+ *  team owner + corpus (jurisdiction code), or null when none applies. Prefers a
+ *  jurisdiction-specific playbook, falling back to a global (jurisdiction NULL)
+ *  one. Rule text is decrypted with the OWNER's data key. */
+async function loadActivePlaybook(db: Db, ownerUserId: string, corpus: string | null): Promise<string | null> {
+  const pb = await db.query<{ id: string; name: string }>(
+    `SELECT id, name FROM playbooks
+     WHERE owner_user_id = $1 AND active = true AND (jurisdiction = $2 OR jurisdiction IS NULL)
+     ORDER BY (jurisdiction = $2) DESC NULLS LAST, created_at DESC LIMIT 1`,
+    [ownerUserId, corpus],
+  );
+  const row = pb.rows[0];
+  if (!row) return null;
+  const rules = await db.query<{ text_enc: string }>(
+    'SELECT text_enc FROM playbook_rules WHERE playbook_id = $1 ORDER BY ord',
+    [row.id],
+  );
+  const lines: string[] = [];
+  for (const r of rules.rows) {
+    const text = await decText(db, ownerUserId, r.text_enc);
+    if (text && text.trim()) lines.push(`- ${text.trim()}`);
+  }
+  return lines.length ? `«${row.name}»:\n${lines.join('\n')}` : null;
+}
+
+/** Демоция непроверенных цитат: находка без подтверждённой ссылки из корпуса
+ *  помечается unverified и (при связанной правке) синхронизирует её тяжесть. */
+async function validateGen(
+  db: Db,
+  gen: GeneratedAnalysis,
+  legalContext: RetrievedChunk[],
+  corpus: string | null,
+  retrievalFailed: boolean,
+): Promise<GeneratedAnalysis> {
+  if (legalContext.length) {
+    const findings = await validateFindings(db, gen.findings, undefined, corpus ?? 'UK');
+    const sevByRedline = new Map(findings.filter((f) => f.redlineId).map((f) => [f.redlineId as string, f.severity]));
+    const redlines = gen.redlines.map((r) => (sevByRedline.has(r.id) ? { ...r, severity: sevByRedline.get(r.id) as typeof r.severity } : r));
+    return { ...gen, findings, redlines };
+  }
+  // Юрисдикция с базой законов, чью проверку не удалось выполнить, не должна
+  // выглядеть «проверенной» — каждую цитату помечаем неподтверждённой.
+  if (retrievalFailed) return { ...gen, findings: gen.findings.map((f) => ({ ...f, unverified: true })) };
+  return gen;
+}
+
+/** Полный конвейер «источник → проверенный анализ»: RAG-контекст по юрисдикции,
+ *  активный плейбук команды (Pro+), генерация моделью и валидация цитат.
+ *  Общий для одиночного POST /analysis и массового разбора (batch) — оба дают
+ *  одинаковое качество. Резервирование ИИ-квоты остаётся на вызывающем. */
+export async function analyzeSource(
+  db: Db,
+  requesterId: string,
+  source: AnalysisSource,
+  plan: string,
+  logWarn: (msg: string) => void = () => undefined,
+): Promise<GeneratedAnalysis> {
+  const corpus = jurisdictionCode(source.jurisdiction);
+  let retrievalFailed = false;
+  const legalContext: RetrievedChunk[] = corpus
+    ? await retrieveLegalContext(db, {
+        query: (source.text ?? source.fileName).slice(0, 2500),
+        jurisdiction: corpus,
+        topK: 10,
+      }).catch((err) => {
+        logWarn(`legal retrieval failed: ${(err as Error).message}`);
+        retrievalFailed = true;
+        return [];
+      })
+    : [];
+  const playbook = planHasFeature(plan, 'playbooks')
+    ? await loadActivePlaybook(db, await resolvePlaybookOwner(db, requesterId), corpus).catch(() => null)
+    : null;
+  const gen = await generateAnalysis({
+    fileName: source.fileName,
+    text: source.text,
+    pdf: source.pdf,
+    jurisdiction: source.jurisdiction,
+    plan,
+    legalContext,
+    playbook,
+  });
+  return validateGen(db, gen, legalContext, corpus, retrievalFailed);
 }
 
 export function analysisRoutes(app: FastifyInstance, db: Db): void {
@@ -466,40 +683,14 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
     // document row, then an atomic AI reservation just before the model call.
     const source = await readSource(db, req);
 
-    // RAG: pull the provisions in force for the user's jurisdiction and
-    // validate every citation afterwards (unverified findings get demoted).
-    const corpus = jurisdictionCode(source.jurisdiction);
-    let retrievalFailed = false;
-    const legalContext: RetrievedChunk[] = corpus
-      ? await retrieveLegalContext(db, {
-          query: (source.text ?? source.fileName).slice(0, 2500),
-          jurisdiction: corpus,
-          topK: 10,
-        }).catch((err) => {
-          req.log.warn(`legal retrieval failed: ${(err as Error).message}`);
-          retrievalFailed = true;
-          return [];
-        })
-      : [];
-    const withValidation = async (gen: GeneratedAnalysis): Promise<GeneratedAnalysis> => {
-      if (legalContext.length) {
-        const findings = await validateFindings(db, gen.findings, undefined, corpus ?? 'UK');
-        // Синхронизация тяжести: понижение находки (unverified → Low) тянет
-        // за собой связанную правку — иначе один риск в отчёте живёт с двумя
-        // разными оценками ([Low] в находках и [High] в правках).
-        const sevByRedline = new Map(findings.filter((f) => f.redlineId).map((f) => [f.redlineId as string, f.severity]));
-        const redlines = gen.redlines.map((r) => (sevByRedline.has(r.id) ? { ...r, severity: sevByRedline.get(r.id) as typeof r.severity } : r));
-        return { ...gen, findings, redlines };
-      }
-      // A jurisdiction with a law base whose check couldn't run must NOT look
-      // verified — flag every citation as unconfirmed rather than silently
-      // presenting model output as grounded.
-      if (retrievalFailed) return { ...gen, findings: gen.findings.map((f) => ({ ...f, unverified: true })) };
-      return gen;
-    };
+    // The document is upserted under its OWNER (source.ownerUserId for a shared
+    // re-analysis), so check existence under the owner too — otherwise re-analysing
+    // a teammate's shared document is falsely blocked by the REQUESTER's personal
+    // document limit even though no new document row is created.
+    const docOwnerId = source.ownerUserId ?? req.currentUser.id;
     const existingDoc = await db.query(
-      'SELECT 1 FROM documents WHERE user_id = $1 AND name = $2 LIMIT 1',
-      [req.currentUser.id, source.fileName],
+      'SELECT 1 FROM documents WHERE user_id = $1 AND name = $2 AND deleted_at IS NULL LIMIT 1',
+      [docOwnerId, source.fileName],
     );
     if (!existingDoc.rows[0]) await assertDocumentAllowance(db, req.currentUser.id);
 
@@ -515,9 +706,7 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
       try {
         sse.send('step', { index: 0, label: ANALYSIS_STEPS[0] });
         sse.send('step', { index: 1, label: ANALYSIS_STEPS[1] });
-        const gen = await withValidation(
-          await generateAnalysis({ fileName: source.fileName, text: source.text, pdf: source.pdf, jurisdiction: source.jurisdiction, plan, legalContext }),
-        );
+        const gen = await analyzeSource(db, req.currentUser.id, source, plan, (m) => req.log.warn(m));
         sse.send('step', { index: 2, label: ANALYSIS_STEPS[2] });
         const result = await persistAnalysis(db, source.ownerUserId ?? req.currentUser.id, source, gen, req.currentUser.id, req);
         await countOnSuccess();
@@ -535,9 +724,7 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
     }
 
     try {
-      const gen = await withValidation(
-        await generateAnalysis({ fileName: source.fileName, text: source.text, pdf: source.pdf, jurisdiction: source.jurisdiction, plan, legalContext }),
-      );
+      const gen = await analyzeSource(db, req.currentUser.id, source, plan, (m) => req.log.warn(m));
       const result = await persistAnalysis(db, source.ownerUserId ?? req.currentUser.id, source, gen, req.currentUser.id, req);
       await countOnSuccess();
       reply.code(201);
@@ -627,9 +814,47 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
         if (typeof seg !== 'string' && 'redlineId' in seg) referenced.push(seg.redlineId);
       }
     }
+    // Undo/redo can re-introduce a {redlineId} slot whose redline row was deleted
+    // by an earlier edit. The client sends its current redline snapshot; re-create
+    // any that the (restored) document references but that no longer exist — so the
+    // clause text a slot carries is never silently lost after a reload. DO NOTHING
+    // on conflict: an existing redline keeps its real server status (a stale client
+    // snapshot must not clobber an accepted/rejected state).
+    const refSet = new Set(referenced);
+    const SEV = new Set(['High', 'Medium', 'Low']);
+    const STAT = new Set(['pending', 'accepted', 'rejected']);
+    const incoming = Array.isArray(body.redlines) ? (body.redlines as unknown[]) : [];
+    for (const [i, r] of incoming.slice(0, 200).entries()) {
+      if (!isObject(r) || typeof r.id !== 'string' || !refSet.has(r.id)) continue;
+      if (typeof r.delText !== 'string' || typeof r.insText !== 'string') continue;
+      const severity = SEV.has(r.severity as string) ? (r.severity as string) : 'Medium';
+      const status = STAT.has(r.status as string) ? (r.status as string) : 'pending';
+      await db.query(
+        `INSERT INTO redlines (analysis_id, id, ord, del_text, ins_text, severity, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT (analysis_id, id) DO NOTHING`,
+        [
+          id,
+          r.id,
+          i,
+          await encText(db, patchAccess.analysisUserId, r.delText),
+          await encText(db, patchAccess.analysisUserId, r.insText),
+          severity,
+          status,
+        ],
+      );
+    }
     await db.query(
       `DELETE FROM redlines WHERE analysis_id = $1 AND status = 'pending' AND NOT (id = ANY($2::text[]))`,
       [id, referenced],
+    );
+    // Clear finding→redline links that now dangle (the redline was retired just
+    // above), so a finding card doesn't keep advertising a "jump to the change"
+    // that leads nowhere after reload.
+    await db.query(
+      `UPDATE findings SET redline_id = NULL
+       WHERE analysis_id = $1 AND redline_id IS NOT NULL
+         AND redline_id NOT IN (SELECT id FROM redlines WHERE analysis_id = $1)`,
+      [id],
     );
     return loadAnalysis(db, req.currentUser.id, id);
   });
@@ -689,13 +914,8 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
     // Owner or team member with edit rights.
     const rlAccess = await resolveAnalysisAccess(db, req.currentUser.id, id, true);
 
-    const res = await db.query<{ id: string; del_text: string; ins_text: string; severity: 'High' | 'Medium' | 'Low'; status: 'pending' | 'accepted' | 'rejected' }>(
-      `UPDATE redlines SET status = $3 WHERE analysis_id = $1 AND id = $2
-       RETURNING id, del_text, ins_text, severity, status`,
-      [id, rid, status],
-    );
-    const row = res.rows[0];
-    if (!row) throw notFound('Redline not found');
+    const redline = await setRedlineStatus(db, id, rlAccess.analysisUserId, rid, status);
+    if (!redline) throw notFound('Redline not found');
     // Метаданные — только id правки и статус, НИКОГДА не текст изменений
     // (содержимое договора конфиденциально и зашифровано at-rest).
     if (status !== 'pending') {
@@ -706,9 +926,31 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
         metadata: { redlineId: rid },
       });
     }
-    const delText = await decText(db, rlAccess.analysisUserId, row.del_text);
-    const insText = await decText(db, rlAccess.analysisUserId, row.ins_text);
-    if (delText === null || insText === null) throw new HttpError(500, 'Document cannot be decrypted — data key mismatch');
-    return { id: row.id, delText, insText, severity: row.severity, status: row.status };
+    return redline;
   });
+}
+
+/**
+ * Set one redline's status and return the decrypted redline (null when the id
+ * doesn't belong to the analysis). Access control + audit stay with the caller.
+ * Reused by PATCH /redlines and the agentic-workflow orchestrator (Этап 4).
+ */
+export async function setRedlineStatus(
+  db: Db,
+  analysisId: string,
+  ownerUserId: string,
+  rid: string,
+  status: 'accepted' | 'rejected' | 'pending',
+): Promise<Redline | null> {
+  const res = await db.query<{ id: string; del_text: string; ins_text: string; severity: 'High' | 'Medium' | 'Low'; status: 'pending' | 'accepted' | 'rejected' }>(
+    `UPDATE redlines SET status = $3 WHERE analysis_id = $1 AND id = $2
+     RETURNING id, del_text, ins_text, severity, status`,
+    [analysisId, rid, status],
+  );
+  const row = res.rows[0];
+  if (!row) return null;
+  const delText = await decText(db, ownerUserId, row.del_text);
+  const insText = await decText(db, ownerUserId, row.ins_text);
+  if (delText === null || insText === null) throw new HttpError(500, 'Document cannot be decrypted — data key mismatch');
+  return { id: row.id, delText, insText, severity: row.severity, status: row.status };
 }

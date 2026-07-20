@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import { Icon, type IconName } from '@/components/icons/Icon';
 import { Avatar } from '@/components/ui/Avatar';
@@ -22,6 +22,9 @@ const NAV: NavEntry[] = [
   { to: '/chat', icon: 'chat', key: 'nav.chat' },
   { to: '/documents', icon: 'docs', key: 'nav.documents' },
   { to: '/templates', icon: 'layout', key: 'nav.templates' },
+  { to: '/playbooks', icon: 'shield', key: 'nav.playbooks' },
+  { to: '/contracts', icon: 'calendar', key: 'nav.contracts' },
+  { to: '/batch', icon: 'inbox', key: 'nav.batch' },
   { to: '/signatures', icon: 'esign', key: 'nav.signatures' },
   { to: '/analytics', icon: 'analytics', key: 'nav.analytics' },
   { to: '/team', icon: 'users', key: 'nav.team' },
@@ -88,6 +91,9 @@ export function SideRail({ sessions, user, onNewReview }: SideRailProps) {
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
+  // Escape sets this just before it unmounts the input. The unmount fires a
+  // blur, and that blur must NOT save the draft — Enter/blur save, Escape does not.
+  const renameCancelled = useRef(false);
   const menuRef = useDismissable<HTMLDivElement>(() => setMenuFor(null), menuFor !== null);
 
   const groups = useMemo(() => {
@@ -103,6 +109,11 @@ export function SideRail({ sessions, user, onNewReview }: SideRailProps) {
   }, [sessions, pinnedIds, lang, t]);
 
   const commitRename = (id: string) => {
+    if (renameCancelled.current) {
+      renameCancelled.current = false;
+      setRenamingId(null);
+      return;
+    }
     renameSession(id, draft);
     setRenamingId(null);
   };
@@ -120,7 +131,10 @@ export function SideRail({ sessions, user, onNewReview }: SideRailProps) {
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') commitRename(s.id);
-              else if (e.key === 'Escape') setRenamingId(null);
+              else if (e.key === 'Escape') {
+                renameCancelled.current = true;
+                setRenamingId(null);
+              }
             }}
             onBlur={() => commitRename(s.id)}
           />
@@ -159,6 +173,7 @@ export function SideRail({ sessions, user, onNewReview }: SideRailProps) {
               role="menuitem"
               className={styles.recentMenuItem}
               onClick={() => {
+                renameCancelled.current = false;
                 setDraft(s.title);
                 setRenamingId(s.id);
                 setMenuFor(null);

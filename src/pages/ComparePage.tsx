@@ -23,6 +23,19 @@ function diffWords(a: string, b: string) {
   const bw = b.split(/(\s+)/);
   const n = aw.length;
   const m = bw.length;
+
+  // The LCS below allocates an (n+1)×(m+1) matrix; on very long clauses that is
+  // tens of millions of cells → the tab freezes/OOMs. Above a sane budget skip
+  // the word-level diff and show each side as one removed/added block instead.
+  // (aw/bw include whitespace tokens, so ~1200 tokens ≈ 600 words per side.)
+  const MAX_DIFF_TOKENS = 1200;
+  if (n > MAX_DIFF_TOKENS || m > MAX_DIFF_TOKENS) {
+    return {
+      before: a ? [{ text: a, removed: true }] : [],
+      after: b ? [{ text: b, added: true }] : [],
+    };
+  }
+
   const lcs: number[][] = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
   for (let i = n - 1; i >= 0; i--)
     for (let j = m - 1; j >= 0; j--)

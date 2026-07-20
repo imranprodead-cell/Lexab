@@ -100,13 +100,15 @@ export async function http<T>(path: string, options: HttpOptions = {}): Promise<
         }
         noteUnauthorized(path, response.status, authH.Authorization);
         let message = `Request failed (${response.status})`;
+        let code: string | undefined;
         try {
-          const data = (await response.json()) as { message?: string };
+          const data = (await response.json()) as { message?: string; code?: string };
           if (data?.message) message = data.message;
+          if (data?.code) code = data.code;
         } catch {
           /* non-JSON error body — keep default message */
         }
-        throw new ApiError(message, response.status);
+        throw new ApiError(message, response.status, code);
       }
 
       if (response.status === 204) return undefined as T;
@@ -122,7 +124,14 @@ export async function http<T>(path: string, options: HttpOptions = {}): Promise<
       }
     }
   }
-  throw lastError instanceof Error ? lastError : new ApiError('Network error', 0);
+  // A real HTTP failure (ApiError with a status, e.g. a retried 5xx) surfaces
+  // as-is. Anything else here is a connection-level rejection — fetch rejects
+  // with a raw TypeError ("Failed to fetch") on connection refused/DNS/TLS/CORS,
+  // which navigator.onLine cannot detect. Normalise it to the same friendly,
+  // localised offline error we already show when onLine === false, so callers
+  // never surface an untranslated TypeError.
+  if (lastError instanceof ApiError) throw lastError;
+  throw new ApiError(tStandalone('net.offline'), 0);
 }
 
 /** Thrown before any network send when the browser can't read a streaming

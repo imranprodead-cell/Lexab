@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { TopBar } from '@/components/layout/TopBar';
 import { Icon } from '@/components/icons/Icon';
 import { Badge } from '@/components/ui/Badge';
@@ -51,6 +51,33 @@ export function SignaturesPage() {
   const { data, loading, error, reload } = useAsync((signal) => signaturesApi.list(signal), []);
   const rows = data ?? [];
   const [selected, setSelected] = useState<SignatureRequest | null>(null);
+
+  // Light refetch so status + the "download signed PDF" button update once a
+  // recipient signs (the list otherwise loads only once). `reload` from useAsync
+  // is a fresh closure each render, so keep it in a ref and register listeners
+  // exactly once — no listener/interval churn, no leaks (cleanup below).
+  const reloadRef = useRef(reload);
+  reloadRef.current = reload;
+  useEffect(() => {
+    const refetch = () => {
+      if (document.visibilityState === 'visible') reloadRef.current();
+    };
+    window.addEventListener('focus', refetch);
+    document.addEventListener('visibilitychange', refetch);
+    const timer = window.setInterval(refetch, 45000);
+    return () => {
+      window.removeEventListener('focus', refetch);
+      document.removeEventListener('visibilitychange', refetch);
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  // Keep an open detail modal in sync with refreshed data so its status badge
+  // and download button reflect a just-received signature without reopening.
+  useEffect(() => {
+    setSelected((cur) => (cur ? rows.find((r) => r.id === cur.id) ?? cur : cur));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
 
   return (
     <div className={styles.page}>

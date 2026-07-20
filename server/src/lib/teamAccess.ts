@@ -46,7 +46,7 @@ export async function teamRoleFor(db: Db, viewerId: string, ownerId: string): Pr
 export async function resolveDocumentAccess(db: Db, userId: string, docId: string): Promise<DocumentAccess> {
   const res = await db.query<DocumentRowFull>(
     `SELECT id, user_id, name, counterparty, status, risk, jurisdiction, size_bytes, updated_at, team_shared
-     FROM documents WHERE id = $1`,
+     FROM documents WHERE id = $1 AND deleted_at IS NULL`,
     [docId],
   );
   const doc = res.rows[0];

@@ -229,10 +229,19 @@ async function listFiles(provider: Provider, accessToken: string, search: string
     const data = (await res.json()) as { files?: { id: string; name: string; size?: string; modifiedTime?: string; mimeType?: string }[] };
     // Drive files may have no extension in their display name — add one from
     // the mime type so the import (which validates by extension) accepts them.
-    const EXT_BY_MIME: Record<string, string> = { [GDOC_MIME]: '.docx', [DOCX_MIME]: '.docx', 'application/pdf': '.pdf', 'text/plain': '.txt' };
+    const EXT_BY_MIME: Record<string, string> = { [DOCX_MIME]: '.docx', 'application/pdf': '.pdf', 'text/plain': '.txt' };
     return (data.files ?? []).map((f) => {
-      const ext = EXT_BY_MIME[f.mimeType ?? ''];
-      const name = ext && !IMPORTABLE.test(f.name) ? `${f.name}${ext}` : f.name;
+      let name = f.name;
+      if (f.mimeType === GDOC_MIME) {
+        // A native Google Doc is always pulled in via DOCX export (see
+        // downloadFile), so its name MUST end in .docx — otherwise the import's
+        // assertValidFileContent rejects DOCX bytes declared as e.g. "x.pdf".
+        // Replace any existing importable extension so we never get "x.pdf.docx".
+        name = /\.docx$/i.test(name) ? name : `${name.replace(IMPORTABLE, '')}.docx`;
+      } else {
+        const ext = EXT_BY_MIME[f.mimeType ?? ''];
+        if (ext && !IMPORTABLE.test(name)) name = `${name}${ext}`;
+      }
       return {
         id: f.id,
         name,

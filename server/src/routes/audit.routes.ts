@@ -102,7 +102,15 @@ export function auditRoutes(app: FastifyInstance, db: Db): void {
       params,
     );
     const esc = (v: unknown) => {
-      const s = v == null ? '' : String(v);
+      let s = v == null ? '' : String(v);
+      // OWASP CSV-injection defense: neutralise a value that a spreadsheet
+      // (Excel/Sheets) would evaluate as a formula. Fields like actor_label /
+      // target_label / event_type are partly user-controlled (document names,
+      // signer names), so prefix a leading = + - @ (or tab/CR that some apps
+      // strip first) with an apostrophe BEFORE quoting.
+      if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+      // Normalise carriage returns so a lone \r can't split a CSV row.
+      s = s.replace(/\r\n?/g, '\n');
       return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
     const header = 'time,actor,event,target,status,ip\n';

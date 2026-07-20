@@ -105,29 +105,41 @@ export function inboundRoutes(app: FastifyInstance, db: Db): void {
 
       const results: { fileName: string; analysisId?: string; error?: string }[] = [];
       for (const raw of attachments.slice(0, 3)) {
-        const att = asObject(raw, 'attachment');
-        const fileName = requireString(att, 'filename', { min: 1, max: 300 });
-        if (!ALLOWED_EXTENSIONS.includes(fileExtension(fileName))) {
-          results.push({ fileName, error: 'unsupported type' });
-          continue;
-        }
-        const buffer = Buffer.from(requireString(att, 'contentBase64', { min: 4 }), 'base64');
-        if (buffer.length === 0 || buffer.length > MAX_UPLOAD_BYTES) {
-          results.push({ fileName, error: 'empty or over 10 MB' });
-          continue;
-        }
-        // Bytes must match the declared extension — a renamed binary/script must
-        // never be stored as a "contract".
-        if (!verifyFileSignature(buffer, fileName)) {
-          results.push({ fileName, error: 'content does not match file type' });
-          continue;
-        }
+        // fileName is resolved INSIDE the try below: a malformed attachment
+        // (wrong shape, missing filename/contentBase64) makes asObject/requireString
+        // throw badRequest(400) — outside the try that 400 would abort the whole
+        // webhook after earlier attachments were already uploaded + analysed +
+        // billed, and the provider would retry the non-2xx and duplicate them.
+        let fileName = 'attachment';
+        // Track the saved object so bytes stored BEFORE the row is committed
+        // (e.g. a docx bomb makes extractText throw) get cleaned up — no orphan.
+        let stored: Awaited<ReturnType<typeof saveFile>> | null = null;
+        let persisted = false;
 
-        // Per-attachment isolation: one bad file (e.g. a scanned PDF the Free
-        // DeepSeek path honestly 422s, OR a storage/AI quota 402) must not abort
-        // the rest of the batch — report it like the other per-file errors.
+        // Per-attachment isolation: one bad file (malformed payload, a scanned
+        // PDF the Free DeepSeek path honestly 422s, OR a storage/AI quota 402)
+        // must not abort the rest of the batch — report it like the other
+        // per-file errors and keep going (the endpoint still answers 2xx).
         try {
-          const stored = await saveFile(buffer, fileName);
+          const att = asObject(raw, 'attachment');
+          fileName = requireString(att, 'filename', { min: 1, max: 300 });
+          if (!ALLOWED_EXTENSIONS.includes(fileExtension(fileName))) {
+            results.push({ fileName, error: 'unsupported type' });
+            continue;
+          }
+          const buffer = Buffer.from(requireString(att, 'contentBase64', { min: 4 }), 'base64');
+          if (buffer.length === 0 || buffer.length > MAX_UPLOAD_BYTES) {
+            results.push({ fileName, error: 'empty or over 10 MB' });
+            continue;
+          }
+          // Bytes must match the declared extension — a renamed binary/script must
+          // never be stored as a "contract".
+          if (!verifyFileSignature(buffer, fileName)) {
+            results.push({ fileName, error: 'content does not match file type' });
+            continue;
+          }
+
+          stored = await saveFile(buffer, fileName);
           const text = await extractText(buffer, fileName);
           // Encrypted at rest with the inbound user's data key.
           const storedText = text === null ? null : await encText(db, user.id, text);
@@ -142,11 +154,13 @@ export function inboundRoutes(app: FastifyInstance, db: Db): void {
                 .query(
                   `INSERT INTO uploads (id, user_id, file_name, size_bytes, mime, storage, storage_key, url, extracted_text)
                    VALUES ($1, $2, $3, $4, NULL, $5, $6, NULL, $7)`,
-                  [newId('up'), user.id, fileName, buffer.length, stored.storage, stored.key, storedText],
+                  [newId('up'), user.id, fileName, buffer.length, stored!.storage, stored!.key, storedText],
                 )
                 .then(() => undefined),
-            () => deleteFile(stored.storage, stored.key),
+            () => deleteFile(stored!.storage, stored!.key),
           );
+          // Row now owns the bytes — keep the file even if analysis fails below.
+          persisted = true;
 
           await audit(db, null, {
             type: 'file.uploaded',
@@ -174,6 +188,10 @@ export function inboundRoutes(app: FastifyInstance, db: Db): void {
           });
           results.push({ fileName, analysisId: analysis.id });
         } catch (err) {
+          // Bytes saved but no row committed to own them (extractText threw on a
+          // docx bomb, or the storage reservation was rejected) → delete the
+          // orphan. After persisted=true the upload row owns the file — keep it.
+          if (stored && !persisted) await deleteFile(stored.storage, stored.key).catch(() => {});
           req.log.warn(err, `inbound: analysis failed for ${fileName}`);
           // Only deliberate HttpErrors carry a message written for exposure
           // (incl. the 402 quota messages); anything else stays in the logs.

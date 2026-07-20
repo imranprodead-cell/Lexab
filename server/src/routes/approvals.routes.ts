@@ -107,6 +107,77 @@ async function mailApprover(ownerName: string, ownerFirm: string, documentName: 
   });
 }
 
+/** A single approver in a chain (already validated). */
+export interface ApprovalStepInput {
+  name: string;
+  email: string;
+  role: string | null;
+  dueAt: Date | null;
+}
+
+/** Parse+validate the raw `steps` payload into ApprovalStepInput[] (1–10). */
+export function parseApprovalSteps(rawSteps: unknown): ApprovalStepInput[] {
+  if (!Array.isArray(rawSteps) || rawSteps.length === 0 || rawSteps.length > 10) {
+    throw badRequest('Field "steps" must be an array of 1–10 approvers');
+  }
+  return rawSteps.map((s, i) => {
+    const obj = asObject(s, `steps[${i}]`);
+    const name = requireString(obj, 'name', { min: 1, max: 200 });
+    const email = requireString(obj, 'email', { min: 3, max: 320 }).toLowerCase();
+    if (!EMAIL_RE.test(email)) throw badRequest(`steps[${i}].email is not a valid email`);
+    const role = typeof obj.role === 'string' ? obj.role.slice(0, 100) : null;
+    let dueAt: Date | null = null;
+    if (typeof obj.dueAt === 'string' && obj.dueAt) {
+      const d = new Date(obj.dueAt);
+      if (Number.isNaN(d.getTime())) throw badRequest(`steps[${i}].dueAt is not a valid date`);
+      dueAt = d;
+    }
+    return { name, email, role, dueAt };
+  });
+}
+
+/**
+ * Create an active approval chain for a document and notify the first approver.
+ * Caller is responsible for access + duplicate-flow checks. Reused by the
+ * approvals route and the agentic-workflow orchestrator (Этап 4).
+ */
+export async function startApprovalFlow(
+  db: Db,
+  owner: { id: string; name: string; firm: string },
+  document: { id: string; name: string },
+  steps: ApprovalStepInput[],
+): Promise<{ id: string; documentId: string; status: string; createdAt: string; steps: ReturnType<typeof toStep>[] }> {
+  const flowId = newId('af');
+  await db.query(
+    `INSERT INTO approval_flows (id, document_id, owner_user_id, status) VALUES ($1, $2, $3, 'active')`,
+    [flowId, document.id, owner.id],
+  );
+  for (let i = 0; i < steps.length; i++) {
+    const s = steps[i];
+    await db.query(
+      `INSERT INTO approval_steps (id, flow_id, ord, approver_name, approver_email, role_label, status, due_at, token)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [newId('as'), flowId, i, s.name, s.email, s.role, i === 0 ? 'pending' : 'waiting', s.dueAt, crypto.randomBytes(24).toString('base64url')],
+    );
+  }
+
+  const created = await flowSteps(db, flowId);
+  await mailApprover(owner.name, owner.firm, document.name, created[0]);
+  await notifyApprover(db, owner.name, document.name, created[0]);
+  await notify(db, owner.id, 'docs', 'Согласование запущено', 'Approval workflow started', {
+    bodyRu: `${document.name} · ${stepsRu(steps.length)}`,
+    bodyEn: `${document.name} · ${steps.length} ${steps.length === 1 ? 'step' : 'steps'}`,
+    action: { kind: 'open', data: `/documents/${document.id}` },
+  });
+  return {
+    id: flowId,
+    documentId: document.id,
+    status: 'active',
+    createdAt: new Date().toISOString(),
+    steps: created.map((s) => toStep(s, true)),
+  };
+}
+
 export function approvalRoutes(app: FastifyInstance, db: Db): void {
   // Start a chain. Pro/Business only.
   app.post('/approvals', { preHandler: [app.authenticateReal] }, async (req, reply) => {
@@ -114,10 +185,7 @@ export function approvalRoutes(app: FastifyInstance, db: Db): void {
 
     const body = asObject(req.body);
     const documentId = requireString(body, 'documentId', { min: 1, max: 60 });
-    const rawSteps = body.steps;
-    if (!Array.isArray(rawSteps) || rawSteps.length === 0 || rawSteps.length > 10) {
-      throw badRequest('Field "steps" must be an array of 1–10 approvers');
-    }
+    const steps = parseApprovalSteps(body.steps);
 
     const access = await resolveDocumentAccess(db, req.currentUser.id, documentId);
     if (access.access !== 'owner') throw new HttpError(403, 'Маршрут может запустить только владелец документа');
@@ -128,53 +196,12 @@ export function approvalRoutes(app: FastifyInstance, db: Db): void {
     );
     if (active.rows[0]) throw new HttpError(409, 'По этому документу уже идёт согласование — отмените его сначала');
 
-    const steps = rawSteps.map((s, i) => {
-      const obj = asObject(s, `steps[${i}]`);
-      const name = requireString(obj, 'name', { min: 1, max: 200 });
-      const email = requireString(obj, 'email', { min: 3, max: 320 }).toLowerCase();
-      if (!EMAIL_RE.test(email)) throw badRequest(`steps[${i}].email is not a valid email`);
-      const role = typeof obj.role === 'string' ? obj.role.slice(0, 100) : null;
-      let dueAt: Date | null = null;
-      if (typeof obj.dueAt === 'string' && obj.dueAt) {
-        const d = new Date(obj.dueAt);
-        if (Number.isNaN(d.getTime())) throw badRequest(`steps[${i}].dueAt is not a valid date`);
-        dueAt = d;
-      }
-      return { name, email, role, dueAt };
-    });
-
-    const flowId = newId('af');
-    await db.query(
-      `INSERT INTO approval_flows (id, document_id, owner_user_id, status) VALUES ($1, $2, $3, 'active')`,
-      [flowId, documentId, req.currentUser.id],
+    const flow = await startApprovalFlow(
+      db,
+      { id: req.currentUser.id, name: req.currentUser.name, firm: req.currentUser.firm },
+      { id: documentId, name: access.doc.name },
+      steps,
     );
-    for (let i = 0; i < steps.length; i++) {
-      const s = steps[i];
-      await db.query(
-        `INSERT INTO approval_steps (id, flow_id, ord, approver_name, approver_email, role_label, status, due_at, token)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-        [
-          newId('as'),
-          flowId,
-          i,
-          s.name,
-          s.email,
-          s.role,
-          i === 0 ? 'pending' : 'waiting',
-          s.dueAt,
-          crypto.randomBytes(24).toString('base64url'),
-        ],
-      );
-    }
-
-    const created = await flowSteps(db, flowId);
-    await mailApprover(req.currentUser.name, req.currentUser.firm, access.doc.name, created[0]);
-    await notifyApprover(db, req.currentUser.name, access.doc.name, created[0]);
-    await notify(db, req.currentUser.id, 'docs', 'Согласование запущено', 'Approval workflow started', {
-      bodyRu: `${access.doc.name} · ${stepsRu(steps.length)}`,
-      bodyEn: `${access.doc.name} · ${steps.length} ${steps.length === 1 ? 'step' : 'steps'}`,
-      action: { kind: 'open', data: `/documents/${documentId}` },
-    });
 
     await audit(db, req, {
       type: 'approval.started',
@@ -182,13 +209,7 @@ export function approvalRoutes(app: FastifyInstance, db: Db): void {
       metadata: { steps: steps.length },
     });
     reply.code(201);
-    return {
-      id: flowId,
-      documentId,
-      status: 'active',
-      createdAt: new Date().toISOString(),
-      steps: created.map((s) => toStep(s, true)),
-    };
+    return flow;
   });
 
   // Flows for a document (owner sees links; team members see progress).
@@ -228,12 +249,21 @@ export function approvalRoutes(app: FastifyInstance, db: Db): void {
 
   app.post('/approvals/:id/cancel', { preHandler: [app.authenticate] }, async (req, reply) => {
     const { id } = req.params as { id: string };
-    const res = await db.query(
+    const res = await db.query<{ id: string; document_id: string }>(
       `UPDATE approval_flows SET status = 'cancelled'
-       WHERE id = $1 AND owner_user_id = $2 AND status = 'active' RETURNING id`,
+       WHERE id = $1 AND owner_user_id = $2 AND status = 'active' RETURNING id, document_id`,
       [id, req.currentUser.id],
     );
     if (!res.rows[0]) throw notFound('Активный маршрут не найден');
+    // Отмена — такое же событие маршрута, как старт/решение: пишем в аудит.
+    // Актор — владелец (WHERE owner_user_id = currentUser), поэтому teamOwnerId
+    // по умолчанию = actorId = владелец, как у approval.started. Только id, без
+    // содержимого документа.
+    await audit(db, req, {
+      type: 'approval.cancelled',
+      target: { type: 'document', id: res.rows[0].document_id },
+      metadata: { approvalId: id },
+    });
     reply.code(204);
   });
 
@@ -259,7 +289,7 @@ export function approvalRoutes(app: FastifyInstance, db: Db): void {
               u.id AS owner_id, u.name AS owner_name, u.firm AS owner_firm, u.email AS owner_email
        FROM approval_steps s
        JOIN approval_flows f ON f.id = s.flow_id
-       JOIN documents d ON d.id = f.document_id
+       JOIN documents d ON d.id = f.document_id AND d.deleted_at IS NULL
        JOIN users u ON u.id = f.owner_user_id
        WHERE s.token = $1`,
       [token],

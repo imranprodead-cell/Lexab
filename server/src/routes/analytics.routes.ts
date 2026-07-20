@@ -74,11 +74,20 @@ export function analyticsRoutes(app: FastifyInstance, db: Db): void {
       const i = monthIdx.get(monthKey(new Date(row.created_at as string)));
       if (i !== undefined) monthly[i].reviews++;
     }
+    // Findings are attributed to WHOEVER RAN the review (chargeUserId) — the same
+    // basis as monthly.reviews and the top metrics — NOT to the document owner
+    // (`analyses.user_id`), which for a shared team document is someone else.
+    // review_events.analysis_id links each event to ITS analysis exactly (the
+    // old created_at+risk_score heuristic double-counted on collisions); legacy
+    // rows with NULL analysis_id keep the heuristic as a fallback.
     const yearFindings = await db.query<{ created_at: Date | string; n: string | number }>(
-      `SELECT a.created_at, count(f.id) AS n
-         FROM analyses a JOIN findings f ON f.analysis_id = a.id
-        WHERE a.user_id = $1 AND a.created_at > now() - interval '366 days'
-        GROUP BY a.id, a.created_at`,
+      `SELECT re.created_at, count(f.id) AS n
+         FROM review_events re
+         JOIN analyses a ON (re.analysis_id IS NOT NULL AND a.id = re.analysis_id)
+                         OR (re.analysis_id IS NULL AND a.created_at = re.created_at AND a.risk_score = re.risk_score)
+         JOIN findings f ON f.analysis_id = a.id
+        WHERE re.user_id = $1 AND re.created_at > now() - interval '366 days'
+        GROUP BY re.id, re.created_at`,
       [userId],
     );
     for (const row of yearFindings.rows) {
@@ -100,20 +109,20 @@ export function analyticsRoutes(app: FastifyInstance, db: Db): void {
            SELECT risk_score, risk_level FROM analyses a
             WHERE a.document_id = d.id ORDER BY a.created_at DESC LIMIT 1
          ) a ON true
-        WHERE d.user_id = $1
+        WHERE d.user_id = $1 AND d.deleted_at IS NULL
         ORDER BY a.risk_score DESC, d.updated_at DESC
         LIMIT 5`,
       [userId],
     );
     const byJurisdiction = await db.query<{ jurisdiction: string; total: string | number; high: string | number }>(
       `SELECT jurisdiction, count(*) AS total, count(*) FILTER (WHERE risk = 'High') AS high
-         FROM documents WHERE user_id = $1
+         FROM documents WHERE user_id = $1 AND deleted_at IS NULL
         GROUP BY jurisdiction ORDER BY count(*) DESC LIMIT 8`,
       [userId],
     );
     const byCounterparty = await db.query<{ counterparty: string; total: string | number; high: string | number }>(
       `SELECT counterparty, count(*) AS total, count(*) FILTER (WHERE risk = 'High') AS high
-         FROM documents WHERE user_id = $1 AND counterparty <> '—'
+         FROM documents WHERE user_id = $1 AND counterparty <> '—' AND deleted_at IS NULL
         GROUP BY counterparty ORDER BY count(*) DESC LIMIT 8`,
       [userId],
     );

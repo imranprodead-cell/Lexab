@@ -1,6 +1,7 @@
-import { useState } from 'react';
-import { createBrowserRouter, Navigate } from 'react-router-dom';
+import { useState, type ReactElement } from 'react';
+import { createBrowserRouter, Navigate, useRouteError, type RouteObject } from 'react-router-dom';
 import { AppShell } from '@/components/layout/AppShell';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { RequireAuth } from './RequireAuth';
 import { useAuthStore } from '@/store/useAuthStore';
 
@@ -25,6 +26,9 @@ const loaders = {
   DocumentsPage: () => import('@/pages/DocumentsPage'),
   DocumentDetailPage: () => import('@/pages/DocumentDetailPage'),
   TemplatesPage: () => import('@/pages/TemplatesPage'),
+  PlaybooksPage: () => import('@/pages/PlaybooksPage'),
+  ContractsPage: () => import('@/pages/ContractsPage'),
+  BatchReviewPage: () => import('@/pages/BatchReviewPage'),
   SignaturesPage: () => import('@/pages/SignaturesPage'),
   AnalyticsPage: () => import('@/pages/AnalyticsPage'),
   PlansPage: () => import('@/pages/PlansPage'),
@@ -51,7 +55,19 @@ export function prefetchAllPages() {
   }
 }
 
-export const router = createBrowserRouter([
+/**
+ * React Router captures page render errors and failed lazy chunks itself, so
+ * the top-level <ErrorBoundary> in App.tsx (which wraps RouterProvider) never
+ * sees them. Re-throw the captured error into a fresh ErrorBoundary so a page
+ * crash or a 404'd chunk shows the branded, localized fallback instead of the
+ * router's bare "Unexpected Application Error" screen.
+ */
+function RouteErrorRethrow(): ReactElement {
+  const error = useRouteError();
+  throw error instanceof Error ? error : new Error(String(error));
+}
+
+const appRoutes: RouteObject[] = [
   {
     path: '/login',
     lazy: async () => ({ Component: (await loaders.AuthPage()).AuthPage }),
@@ -140,6 +156,18 @@ export const router = createBrowserRouter([
             lazy: async () => ({ Component: (await loaders.TemplatesPage()).TemplatesPage }),
           },
           {
+            path: 'playbooks',
+            lazy: async () => ({ Component: (await loaders.PlaybooksPage()).PlaybooksPage }),
+          },
+          {
+            path: 'contracts',
+            lazy: async () => ({ Component: (await loaders.ContractsPage()).ContractsPage }),
+          },
+          {
+            path: 'batch',
+            lazy: async () => ({ Component: (await loaders.BatchReviewPage()).BatchReviewPage }),
+          },
+          {
             path: 'signatures',
             lazy: async () => ({ Component: (await loaders.SignaturesPage()).SignaturesPage }),
           },
@@ -174,5 +202,19 @@ export const router = createBrowserRouter([
         ],
       },
     ],
+  },
+];
+
+export const router = createBrowserRouter([
+  {
+    // Pathless root: one branded error boundary for every route, public pages
+    // included. A page crash or a lazy-chunk 404 bubbles here and renders the
+    // localized fallback instead of the router's default error screen.
+    errorElement: (
+      <ErrorBoundary>
+        <RouteErrorRethrow />
+      </ErrorBoundary>
+    ),
+    children: appRoutes,
   },
 ]);

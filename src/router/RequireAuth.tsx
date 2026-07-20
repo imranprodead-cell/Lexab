@@ -8,7 +8,9 @@ export function RequireAuth({ children }: { children: ReactNode }) {
   const location = useLocation();
 
   if (!token) {
-    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+    // Keep the whole intended location (query-string + hash), not just the path,
+    // so sign-in lands exactly where the user was headed.
+    return <Navigate to="/login" replace state={{ from: location.pathname + location.search + location.hash }} />;
   }
   return <>{children}</>;
 }

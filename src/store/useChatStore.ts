@@ -18,7 +18,7 @@ import { ANALYSIS_STEPS } from '@/data/seed';
 import { tStandalone } from '@/i18n/messages';
 import { useChatHistoryStore } from '@/store/useChatHistoryStore';
 import { useUIStore } from '@/store/useUIStore';
-import type { AnalysisResult, ChatMessage, DocBlock, RedlineStatus } from '@/types/domain';
+import type { AnalysisResult, ChatMessage, DocBlock, Redline, RedlineStatus } from '@/types/domain';
 import { isRedlineSlot } from '@/types/domain';
 
 /** Refresh the sidebar list so new sessions / updated order show up instantly. */
@@ -269,7 +269,15 @@ export const useChatStore = create<ChatState>((set, get) => {
     finishActiveStreams();
     canvasEpoch++;
     const { phase, messages, analysis, activeStep, serverSessionId } = get();
-    ghostStash = { phase, messages, analysis, activeStep, serverSessionId };
+    // A live SSE reply still streaming at the moment we switch to ghost gets
+    // orphaned — the canvas switch clears its stream id and its completion is
+    // discarded from this canvas. Finalize it in the stash now (keep partial
+    // text, drop an empty bubble) so exitGhost never restores a bubble frozen
+    // forever in the "typing" state.
+    const stashedMessages = messages.flatMap((m) =>
+      m.streaming ? (m.text ? [{ ...m, streaming: false }] : []) : [m],
+    );
+    ghostStash = { phase, messages: stashedMessages, analysis, activeStep, serverSessionId };
     set({ ghost: true, phase: 'idle', messages: [], analysis: null, activeStep: -1, error: null, serverSessionId: null });
   },
 
@@ -336,9 +344,13 @@ export const useChatStore = create<ChatState>((set, get) => {
         try {
           await uploadsApi.upload(rawFile);
         } catch {
-          // Upload failed (offline/limit) — the review still runs from the
-          // file name, but tell the user the content didn't make it through.
+          // Upload failed (offline/over quota). Do NOT fall through to analysis:
+          // the server resolves the contract by file NAME, so if an OLDER upload
+          // with the same name exists it would silently review that stale version
+          // and present it as an analysis of the just-selected file. Abort with a
+          // clear error instead (the outer catch cleans up the empty session).
           useUIStore.getState().pushToast(tStandalone('chat.uploadFailed'), 'error');
+          throw new Error(tStandalone('chat.uploadFailed'));
         }
       }
       const sessionAtCall = get().serverSessionId;
@@ -783,7 +795,9 @@ export const useChatStore = create<ChatState>((set, get) => {
       docUndo: s.docUndo.slice(0, -1),
       docRedo: [...s.docRedo, current].slice(-50),
     });
-    void persistDocument(get().analysis!.id, prev.document);
+    // Send the restored redlines too: undo can re-introduce a slot whose redline
+    // an earlier edit deleted server-side — without this the clause text is lost.
+    void persistDocument(get().analysis!.id, prev.document, prev.redlines);
   },
 
   redoDocument: () => {
@@ -796,15 +810,17 @@ export const useChatStore = create<ChatState>((set, get) => {
       docRedo: s.docRedo.slice(0, -1),
       docUndo: [...s.docUndo, current].slice(-50),
     });
-    void persistDocument(get().analysis!.id, next.document);
+    void persistDocument(get().analysis!.id, next.document, next.redlines);
   },
   };
 });
 
-/** Persist swapped document blocks (undo/redo); surface a toast on failure. */
-function persistDocument(analysisId: string, document: DocBlock[]): Promise<void> {
+/** Persist swapped document blocks (undo/redo); surface a toast on failure.
+ *  `redlines` (the restored snapshot) lets the server re-create a redline the
+ *  document references but that an earlier edit deleted — see saveDocument. */
+function persistDocument(analysisId: string, document: DocBlock[], redlines?: Redline[]): Promise<void> {
   return analysisApi
-    .saveDocument(analysisId, document)
+    .saveDocument(analysisId, document, redlines)
     .then(() => undefined)
     .catch(() => useUIStore.getState().pushToast(tStandalone('common.error'), 'error'));
 }
