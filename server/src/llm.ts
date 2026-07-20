@@ -87,6 +87,10 @@ interface DeepseekCall {
   /** Бросить при усечении по max_tokens (шаблон/драфт: молча обрезанный
    *  договор хуже честной ошибки — withModelRetry переиграет на Anthropic). */
   failOnLength?: boolean;
+  /** Отключить «размышления» reasoning-модели (deepseek-v4-pro). На микро-бюджете
+   *  (сводка, аннотации) reasoning съедает весь max_tokens → content пустой,
+   *  finish_reason=length. Ставим для коротких запросов. */
+  thinkingDisabled?: boolean;
 }
 
 /** One DeepSeek chat-completions call (streamed or not); returns the full text. */
@@ -101,6 +105,9 @@ async function runDeepseek(call: DeepseekCall): Promise<string> {
     max_tokens: Math.min(call.maxTokens, 8000),
     messages: [{ role: 'system' as const, content: system }, ...call.messages],
     ...(call.schema ? { response_format: { type: 'json_object' as const } } : {}),
+    // deepseek-v4-pro рассуждает по умолчанию; на коротком max_tokens это
+    // выжигает весь бюджет в reasoning (content пустой). Отключаем для микрозапросов.
+    ...(call.thinkingDisabled ? ({ thinking: { type: 'disabled' } } as Record<string, unknown>) : {}),
   };
 
   if (call.onToken) {
@@ -236,6 +243,21 @@ function logUsage(op: string, requested: string, message: Anthropic.Beta.BetaMes
   );
 }
 
+/** CLM (Этап 2): contract-management metadata extracted alongside the review.
+ *  Every field is null when the contract does not state it — the model must
+ *  never guess dates or amounts (a wrong date in a legal calendar is worse
+ *  than an empty one). Dates are ISO YYYY-MM-DD strings. */
+export interface ContractTerms {
+  effectiveDate: string | null;
+  expiryDate: string | null;
+  autoRenew: boolean | null;
+  renewalNoticeDays: number | null;
+  contractValue: string | null;
+  currency: string | null;
+  governingLaw: string | null;
+  obligations: { text: string; dueDate: string | null; responsible: string | null }[];
+}
+
 /** Everything the model produces; id/status are assigned server-side. */
 export interface GeneratedAnalysis {
   summary: string;
@@ -245,6 +267,11 @@ export interface GeneratedAnalysis {
   findings: Omit<Finding, 'id'>[];
   redlines: Omit<Redline, 'status'>[];
   document: DocBlock[];
+  /** The other contracting party's name, if clearly identifiable — powers the
+   *  "By counterparty" analytics. Null when not confidently identifiable. */
+  counterparty?: string | null;
+  /** CLM metadata (dates/renewal/value/obligations); null when none stated. */
+  terms?: ContractTerms | null;
 }
 
 export interface AnalysisInput {
@@ -259,6 +286,9 @@ export interface AnalysisInput {
   plan?: string | null;
   /** Verified provisions from the legal corpus (RAG) — findings must cite them via unitId. */
   legalContext?: RetrievedChunk[];
+  /** The team's playbook: standard positions the contract is checked against.
+   *  A clause breaking one of these becomes a finding with playbookDeviation=true. */
+  playbook?: string | null;
 }
 
 const SEVERITY = ['High', 'Medium', 'Low'];
@@ -279,6 +309,11 @@ const ANALYSIS_SCHEMA = {
     },
     riskLevel: { type: 'string', enum: ['Low', 'Elevated', 'High'] },
     clausesReviewed: { type: 'integer', description: 'Number of clauses examined.' },
+    counterparty: {
+      type: ['string', 'null'],
+      description:
+        "The name of the OTHER contracting party (the counterparty to the user/client), e.g. the company or person on the other side, exactly as written in the contract. Null if it cannot be identified with confidence — never guess or invent a name.",
+    },
     findings: {
       type: 'array',
       items: {
@@ -299,6 +334,11 @@ const ANALYSIS_SCHEMA = {
             description:
               'Id of the redline (r1, r2, …) that fixes this issue, or "" when the issue has no redline. Never invent ids.',
           },
+          playbookDeviation: {
+            type: 'boolean',
+            description:
+              'True ONLY when this finding flags a clause that deviates from a PLAYBOOK position supplied in the prompt. Omit or false for ordinary statutory-risk findings.',
+          },
         },
       },
     },
@@ -313,6 +353,41 @@ const ANALYSIS_SCHEMA = {
           delText: { type: 'string', description: 'Exact contract wording to strike.' },
           insText: { type: 'string', description: 'Replacement wording.' },
           severity: { type: 'string', enum: SEVERITY },
+        },
+      },
+    },
+    terms: {
+      type: 'object',
+      additionalProperties: false,
+      description:
+        'Contract-management metadata. Extract ONLY facts the contract states explicitly — never estimate or invent; use null (or [] for obligations) when absent or unclear.',
+      required: ['effectiveDate', 'expiryDate', 'autoRenew', 'renewalNoticeDays', 'contractValue', 'currency', 'governingLaw', 'obligations'],
+      properties: {
+        effectiveDate: { type: ['string', 'null'], description: 'Start/effective date, ISO YYYY-MM-DD. Null when not stated.' },
+        expiryDate: {
+          type: ['string', 'null'],
+          description:
+            'End/expiry date, ISO YYYY-MM-DD. When the contract states an effective date plus a fixed term, compute the end date. Null for perpetual or unstated.',
+        },
+        autoRenew: { type: ['boolean', 'null'], description: 'True when the contract renews automatically unless a party gives notice; null when silent.' },
+        renewalNoticeDays: { type: ['integer', 'null'], description: 'Days before expiry by which a non-renewal notice must be given, when stated.' },
+        contractValue: { type: ['string', 'null'], description: 'Total price/value exactly as written (e.g. "1 500 000"). Null when no explicit total amount.' },
+        currency: { type: ['string', 'null'], description: 'ISO 4217 code of contractValue (USD, EUR, UZS, GBP, …).' },
+        governingLaw: { type: ['string', 'null'], description: 'Governing law as stated, short form (e.g. "England and Wales", "Республика Узбекистан").' },
+        obligations: {
+          type: 'array',
+          description:
+            "Up to 10 concrete deliverable obligations (payments, deliveries, notices, reports) with the responsible party, written in the contract's language. Empty array when none are clearly stated.",
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['text', 'dueDate', 'responsible'],
+            properties: {
+              text: { type: 'string', description: 'One obligation in one sentence.' },
+              dueDate: { type: ['string', 'null'], description: 'ISO YYYY-MM-DD when a specific calendar deadline is stated or computable; else null.' },
+              responsible: { type: ['string', 'null'], description: 'The party owing the obligation, as named in the contract.' },
+            },
+          },
         },
       },
     },
@@ -356,7 +431,9 @@ CITATION CONSISTENCY: the citation text and the unitId MUST refer to the SAME pr
 Produce tracked redlines: quote the exact problematic wording as delText, and provide precise replacement wording as insText.
 Reproduce ONLY the clauses that contain redlines in the document array: a heading block (numbered, e.g. "5.  Termination") followed by a paragraph block whose segments interleave the surrounding original text with a single {redlineId} slot where the change belongs. Every redline id must appear in exactly one slot and every slot must reference an existing redline.
 When a finding is fixed by one of your redlines, set that finding's redlineId to the redline's id (r1, r2, …) so the user can click the finding and jump to the clause; use "" when a finding has no redline. Never invent ids.
-Keep it tight: 0–6 findings, 0–5 redlines, and one heading+paragraph pair per redline. If the contract is genuinely clean and market-standard, say so honestly — do NOT invent issues to fill a quota.`;
+Keep it tight: 0–6 findings, 0–5 redlines, and one heading+paragraph pair per redline. If the contract is genuinely clean and market-standard, say so honestly — do NOT invent issues to fill a quota.
+PLAYBOOK: if a PLAYBOOK block is supplied, additionally check the contract against each of the client's standard positions. A clause that breaks a position is a finding with playbookDeviation=true (name the position in the title) — this is separate from the tightness limit above and may add findings. Never flag a position the contract already meets.
+TERMS: also fill the terms object with contract-management metadata (dates, auto-renewal, value, governing law, key obligations). Extract ONLY what the contract explicitly states — a wrong date in a legal deadline calendar is worse than an empty one. Use null / [] when not stated; dates in ISO YYYY-MM-DD.`;
 
 /** User-prompt text for the analysis request — shared by both providers. */
 function buildAnalysisPrompt(input: AnalysisInput, text: string | null): string {
@@ -372,12 +449,19 @@ function buildAnalysisPrompt(input: AnalysisInput, text: string | null): string 
         .map((c) => `[${c.unitId}] ${c.breadcrumb}\n${c.body.slice(0, 900)}`)
         .join('\n---\n')
     : '';
+  // The team's standard positions. Any clause that breaks one of these must
+  // become a finding with playbookDeviation=true — even if it is otherwise
+  // legal — so the reviewer sees where the contract departs from house rules.
+  const playbookNote = input.playbook?.trim()
+    ? `\n\nPLAYBOOK — the client's standard positions for this contract. For EACH position, check whether the contract complies. If a clause deviates from a position, add a finding for it, set playbookDeviation=true, and name the position in the title. Do NOT flag a position that the contract already satisfies.\n${input.playbook.trim().slice(0, 4000)}`
+    : '';
   return (
     (text
       ? `File name: ${input.fileName}\n\nContract text:\n<<<\n${text}\n>>>`
       : `File name: ${input.fileName}\n\nNo machine-readable text could be extracted from this file. Infer the contract type from the file name and produce a realistic, jurisdiction-appropriate risk review of a typical contract of that type.`) +
     jurisdictionNote +
-    contextNote
+    contextNote +
+    playbookNote
   );
 }
 
@@ -527,11 +611,65 @@ function normalizeGenerated(raw: GeneratedAnalysis): GeneratedAnalysis {
         citation: f.citation,
         unitId: f.unitId?.trim() || null,
         redlineId: rid && redlineIds.has(rid) ? rid : null,
+        playbookDeviation: Boolean(f.playbookDeviation),
       };
     }),
     redlines,
     document,
+    counterparty:
+      typeof raw.counterparty === 'string' && raw.counterparty.trim() ? raw.counterparty.trim().slice(0, 200) : null,
+    terms: normalizeTerms(raw.terms),
   };
+}
+
+/** Sanitize the model's CLM metadata: dates must be real ISO days in a sane
+ *  range, numbers bounded, strings trimmed — anything malformed becomes null
+ *  rather than a bogus calendar entry. Returns null when nothing was stated. */
+function normalizeTerms(raw: unknown): ContractTerms | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const t = raw as Record<string, unknown>;
+  const date = (v: unknown): string | null => {
+    if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
+    if (v < '1900-01-01' || v > '2200-12-31') return null;
+    // Reject impossible days (e.g. 2026-02-30): a Date round-trip must agree.
+    const d = new Date(`${v}T00:00:00Z`);
+    return d.toISOString().slice(0, 10) === v ? v : null;
+  };
+  const str = (v: unknown, max: number): string | null =>
+    typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null;
+
+  const obligations: ContractTerms['obligations'] = [];
+  if (Array.isArray(t.obligations)) {
+    for (const o of t.obligations.slice(0, 20)) {
+      if (!o || typeof o !== 'object') continue;
+      const oo = o as Record<string, unknown>;
+      const text = str(oo.text, 500);
+      if (!text) continue;
+      obligations.push({ text, dueDate: date(oo.dueDate), responsible: str(oo.responsible, 200) });
+    }
+  }
+
+  const noticeRaw =
+    typeof t.renewalNoticeDays === 'number' && Number.isFinite(t.renewalNoticeDays) ? Math.round(t.renewalNoticeDays) : null;
+  const terms: ContractTerms = {
+    effectiveDate: date(t.effectiveDate),
+    expiryDate: date(t.expiryDate),
+    autoRenew: typeof t.autoRenew === 'boolean' ? t.autoRenew : null,
+    renewalNoticeDays: noticeRaw !== null && noticeRaw >= 0 && noticeRaw <= 3650 ? noticeRaw : null,
+    contractValue: str(t.contractValue, 100),
+    currency: typeof t.currency === 'string' && /^[A-Za-z]{3}$/.test(t.currency.trim()) ? t.currency.trim().toUpperCase() : null,
+    governingLaw: str(t.governingLaw, 200),
+    obligations,
+  };
+  const hasAny =
+    terms.effectiveDate !== null ||
+    terms.expiryDate !== null ||
+    terms.autoRenew !== null ||
+    terms.renewalNoticeDays !== null ||
+    terms.contractValue !== null ||
+    terms.governingLaw !== null ||
+    obligations.length > 0;
+  return hasAny ? terms : null;
 }
 
 const CHAT_SYSTEM = `You are LexAI, the branded AI legal assistant of the LexAI contract-intelligence platform.
@@ -570,10 +708,18 @@ export async function generateChatReply(
   }
 
   try {
-    const turns: { role: 'user' | 'assistant'; content: string }[] = [
+    const rawTurns: { role: 'user' | 'assistant'; content: string }[] = [
       ...history.slice(-12).map((t) => ({ role: t.role, content: t.text })),
       { role: 'user' as const, content: userText },
     ];
+    // Anthropic requires the first message to have role 'user'. The rolling-summary
+    // window can start on an assistant turn (splitHistory trims by characters, one
+    // turn at a time), which made the request 400 → the chat failed with a 503 for
+    // paid plans (Anthropic). Drop any leading assistant turns — their context is
+    // preserved in historySummary — so the window always starts with a user turn.
+    let firstUser = 0;
+    while (firstUser < rawTurns.length && rawTurns[firstUser].role !== 'user') firstUser++;
+    const turns = rawTurns.slice(firstUser);
     let base = CHAT_SYSTEM;
     if (jurisdiction) {
       base += `\n\nThe user's default jurisdiction is ${jurisdiction}. Answer under that law unless the user or their document indicates otherwise.`;
@@ -696,6 +842,9 @@ export async function generateHistorySummary(
           maxTokens: 500,
           system: SUMMARY_SYSTEM,
           messages: [{ role: 'user', content: userContent }],
+          // Микрозапрос (≤500 токенов): без этого reasoning deepseek-v4-pro съедает
+          // весь бюджет и сводка приходит пустой → контекст диалога теряется навсегда.
+          thinkingDisabled: true,
         })
       ).trim();
     } else {

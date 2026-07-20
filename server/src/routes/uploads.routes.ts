@@ -13,7 +13,7 @@ import { badRequest, notFound } from '../lib/errors.ts';
 import { audit } from '../lib/audit.ts';
 import { assertStorageAllowance, withStorageReservation } from '../lib/limits.ts';
 import { encText } from '../lib/docCrypto.ts';
-import { formatSize } from '../lib/format.ts';
+import { attachmentDisposition, formatSize } from '../lib/format.ts';
 import { newId } from '../lib/ids.ts';
 import { deleteFile, readFileBytes, saveFile } from '../storage.ts';
 
@@ -49,7 +49,16 @@ export function uploadRoutes(app: FastifyInstance, db: Db): void {
 
       await assertStorageAllowance(db, req.currentUser.id, buffer.length);
       const stored = await saveFile(buffer, fileName, part.mimetype);
-      const text = await extractText(buffer, fileName);
+      let text: string | null;
+      try {
+        text = await extractText(buffer, fileName);
+      } catch (err) {
+        // extractText can reject on a malformed / "bomb" file AFTER the bytes are
+        // already saved. withStorageReservation only compensates an INSERT
+        // failure, so delete the just-saved object here to avoid an orphan.
+        await deleteFile(stored.storage, stored.key).catch(() => {});
+        throw err;
+      }
       // Contract text is encrypted at rest with the owner's data key.
       const storedText = text === null ? null : await encText(db, req.currentUser.id, text);
       const id = newId('up');
@@ -97,7 +106,7 @@ export function uploadRoutes(app: FastifyInstance, db: Db): void {
         `SELECT 1 FROM documents d
            JOIN team_members tm
              ON tm.owner_user_id = d.user_id AND tm.member_user_id = $1 AND tm.status = 'active'
-          WHERE d.user_id = $2 AND d.team_shared = true AND d.name = $3
+          WHERE d.user_id = $2 AND d.team_shared = true AND d.name = $3 AND d.deleted_at IS NULL
           LIMIT 1`,
         [req.currentUser.id, upload.user_id, upload.file_name],
       );
@@ -114,7 +123,14 @@ export function uploadRoutes(app: FastifyInstance, db: Db): void {
     }
     const ext = fileExtension(safe);
     reply.header('Content-Type', MIME_BY_EXT[ext] ?? 'application/octet-stream');
-    reply.header('Content-Disposition', `inline; filename="${safe.split('__').slice(1).join('__') || safe}"`);
+    // storage_key is sanitized to ASCII, so building the name from it hands a
+    // Cyrillic document back as "_.pdf". Use the real uploads.file_name via
+    // RFC 5987 (attachmentDisposition), keeping the inline disposition so PDFs
+    // still preview in-browser.
+    reply.header(
+      'Content-Disposition',
+      attachmentDisposition(upload.file_name, ext.replace(/^\./, '')).replace(/^attachment/, 'inline'),
+    );
     reply.header('Cache-Control', 'no-store'); // расшифрованный контент не кэшируем
     return reply.send(data);
   });

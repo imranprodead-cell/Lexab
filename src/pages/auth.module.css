@@ -331,6 +331,13 @@
   gap: 14px;
 }
 
+/* Two-factor challenge: the code input revealed after a totp_required response. */
+.twoFactorBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .formError {
   font-size: 13px;
   color: var(--danger);

@@ -68,7 +68,20 @@ const upgradeHint = 'Обновите план в разделе «Тарифы�
 
 /** Feature gates — exactly what each plan's card promises, no more, no less.
  *  Cloud integrations (Google Drive / M365 / Dropbox) are open to EVERY plan. */
-export type PlanFeature = 'docxExport' | 'templates' | 'compare' | 'signatures' | 'versions' | 'approvals' | 'team' | 'auditLog' | 'sso';
+export type PlanFeature =
+  | 'docxExport'
+  | 'templates'
+  | 'compare'
+  | 'signatures'
+  | 'versions'
+  | 'approvals'
+  | 'team'
+  | 'auditLog'
+  | 'sso'
+  | 'playbooks'
+  | 'clm'
+  | 'batch'
+  | 'workflows';
 
 const FEATURE_MIN_PLAN: Record<PlanFeature, string[]> = {
   docxExport: ['Standard', 'Pro', 'Business', 'Enterprise'],
@@ -80,6 +93,10 @@ const FEATURE_MIN_PLAN: Record<PlanFeature, string[]> = {
   team: ['Business', 'Enterprise'],
   auditLog: ['Business', 'Enterprise'],
   sso: ['Business', 'Enterprise'],
+  playbooks: ['Pro', 'Business', 'Enterprise'],
+  clm: ['Pro', 'Business', 'Enterprise'],
+  batch: ['Pro', 'Business', 'Enterprise'],
+  workflows: ['Pro', 'Business', 'Enterprise'],
 };
 
 const FEATURE_LABEL: Record<PlanFeature, { ru: string; en: string; plans: string }> = {
@@ -92,6 +109,10 @@ const FEATURE_LABEL: Record<PlanFeature, { ru: string; en: string; plans: string
   team: { ru: 'Команды и общие документы', en: 'Teams & shared documents', plans: 'Business' },
   auditLog: { ru: 'Журнал действий', en: 'Audit log', plans: 'Business' },
   sso: { ru: 'Единый вход (SSO)', en: 'Single Sign-On (SSO)', plans: 'Business' },
+  playbooks: { ru: 'Плейбуки (стандартные позиции)', en: 'Playbooks (standard positions)', plans: 'Pro и Business' },
+  clm: { ru: 'Сроки и обязательства договоров (CLM)', en: 'Contract lifecycle (CLM)', plans: 'Pro и Business' },
+  batch: { ru: 'Массовый разбор пачки договоров', en: 'Batch contract review', plans: 'Pro и Business' },
+  workflows: { ru: 'Агентные воркфлоу (сценарии)', en: 'Agentic workflows', plans: 'Pro и Business' },
 };
 
 export function planHasFeature(plan: string, feature: PlanFeature): boolean {

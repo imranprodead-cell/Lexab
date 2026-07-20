@@ -13,7 +13,9 @@ import styles from './layout.module.css';
 /** Relative time in the interface language (falls back to the server string). */
 function relativeTime(iso: string | undefined, lang: string, fallback: string): string {
   if (!iso) return fallback;
-  const diffMs = Date.now() - new Date(iso).getTime();
+  const ms = new Date(iso).getTime();
+  if (Number.isNaN(ms)) return fallback;
+  const diffMs = Date.now() - ms;
   const rtf = new Intl.RelativeTimeFormat(lang === 'ru' ? 'ru' : 'en', { numeric: 'auto' });
   const minutes = Math.round(diffMs / 60_000);
   if (minutes < 60) return rtf.format(-Math.max(minutes, 0), 'minute');

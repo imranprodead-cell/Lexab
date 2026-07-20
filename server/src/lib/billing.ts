@@ -53,6 +53,11 @@ export async function activatePlan(
 ): Promise<{ renewsAt: string | null }> {
   const interval = intervalFor(period);
   await db.withTx(async (tx) => {
+    // Renewing the SAME plan keeps the month's usage counters — resetting them
+    // would let a "Renew" click wipe the monthly quota (and the API cost ceiling)
+    // mid-period. A plan change (or a first purchase) still gets a fresh quota.
+    const prev = await tx.query<{ plan: string }>('SELECT plan FROM subscriptions WHERE user_id = $1', [userId]);
+    const samePlanRenew = prev.rows[0]?.plan === plan;
     await tx.query(
       `INSERT INTO subscriptions (user_id, plan, status, period, renews_at, cancel_at_period_end, past_due_since, dunning_count)
        VALUES ($1, $2, 'active', $3, now() + ($4)::interval, false, NULL, 0)
@@ -61,13 +66,15 @@ export async function activatePlan(
                      cancel_at_period_end = false, past_due_since = NULL, dunning_count = 0`,
       [userId, plan, period, interval],
     );
-    // Fresh purchase = fresh quota for the current month.
-    await tx.query(
-      `INSERT INTO usage_counters (user_id, month, ai_requests, docs_created)
-       VALUES ($1, date_trunc('month', now())::date, 0, 0)
-       ON CONFLICT (user_id, month) DO UPDATE SET ai_requests = 0, docs_created = 0`,
-      [userId],
-    );
+    // Fresh purchase or plan change = fresh quota for the current month.
+    if (!samePlanRenew) {
+      await tx.query(
+        `INSERT INTO usage_counters (user_id, month, ai_requests, docs_created)
+         VALUES ($1, date_trunc('month', now())::date, 0, 0)
+         ON CONFLICT (user_id, month) DO UPDATE SET ai_requests = 0, docs_created = 0`,
+        [userId],
+      );
+    }
     await recordBillingEvent(tx, { userId, email, kind: 'checkout', plan, payload: { period } });
   });
   const res = await db.query<{ renews_at: Date | string }>('SELECT renews_at FROM subscriptions WHERE user_id = $1', [userId]);
@@ -133,7 +140,8 @@ export async function checkBillingLifecycle(db: Db): Promise<void> {
   const expired = await db.query<{ user_id: string; plan: string; email: string; name: string }>(
     `SELECT s.user_id, s.plan, u.email, u.name
      FROM subscriptions s JOIN users u ON u.id = s.user_id
-     WHERE s.plan <> 'Free' AND s.status = 'active' AND s.renews_at IS NOT NULL AND s.renews_at < now()`,
+     WHERE s.plan <> 'Free' AND s.status = 'active' AND s.cancel_at_period_end IS NOT TRUE
+       AND s.renews_at IS NOT NULL AND s.renews_at < now()`,
   );
   for (const row of expired.rows) {
     await markPastDue(db, row.user_id, row.email, row.plan);

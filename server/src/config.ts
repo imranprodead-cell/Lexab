@@ -7,18 +7,33 @@ function env(name: string, fallback = ''): string {
 }
 
 /**
+ * Explicit opt-in for the insecure dev fallbacks below. Fail CLOSED by default:
+ * a real deploy that forgot JWT_SECRET / DATA_ENCRYPTION_KEY must refuse to
+ * start, not silently mint an ephemeral secret or store documents unencrypted.
+ *
+ * The old guards keyed on NODE_ENV, which this project NEVER sets (see the start
+ * script, docker-compose and the LLM_FALLBACK comment below) — so they were dead
+ * in production. An operator running locally without secrets sets
+ * ALLOW_INSECURE_SECRETS=1 once to acknowledge the risk.
+ */
+const allowInsecureSecrets = env('ALLOW_INSECURE_SECRETS') === '1';
+
+/**
  * Resolve a safe JWT signing secret. A weak/absent/default secret would let
  * anyone forge tokens for any user, so:
- *  - production: refuse to start unless a strong secret (≥32 chars) is set;
- *  - dev: never fall back to the publicly known default — mint a RANDOM
- *    ephemeral secret for this run (tokens reset on restart) and warn.
+ *  - default: refuse to start unless a strong secret (≥32 chars) is set;
+ *  - ALLOW_INSECURE_SECRETS=1: never fall back to the publicly known default —
+ *    mint a RANDOM ephemeral secret for this run (tokens reset on restart) and warn.
  */
 function resolveJwtSecret(): string {
   const provided = env('JWT_SECRET');
   const weak = !provided || provided === 'change-me-in-production' || provided.length < 32;
   if (!weak) return provided;
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error('JWT_SECRET must be set to a strong value (at least 32 characters) in production');
+  if (!allowInsecureSecrets) {
+    throw new Error(
+      'JWT_SECRET must be set to a strong value (at least 32 characters). ' +
+        'Set it, or export ALLOW_INSECURE_SECRETS=1 for a local dev run with ephemeral sessions.',
+    );
   }
   console.warn(
     '[config] JWT_SECRET is unset or weak — using a random ephemeral secret for this dev run ' +
@@ -29,10 +44,10 @@ function resolveJwtSecret(): string {
 
 /**
  * Master key (KEK) for at-rest encryption of user documents (lib/docCrypto.ts).
- *  - production: REQUIRED (≥32 chars) — refuse to start, so writes can never
+ *  - default: REQUIRED (≥32 chars) — refuse to start, so writes can never
  *    happen unencrypted by accident;
- *  - dev: optional — encryption is disabled with a loud warning (reads still
- *    tolerate both plaintext and encrypted rows).
+ *  - ALLOW_INSECURE_SECRETS=1: optional — encryption is disabled with a loud
+ *    warning (reads still tolerate both plaintext and encrypted rows).
  * Deliberately independent of JWT_SECRET: rotating the JWT secret must never
  * make document data undecryptable. Generate:
  *   node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
@@ -40,10 +55,11 @@ function resolveJwtSecret(): string {
 function resolveDataEncryptionKey(): string {
   const provided = env('DATA_ENCRYPTION_KEY');
   if (provided.length >= 32) return provided;
-  if (process.env.NODE_ENV === 'production') {
+  if (!allowInsecureSecrets) {
     throw new Error(
-      'DATA_ENCRYPTION_KEY must be set to a strong value (at least 32 characters) in production — ' +
-        'user documents are encrypted at rest with it. Generate one with: ' +
+      'DATA_ENCRYPTION_KEY must be set to a strong value (at least 32 characters) — ' +
+        'user documents are encrypted at rest with it. Set it, or export ' +
+        'ALLOW_INSECURE_SECRETS=1 for a local dev run with encryption disabled. Generate one with: ' +
         `node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"`,
     );
   }
@@ -98,12 +114,22 @@ export const config = {
   // the user re-authenticates. Limits how long a stolen token can self-renew.
   sessionMaxDays: Number(env('SESSION_MAX_DAYS', '90')),
 
+  /** Dedicated key for sealing at-rest app secrets (the per-team SSO client
+   *  secret — lib/secrets.ts). Decoupled from JWT_SECRET so rotating the JWT
+   *  secret never makes SSO secrets undecryptable. Empty → lib/secrets falls
+   *  back to the legacy JWT-derived key (backward compatible). Generate:
+   *    node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))" */
+  secretsEncryptionKey: env('SECRETS_ENCRYPTION_KEY'),
   /** Master key for at-rest document encryption (see resolveDataEncryptionKey). */
   dataEncryptionKey: resolveDataEncryptionKey(),
   /** Previous master key — decrypt-only, set during a key rotation window. */
   dataEncryptionKeyPrevious: env('DATA_ENCRYPTION_KEY_PREVIOUS'),
   /** Password for the opt-in seeded demo account (only when SEED_DEMO_DATA=true). */
   seedDemoPassword: env('SEED_DEMO_PASSWORD', 'lexai-demo'),
+  /** Batch review kicks off background processing from POST /batch. Tests set
+   *  BATCH_AUTOSTART=0 and drive runBatch() deterministically instead (the
+   *  single-connection PGlite adapter must not race a fire-and-forget loop). */
+  batchAutostart: env('BATCH_AUTOSTART') !== '0',
 
   anthropicApiKey: env('ANTHROPIC_API_KEY'),
   anthropicModel: env('ANTHROPIC_MODEL', 'claude-opus-4-8'),
@@ -135,6 +161,14 @@ export const config = {
 
   /** Audit: failed logins per IP/email in 5 min above this fire a security alert. */
   authBruteforceThreshold: Math.max(3, Number(env('AUTH_BRUTEFORCE_ALERT_THRESHOLD', '10'))),
+
+  /** Reject known-breached passwords at register/change via the HIBP k-anonymity
+   *  range API (only a SHA-1 prefix is sent). Fail-open on any network error.
+   *  Set PASSWORD_BREACH_CHECK=0 to disable (also off in tests → no network). */
+  passwordBreachCheck: env('PASSWORD_BREACH_CHECK', '1') !== '0',
+  /** Days a soft-deleted document/analysis is retained before the purge sweep
+   *  crypto-shreds it for good (retention policy — Этап 5). */
+  dataRetentionDays: Math.max(1, Number(env('DATA_RETENTION_DAYS', '30'))),
 
   googleClientId: env('GOOGLE_CLIENT_ID'),
   googleClientSecret: env('GOOGLE_CLIENT_SECRET'),

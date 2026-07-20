@@ -90,7 +90,11 @@ export const teamApi = {
   },
 
   /** Owner/admin names the organisation — once, immutable afterwards. */
-  setName(name: string): Promise<{ teamName: string }> {
+  async setName(name: string): Promise<{ teamName: string }> {
+    if (USE_MOCK) {
+      await delay(150);
+      return { teamName: name };
+    }
     return http<{ teamName: string }>('/team/name', { method: 'POST', body: { name } });
   },
 
@@ -126,6 +130,10 @@ export const teamApi = {
 
   /** PUBLIC: invite details for the login-page banner. */
   async inviteInfo(token: string): Promise<{ email: string; role: string; inviterName: string; inviterFirm: string }> {
+    if (USE_MOCK) {
+      await delay(40);
+      return { email: 'invitee@freshfields.com', role: 'editor', inviterName: 'A. Rahman', inviterFirm: 'Freshfields' };
+    }
     return http(`/team/invite-info/${encodeURIComponent(token)}`);
   },
 };

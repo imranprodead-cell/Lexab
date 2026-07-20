@@ -22,6 +22,11 @@ process.env.JWT_SECRET = 'test-secret-that-is-definitely-long-enough-32+';
 // chat → export flow below exercises encrypt-on-write / decrypt-on-read.
 process.env.DATA_ENCRYPTION_KEY = 'routes-test-master-key-0123456789abcdef!';
 process.env.SEED_DEMO_DATA = 'false';
+// Batch review: drive runBatch() explicitly in tests instead of the route's
+// fire-and-forget loop (single-connection PGlite must not race it).
+process.env.BATCH_AUTOSTART = '0';
+// No network in tests: don't call the HIBP breach API on register/password.
+process.env.PASSWORD_BREACH_CHECK = '0';
 // Many users register from one loopback IP in this suite — lift the per-minute
 // auth cap so the rate limiter (still 10/min in production) doesn't throttle it.
 process.env.AUTH_RATE_LIMIT_MAX = '1000';
@@ -1043,5 +1048,654 @@ describe('exports serve the FULL document and real DOCX', () => {
       off += 30 + nameLen + extraLen + compSize;
     }
     assert.ok(xml.includes('Полный текст присутствует'), 'clean export must contain the FULL original text, not just review clauses');
+  });
+});
+
+describe('playbooks', () => {
+  it('are gated to Pro+, do CRUD, encrypt rules at rest, and enforce ownership', async () => {
+    // Free plan: feature is gated → 402.
+    const free = await makeUser();
+    const gated = await app.inject({ method: 'GET', url: '/api/playbooks', headers: auth(free.token) });
+    assert.equal(gated.statusCode, 402, 'playbooks must be gated below Pro');
+
+    const pro = await makeProUser();
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/playbooks',
+      headers: auth(pro.token),
+      payload: { name: 'Стандартные позиции', jurisdiction: 'UZ', rules: ['Неустойка не выше 0.1% в день', 'Арбитраж только в Ташкенте'] },
+    });
+    assert.equal(created.statusCode, 201, created.body);
+    const pb = JSON.parse(created.body);
+    assert.equal(pb.name, 'Стандартные позиции');
+    assert.equal(pb.jurisdiction, 'UZ');
+    assert.equal(pb.rules.length, 2);
+    assert.equal(pb.active, true);
+
+    // Rule text is encrypted at rest — the plaintext must not be in the column.
+    const raw = await db.query<{ text_enc: string }>('SELECT text_enc FROM playbook_rules WHERE playbook_id = $1 LIMIT 1', [pb.id]);
+    assert.ok(!raw.rows[0].text_enc.includes('Ташкент'), 'playbook rule must be encrypted at rest');
+
+    const list = await app.inject({ method: 'GET', url: '/api/playbooks', headers: auth(pro.token) });
+    assert.equal(JSON.parse(list.body).length, 1);
+
+    // Unknown jurisdiction is rejected.
+    const badJur = await app.inject({ method: 'POST', url: '/api/playbooks', headers: auth(pro.token), payload: { name: 'x', jurisdiction: 'ZZ', rules: [] } });
+    assert.equal(badJur.statusCode, 400);
+
+    // Patch replaces rules and toggles active.
+    const patched = await app.inject({ method: 'PATCH', url: `/api/playbooks/${pb.id}`, headers: auth(pro.token), payload: { active: false, rules: ['Только одно правило'] } });
+    assert.equal(patched.statusCode, 200, patched.body);
+    assert.equal(JSON.parse(patched.body).active, false);
+    assert.equal(JSON.parse(patched.body).rules.length, 1);
+
+    // A different team cannot delete this playbook.
+    const other = await makeProUser();
+    const foreign = await app.inject({ method: 'DELETE', url: `/api/playbooks/${pb.id}`, headers: auth(other.token) });
+    assert.equal(foreign.statusCode, 404, 'must not delete another team\'s playbook');
+
+    const del = await app.inject({ method: 'DELETE', url: `/api/playbooks/${pb.id}`, headers: auth(pro.token) });
+    assert.equal(del.statusCode, 204);
+  });
+
+  it('an active global playbook is loaded into an analysis without breaking it', async () => {
+    const pro = await makeProUser();
+    // Global playbook (no jurisdiction) → applies to any contract.
+    const pbRes = await app.inject({ method: 'POST', url: '/api/playbooks', headers: auth(pro.token), payload: { name: 'Global', rules: ['Ответственность ограничена суммой договора'] } });
+    assert.equal(pbRes.statusCode, 201, pbRes.body);
+    // Analysis (dev fallback) still succeeds with the playbook loaded + threaded in.
+    const an = await app.inject({ method: 'POST', url: '/api/analysis', headers: auth(pro.token), payload: { fileName: 'supply.pdf', fileSize: '12 KB', jurisdiction: 'UZ' } });
+    assert.equal(an.statusCode, 201, an.body);
+    const body = JSON.parse(an.body);
+    // Every finding carries the playbookDeviation flag (false under the dev fallback).
+    for (const f of body.findings) assert.equal(typeof f.playbookDeviation, 'boolean');
+  });
+});
+
+describe('clm (contract lifecycle)', () => {
+  it('analysis persists terms + obligations, dashboard is gated Pro+, done survives re-analysis', async () => {
+    // Free plan: dashboard is gated → 402.
+    const free = await makeUser();
+    const gated = await app.inject({ method: 'GET', url: '/api/contracts', headers: auth(free.token) });
+    assert.equal(gated.statusCode, 402, 'contracts dashboard must be gated below Pro');
+
+    const pro = await makeProUser();
+    const an = await app.inject({
+      method: 'POST',
+      url: '/api/analysis',
+      headers: auth(pro.token),
+      payload: { fileName: 'msa.pdf', fileSize: '15 KB', jurisdiction: 'GB' },
+    });
+    assert.equal(an.statusCode, 201, an.body);
+    const documentId = JSON.parse(an.body).documentId as string;
+
+    // Dashboard shows the contract with extracted terms + obligations.
+    const list = await app.inject({ method: 'GET', url: '/api/contracts', headers: auth(pro.token) });
+    assert.equal(list.statusCode, 200, list.body);
+    const rows = JSON.parse(list.body);
+    assert.equal(rows.length, 1);
+    const row = rows[0];
+    assert.equal(row.documentId, documentId);
+    assert.ok(row.terms.expiryDate, 'expiry date extracted');
+    assert.equal(typeof row.terms.daysToExpiry, 'number');
+    assert.equal(row.obligations.length, 2, 'fallback yields 2 obligations');
+
+    // Obligation text is encrypted at rest.
+    const raw = await db.query<{ text_enc: string }>(
+      'SELECT text_enc FROM contract_obligations WHERE document_id = $1 LIMIT 1',
+      [documentId],
+    );
+    assert.ok(!raw.rows[0].text_enc.includes('Company'), 'obligation text must be encrypted at rest');
+
+    // Single-document card (for the document page).
+    const one = await app.inject({ method: 'GET', url: `/api/contracts/${documentId}`, headers: auth(pro.token) });
+    assert.equal(one.statusCode, 200, one.body);
+    assert.equal(JSON.parse(one.body).obligations.length, 2);
+
+    // Another user must not see this document's terms.
+    const foreign = await app.inject({ method: 'GET', url: `/api/contracts/${documentId}`, headers: auth((await makeProUser()).token) });
+    assert.equal(foreign.statusCode, 404);
+
+    // Mark an obligation done…
+    const obId = row.obligations[0].id as string;
+    const done = await app.inject({
+      method: 'PATCH',
+      url: `/api/contracts/${documentId}/obligations/${obId}`,
+      headers: auth(pro.token),
+      payload: { done: true },
+    });
+    assert.equal(done.statusCode, 200, done.body);
+
+    // …and it survives a re-analysis of the same file (same obligation text).
+    const again = await app.inject({
+      method: 'POST',
+      url: '/api/analysis',
+      headers: auth(pro.token),
+      payload: { fileName: 'msa.pdf', fileSize: '15 KB', jurisdiction: 'GB' },
+    });
+    assert.equal(again.statusCode, 201, again.body);
+    const after = JSON.parse((await app.inject({ method: 'GET', url: `/api/contracts/${documentId}`, headers: auth(pro.token) })).body);
+    const kept = after.obligations.find((o: { text: string }) => o.text === row.obligations[0].text);
+    assert.ok(kept, 're-analysis keeps the obligation');
+    assert.equal(kept.done, true, 'done mark must survive re-analysis');
+  });
+
+  it('checkContractDeadlines reminds once about expiry and due obligations (idempotent)', async () => {
+    const { checkContractDeadlines } = await import('../src/routes/contracts.routes.ts');
+    const pro = await makeProUser();
+    const an = await app.inject({
+      method: 'POST',
+      url: '/api/analysis',
+      headers: auth(pro.token),
+      payload: { fileName: 'lease.pdf', fileSize: '9 KB', jurisdiction: 'GB' },
+    });
+    assert.equal(an.statusCode, 201, an.body);
+    const documentId = JSON.parse(an.body).documentId as string;
+
+    // Force near deadlines: contract expires in 10 days, one obligation in 3.
+    await db.query(
+      `UPDATE contract_terms SET expiry_date = CURRENT_DATE + 10, expiry_reminded = false,
+              auto_renew = false, renewal_reminded = false WHERE document_id = $1`,
+      [documentId],
+    );
+    await db.query(
+      `UPDATE contract_obligations SET due_date = CURRENT_DATE + 3, reminded = false, done = false
+       WHERE document_id = $1`,
+      [documentId],
+    );
+
+    await checkContractDeadlines(db);
+    const count = async (title: string): Promise<number> =>
+      Number(
+        (
+          await db.query<{ count: string | number }>(
+            'SELECT count(*) AS count FROM notifications WHERE user_id = $1 AND title = $2',
+            [pro.id, title],
+          )
+        ).rows[0].count,
+      );
+    assert.equal(await count('Срок договора истекает'), 1, 'one expiry reminder');
+    assert.ok((await count('Срок обязательства близко')) >= 1, 'obligation reminder sent');
+    const obligationReminders = await count('Срок обязательства близко');
+
+    // Second run: reminded-flags dedupe — no new notifications.
+    await checkContractDeadlines(db);
+    assert.equal(await count('Срок договора истекает'), 1, 'no duplicate expiry reminder');
+    assert.equal(await count('Срок обязательства близко'), obligationReminders, 'no duplicate obligation reminder');
+  });
+});
+
+describe('batch review', () => {
+  // Upload a .txt file via the real /uploads route and return its id.
+  async function uploadFile(token: string, name: string, content: string): Promise<string> {
+    const boundary = '----lexaiBatchBoundary';
+    const payload = Buffer.from(
+      `--${boundary}\r\n` +
+        `Content-Disposition: form-data; name="file"; filename="${name}"\r\n` +
+        'Content-Type: text/plain\r\n\r\n' +
+        `${content}\r\n` +
+        `--${boundary}--\r\n`,
+    );
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/uploads',
+      headers: { ...auth(token), 'content-type': `multipart/form-data; boundary=${boundary}` },
+      payload,
+    });
+    assert.equal(res.statusCode, 201, res.body);
+    return JSON.parse(res.body).id;
+  }
+
+  it('is gated Pro+, processes each uploaded file, and best-effort skips a bad id', async () => {
+    const { runBatch } = await import('../src/routes/batch.routes.ts');
+
+    // Free plan: gated → 402.
+    const free = await makeUser();
+    const gated = await app.inject({ method: 'POST', url: '/api/batch', headers: auth(free.token), payload: { uploadIds: ['x'] } });
+    assert.equal(gated.statusCode, 402, 'batch must be gated below Pro');
+
+    const pro = await makeProUser();
+    const u1 = await uploadFile(pro.token, 'a.txt', 'Договор поставки № 1. Срок действия до 2027 года.');
+    const u2 = await uploadFile(pro.token, 'b.txt', 'Договор аренды № 2. Ответственность сторон.');
+
+    // Start a batch of 2 valid + 1 bogus id (best-effort: bogus is dropped at intake).
+    const start = await app.inject({
+      method: 'POST',
+      url: '/api/batch',
+      headers: auth(pro.token),
+      payload: { uploadIds: [u1, u2, 'up_does_not_exist'], jurisdiction: 'GB' },
+    });
+    assert.equal(start.statusCode, 201, start.body);
+    const job = JSON.parse(start.body);
+    assert.equal(job.total, 2, 'only the caller\'s real uploads are queued');
+    assert.equal(job.status, 'queued');
+
+    // Drive processing deterministically (autostart disabled in tests).
+    await runBatch(db, job.id);
+
+    const res = await app.inject({ method: 'GET', url: `/api/batch/${job.id}`, headers: auth(pro.token) });
+    assert.equal(res.statusCode, 200, res.body);
+    const done = JSON.parse(res.body);
+    assert.equal(done.status, 'done');
+    assert.equal(done.done, 2, 'both files analysed');
+    assert.equal(done.failed, 0);
+    assert.equal(done.items.length, 2);
+    for (const it of done.items) {
+      assert.equal(it.status, 'done', `item ${it.fileName} done`);
+      assert.ok(it.documentId && it.analysisId, 'analysis persisted → linked document');
+      assert.equal(typeof it.riskScore, 'number');
+    }
+
+    // Each analysis is a normal document — visible in the Documents list.
+    const docs = await app.inject({ method: 'GET', url: '/api/documents', headers: auth(pro.token) });
+    const names = JSON.parse(docs.body).map((d: { name: string }) => d.name);
+    assert.ok(names.includes('a.txt') && names.includes('b.txt'), 'batch documents appear in the repository');
+  });
+
+  it('boot recovery finishes interrupted batches and honestly fails interrupted workflows', async () => {
+    const { resumeBatchJobs, runBatch } = await import('../src/routes/batch.routes.ts');
+    const { failInterruptedWorkflows } = await import('../src/routes/workflows.routes.ts');
+    const pro = await makeProUser();
+    const u1 = await uploadFile(pro.token, 'r1.txt', 'Договор поставки — прерван.');
+    const u2 = await uploadFile(pro.token, 'r2.txt', 'Договор аренды — в очереди.');
+    const start = await app.inject({ method: 'POST', url: '/api/batch', headers: auth(pro.token), payload: { uploadIds: [u1, u2] } });
+    const jobId = JSON.parse(start.body).id as string;
+    // Симуляция падения: первый элемент застрял в processing, задание — тоже.
+    await db.query("UPDATE batch_items SET status = 'processing' WHERE batch_id = $1 AND ord = 0", [jobId]);
+    await db.query("UPDATE batch_jobs SET status = 'processing' WHERE id = $1", [jobId]);
+
+    await resumeBatchJobs(db);
+    const after = JSON.parse((await app.inject({ method: 'GET', url: `/api/batch/${jobId}`, headers: auth(pro.token) })).body);
+    assert.equal(after.status, 'done', 'job must be finalized, not stuck in processing');
+    const interrupted = after.items.find((i: { fileName: string }) => i.fileName === 'r1.txt');
+    const finished = after.items.find((i: { fileName: string }) => i.fileName === 'r2.txt');
+    assert.equal(interrupted.status, 'error', 'the mid-flight item is honestly marked interrupted');
+    assert.match(interrupted.error, /перезапуск/i);
+    assert.equal(finished.status, 'done', 'queued items are completed on resume');
+
+    // Прерванный воркфлоу → честный failed с понятной ошибкой.
+    const an = await app.inject({ method: 'POST', url: '/api/analysis', headers: auth(pro.token), payload: { fileName: 'wfstuck.pdf', fileSize: '8 KB', jurisdiction: 'GB' } });
+    const documentId = JSON.parse(an.body).documentId as string;
+    const wf = await app.inject({ method: 'POST', url: '/api/workflows/run', headers: auth(pro.token), payload: { documentId, steps: [{ kind: 'analyze' }] } });
+    const runId = JSON.parse(wf.body).id as string; // остаётся queued (autostart off в тестах)
+    await failInterruptedWorkflows(db);
+    const run = JSON.parse((await app.inject({ method: 'GET', url: `/api/workflows/${runId}`, headers: auth(pro.token) })).body);
+    assert.equal(run.status, 'failed');
+    assert.match(run.error, /перезапуск/i);
+    void runBatch; // (импортирован для симметрии — прямые вызовы выше через resume)
+  });
+
+  it('rejects an empty upload list and enforces job ownership', async () => {
+    const pro = await makeProUser();
+    const empty = await app.inject({ method: 'POST', url: '/api/batch', headers: auth(pro.token), payload: { uploadIds: [] } });
+    assert.equal(empty.statusCode, 400);
+
+    const u = await uploadFile(pro.token, 'own.txt', 'Договор.');
+    const start = await app.inject({ method: 'POST', url: '/api/batch', headers: auth(pro.token), payload: { uploadIds: [u] } });
+    const jobId = JSON.parse(start.body).id;
+
+    // A different Pro user must not read this job.
+    const other = await makeProUser();
+    const foreign = await app.inject({ method: 'GET', url: `/api/batch/${jobId}`, headers: auth(other.token) });
+    assert.equal(foreign.statusCode, 404, 'must not read another user\'s batch job');
+  });
+});
+
+describe('agentic workflows', () => {
+  it('gated Pro+, runs analyze → apply high-severity redlines → start approval', async () => {
+    const { runWorkflow } = await import('../src/routes/workflows.routes.ts');
+
+    // Free plan: gated → 402.
+    const free = await makeUser();
+    const gated = await app.inject({ method: 'POST', url: '/api/workflows/run', headers: auth(free.token), payload: { documentId: 'x', steps: [{ kind: 'analyze' }] } });
+    assert.equal(gated.statusCode, 402, 'workflows must be gated below Pro');
+
+    const pro = await makeProUser();
+    // Seed a document with an analysis (dev fallback → r1 High, r2/r3 Medium).
+    const an = await app.inject({ method: 'POST', url: '/api/analysis', headers: auth(pro.token), payload: { fileName: 'deal.pdf', fileSize: '12 KB', jurisdiction: 'GB' } });
+    assert.equal(an.statusCode, 201, an.body);
+    const documentId = JSON.parse(an.body).documentId as string;
+
+    const start = await app.inject({
+      method: 'POST',
+      url: '/api/workflows/run',
+      headers: auth(pro.token),
+      payload: {
+        documentId,
+        steps: [
+          { kind: 'analyze' },
+          { kind: 'apply-redlines', minSeverity: 'High' },
+          { kind: 'send-for-approval', approvers: [{ name: 'Партнёр', email: 'partner@firm.com', role: 'Партнёр' }] },
+        ],
+      },
+    });
+    assert.equal(start.statusCode, 201, start.body);
+    const run = JSON.parse(start.body);
+    assert.equal(run.status, 'queued');
+    assert.equal(run.steps.length, 3);
+
+    // Drive execution deterministically (autostart disabled in tests).
+    await runWorkflow(db, run.id);
+
+    const res = await app.inject({ method: 'GET', url: `/api/workflows/${run.id}`, headers: auth(pro.token) });
+    assert.equal(res.statusCode, 200, res.body);
+    const done = JSON.parse(res.body);
+    assert.equal(done.status, 'done', done.error ?? '');
+    assert.ok(done.analysisId, 'analyze step produced a fresh analysis');
+
+    // The High redline (r1) was accepted; a Medium one (r2) stays pending.
+    const analysis = JSON.parse((await app.inject({ method: 'GET', url: `/api/analysis/${done.analysisId}`, headers: auth(pro.token) })).body);
+    const r1 = analysis.redlines.find((r: { id: string }) => r.id === 'r1');
+    const r2 = analysis.redlines.find((r: { id: string }) => r.id === 'r2');
+    assert.equal(r1.status, 'accepted', 'High-severity redline accepted');
+    assert.equal(r2.status, 'pending', 'Medium redline left for manual review');
+
+    // An active approval flow now exists for the document.
+    const flows = JSON.parse((await app.inject({ method: 'GET', url: `/api/approvals?documentId=${documentId}`, headers: auth(pro.token) })).body);
+    assert.ok(flows.some((f: { status: string }) => f.status === 'active'), 'approval chain started');
+  });
+
+  it('fails cleanly on a non-owner and enforces run ownership', async () => {
+    const pro = await makeProUser();
+    const an = await app.inject({ method: 'POST', url: '/api/analysis', headers: auth(pro.token), payload: { fileName: 'w2.pdf', fileSize: '8 KB', jurisdiction: 'GB' } });
+    const documentId = JSON.parse(an.body).documentId as string;
+    const start = await app.inject({ method: 'POST', url: '/api/workflows/run', headers: auth(pro.token), payload: { documentId, steps: [{ kind: 'analyze' }] } });
+    const runId = JSON.parse(start.body).id;
+
+    // Another Pro user cannot start a workflow on this document (not owner → 403/404).
+    const other = await makeProUser();
+    const foreignRun = await app.inject({ method: 'POST', url: '/api/workflows/run', headers: auth(other.token), payload: { documentId, steps: [{ kind: 'analyze' }] } });
+    assert.ok(foreignRun.statusCode === 403 || foreignRun.statusCode === 404, 'non-owner cannot run a workflow');
+
+    // …nor read this run.
+    const foreignGet = await app.inject({ method: 'GET', url: `/api/workflows/${runId}`, headers: auth(other.token) });
+    assert.equal(foreignGet.statusCode, 404, 'must not read another user\'s workflow run');
+  });
+});
+
+describe('2FA (TOTP)', () => {
+  it('enrol → enable → login now needs a code → backup code works → disable', async () => {
+    const { totpCode } = await import('../src/lib/totp.ts');
+    const email = `tfa_${Date.now()}@test.local`;
+    const reg = await app.inject({ method: 'POST', url: '/api/auth/register', payload: { name: 'T', email, password: 'Passw0rd!123' } });
+    assert.equal(reg.statusCode, 201);
+    const vrow = await db.query<{ id: string; verify_token: string }>('SELECT id, verify_token FROM users WHERE email = $1', [email]);
+    await app.inject({ method: 'POST', url: '/api/auth/verify', payload: { token: vrow.rows[0].verify_token } });
+    const token = JSON.parse((await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email, password: 'Passw0rd!123' } })).body).token as string;
+
+    // Setup → get the secret.
+    const setup = await app.inject({ method: 'POST', url: '/api/me/2fa/setup', headers: auth(token) });
+    assert.equal(setup.statusCode, 200, setup.body);
+    const { secret, otpauthUri } = JSON.parse(setup.body);
+    assert.ok(secret && otpauthUri.includes('otpauth://totp/'));
+
+    // A wrong code is rejected; the right one enables + returns backup codes.
+    const bad = await app.inject({ method: 'POST', url: '/api/me/2fa/enable', headers: auth(token), payload: { code: '000000' } });
+    assert.equal(bad.statusCode, 400);
+    const good = await app.inject({ method: 'POST', url: '/api/me/2fa/enable', headers: auth(token), payload: { code: totpCode(secret) } });
+    assert.equal(good.statusCode, 200, good.body);
+    const backupCodes = JSON.parse(good.body).backupCodes as string[];
+    assert.equal(backupCodes.length, 10);
+
+    // Login now demands the second factor — and the bare-password challenge is
+    // NOT a failed attempt (no brute-force noise from every normal 2FA login).
+    const noCode = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email, password: 'Passw0rd!123' } });
+    assert.equal(noCode.statusCode, 401);
+    assert.equal(JSON.parse(noCode.body).code, 'totp_required');
+    const failedEvents = await db.query<{ count: string | number }>(
+      "SELECT count(*) AS count FROM audit_events WHERE event_type = 'auth.login_failed' AND actor_label = $1",
+      [email],
+    );
+    assert.equal(Number(failedEvents.rows[0].count), 0, 'a code challenge must not log auth.login_failed');
+
+    // Correct TOTP logs in. The enable step consumed the CURRENT step
+    // (anti-replay), so sign in with the NEXT step's code (±30s drift is accepted).
+    const loginCode = totpCode(secret, Date.now() + 30_000);
+    const withCode = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email, password: 'Passw0rd!123', code: loginCode } });
+    assert.equal(withCode.statusCode, 200, withCode.body);
+
+    // Anti-replay: the SAME code is rejected on a second login.
+    const replay = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email, password: 'Passw0rd!123', code: loginCode } });
+    assert.equal(replay.statusCode, 401, 'a TOTP code must be single-use (RFC 6238 anti-replay)');
+
+    // A backup code also logs in — and is single-use.
+    const withBackup = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email, password: 'Passw0rd!123', backupCode: backupCodes[0] } });
+    assert.equal(withBackup.statusCode, 200, 'backup code logs in');
+    const reuse = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email, password: 'Passw0rd!123', backupCode: backupCodes[0] } });
+    assert.equal(reuse.statusCode, 401, 'a backup code cannot be reused');
+
+    // Disable requires the password; then password-only login works again.
+    const freshToken = JSON.parse(withCode.body).token as string;
+    const disNoPw = await app.inject({ method: 'POST', url: '/api/me/2fa/disable', headers: auth(freshToken), payload: { password: 'wrong' } });
+    assert.equal(disNoPw.statusCode, 401);
+    const dis = await app.inject({ method: 'POST', url: '/api/me/2fa/disable', headers: auth(freshToken), payload: { password: 'Passw0rd!123' } });
+    assert.equal(dis.statusCode, 200, dis.body);
+    const plain = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email, password: 'Passw0rd!123' } });
+    assert.equal(plain.statusCode, 200, '2FA off → password-only login works');
+  });
+});
+
+describe('sessions, DSAR export, retention, access review', () => {
+  it('records sessions and revoke-others rotates the token', async () => {
+    const u = await makeUser();
+    const sessions = JSON.parse((await app.inject({ method: 'GET', url: '/api/me/sessions', headers: auth(u.token) })).body);
+    assert.ok(Array.isArray(sessions) && sessions.length >= 1, 'the login was recorded as a session');
+    const revoke = await app.inject({ method: 'POST', url: '/api/me/sessions/revoke-others', headers: auth(u.token) });
+    assert.equal(revoke.statusCode, 200, revoke.body);
+    const newToken = JSON.parse(revoke.body).token as string;
+    // The old token is now invalid (token_version bumped); the new one works.
+    const oldStillWorks = await app.inject({ method: 'GET', url: '/api/me/sessions', headers: auth(u.token) });
+    assert.equal(oldStillWorks.statusCode, 401, 'old token revoked');
+    const newWorks = await app.inject({ method: 'GET', url: '/api/me/sessions', headers: auth(newToken) });
+    assert.equal(newWorks.statusCode, 200, 'fresh token works');
+  });
+
+  it('DSAR export returns the account data as a JSON download', async () => {
+    const u = await makeUser();
+    await app.inject({ method: 'POST', url: '/api/analysis', headers: auth(u.token), payload: { fileName: 'export-me.pdf', fileSize: '10 KB', jurisdiction: 'GB' } });
+    const res = await app.inject({ method: 'GET', url: '/api/me/export', headers: auth(u.token) });
+    assert.equal(res.statusCode, 200, res.body);
+    assert.match(res.headers['content-disposition'] as string, /attachment; filename="lexai-data-export\.json"/);
+    const data = JSON.parse(res.body);
+    assert.equal(data.account.email, u.email);
+    assert.ok(Array.isArray(data.documents) && data.documents.length >= 1, 'documents included');
+    assert.ok(Array.isArray(data.analyses) && data.analyses.length >= 1, 'analyses included');
+    assert.ok(typeof data.analyses[0].summary === 'string', 'analysis summary decrypted in export');
+  });
+
+  it('soft-deletes a document and the retention sweep crypto-shreds it', async () => {
+    const { checkRetention } = await import('../src/routes/documents.routes.ts');
+    const u = await makeUser();
+    const an = await app.inject({ method: 'POST', url: '/api/analysis', headers: auth(u.token), payload: { fileName: 'trash.pdf', fileSize: '9 KB', jurisdiction: 'GB' } });
+    const documentId = JSON.parse(an.body).documentId as string;
+
+    const del = await app.inject({ method: 'DELETE', url: `/api/documents/${documentId}`, headers: auth(u.token) });
+    assert.equal(del.statusCode, 204);
+    // Hidden from the app immediately…
+    const list = JSON.parse((await app.inject({ method: 'GET', url: '/api/documents', headers: auth(u.token) })).body);
+    assert.ok(!list.some((d: { id: string }) => d.id === documentId), 'soft-deleted doc hidden from list');
+    const detail = await app.inject({ method: 'GET', url: `/api/documents/${documentId}`, headers: auth(u.token) });
+    assert.equal(detail.statusCode, 404, 'soft-deleted doc 404s');
+    // …but still physically present (recoverable within the window).
+    const still = await db.query('SELECT 1 FROM documents WHERE id = $1', [documentId]);
+    assert.equal(still.rows.length, 1, 'row kept for the retention window');
+
+    // Age it past the window and run the purge → row gone (crypto-shred).
+    await db.query("UPDATE documents SET deleted_at = now() - interval '400 days' WHERE id = $1", [documentId]);
+    await checkRetention(db);
+    const gone = await db.query('SELECT 1 FROM documents WHERE id = $1', [documentId]);
+    assert.equal(gone.rows.length, 0, 'purged after retention window');
+  });
+
+  it('password reset cannot bypass 2FA: reset/confirm demands a code and accepts it', async () => {
+    const { totpCode } = await import('../src/lib/totp.ts');
+    const email = `tfareset_${Date.now()}@test.local`;
+    await app.inject({ method: 'POST', url: '/api/auth/register', payload: { name: 'R', email, password: 'Passw0rd!123' } });
+    const vrow = await db.query<{ id: string; verify_token: string }>('SELECT id, verify_token FROM users WHERE email = $1', [email]);
+    await app.inject({ method: 'POST', url: '/api/auth/verify', payload: { token: vrow.rows[0].verify_token } });
+    const token = JSON.parse((await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email, password: 'Passw0rd!123' } })).body).token as string;
+    const { secret } = JSON.parse((await app.inject({ method: 'POST', url: '/api/me/2fa/setup', headers: auth(token) })).body);
+    await app.inject({ method: 'POST', url: '/api/me/2fa/enable', headers: auth(token), payload: { code: totpCode(secret) } });
+
+    // Выпускаем reset-токен напрямую (в тестах письмо не приходит).
+    await db.query(`UPDATE users SET reset_token = 'rst_2fa_test_token_123456', reset_expires = now() + interval '1 hour' WHERE id = $1`, [vrow.rows[0].id]);
+
+    // Без кода: 401 totp_required, reset-токен НЕ израсходован, пароль НЕ сменён
+    // (хеш сверяем по базе — вход съел бы код из окна дрейфа анти-replay'я).
+    const hashBefore = (await db.query<{ password_hash: string }>('SELECT password_hash FROM users WHERE id = $1', [vrow.rows[0].id])).rows[0].password_hash;
+    const noCode = await app.inject({ method: 'POST', url: '/api/auth/reset/confirm', payload: { token: 'rst_2fa_test_token_123456', password: 'NewPassw0rd!456' } });
+    assert.equal(noCode.statusCode, 401, noCode.body);
+    assert.equal(JSON.parse(noCode.body).code, 'totp_required');
+    const hashAfter = (await db.query<{ password_hash: string }>('SELECT password_hash FROM users WHERE id = $1', [vrow.rows[0].id])).rows[0].password_hash;
+    assert.equal(hashAfter, hashBefore, 'password unchanged after the challenge');
+
+    // С кодом следующего шага (шаг включения израсходован анти-replay'ем): успех.
+    const withCode = await app.inject({
+      method: 'POST',
+      url: '/api/auth/reset/confirm',
+      payload: { token: 'rst_2fa_test_token_123456', password: 'NewPassw0rd!456', code: totpCode(secret, Date.now() + 30_000) },
+    });
+    assert.equal(withCode.statusCode, 200, withCode.body);
+    assert.ok(JSON.parse(withCode.body).token, 'reset with a valid 2FA code issues a session');
+  });
+
+  it('soft-deleting a document cancels its active approval flow and kills the approve link', async () => {
+    const pro = await makeProUser();
+    const an = await app.inject({ method: 'POST', url: '/api/analysis', headers: auth(pro.token), payload: { fileName: 'appr-del.pdf', fileSize: '9 KB', jurisdiction: 'GB' } });
+    const documentId = JSON.parse(an.body).documentId as string;
+    const flow = await app.inject({
+      method: 'POST',
+      url: '/api/approvals',
+      headers: auth(pro.token),
+      payload: { documentId, steps: [{ name: 'Партнёр', email: 'appr@firm.com' }] },
+    });
+    assert.equal(flow.statusCode, 201, flow.body);
+    const stepToken = JSON.parse(flow.body).steps[0].token as string;
+    assert.equal((await app.inject({ method: 'GET', url: `/api/approve/${stepToken}` })).statusCode, 200, 'link live before delete');
+
+    await app.inject({ method: 'DELETE', url: `/api/documents/${documentId}`, headers: auth(pro.token) });
+    const flows = await db.query<{ status: string }>('SELECT status FROM approval_flows WHERE document_id = $1', [documentId]);
+    assert.equal(flows.rows[0].status, 'cancelled', 'active flow cancelled on soft-delete');
+    const dead = await app.inject({ method: 'GET', url: `/api/approve/${stepToken}` });
+    assert.ok(dead.statusCode >= 400, 'approve link must stop exposing a deleted document');
+  });
+
+  it('retention purge spares uploads created AFTER the document was trashed', async () => {
+    const { checkRetention } = await import('../src/routes/documents.routes.ts');
+    const u = await makeUser();
+    const an = await app.inject({ method: 'POST', url: '/api/analysis', headers: auth(u.token), payload: { fileName: 'fresh-after.txt', fileSize: '1 KB', jurisdiction: 'GB' } });
+    const docId = JSON.parse(an.body).documentId as string;
+    await app.inject({ method: 'DELETE', url: `/api/documents/${docId}`, headers: auth(u.token) });
+    await db.query("UPDATE documents SET deleted_at = now() - interval '400 days' WHERE id = $1", [docId]);
+    // Свежая загрузка того же имени ПОСЛЕ удаления — анализ ещё не запущен.
+    const boundary = '----lexaiFreshBoundary';
+    const payload = Buffer.from(
+      `--${boundary}\r\n` +
+        'Content-Disposition: form-data; name="file"; filename="fresh-after.txt"\r\n' +
+        'Content-Type: text/plain\r\n\r\n' +
+        'Свежий файл, ждёт анализа.\r\n' +
+        `--${boundary}--\r\n`,
+    );
+    const up = await app.inject({
+      method: 'POST',
+      url: '/api/uploads',
+      headers: { ...auth(u.token), 'content-type': `multipart/form-data; boundary=${boundary}` },
+      payload,
+    });
+    const uploadId = JSON.parse(up.body).id as string;
+
+    await checkRetention(db);
+    assert.equal((await db.query('SELECT 1 FROM documents WHERE id = $1', [docId])).rows.length, 0, 'trashed doc purged');
+    assert.equal((await db.query('SELECT 1 FROM uploads WHERE id = $1', [uploadId])).rows.length, 1, 'the fresh upload must survive the purge');
+  });
+
+  it('retention purge never destroys uploads of a LIVE document sharing the name', async () => {
+    const { checkRetention } = await import('../src/routes/documents.routes.ts');
+    const u = await makeUser();
+    const boundary = '----lexaiRetBoundary';
+    const mkPayload = (content: string) =>
+      Buffer.from(
+        `--${boundary}\r\n` +
+          'Content-Disposition: form-data; name="file"; filename="same-name.txt"\r\n' +
+          'Content-Type: text/plain\r\n\r\n' +
+          `${content}\r\n` +
+          `--${boundary}--\r\n`,
+      );
+    const up = async (content: string) =>
+      app.inject({
+        method: 'POST',
+        url: '/api/uploads',
+        headers: { ...auth(u.token), 'content-type': `multipart/form-data; boundary=${boundary}` },
+        payload: mkPayload(content),
+      });
+    // Doc A: upload + analyze, then soft-delete it into the retention trash.
+    assert.equal((await up('Договор аренды, версия А.')).statusCode, 201);
+    const anA = await app.inject({ method: 'POST', url: '/api/analysis', headers: auth(u.token), payload: { fileName: 'same-name.txt', fileSize: '1 KB', jurisdiction: 'GB' } });
+    const docA = JSON.parse(anA.body).documentId as string;
+    await app.inject({ method: 'DELETE', url: `/api/documents/${docA}`, headers: auth(u.token) });
+    // Doc B: re-upload the SAME name → a fresh live document.
+    assert.equal((await up('Договор аренды, версия Б — живой.')).statusCode, 201);
+    const anB = await app.inject({ method: 'POST', url: '/api/analysis', headers: auth(u.token), payload: { fileName: 'same-name.txt', fileSize: '1 KB', jurisdiction: 'GB' } });
+    const docB = JSON.parse(anB.body).documentId as string;
+    assert.notEqual(docB, docA, 're-upload creates a fresh document, not a revived one');
+
+    // Age doc A past the window and purge.
+    await db.query("UPDATE documents SET deleted_at = now() - interval '400 days' WHERE id = $1", [docA]);
+    await checkRetention(db);
+    assert.equal((await db.query('SELECT 1 FROM documents WHERE id = $1', [docA])).rows.length, 0, 'trashed doc purged');
+    assert.equal((await db.query('SELECT 1 FROM documents WHERE id = $1', [docB])).rows.length, 1, 'live doc untouched');
+    const uploadsLeft = await db.query('SELECT 1 FROM uploads WHERE user_id = $1 AND file_name = $2', [u.id, 'same-name.txt']);
+    assert.ok(uploadsLeft.rows.length >= 1, "live document's uploads must survive the purge");
+  });
+
+  it('analytics excludes soft-deleted documents from risk centre and aggregates', async () => {
+    const u = await makeUser();
+    const an = await app.inject({ method: 'POST', url: '/api/analysis', headers: auth(u.token), payload: { fileName: 'secret-deal.pdf', fileSize: '9 KB', jurisdiction: 'GB' } });
+    const documentId = JSON.parse(an.body).documentId as string;
+    await app.inject({ method: 'DELETE', url: `/api/documents/${documentId}`, headers: auth(u.token) });
+    const res = await app.inject({ method: 'GET', url: '/api/analytics/summary', headers: auth(u.token) });
+    assert.equal(res.statusCode, 200, res.body);
+    const body = JSON.stringify(JSON.parse(res.body).riskCenter ?? JSON.parse(res.body));
+    assert.ok(!body.includes('secret-deal.pdf'), 'soft-deleted document must not surface in analytics');
+  });
+
+  it('a Free owner is not silently marked reminded — the reminder arrives after upgrading', async () => {
+    const { checkContractDeadlines } = await import('../src/routes/contracts.routes.ts');
+    const free = await makeUser(); // Free plan — no 'clm'
+    const an = await app.inject({ method: 'POST', url: '/api/analysis', headers: auth(free.token), payload: { fileName: 'upgrade-later.pdf', fileSize: '9 KB', jurisdiction: 'GB' } });
+    const documentId = JSON.parse(an.body).documentId as string;
+    await db.query('UPDATE contract_terms SET expiry_date = CURRENT_DATE + 10, expiry_reminded = false, auto_renew = false WHERE document_id = $1', [documentId]);
+
+    await checkContractDeadlines(db);
+    const flag = await db.query<{ expiry_reminded: boolean }>('SELECT expiry_reminded FROM contract_terms WHERE document_id = $1', [documentId]);
+    assert.equal(flag.rows[0].expiry_reminded, false, 'Free plan: flag must NOT be burned without sending');
+
+    await db.query("UPDATE subscriptions SET plan = 'Pro' WHERE user_id = $1", [free.id]);
+    await checkContractDeadlines(db);
+    const count = await db.query<{ count: string | number }>(
+      "SELECT count(*) AS count FROM notifications WHERE user_id = $1 AND title = 'Срок договора истекает'",
+      [free.id],
+    );
+    assert.equal(Number(count.rows[0].count), 1, 'after upgrading, the reminder is delivered');
+  });
+
+  it('access review lists the team with roles and exports CSV', async () => {
+    const owner = await makeUser();
+    await db.query("UPDATE subscriptions SET plan = 'Business' WHERE user_id = $1", [owner.id]);
+    const member = await makeUser();
+    await db.query(
+      "INSERT INTO team_members (id, owner_user_id, member_user_id, name, email, role, status) VALUES ($1, $2, $3, $4, $5, 'editor', 'active')",
+      [`tm_${Date.now()}`, owner.id, member.id, 'Team Member', member.email],
+    );
+    const review = await app.inject({ method: 'GET', url: '/api/team/access-review', headers: auth(owner.token) });
+    assert.equal(review.statusCode, 200, review.body);
+    const rows = JSON.parse(review.body);
+    assert.ok(rows.some((r: { role: string }) => r.role === 'owner'), 'owner listed');
+    assert.ok(rows.some((r: { email: string; role: string }) => r.email === member.email && r.role === 'editor'), 'member listed with role');
+
+    const csv = await app.inject({ method: 'GET', url: '/api/team/access-review.csv', headers: auth(owner.token) });
+    assert.equal(csv.statusCode, 200);
+    assert.match(csv.headers['content-type'] as string, /text\/csv/);
+    assert.match(csv.body, /name,email,role,status,last_active/);
   });
 });

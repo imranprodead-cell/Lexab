@@ -178,6 +178,9 @@
   line-height: 1.95;
   color: #c9c9d2;
   margin: 0 0 8px;
+  /* Honor '\n' the user put in a clause — visible both in the static render and
+     in the re-seeded editor (segmentsToHtml keeps them as literal newlines). */
+  white-space: pre-wrap;
 }
 
 /* Redlines ---------------------------------------------------------------- */

@@ -310,7 +310,7 @@ export function parseRuCitation(citation: string, jurisdiction: string): RuCitat
   // «260-modda(si)».
   const st =
     citation.match(/ст(?:атья|атьи|\.)?\s*№?\s*(\d+(?:[.-]\d+)*)/i) ??
-    citation.match(/(\d+(?:\.\d+)*)\s*-\s*(?:бап|бабы|баптың|modda(?:si)?)/i);
+    citation.match(/(\d+(?:[.-]\d+)*)\s*-\s*(?:бап|бабы|баптың|modda(?:si)?)/i);
   if (!st) return null;
   const number = st[1];
   const quoted = citation.match(/«([^»]{4,80})»|"([^"]{4,80})"/);
@@ -351,13 +351,15 @@ export async function resolveCitationText(
     number = m[2];
   } else if (jurisdiction === 'CA') {
     // Québec citations: "art. 1385 CCQ", "article 1590 of the Civil Code of Québec".
-    const art = citation.match(/art(?:icle)?\.?\s*(\d+(?:\.\d+)?)/i);
+    // Left boundary keeps 'art' from matching inside "Part"/"party"/"apart".
+    const art = citation.match(/(?<![A-Za-z])art(?:icle)?\.?\s*(\d+(?:\.\d+)?)/i);
     if (!art) return null;
     number = art[1];
     titlePattern = '%Civil Code of Qu%bec%';
   } else if (jurisdiction === 'AE') {
     // UAE citations: "Article 125", "Art. 246 Civil Transactions Law".
-    const art = citation.match(/art(?:icle)?\.?\s*\(?(\d+)\)?/i);
+    // Left boundary keeps 'art' from matching inside "Part"/"party"/"apart".
+    const art = citation.match(/(?<![A-Za-z])art(?:icle)?\.?\s*\(?(\d+)\)?/i);
     if (!art) return null;
     number = art[1];
     titlePattern = '%Civil Transactions Law%';

@@ -105,14 +105,20 @@ export const useNotificationsStore = create<NotificationsState>((set, get) => {
     },
 
     markAllRead: () => {
-      // Optimistic, but roll the badge back if the server rejects — don't let
-      // the unread count silently drift out of sync with the server.
-      const wasUnread = new Set(get().items.filter((n) => !n.read).map((n) => n.id));
+      // Mark read only the notifications the user has actually seen locally.
+      // Never send a blanket server-side "mark all" (POST without id): that
+      // also clears a fresh event created after our last load but not yet in
+      // `items`, killing the badge for something the user never saw. So we
+      // mark each locally-known unread by its concrete id instead.
+      // Optimistic, but roll a given id back if its server call is rejected.
+      const wasUnread = get().items.filter((n) => !n.read).map((n) => n.id);
       apply(get().items.map((n) => ({ ...n, read: true })));
-      if (!USE_MOCK && wasUnread.size) {
-        void notificationsApi.markRead().catch(() => {
-          apply(get().items.map((n) => (wasUnread.has(n.id) ? { ...n, read: false } : n)));
-        });
+      if (!USE_MOCK) {
+        for (const id of wasUnread) {
+          void notificationsApi.markRead(id).catch(() => {
+            apply(get().items.map((n) => (n.id === id ? { ...n, read: false } : n)));
+          });
+        }
       }
     },
 

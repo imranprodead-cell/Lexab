@@ -365,3 +365,32 @@ test('recalibrateRisk: потолок балла по фактической м�
   // riskLevel согласован с итоговым баллом (<34 Low)
   assert.deepEqual(recalibrateRisk(f('Low'), 25), { riskScore: 25, riskLevel: 'Low' });
 });
+
+test('totp: generated codes verify, drift tolerated, wrong codes rejected', async () => {
+  const { generateTotpSecret, totpCode, verifyTotp, base32Decode, base32Encode } = await import('../src/lib/totp.ts');
+  const secret = generateTotpSecret();
+  const now = 1_700_000_000_000; // fixed instant → deterministic
+  const code = totpCode(secret, now);
+  assert.match(code, /^\d{6}$/);
+  assert.ok(verifyTotp(secret, code, now), 'the current code verifies');
+  // ±1 step (±30s) of clock drift is tolerated
+  assert.ok(verifyTotp(secret, totpCode(secret, now - 30_000), now), 'previous step accepted');
+  assert.ok(verifyTotp(secret, totpCode(secret, now + 30_000), now), 'next step accepted');
+  // two steps away is rejected
+  assert.ok(!verifyTotp(secret, totpCode(secret, now + 90_000), now), 'far code rejected');
+  assert.ok(!verifyTotp(secret, '000000', now) || totpCode(secret, now) === '000000', 'wrong code rejected');
+  // base32 round-trips
+  const bytes = Buffer.from('lexai-totp-secret-1');
+  assert.equal(base32Decode(base32Encode(bytes)).toString(), bytes.toString());
+});
+
+test('backup codes: hash is stable, distinct, and case/space-insensitive', async () => {
+  const { generateBackupCodes, hashBackupCode } = await import('../src/lib/totp.ts');
+  const codes = generateBackupCodes();
+  assert.equal(codes.length, 10);
+  assert.equal(new Set(codes).size, 10, 'all distinct');
+  const h = hashBackupCode(codes[0]);
+  assert.equal(h, hashBackupCode(codes[0].toUpperCase()), 'case-insensitive');
+  assert.equal(h, hashBackupCode(` ${codes[0]} `), 'trims whitespace');
+  assert.notEqual(h, hashBackupCode(codes[1]), 'different codes → different hashes');
+});

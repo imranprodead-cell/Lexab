@@ -1,4 +1,4 @@
-import { useState, useEffect, type FormEvent } from 'react';
+import { useState, useEffect, useRef, type FormEvent } from 'react';
 import { downloadBlob } from '@/lib/download';
 import { TopBar } from '@/components/layout/TopBar';
 import { InitialsAvatar } from '@/components/ui/Avatar';
@@ -11,7 +11,8 @@ import { RoleSelect, type RolePresetKey } from '@/components/ui/RoleSelect';
 import { EmptyState, ErrorState, SkeletonRows } from '@/components/ui/States';
 import { useAsync, clearAsyncCache } from '@/hooks/useAsync';
 import { usePageTitle } from '@/hooks/usePageTitle';
-import { ROLE_COLORS, teamApi, userApi, type TeamRole } from '@/api';
+import { ROLE_COLORS, securityApi, teamApi, userApi, type TeamRole } from '@/api';
+import type { AccessReviewRow } from '@/api';
 import { auditApi, type AuditEvent } from '@/api/audit.api';
 import { ssoApi, type SsoConfig } from '@/api/sso.api';
 import { ApiError } from '@/api/util';
@@ -138,6 +139,12 @@ export function TeamPage() {
       else await teamApi.decline(id);
       pushToast(t(accept ? 'team.acceptedToast' : 'team.declinedToast'), accept ? 'success' : 'default');
       invitations.reload();
+      if (accept) {
+        // Accepting joins the inviter's team → member list and org name (profile) change.
+        clearAsyncCache();
+        members.reload();
+        profile.reload();
+      }
     } catch (err) {
       pushToast(err instanceof Error ? err.message : t('common.error'), 'error');
     } finally {
@@ -298,8 +305,9 @@ export function TeamPage() {
             </div>
           )}
 
-          {/* SSO + audit log — team owner tools (Business feature). */}
+          {/* SSO + access review + audit log — team owner tools (Business feature). */}
           {canInvite ? <SsoSettingsSection /> : null}
+          {canInvite ? <AccessReviewSection /> : null}
           {canInvite ? <AuditLogSection /> : null}
         </div>
       </div>
@@ -375,6 +383,13 @@ function SsoSettingsSection() {
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState({ issuerUrl: '', clientId: '', clientSecret: '', emailDomain: '', defaultRole: 'viewer' as 'admin' | 'editor' | 'viewer' });
 
+  // Stable refs so a language switch (new `t`) doesn't re-run the load effect and
+  // overwrite the admin's unsaved form edits with server values.
+  const pushToastRef = useRef(pushToast);
+  pushToastRef.current = pushToast;
+  const tRef = useRef(t);
+  tRef.current = t;
+
   const load = () => {
     ssoApi
       .get()
@@ -387,10 +402,10 @@ function SsoSettingsSection() {
       })
       .catch((err) => {
         if (err instanceof ApiError && err.status === 402) setLocked(true);
-        else pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
+        else pushToastRef.current(err instanceof Error && err.message ? err.message : tRef.current('common.error'), 'error');
       });
   };
-  useEffect(load, [pushToast, t]);
+  useEffect(load, []); // load once on mount; save/verify/toggle call load() to refresh
 
   const copy = (text: string) => {
     void navigator.clipboard?.writeText(text).then(() => pushToast(t('sso.copied'), 'success')).catch(() => undefined);
@@ -517,6 +532,133 @@ function SsoSettingsSection() {
   );
 }
 
+/** Relative time in the interface language; null / unparsable renders as em dash. */
+function relativeTime(iso: string | null, lang: string): string {
+  if (!iso) return '—';
+  const ms = new Date(iso).getTime();
+  if (Number.isNaN(ms)) return '—';
+  const rtf = new Intl.RelativeTimeFormat(lang === 'ru' ? 'ru' : 'en', { numeric: 'auto' });
+  const minutes = Math.round((Date.now() - ms) / 60_000);
+  if (minutes < 60) return rtf.format(-Math.max(minutes, 0), 'minute');
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return rtf.format(-hours, 'hour');
+  return rtf.format(-Math.round(hours / 24), 'day');
+}
+
+/** Role/status may arrive as a full i18n key ('team.role.owner') or a bare value
+ *  ('owner'); resolve either, else show it as-is. */
+function teamLabel(value: string, kind: 'role' | 'status', t: (k: string) => string): string {
+  if (value.includes('.')) return t(value);
+  const key = `team.${kind}.${value}`;
+  const label = t(key);
+  return label === key ? value : label;
+}
+
+/** Access review (owner/admin, Business feature): who has access, their role,
+ *  status and last activity — exportable to CSV. A 402 shows an upsell. */
+function AccessReviewSection() {
+  const { t, lang } = useI18n();
+  const pushToast = useUIStore((s) => s.pushToast);
+  const [rows, setRows] = useState<AccessReviewRow[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [locked, setLocked] = useState(false);
+  // Stable refs so a language switch doesn't re-run the load effect.
+  const pushToastRef = useRef(pushToast);
+  pushToastRef.current = pushToast;
+  const tRef = useRef(t);
+  tRef.current = t;
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    securityApi.accessReview
+      .list()
+      .then((data) => {
+        if (cancelled) return;
+        setRows(data);
+        setLocked(false);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        if (err instanceof ApiError && err.status === 402) setLocked(true);
+        else pushToastRef.current(err instanceof Error && err.message ? err.message : tRef.current('common.error'), 'error');
+      })
+      .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const exportCsv = async () => {
+    try {
+      const blob = await securityApi.accessReview.downloadCsv();
+      downloadBlob(blob, 'access-review.csv');
+    } catch (err) {
+      pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
+    }
+  };
+
+  if (locked) {
+    return (
+      <div className={styles.auditSection}>
+        <h2 className={styles.auditTitle}>{t('sec.access.title')}</h2>
+        <EmptyState icon="shield" title={t('sec.access.upsellTitle')} body={t('sec.access.upsellBody')} />
+      </div>
+    );
+  }
+
+  return (
+    <div className={styles.auditSection}>
+      <div className={styles.auditHead}>
+        <h2 className={styles.auditTitle}>{t('sec.access.title')}</h2>
+        <div className={styles.auditControls}>
+          <Button size="sm" icon="download" onClick={exportCsv}>
+            {t('sec.access.exportCsv')}
+          </Button>
+        </div>
+      </div>
+      <p className={styles.sectionSub}>{t('sec.access.sub')}</p>
+
+      {loading ? (
+        <SkeletonRows rows={4} height={52} />
+      ) : (rows ?? []).length === 0 ? (
+        <EmptyState icon="users" title={t('team.title')} />
+      ) : (
+        <div className={styles.tableCard}>
+          <table className={styles.table}>
+            <thead>
+              <tr>
+                <th className={styles.th}>{t('team.col.member')}</th>
+                <th className={styles.th}>{t('team.col.role')}</th>
+                <th className={`${styles.th} ${styles.hideSm}`}>{t('team.col.status')}</th>
+                <th className={`${styles.th} ${styles.hideSm}`}>{t('sec.access.colLastActive')}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(rows ?? []).map((r) => (
+                <tr key={r.email}>
+                  <td className={styles.td}>
+                    <div className={styles.docCell}>
+                      <InitialsAvatar initials={initialsOf(r.name)} size={34} />
+                      <div style={{ minWidth: 0 }}>
+                        <div className={styles.docCellName}>{r.name}</div>
+                        <div className={styles.docCellSub}>{r.email}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td className={`${styles.td} ${styles.metaText}`}>{teamLabel(r.role, 'role', t)}</td>
+                  <td className={`${styles.td} ${styles.hideSm} ${styles.metaText}`}>{teamLabel(r.status, 'status', t)}</td>
+                  <td className={`${styles.td} ${styles.hideSm} ${styles.metaText}`}>{relativeTime(r.lastActiveAt, lang)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const AUDIT_GROUPS = ['', 'auth', 'document', 'ai', 'team', 'billing', 'signature', 'security'];
 const PAGE_SIZE = 20;
 
@@ -536,6 +678,12 @@ function AuditLogSection() {
   const [loading, setLoading] = useState(false);
   const [locked, setLocked] = useState(false); // 402 → not on Business
   const [hasMore, setHasMore] = useState(false);
+  // Stable refs: `t` changes identity on a language switch, but the paged loader must
+  // not re-run on that — with page>1 it would append the same page again (duplicate rows).
+  const pushToastRef = useRef(pushToast);
+  pushToastRef.current = pushToast;
+  const tRef = useRef(t);
+  tRef.current = t;
 
   useEffect(() => {
     const id = setTimeout(() => {
@@ -567,13 +715,13 @@ function AuditLogSection() {
       .catch((err) => {
         if (cancelled) return;
         if (err instanceof ApiError && err.status === 402) setLocked(true);
-        else pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
+        else pushToastRef.current(err instanceof Error && err.message ? err.message : tRef.current('common.error'), 'error');
       })
       .finally(() => !cancelled && setLoading(false));
     return () => {
       cancelled = true;
     };
-  }, [group, actorId, query, page, pushToast, t]);
+  }, [group, actorId, query, page]);
 
   /** Человекочитаемая подпись события; неизвестный тип показываем как есть. */
   const eventLabel = (type: string) => {

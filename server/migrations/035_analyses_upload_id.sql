@@ -1,0 +1,13 @@
+-- Link each analysis to the EXACT upload it was generated from.
+--
+-- Before this, re-analysis, chat grounding ("translate the whole contract") and
+-- clean export all resolved the contract's full text by (user_id, file_name)
+-- ORDER BY created_at DESC — so two uploads sharing a name (e.g. contract.pdf v1
+-- then v2) made an old analysis silently read the NEWER file's text. upload_id
+-- pins the analysis to its own upload.
+--
+-- Nullable + NO foreign key on purpose:
+--   * legacy analyses stay NULL → readers fall back to the newest-by-name upload
+--     (the previous behaviour), so nothing regresses for existing rows;
+--   * pruning/deleting an upload must never cascade-delete its analysis.
+ALTER TABLE analyses ADD COLUMN IF NOT EXISTS upload_id TEXT;

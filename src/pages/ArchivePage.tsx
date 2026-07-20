@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { Icon } from '@/components/icons/Icon';
@@ -20,6 +21,9 @@ export function ArchivePage() {
   const { data, loading, error, reload } = useAsync((signal) => chatsApi.list(true, signal), []);
   usePageTitle(t('archive.title'));
 
+  // Rows hidden during their 5-second undo window (same pattern as the sidebar).
+  const [pendingDelete, setPendingDelete] = useState<string[]>([]);
+
   // A failed restore/delete must say so (like the other pages do) — a silently
   // swallowed error looks like the button simply didn't work.
   const restore = async (id: string) => {
@@ -33,14 +37,29 @@ export function ArchivePage() {
     }
   };
 
-  const remove = async (id: string) => {
-    try {
-      await chatsApi.remove(id);
-      reload();
-      pushToast(t('rail.deletedToast'), 'default');
-    } catch (err) {
-      pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
-    }
+  // Deleting a chat for good is irreversible — hide the row and give a 5-second
+  // undo window (toast with an "Undo" button) before actually removing it.
+  const remove = (id: string) => {
+    setPendingDelete((ids) => [...ids, id]);
+    const finalize = () => {
+      chatsApi
+        .remove(id)
+        .then(() => reload())
+        .catch((err) => {
+          setPendingDelete((ids) => ids.filter((x) => x !== id)); // failed — bring the row back
+          pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
+        });
+    };
+    const timer = setTimeout(finalize, 5000);
+    pushToast(t('rail.deleting'), 'default', {
+      duration: 5000,
+      actionLabel: t('common.undo'),
+      onAction: () => {
+        clearTimeout(timer);
+        setPendingDelete((ids) => ids.filter((x) => x !== id));
+        pushToast(t('rail.deleteCancelled'), 'success');
+      },
+    });
   };
 
   return (
@@ -70,7 +89,7 @@ export function ArchivePage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {data.map((s) => (
+                  {data.filter((s) => !pendingDelete.includes(s.id)).map((s) => (
                     <tr key={s.id}>
                       <td className={styles.td}>
                         <div className={styles.docCell}>

@@ -8,7 +8,7 @@
  */
 import { create } from 'zustand';
 import { SESSION_EXPIRED_EVENT, USE_MOCK } from '@/api/client';
-import { authApi } from '@/api/auth.api';
+import { authApi, type TwoFactorCredential } from '@/api/auth.api';
 import { clearAsyncCache } from '@/hooks/useAsync';
 import { useNotificationsStore } from '@/store/useNotificationsStore';
 import type { UserProfile } from '@/types/domain';
@@ -27,7 +27,8 @@ interface AuthState {
   /** The last sign-out was forced by an expired/revoked token — the login
    *  screen shows a "session expired" notice instead of a bare form. */
   sessionExpired: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  /** `twoFactor` is the second factor supplied after a `totp_required` challenge. */
+  login: (email: string, password: string, twoFactor?: TwoFactorCredential) => Promise<void>;
   /** Resolves to 'verify-email' when the account awaits mailbox confirmation. */
   register: (name: string, email: string, password: string) => Promise<'signed-in' | 'verify-email'>;
   /** Accept a ready-made session (e.g. returned by the Google OAuth callback). */
@@ -108,12 +109,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   status: 'idle',
   sessionExpired: false,
 
-  login: async (email, password) => {
+  login: async (email, password, twoFactor) => {
     set({ status: 'loading' });
     try {
       const session = USE_MOCK
         ? await mockAuth(mockProfile(email.split('@')[0] || email, email))
-        : await authApi.login(email, password);
+        : await authApi.login(email, password, twoFactor);
       clearAsyncCache();
       useNotificationsStore.getState().reset();
       persist(session);

@@ -173,7 +173,9 @@ function PlanCard({
       pushToast(t('plans.freeActive'), 'success');
       return;
     }
-    // Paid plan: open the consent step instead of buying immediately.
+    // Paid plan: open the consent step instead of buying immediately. Clear any
+    // leftover tick so the waiver must be re-checked explicitly every time.
+    setConsent(false);
     setConfirming(true);
   };
 
@@ -244,7 +246,14 @@ function PlanCard({
             >
               {busy ? t('plans.opening') : t('plans.confirmPurchase')}
             </button>
-            <button className={styles.planConsentCancel} disabled={busy} onClick={() => setConfirming(false)}>
+            <button
+              className={styles.planConsentCancel}
+              disabled={busy}
+              onClick={() => {
+                setConfirming(false);
+                setConsent(false);
+              }}
+            >
               {t('common.cancel')}
             </button>
           </div>

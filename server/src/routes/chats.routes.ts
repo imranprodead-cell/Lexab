@@ -59,8 +59,8 @@ export async function buildAnalysisContext(db: Db, userId: string, analysisId: s
   } catch {
     return undefined;
   }
-  const res = await db.query<{ user_id: string; file_name: string; summary: string; document_blocks: unknown }>(
-    'SELECT user_id, file_name, summary, document_blocks FROM analyses WHERE id = $1',
+  const res = await db.query<{ user_id: string; file_name: string; summary: string; document_blocks: unknown; upload_id: string | null }>(
+    'SELECT user_id, file_name, summary, document_blocks, upload_id FROM analyses WHERE id = $1',
     [analysisId],
   );
   const row = res.rows[0];
@@ -102,11 +102,19 @@ export async function buildAnalysisContext(db: Db, userId: string, analysisId: s
     })
     .join('\n');
 
-  // Full source text when we still have the uploaded file's extraction.
-  const upload = await db.query<{ extracted_text: string | null }>(
-    'SELECT extracted_text FROM uploads WHERE user_id = $1 AND file_name = $2 ORDER BY created_at DESC LIMIT 1',
-    [row.user_id, row.file_name],
-  );
+  // Full source text when we still have the uploaded file's extraction. Use the
+  // EXACT upload this analysis was built from (upload_id) so "translate the whole
+  // contract" grounds in the right file even when two uploads share a name; fall
+  // back to newest-by-name for legacy analyses without a link.
+  const upload = row.upload_id
+    ? await db.query<{ extracted_text: string | null }>('SELECT extracted_text FROM uploads WHERE id = $1 AND user_id = $2', [
+        row.upload_id,
+        row.user_id,
+      ])
+    : await db.query<{ extracted_text: string | null }>(
+        'SELECT extracted_text FROM uploads WHERE user_id = $1 AND file_name = $2 ORDER BY created_at DESC LIMIT 1',
+        [row.user_id, row.file_name],
+      );
   // Present-but-undecryptable text must throw, not silently drop the "Full
   // contract text" block from the grounding context.
   const rawFull = upload.rows[0]?.extracted_text ?? null;
@@ -447,12 +455,20 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
       const covers = Number(sessRow.rows[0]?.summary_covers ?? 0);
       if (older.length > covers) {
         // Plan passed through: paid-plan chats must summarize on Anthropic only.
+        const prior = summary;
         summary = await generateHistorySummary(summary, older.slice(covers), plan);
-        await db.query('UPDATE chat_sessions SET context_summary = $2, summary_covers = $3 WHERE id = $1', [
-          sessionId,
-          summary === null ? null : await encText(db, req.currentUser.id, summary),
-          older.length,
-        ]);
+        // Advance the covered-count ONLY when the summary actually changed. On a
+        // transient failure generateHistorySummary returns the previous summary
+        // unchanged; advancing anyway would push those dropped turns past both the
+        // verbatim window and the summary → the model loses them forever. Leaving
+        // covers as-is retries the fold on the next turn.
+        if (summary !== prior) {
+          await db.query('UPDATE chat_sessions SET context_summary = $2, summary_covers = $3 WHERE id = $1', [
+            sessionId,
+            summary === null ? null : await encText(db, req.currentUser.id, summary),
+            older.length,
+          ]);
+        }
       }
 
       // Statute grounding (RAG): for jurisdictions with a legal corpus, retrieve

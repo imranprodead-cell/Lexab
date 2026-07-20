@@ -94,7 +94,7 @@ export function signatureRoutes(app: FastifyInstance, db: Db): void {
     // The document must actually belong to the caller — don't let a free-text
     // name create a signature request for a document they don't own.
     const owned = await db.query<{ id: string }>(
-      'SELECT id FROM documents WHERE user_id = $1 AND name = $2 ORDER BY updated_at DESC LIMIT 1',
+      'SELECT id FROM documents WHERE user_id = $1 AND name = $2 AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1',
       [req.currentUser.id, documentName],
     );
     if (!owned.rows[0]) {

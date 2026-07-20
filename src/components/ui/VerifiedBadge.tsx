@@ -31,12 +31,32 @@ export function VerifiedBadge({ finding }: { finding: Pick<Finding, 'unitId' | '
   return null;
 }
 
-/** Citation chip + verification mark on one wrapping line. */
-export function CitationLine({ finding }: { finding: Pick<Finding, 'citation' | 'unitId' | 'unverified'> }) {
+/**
+ * Playbook-deviation mark: shown when the clause departs from an active team
+ * playbook position. Sits next to the citation-verification badge.
+ */
+export function PlaybookDeviationBadge({ finding }: { finding: Pick<Finding, 'playbookDeviation'> }) {
+  const { t } = useI18n();
+  if (!finding.playbookDeviation) return null;
+  return (
+    <span className={`${styles.verify} ${styles.verifyDeviation}`}>
+      <Icon name="flag" size={12} />
+      {t('playbooks.deviationBadge')}
+    </span>
+  );
+}
+
+/** Citation chip + verification mark + playbook-deviation mark on one wrapping line. */
+export function CitationLine({
+  finding,
+}: {
+  finding: Pick<Finding, 'citation' | 'unitId' | 'unverified' | 'playbookDeviation'>;
+}) {
   return (
     <span className={styles.citeRow}>
       <CitationChip citation={finding.citation} />
       <VerifiedBadge finding={finding} />
+      <PlaybookDeviationBadge finding={finding} />
     </span>
   );
 }

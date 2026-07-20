@@ -12,11 +12,14 @@ export const clone = <T>(value: T): T =>
     ? structuredClone(value)
     : (JSON.parse(JSON.stringify(value)) as T);
 
-/** A typed error carrying an HTTP-like status, thrown by both mock and real API. */
+/** A typed error carrying an HTTP-like status, thrown by both mock and real API.
+ *  `code` mirrors the server's machine-readable `{ code }` (e.g. `totp_required`)
+ *  when present — callers branch on it without parsing the message. */
 export class ApiError extends Error {
   constructor(
     message: string,
     public readonly status: number = 500,
+    public readonly code?: string,
   ) {
     super(message);
     this.name = 'ApiError';

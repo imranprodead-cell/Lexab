@@ -5,7 +5,7 @@
  * likely stream Server-Sent Events for the progress steps; the UI already
  * animates steps independently (see chat store), so only this module changes.
  */
-import type { AnalysisResult, DocBlock, RedlineStatus } from '@/types/domain';
+import type { AnalysisResult, DocBlock, Redline, RedlineStatus } from '@/types/domain';
 import { downloadBlob } from '@/lib/download';
 import { USE_MOCK, http, httpBlob } from './client';
 import { db } from './mock/db';
@@ -81,13 +81,17 @@ export const analysisApi = {
   },
 
   /** Persist manual edits made in the workspace editor. */
-  async saveDocument(id: string, document: DocBlock[]): Promise<void> {
+  // `redlines` (optional) carries the current suggestion snapshot so undo/redo
+  // can re-create a redline the restored document references but that an earlier
+  // edit had deleted — otherwise that clause's text is silently lost on reload.
+  async saveDocument(id: string, document: DocBlock[], redlines?: Redline[]): Promise<void> {
     if (USE_MOCK) {
       await delay(200);
       db.analysis.document = clone(document);
+      if (redlines) db.analysis.redlines = clone(redlines);
       return;
     }
-    await http(`/analysis/${id}/document`, { method: 'PATCH', body: { document } });
+    await http(`/analysis/${id}/document`, { method: 'PATCH', body: { document, ...(redlines ? { redlines } : {}) } });
   },
 
   /** Branded PDF report of the analysis (binary). */

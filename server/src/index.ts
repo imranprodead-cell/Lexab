@@ -3,6 +3,11 @@ import { buildApp } from './app.ts';
 import { config } from './config.ts';
 import { checkApprovalDeadlines } from './routes/approvals.routes.ts';
 import { checkAuditRetention } from './routes/audit.routes.ts';
+import { checkContractDeadlines } from './routes/contracts.routes.ts';
+import { checkRetention } from './routes/documents.routes.ts';
+import { resumeBatchJobs } from './routes/batch.routes.ts';
+import { failInterruptedWorkflows } from './routes/workflows.routes.ts';
+import { pruneStaleSessions } from './routes/security.routes.ts';
 import { checkBillingLifecycle } from './lib/billing.ts';
 import { getDb, migrate } from './db.ts';
 import { seedIfEmpty } from './seed-data.ts';
@@ -32,6 +37,23 @@ setInterval(() => void checkBillingLifecycle(db).catch(() => undefined), 60 * 60
 // Audit-log retention: purge events past the window, daily.
 void checkAuditRetention(db).catch(() => undefined);
 setInterval(() => void checkAuditRetention(db).catch(() => undefined), 24 * 60 * 60 * 1000);
+
+// CLM: сроки договоров и обязательств — напоминания раз в сутки (и при старте).
+void checkContractDeadlines(db).catch(() => undefined);
+setInterval(() => void checkContractDeadlines(db).catch(() => undefined), 24 * 60 * 60 * 1000);
+
+// Retention: crypto-shred documents soft-deleted past the retention window, daily.
+void checkRetention(db).catch(() => undefined);
+setInterval(() => void checkRetention(db).catch(() => undefined), 24 * 60 * 60 * 1000);
+
+// Boot recovery: доработать батчи, прерванные перезапуском, и честно закрыть
+// прерванные воркфлоу-запуски (не «вечное processing» в интерфейсе).
+if (config.batchAutostart) void resumeBatchJobs(db).catch(() => undefined);
+void failInterruptedWorkflows(db).catch(() => undefined);
+
+// Журнал сессий: чистка строк старше окна жизни сессии, раз в сутки.
+void pruneStaleSessions(db).catch(() => undefined);
+setInterval(() => void pruneStaleSessions(db).catch(() => undefined), 24 * 60 * 60 * 1000);
 if (seeded) console.log('[db] seeded demo data (demo user: a.rahman@freshfields.com)');
 
 if (!config.anthropicApiKey) {

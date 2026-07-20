@@ -19,6 +19,9 @@ export interface Finding {
   redlineId?: string | null;
   /** True when the citation failed validation — the finding was demoted (RAG Этап 4). */
   unverified?: boolean;
+  /** True when this finding flags a deviation from the team's playbook (a
+   *  standard-position breach) rather than a pure statutory risk. */
+  playbookDeviation?: boolean;
 }
 
 export interface Redline {

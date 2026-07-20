@@ -544,6 +544,40 @@
   line-height: 1.5;
   flex: 1;
 }
+
+/* Playbook card: preview of the standard positions (rules). */
+.pbRuleList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+.pbRuleItem {
+  position: relative;
+  padding-inline-start: 16px;
+  font-size: 13px;
+  color: var(--dim);
+  line-height: 1.45;
+}
+.pbRuleItem::before {
+  content: '';
+  position: absolute;
+  inset-inline-start: 4px;
+  top: 8px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.pbRuleMore {
+  padding-inline-start: 16px;
+  font-size: 12px;
+  color: var(--mut);
+  font-family: var(--font-label);
+}
 .cardFoot {
   display: flex;
   align-items: center;
@@ -1274,6 +1308,132 @@
 }
 .dangerBtn:hover:not(:disabled) {
   background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+/* Security subsections: 2FA, active sessions, data export ------------------- */
+.secSub {
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+.secSubTitle {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+.secSubText {
+  font-size: 13px;
+  color: var(--mut);
+  margin: 0 0 14px;
+  line-height: 1.55;
+}
+.secStack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 460px;
+}
+.secActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.secKeyRow {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.secKey {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 15px;
+  letter-spacing: 0.12em;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  word-break: break-all;
+}
+.secUri {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  word-break: break-all;
+  color: var(--dim);
+}
+.secStatusOn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.backupBox {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--sev-med) 40%, transparent);
+  background: color-mix(in srgb, var(--sev-med) 8%, transparent);
+}
+.backupWarn {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--dim);
+  line-height: 1.5;
+}
+.backupGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+}
+.backupCode {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 14px;
+  letter-spacing: 0.06em;
+  text-align: center;
+  padding: 8px 6px;
+  border-radius: 6px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+.sessionList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sessionRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+}
+.sessionText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.sessionDevice {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.sessionMeta {
+  font-size: 12px;
+  color: var(--mut);
 }
 
 /* Legal pages (Terms / Privacy) ---------------------------------------------- */
@@ -2046,6 +2206,106 @@
   resize: vertical;
 }
 
+/* ── Agentic workflows (сценарии) ────────────────────────────────────────── */
+
+.wfOptions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.wfOption {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+
+.wfOptionOn {
+  border-color: var(--accent);
+}
+
+.wfOptionHead {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.wfCheck {
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  flex: none;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.wfOptionText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.wfOptionTitle {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.wfOptionDesc {
+  font-size: 12px;
+  color: var(--mut);
+  line-height: 1.5;
+}
+
+.wfOptionBody {
+  margin-top: 10px;
+  padding-left: 30px;
+}
+
+.wfChecklist {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.wfStep {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+}
+
+.wfStepIcon {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.wfStepLabel {
+  font-size: 14px;
+  font-weight: 600;
+  min-width: 0;
+}
+
+.wfStepPending {
+  color: var(--dim);
+  font-weight: 500;
+}
+
+.wfRunError {
+  margin: 10px 0 0;
+  font-size: 13px;
+  color: var(--danger);
+  line-height: 1.5;
+}
+
 /* Integrations (Settings) --------------------------------------------------- */
 .integrList {
   display: flex;
@@ -2658,4 +2918,147 @@
   .donutSeg {
     transition: none;
   }
+}
+
+/* ── Batch review ────────────────────────────────────────────────────────── */
+.dropZone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  text-align: center;
+  padding: 34px 20px;
+  border: 1.5px dashed var(--border);
+  border-radius: var(--r-lg);
+  background: var(--panel);
+  cursor: pointer;
+  transition: border-color var(--dur-fast), background var(--dur-fast);
+}
+.dropZone:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+.dropZoneActive {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, var(--panel));
+}
+.dropIcon {
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.dropTitle {
+  font-weight: 600;
+  font-size: 15px;
+}
+.dropSub {
+  font-size: 13px;
+  color: var(--mut);
+}
+
+.batchFileList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 14px;
+}
+.batchFileRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--panel);
+}
+.batchFileName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 500;
+}
+.batchFileMeta {
+  font-size: 12px;
+  color: var(--mut);
+  font-family: var(--font-label);
+  white-space: nowrap;
+}
+
+.batchControls {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin: 18px 0 6px;
+}
+.batchControls .field {
+  min-width: 220px;
+}
+
+.batchHistory {
+  margin-top: 30px;
+  padding-top: 22px;
+  border-top: 1px solid var(--border);
+}
+.batchHistoryTitle {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 14px;
+}
+
+.batchJobHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.batchWorking {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--dim);
+}
+.batchError {
+  font-size: 12px;
+  color: var(--sev-high);
+  margin-top: 2px;
+}
+
+.progressRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+}
+.progressTrack {
+  flex: 1;
+  min-width: 160px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--hover-2);
+  overflow: hidden;
+}
+.progressFill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width var(--dur-slow) var(--ease);
+}
+.progressLabel {
+  font-size: 13px;
+  color: var(--mut);
+  font-family: var(--font-label);
+  white-space: nowrap;
 }

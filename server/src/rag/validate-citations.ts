@@ -130,7 +130,10 @@ export async function validateFindings(
       );
       const row = unit.rows[0];
       if (!row) return demote(); // unknown or not in force on the analysis date
-      if (api && !(await unitSupportsFinding(api, row.text, row.breadcrumb, f))) return demote();
+      // Judge unavailable (no key) → we cannot semantically confirm the citation,
+      // so it stays unverified. Fail CLOSED, matching this module's contract.
+      if (!api) return demote();
+      if (!(await unitSupportsFinding(api, row.text, row.breadcrumb, f))) return demote();
       return { ...f, unitId, unverified: false };
     }),
   );

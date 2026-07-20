@@ -20,6 +20,7 @@ process.env.ANTHROPIC_API_KEY = '';
 process.env.DEEPSEEK_API_KEY = '';
 process.env.LLM_FALLBACK = 'dev';
 process.env.JWT_SECRET = 'test-secret-that-is-definitely-long-enough-32+';
+process.env.PASSWORD_BREACH_CHECK = '0'; // no network in tests
 process.env.DATA_ENCRYPTION_KEY = 'encryption-test-master-key-0123456789abc';
 process.env.SEED_DEMO_DATA = 'false';
 process.env.AUTH_RATE_LIMIT_MAX = '1000';

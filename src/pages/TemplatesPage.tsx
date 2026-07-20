@@ -106,9 +106,17 @@ export function TemplatesPage() {
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState<{ title: string; content: string } | null>(null);
   const [saving, setSaving] = useState(false);
+  // Once a draft is saved to the library, block re-saving the same draft —
+  // the server has no unique constraint, so repeat clicks would duplicate it.
+  const [savedDraft, setSavedDraft] = useState(false);
 
   // Personal saved-template library (per user).
-  const { data: savedData, reload: reloadSaved } = useAsync((signal) => templatesApi.listSaved(signal), []);
+  const {
+    data: savedData,
+    loading: savedLoading,
+    error: savedError,
+    reload: reloadSaved,
+  } = useAsync((signal) => templatesApi.listSaved(signal), []);
   const saved = useMemo(() => savedData ?? [], [savedData]);
   const [viewSaved, setViewSaved] = useState<SavedTemplate | null>(null);
 
@@ -125,11 +133,13 @@ export function TemplatesPage() {
     setJurisdiction(PICKER_CODES.has(uiCountry) ? uiCountry : matchJurisdiction(template.jurisdiction));
     setJurisOpen(false);
     setDraft(null);
+    setSavedDraft(false);
   };
 
   const close = () => {
     setTpl(null);
     setDraft(null);
+    setSavedDraft(false);
     setPartyA('');
     setPartyB('');
     setTerm('');
@@ -181,7 +191,7 @@ export function TemplatesPage() {
 
   /** Keep the current generated draft in the personal library. */
   const saveDraftAsTemplate = async () => {
-    if (!draft || saving) return;
+    if (!draft || saving || savedDraft) return;
     setSaving(true);
     try {
       await templatesApi.saveDraft({
@@ -190,6 +200,7 @@ export function TemplatesPage() {
         sourceTemplateId: tpl?.id,
         jurisdiction: selectedJuris.law,
       });
+      setSavedDraft(true);
       pushToast(t('tpl.savedToast'), 'success');
       reloadSaved();
     } catch (err) {
@@ -220,7 +231,12 @@ export function TemplatesPage() {
             <p className={styles.pageSub}>{t('tpl.sub')}</p>
           </div>
 
-          {saved.length > 0 ? (
+          {savedLoading ? null : savedError ? (
+            <div style={{ marginBottom: 28 }}>
+              <h2 className={styles.sectionTitle}>{t('tpl.mySaved')}</h2>
+              <ErrorState message={savedError} onRetry={reloadSaved} />
+            </div>
+          ) : saved.length > 0 ? (
             <div style={{ marginBottom: 28 }}>
               <h2 className={styles.sectionTitle}>{t('tpl.mySaved')}</h2>
               <div className={styles.grid}>
@@ -311,7 +327,14 @@ export function TemplatesPage() {
       </div>
 
       {tpl ? (
-        <div className={styles.modalOverlay} onMouseDown={(e) => e.target === e.currentTarget && close()}>
+        <div
+          className={styles.modalOverlay}
+          onMouseDown={(e) => {
+            // While a draft is generating the AI limit is already being spent —
+            // don't let a backdrop click drop the modal and lose the result.
+            if (!busy && e.target === e.currentTarget) close();
+          }}
+        >
           <GlassCard className={styles.modalCard} style={{ maxWidth: draft ? 680 : 460 }}>
             {!draft ? (
               <>
@@ -377,7 +400,7 @@ export function TemplatesPage() {
                   </div>
                   <TextField label={t('tpl.details')} name="details" value={details} onChange={(e) => setDetails(e.target.value)} />
                   <div className={styles.modalActions}>
-                    <Button type="button" onClick={close}>
+                    <Button type="button" onClick={close} disabled={busy}>
                       {t('common.cancel')}
                     </Button>
                     <Button type="submit" variant="primary" icon="sparkle" disabled={busy || !partyA.trim() || !partyB.trim()}>
@@ -398,7 +421,7 @@ export function TemplatesPage() {
                   <Button icon="docs" onClick={() => void copyContent(draft.content)}>
                     {t('tpl.copy')}
                   </Button>
-                  <Button variant="primary" icon="check" disabled={saving} onClick={() => void saveDraftAsTemplate()}>
+                  <Button variant="primary" icon="check" disabled={saving || savedDraft} onClick={() => void saveDraftAsTemplate()}>
                     {saving ? t('common.loading') : t('tpl.saveAsTemplate')}
                   </Button>
                 </div>

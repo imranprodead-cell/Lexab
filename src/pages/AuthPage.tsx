@@ -11,6 +11,7 @@ import { LandingSections } from '@/components/landing/LandingSections';
 import { TelegramWidget } from '@/components/landing/TelegramWidget';
 import { teamApi } from '@/api';
 import { authApi } from '@/api/auth.api';
+import { ApiError } from '@/api/util';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useResolvedDark } from '@/hooks/useResolvedDark';
@@ -79,6 +80,14 @@ export function AuthPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
+  /** After a `totp_required` challenge: the 2FA code input is revealed and the
+   *  same email+password are re-submitted with the code. */
+  const [twoFactor, setTwoFactor] = useState(false);
+  const [code, setCode] = useState('');
+  const [useBackupCode, setUseBackupCode] = useState(false);
+  /** Reset-request goes straight to the API (not the store), so guard the
+   *  in-flight request ourselves to keep the button from firing twice. */
+  const [resetBusy, setResetBusy] = useState(false);
   /** Set after sign-up: the confirmation letter went to this address. */
   const [verifySentTo, setVerifySentTo] = useState<string | null>(null);
   /** Returning from Google with a one-time code: show the branded "signing in"
@@ -203,11 +212,15 @@ export function AuthPage() {
     }
 
     if (mode === 'reset') {
+      if (resetBusy) return;
       setError(null);
+      setResetBusy(true);
       try {
         await authApi.requestReset(email.trim());
       } catch {
         /* never reveal whether the address exists */
+      } finally {
+        setResetBusy(false);
       }
       pushToast(t('auth.resetSent'), 'success');
       setMode('signin');
@@ -222,10 +235,20 @@ export function AuthPage() {
       setError(t('auth.errPassword'));
       return;
     }
+    // Once challenged, the code is required to complete the sign-in.
+    if (mode === 'signin' && twoFactor && !code.trim()) {
+      setError(t('sec.2fa.codeRequired'));
+      return;
+    }
     setError(null);
     try {
       if (mode === 'signin') {
-        await login(email.trim(), password);
+        const factor = twoFactor
+          ? useBackupCode
+            ? { backupCode: code.trim() }
+            : { code: code.trim() }
+          : undefined;
+        await login(email.trim(), password, factor);
         departAnd(() => navigate(redirectTo, { replace: true }));
         return;
       }
@@ -239,6 +262,19 @@ export function AuthPage() {
       setPassword('');
       setMode('signin');
     } catch (err) {
+      // 2FA-enabled account, first attempt without a code: reveal the code
+      // input instead of showing an error, and let the user re-submit.
+      if (mode === 'signin' && !twoFactor && err instanceof ApiError && err.code === 'totp_required') {
+        setTwoFactor(true);
+        setError(null);
+        return;
+      }
+      // Already challenged and a 401 came back → the code was wrong (the retry
+      // 401 may or may not carry the code); show it inline by the code input.
+      if (mode === 'signin' && twoFactor && err instanceof ApiError && err.status === 401) {
+        setError(t('sec.2fa.invalidCode'));
+        return;
+      }
       // Surface the real backend message ("Invalid email or password", …).
       setError(err instanceof Error && err.message ? err.message : t('common.error'));
     }
@@ -248,6 +284,10 @@ export function AuthPage() {
     setMode(next);
     setError(null);
     setVerifySentTo(null);
+    // The challenge is bound to a specific sign-in attempt — drop it on switch.
+    setTwoFactor(false);
+    setCode('');
+    setUseBackupCode(false);
   };
 
   const scrollToSection = (id: string) => {
@@ -481,7 +521,14 @@ export function AuthPage() {
                       type="email"
                       value={email}
                       autoComplete="email"
-                      onChange={(e) => setEmail(e.target.value)}
+                      onChange={(e) => {
+                        setEmail(e.target.value);
+                        // Editing the address invalidates a pending challenge.
+                        if (twoFactor) {
+                          setTwoFactor(false);
+                          setCode('');
+                        }
+                      }}
                     />
                     {mode !== 'reset' ? (
                       <TextField
@@ -494,7 +541,32 @@ export function AuthPage() {
                       />
                     ) : null}
 
-                    {mode === 'signin' ? (
+                    {mode === 'signin' && twoFactor ? (
+                      <div className={styles.twoFactorBlock}>
+                        <TextField
+                          label={useBackupCode ? t('sec.2fa.backupCodeLabel') : t('sec.2fa.codeLabel')}
+                          name="totp"
+                          inputMode={useBackupCode ? 'text' : 'numeric'}
+                          autoComplete="one-time-code"
+                          autoFocus
+                          value={code}
+                          onChange={(e) => setCode(e.target.value)}
+                        />
+                        <button
+                          type="button"
+                          className={styles.forgotBtn}
+                          onClick={() => {
+                            setUseBackupCode((v) => !v);
+                            setCode('');
+                            setError(null);
+                          }}
+                        >
+                          {useBackupCode ? t('sec.2fa.useAppCode') : t('sec.2fa.useBackupCode')}
+                        </button>
+                      </div>
+                    ) : null}
+
+                    {mode === 'signin' && !twoFactor ? (
                       <button type="button" className={styles.forgotBtn} onClick={() => switchMode('reset')}>
                         {t('auth.forgot')}
                       </button>
@@ -502,11 +574,13 @@ export function AuthPage() {
 
                     {error ? <p className={styles.formError}>{error}</p> : null}
 
-                    <Button type="submit" variant="primary" className={styles.submit} disabled={status === 'loading'}>
-                      {status === 'loading'
+                    <Button type="submit" variant="primary" className={styles.submit} disabled={status === 'loading' || resetBusy}>
+                      {status === 'loading' || resetBusy
                         ? t('common.loading')
                         : mode === 'signin'
-                          ? t('auth.signIn')
+                          ? twoFactor
+                            ? t('sec.2fa.verify')
+                            : t('auth.signIn')
                           : mode === 'signup'
                             ? t('auth.signUp')
                             : t('auth.resetSend')}
