@@ -76,8 +76,15 @@ export const chatsApi = {
     analysisId?: string,
     jurisdiction?: string,
     onToken?: (delta: string) => void,
+    draft?: { title: string; content: string },
   ): Promise<ChatMessage> {
-    const body = { text, ...(analysisId ? { analysisId } : {}), ...(jurisdiction ? { jurisdiction } : {}) };
+    const body = {
+      text,
+      ...(analysisId ? { analysisId } : {}),
+      ...(jurisdiction ? { jurisdiction } : {}),
+      // Черновик шаблона: анализа нет, контекстом служит сам текст документа.
+      ...(draft ? { draftTitle: draft.title, draftText: draft.content } : {}),
+    };
     if (onToken && !USE_MOCK) {
       try {
         return await httpSSE<ChatMessage>(`/chats/${sessionId}/messages`, body, onToken);

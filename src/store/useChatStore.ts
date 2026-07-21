@@ -203,6 +203,10 @@ let ghostStash: {
   analysis: AnalysisResult | null;
   activeStep: number;
   serverSessionId: string | null;
+  /** Черновик шаблона и текст ошибки тоже часть канваса: без них выход из
+   *  гост-режима терял кнопки драфта в воркспейсе и настоящий текст ошибки. */
+  draftSource: ChatState['draftSource'];
+  error: string | null;
 } | null = null;
 
 export const useChatStore = create<ChatState>((set, get) => {
@@ -314,7 +318,7 @@ export const useChatStore = create<ChatState>((set, get) => {
     clearStepTimers();
     finishActiveStreams();
     canvasEpoch++;
-    const { phase, messages, analysis, activeStep, serverSessionId } = get();
+    const { phase, messages, analysis, activeStep, serverSessionId, draftSource, error, sessionLoading } = get();
     // A live SSE reply still streaming at the moment we switch to ghost gets
     // orphaned — the canvas switch clears its stream id and its completion is
     // discarded from this canvas. Finalize it in the stash now (keep partial
@@ -323,8 +327,21 @@ export const useChatStore = create<ChatState>((set, get) => {
     const stashedMessages = messages.flatMap((m) =>
       m.streaming ? (m.text ? [{ ...m, streaming: false }] : []) : [m],
     );
-    ghostStash = { phase, messages: stashedMessages, analysis, activeStep, serverSessionId };
-    set({ ghost: true, phase: 'idle', messages: [], analysis: null, draftSource: null, activeStep: -1, error: null, serverSessionId: null });
+    ghostStash = {
+      phase,
+      messages: stashedMessages,
+      analysis,
+      activeStep,
+      // Полузагруженный чат (скелетон, сообщения так и не пришли — их fetch
+      // убит сменой эпохи): восстановить его id значило бы молча писать в
+      // «невидимую» сессию, а клик по ней в сайдбаре — мёртвый (guard по id).
+      serverSessionId: sessionLoading ? null : serverSessionId,
+      draftSource,
+      error,
+    };
+    // sessionLoading: false — незавершённый loadSession (эпоха уже сменилась)
+    // не должен оставить на новом канвасе вечный скелетон.
+    set({ ghost: true, phase: 'idle', messages: [], analysis: null, draftSource: null, activeStep: -1, error: null, serverSessionId: null, sessionLoading: false });
   },
 
   exitGhost: () => {
@@ -340,8 +357,12 @@ export const useChatStore = create<ChatState>((set, get) => {
       messages: restored?.messages ?? [],
       analysis: restored?.analysis ?? null,
       activeStep: restored?.activeStep ?? -1,
-      error: null,
+      // Restore the stashed canvas VERBATIM: the draft affordances and the
+      // real error text must survive a ghost round-trip.
+      draftSource: restored?.draftSource ?? null,
+      error: restored?.error ?? null,
       serverSessionId: restored?.serverSessionId ?? null,
+      sessionLoading: false,
     });
   },
 
@@ -417,7 +438,18 @@ export const useChatStore = create<ChatState>((set, get) => {
         // server-side and is restored when the session is reopened.
         if (sessionAtCall && get().serverSessionId === sessionAtCall) {
           clearStepTimers();
-          set({ phase: 'analyzed', analysis: result, draftSource: null, activeStep: ANALYSIS_STEPS.length, error: null });
+          set((s) => ({
+            phase: 'analyzed',
+            analysis: result,
+            draftSource: null,
+            activeStep: ANALYSIS_STEPS.length,
+            error: null,
+            // loadSession мог стереть локальный пузырёк файла (сервер узнаёт
+            // об анализе только из linkAnalysis, который ещё летит) — вернём
+            // его, иначе карточке результата не к чему крепиться и чат
+            // встречает приветствием, пряча готовый анализ.
+            messages: s.messages.length ? s.messages : [userMessage],
+          }));
           tryLinkAnalysis();
         }
         return;
@@ -458,7 +490,7 @@ export const useChatStore = create<ChatState>((set, get) => {
     finishActiveStreams();
     canvasEpoch++;
     ghostStash = null;
-    set({ phase: 'idle', messages: [], analysis: null, draftSource: null, activeStep: -1, error: null, serverSessionId: null, ghost: false });
+    set({ phase: 'idle', messages: [], analysis: null, draftSource: null, activeStep: -1, error: null, serverSessionId: null, ghost: false, sessionLoading: false });
   },
 
   sendMessage: (text) => {
@@ -559,7 +591,17 @@ export const useChatStore = create<ChatState>((set, get) => {
         pendingReplies.set(sessionId, assistantId);
         liveStreamIds.add(assistantId);
         const painter = makeLivePainter(assistantId);
-        const reply = await chatsApi.sendMessage(sessionId, trimmed, get().analysis?.id, defaultLaw(), painter.onToken);
+        // Черновик шаблона: серверного анализа нет (id draft_… сервер не знает) —
+        // контекстом вопроса едет сам текст черновика.
+        const draftSrc = get().draftSource;
+        const reply = await chatsApi.sendMessage(
+          sessionId,
+          trimmed,
+          draftSrc ? undefined : get().analysis?.id,
+          defaultLaw(),
+          painter.onToken,
+          draftSrc ? { title: draftSrc.title, content: draftSrc.content } : undefined,
+        );
         painter.cancel();
         pendingReplies.delete(sessionId);
         liveStreamIds.delete(assistantId);
@@ -654,19 +696,35 @@ export const useChatStore = create<ChatState>((set, get) => {
       if (epoch !== canvasEpoch) return;
       // Stage 1: the conversation shows as soon as it arrives — the analysis
       // card (a second round-trip) attaches right after.
-      set({
-        phase: messages.length ? 'analyzed' : 'idle',
-        messages: withPending(messages),
-        sessionLoading: false,
+      set((s) => {
+        // Обратный порядок гонки фонового анализа: усыновление могло УЖЕ
+        // вернуть пузырёк файла и результат, а сервер ещё отвечает «сообщений
+        // нет» (linkAnalysis в пути). Пустой список не должен стирать живой
+        // канвас — иначе готовый анализ снова прячется за приветствием.
+        const keepLocal = messages.length === 0 && s.analysis !== null && s.messages.length > 0;
+        return {
+          phase: messages.length || keepLocal ? 'analyzed' : 'idle',
+          messages: keepLocal ? s.messages : withPending(messages),
+          sessionLoading: false,
+        };
       });
       const analysisRef = [...messages].reverse().find((m) => m.analysisId)?.analysisId;
       const analysis = analysisRef ? await analysisApi.get(analysisRef).catch(() => null) : null;
       cacheSession(sessionId, { messages, analysis });
       if (epoch !== canvasEpoch) return;
-      set({
-        phase: messages.length || analysis ? 'analyzed' : 'idle',
-        analysis,
-        activeStep: analysis ? ANALYSIS_STEPS.length : -1,
+      set((s) => {
+        // Пока мы ходили за сообщениями, фоновый анализ ЭТОЙ ЖЕ сессии мог
+        // «усыновиться» в канвас (его серверная связка linkAnalysis ещё в
+        // пути, поэтому analysisRef пуст). Не затираем живой результат
+        // null-ом — сервер догонит через мгновение. Но если сервер ЗНАЕТ про
+        // анализ (analysisRef есть), его правда главнее: удалённый/недоступный
+        // анализ не должен жить в кэше вкладки.
+        const kept = analysis ?? (analysisRef ? null : s.analysis);
+        return {
+          phase: s.messages.length || kept ? 'analyzed' : 'idle',
+          analysis: kept,
+          activeStep: kept ? ANALYSIS_STEPS.length : -1,
+        };
       });
     } catch {
       if (epoch !== canvasEpoch) return;
@@ -704,6 +762,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       activeStep: ANALYSIS_STEPS.length,
       error: null,
       serverSessionId: null,
+      sessionLoading: false, // незавершённый loadSession не оставит скелетон
       // A freshly opened document starts with a clean edit history.
       docUndo: [],
       docRedo: [],
@@ -740,6 +799,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       activeStep: -1,
       error: null,
       serverSessionId: null,
+      sessionLoading: false, // незавершённый loadSession не оставит скелетон
       docUndo: [],
       docRedo: [],
     });

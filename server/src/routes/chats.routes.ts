@@ -406,7 +406,16 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
       // Document Q&A: when the client passes the analysis it is looking at,
       // the reply is grounded in that contract.
       const analysisId = typeof body.analysisId === 'string' ? body.analysisId : undefined;
-      const docContext = analysisId ? await buildAnalysisContext(db, req.currentUser.id, analysisId) : undefined;
+      let docContext = analysisId ? await buildAnalysisContext(db, req.currentUser.id, analysisId) : undefined;
+      // Черновик шаблона в воркспейсе: серверного анализа ещё нет, но вопросы
+      // должны видеть текст документа — клиент шлёт его в draftText.
+      if (!docContext) {
+        const draftText = typeof body.draftText === 'string' ? body.draftText.trim().slice(0, 100_000) : '';
+        if (draftText) {
+          const draftTitle = typeof body.draftTitle === 'string' ? body.draftTitle.trim().slice(0, 300) : '';
+          docContext = `The user's own DRAFT contract${draftTitle ? ` «${draftTitle}»` : ''} (generated from a template, not analysed yet):\n\n${draftText}`;
+        }
+      }
       // Default legal context from the user's country selector (e.g. "German law").
       const jurisdiction = typeof body.jurisdiction === 'string' ? body.jurisdiction.slice(0, 60) : undefined;
 

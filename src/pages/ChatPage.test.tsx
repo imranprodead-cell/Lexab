@@ -97,4 +97,27 @@ describe('ChatPage — reopening an analyzed-document chat from the sidebar', ()
     expect(html).toContain('55'); // risk gauge restored
     expect(useChatStore.getState().analysis?.id).toBe('an_1');
   });
+
+  // Черновик шаблона живёт в воркспейсе (adoptDraft: phase 'analyzed', сообщений
+  // нет). Возврат в «Чат» должен показать приветствие с подсказками, а не пустоту.
+  it('shows the welcome screen after leaving a template-draft workspace', async () => {
+    useChatStore.getState().adoptDraft({ id: 'st_w', title: 'NDA', content: 'Текст соглашения.' });
+
+    await act(async () => {
+      root.render(
+        <I18nProvider>
+          <MemoryRouter initialEntries={['/chat']}>
+            <Routes>
+              <Route path="/chat" element={<ChatPage />} />
+            </Routes>
+          </MemoryRouter>
+        </I18nProvider>,
+      );
+    });
+    await flush();
+
+    const html = document.body.innerHTML;
+    expect(html).toContain('Draft an NDA'); // подсказки приветствия на месте (тестовая локаль — en)
+    expect(useChatStore.getState().analysis?.id).toBe('draft_st_w'); // канвас цел
+  });
 });

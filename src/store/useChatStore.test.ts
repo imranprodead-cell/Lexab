@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 // USE_MOCK must be false so loadSession talks to the (mocked) HTTP api layer.
 vi.mock('@/api', () => ({
   USE_MOCK: false,
-  analysisApi: { get: vi.fn(), saveDocument: vi.fn().mockResolvedValue(undefined) },
+  analysisApi: { get: vi.fn(), saveDocument: vi.fn().mockResolvedValue(undefined), analyze: vi.fn() },
 }));
 vi.mock('@/api/chats.api', () => ({
   chatsApi: {
@@ -128,7 +128,7 @@ describe('chat store — live streaming', () => {
     expect(assistant?.text).toBe('Hello'); // authoritative final text
     expect(assistant?.streaming).toBeFalsy(); // no bubble left stuck streaming
     // The streaming path is taken: an onToken callback is passed through.
-    expect(mockSend).toHaveBeenCalledWith('s_live', 'hi', undefined, expect.anything(), expect.any(Function));
+    expect(mockSend).toHaveBeenCalledWith('s_live', 'hi', undefined, expect.anything(), expect.any(Function), undefined);
   });
 
   it('a mid-stream failure shows an honest error, not a half-written answer', async () => {
@@ -249,6 +249,103 @@ describe('chat store — template draft in the workspace', () => {
     // Жирный TextRun сплющивается в обычный текст (шаблон хранится как plain text).
     expect(draftBlocksToText([{ type: 'paragraph', segments: ['Срок: ', { text: '30 дней', marks: ['b'] }] }]))
       .toBe('Срок: 30 дней');
+  });
+
+  it('a background-finished analysis restores its file bubble instead of hiding behind the welcome screen', async () => {
+    // Гонка: анализ в полёте → пользователь ушёл в другой чат и вернулся
+    // (loadSession стёр локальный пузырёк — сервер ещё не знает об анализе) →
+    // анализ завершился. Раньше: analyzed без сообщений → приветствие прячет результат.
+    const mockAnalyze = (analysisApi as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze;
+    let resolveAnalyze!: (v: unknown) => void;
+    mockAnalyze.mockReturnValue(new Promise((r) => { resolveAnalyze = r; }));
+    (chatsApi.messages as ReturnType<typeof vi.fn>).mockResolvedValue([]);
+
+    useChatStore.setState({ serverSessionId: 's1' });
+    void useChatStore.getState().startAnalysis({ name: 'contract.pdf', size: '2 KB' });
+    await new Promise((r) => setTimeout(r, 5));
+    expect(useChatStore.getState().phase).toBe('analyzing');
+
+    await useChatStore.getState().loadSession('s2'); // ушёл в другой чат
+    await useChatStore.getState().loadSession('s1'); // вернулся; сервер отдал 0 сообщений
+    expect(useChatStore.getState().messages).toEqual([]); // пузырёк стёрт — фон гонки
+
+    resolveAnalyze({ id: 'an_bg', fileName: 'contract.pdf', fileSize: '2 KB', summary: 's',
+      riskScore: 40, riskLevel: 'Low', clausesReviewed: 1, findings: [], redlines: [], document: [] });
+    await new Promise((r) => setTimeout(r, 20));
+    const s = useChatStore.getState();
+    expect(s.phase).toBe('analyzed');
+    expect(s.analysis?.id).toBe('an_bg'); // результат усыновлён
+    expect(s.messages.some((m) => m.kind === 'file')).toBe(true); // пузырёк вернулся — не приветствие
+  });
+
+  it('reverse ordering: a late stage-1 response does not wipe the adopted analysis canvas', async () => {
+    // Усыновление успело вернуть пузырёк ДО того, как сервер ответил «сообщений
+    // нет» (linkAnalysis ещё в пути) — пустой список не должен стереть канвас.
+    const mockAnalyze = (analysisApi as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze;
+    let resolveAnalyze!: (v: unknown) => void;
+    mockAnalyze.mockReturnValue(new Promise((r) => { resolveAnalyze = r; }));
+    let resolveS1!: (v: unknown) => void;
+    (chatsApi.messages as ReturnType<typeof vi.fn>).mockImplementation((sid: string) =>
+      sid === 's1' ? new Promise((r) => { resolveS1 = r; }) : Promise.resolve([]));
+
+    useChatStore.setState({ serverSessionId: 's1' });
+    void useChatStore.getState().startAnalysis({ name: 'contract.pdf', size: '2 KB' });
+    await new Promise((r) => setTimeout(r, 5));
+    await useChatStore.getState().loadSession('s2'); // ушёл
+    const returning = useChatStore.getState().loadSession('s1'); // вернулся; ответ сервера завис
+    await new Promise((r) => setTimeout(r, 5));
+    resolveAnalyze({ id: 'an_rev', fileName: 'contract.pdf', fileSize: '2 KB', summary: 's',
+      riskScore: 40, riskLevel: 'Low', clausesReviewed: 1, findings: [], redlines: [], document: [] });
+    await new Promise((r) => setTimeout(r, 10));
+    resolveS1([]); // сервер наконец ответил: пусто
+    await returning;
+    const s = useChatStore.getState();
+    expect(s.analysis?.id).toBe('an_rev');
+    expect(s.messages.some((m) => m.kind === 'file')).toBe(true); // канвас не стёрт
+    expect(s.phase).toBe('analyzed');
+  });
+
+  it('enterGhost over a half-loaded chat does not resurrect the stale session id', () => {
+    // Скелетон ещё ждал сообщений — его fetch убьёт смена эпохи; восстановленный
+    // id вёл бы в «невидимую» сессию (сообщения уходят в чат, которого не видно).
+    useChatStore.setState({ serverSessionId: 's_half', sessionLoading: true, phase: 'idle', messages: [] });
+    useChatStore.getState().enterGhost();
+    useChatStore.getState().exitGhost();
+    const s = useChatStore.getState();
+    expect(s.serverSessionId).toBeNull();
+    expect(s.sessionLoading).toBe(false);
+  });
+
+  it('ghost mode round-trip preserves the template-draft canvas and error text', () => {
+    useChatStore.getState().adoptDraft({ id: 'st_g', title: 'NDA', content: 'Текст соглашения.' });
+    useChatStore.setState({ phase: 'error', error: 'Понятная ошибка' });
+    useChatStore.getState().enterGhost();
+    expect(useChatStore.getState().draftSource).toBeNull(); // в госте канвас чистый
+    useChatStore.getState().exitGhost();
+    const s = useChatStore.getState();
+    expect(s.draftSource?.savedTemplateId).toBe('st_g'); // кнопки черновика вернулись
+    expect(s.analysis?.id).toBe('draft_st_g');
+    expect(s.error).toBe('Понятная ошибка'); // текст ошибки не деградировал
+  });
+
+  it('sendMessage grounds a draft question in the template text, not a phantom analysis id', async () => {
+    const mockCreate = chatsApi.create as ReturnType<typeof vi.fn>;
+    const mockSend = chatsApi.sendMessage as ReturnType<typeof vi.fn>;
+    mockCreate.mockResolvedValue({ id: 's_draft' });
+    mockSend.mockResolvedValue({ id: 'm_reply', role: 'assistant', kind: 'text', text: 'Срок — 30 дней.' });
+    useChatStore.getState().adoptDraft({ id: 'st_q', title: 'NDA', content: 'Пункт 2. Срок — 30 дней.' });
+    useChatStore.getState().sendMessage('Какой срок в пункте 2?');
+    await new Promise((r) => setTimeout(r, 20));
+    const call = mockSend.mock.calls[0];
+    expect(call[2]).toBeUndefined(); // id draft_… на сервер не едет
+    expect(call[5]).toEqual({ title: 'NDA', content: 'Пункт 2. Срок — 30 дней.' }); // едет сам текст
+  });
+
+  it('adoptDraft clears a stuck sessionLoading from an abandoned loadSession', () => {
+    // Гонка: открыли несохранённый чат (скелетон), не дождались и открыли шаблон.
+    useChatStore.setState({ sessionLoading: true });
+    useChatStore.getState().adoptDraft({ id: 'st_race', title: 'NDA', content: 'Текст.' });
+    expect(useChatStore.getState().sessionLoading).toBe(false); // не вечный скелетон
   });
 
   it('updateDraftContent keeps download/copy/analyze in sync with edits', () => {

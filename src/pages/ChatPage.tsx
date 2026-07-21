@@ -290,7 +290,9 @@ export function ChatPage() {
             <SkeletonRows rows={4} height={52} />
           </div>
         </div>
-      ) : phase === 'idle' && messages.length === 0 ? (
+      ) : messages.length === 0 && (phase === 'idle' || phase === 'analyzed') ? (
+        // «analyzed» без сообщений — канвас живёт в воркспейсе (черновик шаблона
+        // через adoptDraft): в чате показываем приветствие, а не пустой экран.
         ghost ? (
           <div className={chat.ghostEmpty}>
             <div className={chat.ghostEmptyIcon}>

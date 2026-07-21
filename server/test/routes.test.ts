@@ -938,6 +938,25 @@ describe('chat SSE streaming', () => {
     assert.ok(doneLine, 'done event carries the assistant message');
   });
 
+  // Вопрос к черновику шаблона: анализа нет, контекстом служит draftText —
+  // фолбэк-ответ детерминированно различает «есть документ» и «нет документа».
+  it('draftText grounds the reply in the template draft', async () => {
+    const { token } = await makeUser();
+    const session = await app.inject({ method: 'POST', url: '/api/chats', headers: auth(token), payload: { title: 'draft qa' } });
+    const sessionId = JSON.parse(session.body).id;
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/chats/${sessionId}/messages`,
+      headers: auth(token),
+      payload: { text: 'Какой срок в пункте 2?', draftTitle: 'NDA', draftText: 'Пункт 2. Срок действия — 30 дней.' },
+    });
+    assert.equal(res.statusCode, 200, res.body);
+    assert.ok(
+      JSON.parse(res.body).text.includes('вижу документ'),
+      'reply must take the has-document path (draft text reached docContext)',
+    );
+  });
+
   it('non-streaming POST still returns plain JSON', async () => {
     const { token } = await makeUser();
     const session = await app.inject({ method: 'POST', url: '/api/chats', headers: auth(token), payload: { title: 'plain' } });
