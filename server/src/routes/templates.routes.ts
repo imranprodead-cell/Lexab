@@ -70,7 +70,9 @@ export function templateRoutes(app: FastifyInstance, db: Db): void {
         partyB: requireString(body, 'partyB', { min: 1, max: 200 }),
         jurisdiction: optionalString(body, 'jurisdiction')?.trim() || template.jurisdiction,
         term: optionalString(body, 'term')?.trim() || '',
-        details: (optionalString(body, 'details') ?? '').slice(0, 4000),
+        // Краткое описание сделки — обязательно: без него выходит типовая
+        // «рыба», а не договор под конкретную сделку пользователя.
+        details: requireString(body, 'details', { min: 5, max: 4000 }),
       };
       // Atomic reservation right before the model call; released on failure.
       const content = await withAiRequest(db, req.currentUser.id, (plan) =>
@@ -109,6 +111,22 @@ export function templateRoutes(app: FastifyInstance, db: Db): void {
       [id, req.currentUser.id, title, await encText(db, req.currentUser.id, content), sourceTemplateId, jurisdiction],
     );
     reply.code(201);
+    // RETURNING carries the ciphertext — answer with the plaintext the user sent.
+    return toSaved({ ...res.rows[0], content });
+  });
+
+  // Правки из воркспейса шаблонов: обновляем текст сохранённого черновика.
+  app.patch('/templates/saved/:id', { preHandler: [app.authenticateReal] }, async (req): Promise<SavedTemplate> => {
+    const { id } = req.params as { id: string };
+    const body = asObject(req.body);
+    const content = requireString(body, 'content', { min: 1, max: 100_000 });
+    // Ownership is enforced by the WHERE clause — a foreign id updates nothing.
+    const res = await db.query<SavedRow>(
+      `UPDATE saved_templates SET content = $1 WHERE id = $2 AND user_id = $3
+       RETURNING id, title, content, source_template_id, jurisdiction, created_at`,
+      [await encText(db, req.currentUser.id, content), id, req.currentUser.id],
+    );
+    if (!res.rows[0]) throw notFound('Saved template not found');
     // RETURNING carries the ciphertext — answer with the plaintext the user sent.
     return toSaved({ ...res.rows[0], content });
   });

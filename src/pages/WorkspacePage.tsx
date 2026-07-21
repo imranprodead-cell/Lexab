@@ -1,25 +1,36 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Avatar } from '@/components/ui/Avatar';
 import { toneColor } from '@/components/ui/Badge';
 import { CitationLine } from '@/components/ui/VerifiedBadge';
 import { Icon } from '@/components/icons/Icon';
-import { IconButton } from '@/components/ui/Button';
+import { Button, IconButton } from '@/components/ui/Button';
 import { SkeletonRows } from '@/components/ui/States';
+import { Spinner } from '@/components/ui/Spinner';
 import { ChatInput } from '@/components/chat/ChatInput';
 import { DocumentViewer, type ActiveBlock, type DocEditorHandle } from '@/components/workspace/DocumentViewer';
 import { EditorToolbar } from '@/components/workspace/EditorToolbar';
 import { FloatingToolbar } from '@/components/workspace/FloatingToolbar';
 import { SendForSignatureModal } from '@/components/workspace/SendForSignatureModal';
 import { VersionHistoryModal } from '@/components/workspace/VersionHistoryModal';
-import { analysisApi, documentsApi, versionsApi } from '@/api';
+import { analysisApi, documentsApi, templatesApi, versionsApi } from '@/api';
 import { downloadBlob } from '@/lib/download';
-import { useChatStore } from '@/store/useChatStore';
+import { formatFileSize } from '@/lib/format';
+import { draftBlocksToText, useChatStore } from '@/store/useChatStore';
+import { useChatHistoryStore } from '@/store/useChatHistoryStore';
 import { useUIStore } from '@/store/useUIStore';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { DocBlock } from '@/types/domain';
 import styles from '@/components/workspace/workspace.module.css';
+
+/** Пределы перетаскиваемой границы: чат нельзя схлопнуть или растянуть во весь
+ *  экран — обе панели всегда остаются рабочими. */
+const SPLIT_MIN = 26;
+const SPLIT_MAX = 62;
+const SPLIT_DEFAULT = 40;
+const SPLIT_KEY = 'lexai.wsSplit';
 
 /**
  * Split review workspace: chat/findings on the left (40%), the document viewer
@@ -35,9 +46,16 @@ export function WorkspacePage() {
   const analysis = useChatStore((s) => s.analysis);
   const messages = useChatStore((s) => s.messages);
   const sendMessage = useChatStore((s) => s.sendMessage);
+  const draftSource = useChatStore((s) => s.draftSource);
+  const phase = useChatStore((s) => s.phase);
+  const analysisError = useChatStore((s) => s.error);
+  const startAnalysis = useChatStore((s) => s.startAnalysis);
+  const setServerSession = useChatStore((s) => s.setServerSession);
+  const addSession = useChatHistoryStore((s) => s.addSession);
   const acceptAll = useChatStore((s) => s.acceptAllRedlines);
   const revertRedlines = useChatStore((s) => s.revertRedlines);
   const updateDocument = useChatStore((s) => s.updateDocument);
+  const updateDraftContent = useChatStore((s) => s.updateDraftContent);
   const reanalyze = useChatStore((s) => s.reanalyze);
   const showEdits = useChatStore((s) => s.showEdits);
   const toggleShowEdits = useChatStore((s) => s.toggleShowEdits);
@@ -68,11 +86,58 @@ export function WorkspacePage() {
     }
   }, [pendingAnchor, clearPendingAnchor]);
 
+  // Драфт из «Моих шаблонов»: документ без анализа. Чат слева открыт сразу
+  // (его можно свернуть в рейку); на мобильной раскладке панели всегда обе видны.
+  const isDraft = Boolean(draftSource);
+  const isMobile = useMediaQuery('(max-width: 900px)');
+  const [chatOpen, setChatOpen] = useState(true);
+  const chatVisible = chatOpen || isMobile;
+  const analyzing = phase === 'analyzing';
+
+  // Перетаскиваемая граница между чатом и документом (см. SPLIT_*):
+  // курсор col-resize, кламп 26–62%, двойной клик — сброс, ширина запоминается.
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [leftPct, setLeftPct] = useState(() => {
+    const v = Number(localStorage.getItem(SPLIT_KEY));
+    return Number.isFinite(v) && v >= SPLIT_MIN && v <= SPLIT_MAX ? v : SPLIT_DEFAULT;
+  });
+  const leftPctRef = useRef(leftPct);
+  const [dragging, setDragging] = useState(false);
+  const startSplitDrag = (e: ReactPointerEvent) => {
+    if (isMobile) return;
+    e.preventDefault();
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect || rect.width === 0) return;
+    setDragging(true);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    const move = (ev: globalThis.PointerEvent) => {
+      const pct = Math.min(SPLIT_MAX, Math.max(SPLIT_MIN, ((ev.clientX - rect.left) / rect.width) * 100));
+      leftPctRef.current = pct;
+      setLeftPct(pct);
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      setDragging(false);
+      localStorage.setItem(SPLIT_KEY, String(Math.round(leftPctRef.current)));
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+  const resetSplit = () => {
+    leftPctRef.current = SPLIT_DEFAULT;
+    setLeftPct(SPLIT_DEFAULT);
+    localStorage.removeItem(SPLIT_KEY);
+  };
+
   // The toolbar shows the latest version label (e.g. "v3 — current"). Best
   // effort: versions are a plan-gated feature, so a 402/empty just hides it.
   const analysisId = analysis?.id;
   useEffect(() => {
-    if (!analysisId) return;
+    if (!analysisId || analysisId.startsWith('draft_')) return;
     let cancelled = false;
     versionsApi
       .list(analysisId)
@@ -95,6 +160,80 @@ export function WorkspacePage() {
       .then((r) => pushToast(t('ws.reanalyzed', { score: r.riskScore, n: r.redlines.length }), 'success'))
       .catch((err) => pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error'))
       .finally(() => setReanalyzing(false));
+  };
+
+  // Драфт шаблона → настоящий анализ: открываем чат слева и гоняем текст через
+  // обычный конвейер (загрузка файла → анализ). keepCanvas держит документ на
+  // экране; по завершении стор заменит черновик готовым разбором с находками.
+  const analyzeDraft = () => {
+    const src = useChatStore.getState().draftSource;
+    if (!src || analyzing) return;
+    setChatOpen(true);
+    const base = src.title.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120) || 'template';
+    const name = `${base}.txt`;
+    const file = new File([src.content], name, { type: 'text/plain' });
+    void addSession(name).then((session) => {
+      if (session) setServerSession(session.id);
+    });
+    void startAnalysis({ name, size: formatFileSize(file.size) }, file, { keepCanvas: true });
+  };
+
+  const downloadDraft = async () => {
+    if (!draftSource) return;
+    try {
+      const blob = await templatesApi.exportDocx(draftSource.title, draftSource.content);
+      downloadBlob(blob, `${draftSource.title.replace(/[^\wа-яА-ЯёЁ -]+/g, '').slice(0, 80) || 'contract'}.docx`);
+    } catch (err) {
+      pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
+    }
+  };
+
+  const copyDraft = async () => {
+    if (!draftSource) return;
+    try {
+      await navigator.clipboard.writeText(draftSource.content);
+      pushToast(t('tpl.copied'), 'success');
+    } catch {
+      pushToast(t('common.error'), 'error');
+    }
+  };
+
+  // Правки черновика пишутся в САМ сохранённый шаблон (PATCH), не в анализ —
+  // серверного анализа у драфта нет. draftSource.content держим в синхроне,
+  // чтобы «Скачать», «Копировать» и «Анализ рисков» брали правленый текст.
+  const syncDraftToServer = () => {
+    const st = useChatStore.getState();
+    const src = st.draftSource;
+    const doc = st.analysis?.document;
+    if (!src || !doc) return;
+    const content = draftBlocksToText(doc);
+    // Пустой текст не сохраняем: стереть шаблон целиком правкой нельзя.
+    if (!content || content === src.content) return;
+    updateDraftContent(content);
+    templatesApi
+      .updateSaved(src.savedTemplateId, { content })
+      .then(() => pushToast(t('ws.saved'), 'success'))
+      .catch(() => pushToast(t('common.error'), 'error'));
+  };
+
+  const persistDraft = (document: DocBlock[]) => {
+    // Шаблон хранится как plain text, поэтому инлайн-форматирование сплющиваем
+    // сразу при сохранении блока — на экране всегда ровно то, что в файле.
+    updateDocument(
+      document.map((b) => (b.type === 'heading' ? b : { ...b, segments: [draftBlocksToText([b])] })),
+    );
+    syncDraftToServer();
+  };
+
+  const undoDraft = () => {
+    editorRef.current?.exitEdit(); // don't let a stale open editor re-save
+    undoDocument();
+    syncDraftToServer();
+  };
+  const redoDraft = () => {
+    editorRef.current?.exitEdit();
+    redoDocument();
+    syncDraftToServer();
   };
 
   // No analysis here (refresh / direct link) — send the user to the chat
@@ -120,11 +259,16 @@ export function WorkspacePage() {
   const pendingCount = analysis.redlines.filter((r) => r.status === 'pending').length;
   const textMessages = messages.filter((m) => m.kind === 'text');
 
-  const closeWorkspace = () => navigate(sessionId ? `/chat/${sessionId}` : '/chat');
+  // Из драфта шаблона «назад» ведёт в «Шаблоны», откуда он был открыт.
+  const closeWorkspace = () => navigate(isDraft ? '/templates' : sessionId ? `/chat/${sessionId}` : '/chat');
 
   // Persist a document edit from the rich editor (blocks already assembled by
   // the viewer). updateDocument records an undo snapshot; the server stores it.
   const persistDocument = (document: DocBlock[]) => {
+    if (isDraft) {
+      persistDraft(document);
+      return;
+    }
     updateDocument(document);
     analysisApi
       .saveDocument(analysis.id, document)
@@ -149,19 +293,47 @@ export function WorkspacePage() {
   };
 
   return (
-    <div className={styles.workspace}>
+    <div className={styles.workspace} ref={containerRef}>
+      {/* Свёрнутый чат: узкая рейка-кнопка, чтобы всегда было видно, как вернуть. */}
+      {!chatVisible ? (
+        <button type="button" className={styles.chatRail} onClick={() => setChatOpen(true)} title={t('ws.openChat')}>
+          <Icon name="chat" size={17} />
+          <span className={styles.chatRailLabel}>{t('ws.openChat')}</span>
+        </button>
+      ) : null}
+
       {/* Left: review conversation + findings + document Q&A */}
-      <div className={styles.leftPane}>
+      {chatVisible ? (
+      <div className={styles.leftPane} style={!isMobile ? { width: `${leftPct}%` } : undefined}>
         <div className={styles.leftHeader}>
           <IconButton icon="back" label={t('ws.backToChat')} size="sm" iconSize={18} onClick={closeWorkspace} />
           <span className={styles.leftTitle}>{t('ws.review')}</span>
+          <span style={{ marginLeft: 'auto' }}>
+            <IconButton icon="sidebar" label={t('ws.hideChat')} size="sm" iconSize={16} onClick={() => setChatOpen(false)} />
+          </span>
         </div>
 
         <div className={`${styles.leftBody} scroll`}>
+          {analyzing ? (
+            <div className={styles.draftProgress}>
+              <Spinner size={16} />
+              <span>{t('ws.analyzingDraft')}</span>
+            </div>
+          ) : null}
+          {isDraft && phase === 'error' && analysisError ? (
+            <div className={styles.draftError}>
+              <span>{analysisError}</span>
+              <Button size="sm" variant="primary" onClick={analyzeDraft}>
+                {t('error.retry')}
+              </Button>
+            </div>
+          ) : null}
           <div className={styles.reviewIntro}>
             <Avatar size={28} />
             <div style={{ flex: 1, minWidth: 0 }}>
-              <p className={styles.reviewIntroText}>{t('ws.intro', { n: analysis.redlines.length })}</p>
+              <p className={styles.reviewIntroText}>
+                {isDraft ? t('ws.draftIntro') : t('ws.intro', { n: analysis.redlines.length })}
+              </p>
               <div className={styles.findingCards}>
                 {analysis.findings.map((f) => {
                   // A finding with a matching redline is clickable → jump to the clause.
@@ -216,8 +388,24 @@ export function WorkspacePage() {
           </div>
         </div>
 
-        <ChatInput compact draftKey="workspace" onAnalyze={runReanalysis} onSend={(text) => sendMessage(text)} />
+        <ChatInput compact draftKey="workspace" onAnalyze={isDraft ? analyzeDraft : runReanalysis} onSend={(text) => sendMessage(text)} />
       </div>
+      ) : null}
+
+      {/* Перетаскиваемая граница панелей (скрыта на мобильной раскладке). */}
+      {chatVisible && !isMobile ? (
+        <div
+          className={`${styles.splitter} ${dragging ? styles.splitterActive : ''}`}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={t('ws.dragResize')}
+          title={t('ws.dragResize')}
+          onPointerDown={startSplitDrag}
+          onDoubleClick={resetSplit}
+        >
+          <span className={styles.splitterGrip} />
+        </div>
+      ) : null}
 
       {/* Right: top editing toolbar + document viewer with redlines + floating toolbar */}
       <DocumentViewer
@@ -228,7 +416,34 @@ export function WorkspacePage() {
         onChange={canEdit ? persistDocument : undefined}
         onActiveChange={setActiveBlock}
         anchor={anchor}
+        hideHeader={isDraft}
         topBar={
+          isDraft ? (
+            // Черновик шаблона: вместо тулбара редактирования — панель действий.
+            <div className={styles.draftBar}>
+              <span className={styles.draftBadge}>
+                <Icon name="docs" size={14} />
+                {t('ws.draftBadge')}
+              </span>
+              <span className={styles.draftName} title={draftSource?.title}>
+                {draftSource?.title}
+              </span>
+              <div className={styles.draftActions}>
+                <IconButton icon="undo" label={t('editor.undo')} size="sm" iconSize={16} disabled={!canUndo} onClick={undoDraft} />
+                <IconButton icon="redo" label={t('editor.redo')} size="sm" iconSize={16} disabled={!canRedo} onClick={redoDraft} />
+                <Button size="sm" icon="download" onClick={() => void downloadDraft()}>
+                  {t('tpl.download')}
+                </Button>
+                <Button size="sm" icon="docs" onClick={() => void copyDraft()}>
+                  {t('tpl.copy')}
+                </Button>
+                <Button size="sm" variant="primary" icon="sparkle" disabled={analyzing} onClick={analyzeDraft}>
+                  {analyzing ? t('ws.analyzingDraft') : t('ws.analyzeRisks')}
+                </Button>
+                <IconButton icon="x" label={t('common.close')} size="sm" iconSize={16} onClick={closeWorkspace} />
+              </div>
+            </div>
+          ) : (
           <EditorToolbar
             canEdit={canEdit}
             active={activeBlock}
@@ -249,8 +464,10 @@ export function WorkspacePage() {
             onVersionHistory={() => setHistoryOpen(true)}
             onClose={closeWorkspace}
           />
+          )
         }
       >
+        {!isDraft ? (
         <FloatingToolbar
           readOnly={!canEdit}
           pendingCount={pendingCount}
@@ -274,6 +491,7 @@ export function WorkspacePage() {
           onSendForSignature={() => setSignOpen(true)}
           onVersionHistory={() => setHistoryOpen(true)}
         />
+        ) : null}
       </DocumentViewer>
 
       <SendForSignatureModal

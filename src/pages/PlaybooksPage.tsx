@@ -7,6 +7,7 @@ import { Button, IconButton } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { TextField } from '@/components/ui/TextField';
 import { EmptyState, ErrorState, SkeletonRows } from '@/components/ui/States';
+import { SelectMenu } from '@/components/ui/SelectMenu';
 import { playbooksApi } from '@/api';
 import { ApiError } from '@/api/util';
 import { usePageTitle } from '@/hooks/usePageTitle';
@@ -173,7 +174,9 @@ export function PlaybooksPage() {
               <h1 className={styles.pageTitle}>{t('playbooks.title')}</h1>
               <p className={styles.pageSub}>{t('playbooks.sub')}</p>
             </div>
-            {!locked && !loading && !error ? (
+            {/* Кнопка в шапке — только при непустом списке: на пустом экране
+                своя кнопка в центре, две одинаковые рядом не нужны. */}
+            {!locked && !loading && !error && (data ?? []).length > 0 ? (
               <Button variant="primary" icon="plus" onClick={openCreate}>
                 {t('playbooks.new')}
               </Button>
@@ -298,23 +301,15 @@ export function PlaybooksPage() {
 
           <div className={styles.field}>
             <span className={styles.label}>{t('playbooks.jurisdiction')}</span>
-            <span className={styles.auditSelectWrap} style={{ display: 'flex' }}>
-              <select
-                className={styles.auditFilter}
-                style={{ width: '100%' }}
-                aria-label={t('playbooks.jurisdiction')}
-                value={form.jurisdiction}
-                onChange={(e) => setForm((f) => ({ ...f, jurisdiction: e.target.value }))}
-              >
-                <option value={ALL}>{t('playbooks.allJurisdictions')}</option>
-                {JURISDICTIONS.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-              <Icon name="chevron" size={14} className={styles.auditSelectChevron} />
-            </span>
+            <SelectMenu
+              ariaLabel={t('playbooks.jurisdiction')}
+              value={form.jurisdiction}
+              onChange={(v) => setForm((f) => ({ ...f, jurisdiction: v }))}
+              options={[
+                { value: ALL, label: t('playbooks.allJurisdictions') },
+                ...JURISDICTIONS.map((c) => ({ value: c, label: c })),
+              ]}
+            />
           </div>
 
           <div className={styles.field}>

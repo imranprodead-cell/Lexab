@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Button, IconButton } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { EmptyState, ErrorState, SkeletonRows } from '@/components/ui/States';
+import { SelectMenu } from '@/components/ui/SelectMenu';
 import { batchApi } from '@/api';
 import { uploadsApi } from '@/api/uploads.api';
 import { ApiError } from '@/api/util';
@@ -374,23 +375,13 @@ export function BatchReviewPage() {
       <div className={styles.batchControls}>
         <div className={styles.field}>
           <span className={styles.label}>{t('batch.jurisdiction')}</span>
-          <span className={styles.auditSelectWrap} style={{ display: 'flex' }}>
-            <select
-              className={styles.auditFilter}
-              style={{ width: '100%' }}
-              aria-label={t('batch.jurisdiction')}
-              value={jurisdiction}
-              disabled={busy}
-              onChange={(e) => setJurisdiction(e.target.value)}
-            >
-              {COUNTRIES.map((c) => (
-                <option key={c.code} value={c.code}>
-                  {countryName(c, lang)}
-                </option>
-              ))}
-            </select>
-            <Icon name="chevron" size={14} className={styles.auditSelectChevron} />
-          </span>
+          <SelectMenu
+            ariaLabel={t('batch.jurisdiction')}
+            value={jurisdiction}
+            disabled={busy}
+            onChange={setJurisdiction}
+            options={COUNTRIES.map((c) => ({ value: c.code, label: countryName(c, lang) }))}
+          />
         </div>
         <Button variant="primary" icon="sparkle" disabled={files.length === 0 || busy} onClick={() => void start()}>
           {busy ? t('batch.submitting') : t('batch.start')}

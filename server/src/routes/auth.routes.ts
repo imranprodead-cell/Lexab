@@ -247,14 +247,15 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
     // The client re-submits with { code } (TOTP) or { backupCode } (recovery).
     const suppliedCode = typeof body.code === 'string' ? body.code : undefined;
     const totp = await verifyUserTotp(db, user.id, suppliedCode);
-    if (totp === 'required') {
+    if (totp === 'required' || totp === 'replay') {
       const backup = typeof body.backupCode === 'string' ? body.backupCode : undefined;
       const used = backup ? await consumeBackupCode(db, user.id, backup) : false;
       if (!used) {
-        // The bare password step of a NORMAL 2FA login is a challenge, not a
-        // failure — logging it would let every successful 2FA sign-in feed the
-        // brute-force detector. Only a supplied-but-WRONG code counts as failed.
-        if (suppliedCode !== undefined || backup !== undefined) await onFailure();
+        // A wrong TOTP code ('required' + supplied) or ANY failed backup-code
+        // guess counts as a failed attempt (feeds the brute-force detector). The
+        // bare-password challenge (no code) and a valid-but-replayed TOTP with no
+        // backup guess do NOT — they're not attacks, so they stay off the counter.
+        if ((totp === 'required' && suppliedCode !== undefined) || (backup !== undefined && !used)) await onFailure();
         // Distinct, non-enumerating: the password already verified above, so this
         // only tells an already-authenticated-by-password caller to add the code.
         throw new HttpError(401, 'Нужен код двухфакторной аутентификации / Two-factor code required', 'totp_required');
@@ -361,7 +362,7 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
     // бросается ДО каких-либо мутаций: reset-токен не расходуется, пользователь
     // повторяет запрос с кодом (или резервным кодом).
     const resetTotp = await verifyUserTotp(db, row.id, typeof body.code === 'string' ? body.code : undefined);
-    if (resetTotp === 'required') {
+    if (resetTotp === 'required' || resetTotp === 'replay') {
       const backup = typeof body.backupCode === 'string' ? body.backupCode : undefined;
       const used = backup ? await consumeBackupCode(db, row.id, backup) : false;
       if (!used) {

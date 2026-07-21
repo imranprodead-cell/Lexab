@@ -72,7 +72,9 @@ interface ChatState {
   /** Thumbs rating on an assistant reply (optimistic; persisted outside ghost). */
   setFeedback: (messageId: string, value: 'up' | 'down' | null) => void;
 
-  startAnalysis: (file: { name: string; size: string }, rawFile?: File) => Promise<void>;
+  /** `opts.keepCanvas`: не обнулять текущий документ на время анализа — воркспейс
+   *  остаётся открытым (черновик шаблона анализируется «на месте»). */
+  startAnalysis: (file: { name: string; size: string }, rawFile?: File, opts?: { keepCanvas?: boolean }) => Promise<void>;
   sendMessage: (text: string) => void;
   reset: () => void;
   /** Real mode: hydrate the canvas from a server-side chat session. */
@@ -81,6 +83,13 @@ interface ChatState {
   setServerSession: (id: string | null) => void;
   /** Show a specific analysis in the workspace (e.g. from the Documents page). */
   adoptAnalysis: (analysis: AnalysisResult) => void;
+  /** Черновик из «Моих шаблонов»: открыть текст в воркспейсе БЕЗ анализа.
+   *  Пока draftSource установлен, воркспейс показывает кнопку «Анализ рисков». */
+  draftSource: { savedTemplateId: string; title: string; content: string } | null;
+  adoptDraft: (tpl: { id: string; title: string; content: string }) => void;
+  /** Синхронизировать текст черновика после правки в воркспейсе, чтобы
+   *  скачивание/копирование/анализ работали с отредактированной версией. */
+  updateDraftContent: (content: string) => void;
   /** Re-run the AI review against the current draft; resolves with the new result. */
   reanalyze: () => Promise<AnalysisResult>;
 
@@ -149,6 +158,42 @@ function cacheSession(id: string, value: { messages: ChatMessage[]; analysis: An
   while (sessionCache.size > SESSION_CACHE_MAX) {
     sessionCache.delete(sessionCache.keys().next().value as string); // evict the oldest
   }
+}
+
+/** Плоский текст сохранённого шаблона → блоки документа для вьювера.
+ *  Эвристика заголовков: короткая одиночная строка ЗАГЛАВНЫМИ или «1. …». */
+function draftContentToBlocks(content: string): DocBlock[] {
+  const blocks: DocBlock[] = [];
+  for (const raw of content.split(/\r?\n\s*\n/)) {
+    const chunk = raw.trim();
+    if (!chunk) continue;
+    const singleLine = !chunk.includes('\n');
+    const looksHeading =
+      singleLine &&
+      chunk.length <= 90 &&
+      ((/[A-ZА-ЯЁ]/.test(chunk) && chunk === chunk.toUpperCase()) || /^\d+(\.\d+)*\.?\s+\S/.test(chunk));
+    if (looksHeading) blocks.push({ type: 'heading', text: chunk });
+    else blocks.push({ type: 'paragraph', segments: [chunk] });
+  }
+  return blocks.length ? blocks : [{ type: 'paragraph', segments: [content.trim()] }];
+}
+
+/** Обратный путь: блоки черновика → плоский текст шаблона. Правки в воркспейсе
+ *  сохраняются в saved_templates как plain text, поэтому инлайн-форматирование
+ *  сознательно сплющивается — что на экране, то и в файле (без скрытых потерь). */
+export function draftBlocksToText(blocks: DocBlock[]): string {
+  const parts: string[] = [];
+  for (const b of blocks) {
+    const text =
+      b.type === 'heading'
+        ? (b.text ?? '').trim()
+        : (b.segments ?? [])
+            .map((seg) => (typeof seg === 'string' ? seg : isRedlineSlot(seg) ? '' : seg.text))
+            .join('')
+            .trim();
+    if (text) parts.push(text);
+  }
+  return parts.join('\n\n');
 }
 
 /** Canvas snapshot taken when entering ghost mode, restored on exit. */
@@ -247,6 +292,7 @@ export const useChatStore = create<ChatState>((set, get) => {
   phase: 'idle',
   messages: [],
   analysis: null,
+  draftSource: null,
   activeStep: -1,
   error: null,
   steps: ANALYSIS_STEPS,
@@ -278,7 +324,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       m.streaming ? (m.text ? [{ ...m, streaming: false }] : []) : [m],
     );
     ghostStash = { phase, messages: stashedMessages, analysis, activeStep, serverSessionId };
-    set({ ghost: true, phase: 'idle', messages: [], analysis: null, activeStep: -1, error: null, serverSessionId: null });
+    set({ ghost: true, phase: 'idle', messages: [], analysis: null, draftSource: null, activeStep: -1, error: null, serverSessionId: null });
   },
 
   exitGhost: () => {
@@ -313,7 +359,7 @@ export const useChatStore = create<ChatState>((set, get) => {
     });
   },
 
-  startAnalysis: async (file, rawFile) => {
+  startAnalysis: async (file, rawFile, opts) => {
     if (get().phase === 'analyzing' || get().ghost) return; // no files in ghost mode
     const epoch = canvasEpoch;
     clearStepTimers();
@@ -328,7 +374,8 @@ export const useChatStore = create<ChatState>((set, get) => {
     set({
       phase: 'analyzing',
       messages: [userMessage],
-      analysis: null,
+      // keepCanvas: черновик остаётся на экране, пока идёт анализ.
+      analysis: opts?.keepCanvas ? get().analysis : null,
       activeStep: 0,
       error: null,
     });
@@ -370,7 +417,7 @@ export const useChatStore = create<ChatState>((set, get) => {
         // server-side and is restored when the session is reopened.
         if (sessionAtCall && get().serverSessionId === sessionAtCall) {
           clearStepTimers();
-          set({ phase: 'analyzed', analysis: result, activeStep: ANALYSIS_STEPS.length, error: null });
+          set({ phase: 'analyzed', analysis: result, draftSource: null, activeStep: ANALYSIS_STEPS.length, error: null });
           tryLinkAnalysis();
         }
         return;
@@ -379,6 +426,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       set({
         phase: 'analyzed',
         analysis: result,
+        draftSource: null, // настоящий анализ заменил черновик шаблона
         activeStep: ANALYSIS_STEPS.length,
       });
       tryLinkAnalysis();
@@ -410,7 +458,7 @@ export const useChatStore = create<ChatState>((set, get) => {
     finishActiveStreams();
     canvasEpoch++;
     ghostStash = null;
-    set({ phase: 'idle', messages: [], analysis: null, activeStep: -1, error: null, serverSessionId: null, ghost: false });
+    set({ phase: 'idle', messages: [], analysis: null, draftSource: null, activeStep: -1, error: null, serverSessionId: null, ghost: false });
   },
 
   sendMessage: (text) => {
@@ -594,6 +642,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       phase: cached ? 'analyzed' : 'idle',
       messages: cached ? withPending(cached.messages) : [],
       analysis: cached?.analysis ?? null,
+      draftSource: null,
       activeStep: cached?.analysis ? ANALYSIS_STEPS.length : -1,
       error: null,
       serverSessionId: sessionId,
@@ -651,6 +700,7 @@ export const useChatStore = create<ChatState>((set, get) => {
         },
       ],
       analysis,
+      draftSource: null,
       activeStep: ANALYSIS_STEPS.length,
       error: null,
       serverSessionId: null,
@@ -659,6 +709,44 @@ export const useChatStore = create<ChatState>((set, get) => {
       docRedo: [],
     });
   },
+
+  // «Мои шаблоны» → открыть черновик в воркспейсе. Анализа ещё нет: findings
+  // пусты; правки блоков разрешены и сохраняются в сам шаблон (PATCH
+  // /templates/saved/:id); кнопка «Анализ рисков» запустит startAnalysis
+  // с keepCanvas (текст останется на экране, пока ИИ работает).
+  adoptDraft: (tpl) => {
+    clearStepTimers();
+    finishActiveStreams();
+    canvasEpoch++;
+    ghostStash = null;
+    set({
+      ghost: false,
+      phase: 'analyzed',
+      messages: [],
+      analysis: {
+        id: `draft_${tpl.id}`,
+        fileName: tpl.title,
+        fileSize: '',
+        summary: '',
+        riskScore: 0,
+        riskLevel: 'Low',
+        clausesReviewed: 0,
+        findings: [],
+        redlines: [],
+        document: draftContentToBlocks(tpl.content),
+        canEdit: true, // правки сохраняются в сам сохранённый шаблон
+      },
+      draftSource: { savedTemplateId: tpl.id, title: tpl.title, content: tpl.content },
+      activeStep: -1,
+      error: null,
+      serverSessionId: null,
+      docUndo: [],
+      docRedo: [],
+    });
+  },
+
+  updateDraftContent: (content) =>
+    set((s) => (s.draftSource ? { draftSource: { ...s.draftSource, content } } : s)),
 
   reanalyze: async () => {
     const current = get().analysis;
@@ -797,7 +885,9 @@ export const useChatStore = create<ChatState>((set, get) => {
     });
     // Send the restored redlines too: undo can re-introduce a slot whose redline
     // an earlier edit deleted server-side — without this the clause text is lost.
-    void persistDocument(get().analysis!.id, prev.document, prev.redlines);
+    // Черновик шаблона живёт не в analyses — его синхронизирует воркспейс
+    // (PATCH /templates/saved/:id), серверного анализа для него нет.
+    if (!s.draftSource) void persistDocument(get().analysis!.id, prev.document, prev.redlines);
   },
 
   redoDocument: () => {
@@ -810,7 +900,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       docRedo: s.docRedo.slice(0, -1),
       docUndo: [...s.docUndo, current].slice(-50),
     });
-    void persistDocument(get().analysis!.id, next.document, next.redlines);
+    if (!s.draftSource) void persistDocument(get().analysis!.id, next.document, next.redlines);
   },
   };
 });

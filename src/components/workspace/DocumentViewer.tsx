@@ -56,6 +56,8 @@ interface DocumentViewerProps {
   anchor?: { redlineId: string; nonce: number } | null;
   /** The top editing toolbar, rendered above the document header. */
   topBar?: ReactNode;
+  /** Draft mode: the name/badge header duplicates the draft action bar — hide it. */
+  hideHeader?: boolean;
   children?: ReactNode; // floating toolbar slot
 }
 
@@ -134,7 +136,7 @@ function BlockEditor({
 /** The right-hand paper view: renders the contract with inline AI redlines and
  *  a rich contentEditable editor driven by the top toolbar. */
 export const DocumentViewer = forwardRef<DocEditorHandle, DocumentViewerProps>(function DocumentViewer(
-  { analysis, pendingCount, canEdit, onChange, onActiveChange, anchor, topBar, children },
+  { analysis, pendingCount, canEdit, onChange, onActiveChange, anchor, topBar, hideHeader, children },
   ref,
 ) {
   const { t } = useI18n();
@@ -413,19 +415,21 @@ export const DocumentViewer = forwardRef<DocEditorHandle, DocumentViewerProps>(f
   return (
     <section className={styles.rightPane} aria-label="Document viewer">
       {topBar}
-      <div className={styles.docHeader}>
-        <div className={styles.docHeaderLeft}>
-          <div className={styles.docHeaderIcon}>
-            <Icon name="docs" size={17} />
+      {!hideHeader ? (
+        <div className={styles.docHeader}>
+          <div className={styles.docHeaderLeft}>
+            <div className={styles.docHeaderIcon}>
+              <Icon name="docs" size={17} />
+            </div>
+            <span className={styles.docName}>{analysis.fileName}</span>
           </div>
-          <span className={styles.docName}>{analysis.fileName}</span>
+          {pendingCount > 0 ? (
+            <Badge color="accent">{t('ws.suggestionsCount', { n: pendingCount })}</Badge>
+          ) : (
+            <Badge color="Low">{t('ws.allReviewedBadge')}</Badge>
+          )}
         </div>
-        {pendingCount > 0 ? (
-          <Badge color="accent">{t('ws.suggestionsCount', { n: pendingCount })}</Badge>
-        ) : (
-          <Badge color="Low">{t('ws.allReviewedBadge')}</Badge>
-        )}
-      </div>
+      ) : null}
 
       <div className={`${styles.docBody} scroll`}>
         <article className={`${styles.paper} lx-print`}>

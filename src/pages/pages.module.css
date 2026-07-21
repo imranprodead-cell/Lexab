@@ -1200,6 +1200,15 @@
   justify-content: flex-end;
   margin-top: 18px;
 }
+/* «Особые условия» в генераторе шаблонов: многострочное, тянется за уголок,
+   длинный текст прокручивается вертикально, а не уезжает вбок. */
+.detailsArea {
+  resize: vertical;
+  min-height: 120px;
+  max-height: 45vh;
+  overflow-y: auto;
+  line-height: 1.55;
+}
 .modalHint {
   font-size: 12px;
   line-height: 1.55;

@@ -159,24 +159,23 @@ export function signRoutes(app: FastifyInstance, db: Db): void {
 
     // Frozen snapshot (or live-render fallback) of the signed text — computed
     // once, reused for the completion PDF below and the signer's emailed copy.
-    // Подпись уже проставлена выше (атомарный claim) — нерасшифровываемый
-    // снимок (ротация ключа, порча строки) НЕ должен ронять запрос: иначе
-    // полностью подписанный запрос навсегда зависает без Completed. Честный
-    // компромисс: завершаем без текста (PDF/письмо без тела, всё остальное —
-    // статусы, уведомления, аудит — выполняется).
+    // Подпись уже проставлена выше (атомарный claim). Текст для PDF/письма:
+    //  - есть замороженный снимок → строго он (ИМЕННО его подписывали). Если он
+    //    не расшифровывается (ротация ключа, порча) — НЕ подменяем живым текстом
+    //    (он мог измениться правками после отправки), завершаем без тела;
+    //  - снимка нет (старые запросы) → живой рендер как и раньше.
+    // В любом случае нерасшифровка не роняет запрос — иначе полностью подписанный
+    // запрос навсегда завис бы без Completed.
     let text: string | null = null;
     try {
-      text =
-        row.content_snapshot !== null
-          ? await decTextStrict(db, row.owner_id, row.content_snapshot)
-          : await renderSignableText(db, row.owner_id, row.document_name);
-    } catch (err) {
-      req.log.error(err, 'esign: frozen snapshot undecryptable — completing without the text body');
-      try {
+      if (row.content_snapshot !== null) {
+        text = await decTextStrict(db, row.owner_id, row.content_snapshot);
+      } else {
         text = await renderSignableText(db, row.owner_id, row.document_name);
-      } catch {
-        text = null;
       }
+    } catch (err) {
+      req.log.error(err, 'esign: signable text unavailable — completing without the text body (no live substitution for a frozen snapshot)');
+      text = null;
     }
 
     if (remaining === 0) {
@@ -228,8 +227,12 @@ export function signRoutes(app: FastifyInstance, db: Db): void {
         if (row.document_id) {
           await db.query(`UPDATE documents SET status = 'Signed', updated_at = now() WHERE id = $1`, [row.document_id]);
         } else {
+          // Legacy-запросы без привязки к id: помечаем только ЖИВОЙ одноимённый
+          // документ (не мягко удалённый), самый свежий — чтобы не задеть тёзку.
           await db.query(
-            `UPDATE documents SET status = 'Signed', updated_at = now() WHERE user_id = $1 AND name = $2`,
+            `UPDATE documents SET status = 'Signed', updated_at = now()
+             WHERE id = (SELECT id FROM documents WHERE user_id = $1 AND name = $2 AND deleted_at IS NULL
+                         ORDER BY updated_at DESC LIMIT 1)`,
             [row.owner_id, row.document_name],
           );
         }

@@ -138,7 +138,11 @@ export const MESSAGES: Dict = {
   'tpl.jurisdiction': { ru: 'Юрисдикция', en: 'Jurisdiction' },
   'tpl.term': { ru: 'Срок действия', en: 'Term' },
   'tpl.termPh': { ru: 'например, 12 месяцев', en: 'e.g. 12 months' },
-  'tpl.details': { ru: 'Особые условия (по желанию)', en: 'Special terms (optional)' },
+  'tpl.details': { ru: 'Кратко опишите договор', en: 'Describe the contract briefly' },
+  'tpl.detailsPh': {
+    ru: 'что за сделка и ключевые условия — например: агент продаёт нашу косметику в Ташкенте, вознаграждение 10%, предоплата 50%, неустойка 0,1% в день…',
+    en: 'what the deal is and key terms — e.g.: agent sells our cosmetics in Tashkent, 10% commission, 50% prepayment, 0.1% daily penalty…',
+  },
   'tpl.genRun': { ru: 'Сгенерировать', en: 'Generate' },
   'tpl.genReady': { ru: 'Черновик готов', en: 'Draft ready' },
   'tpl.download': { ru: 'Скачать .doc', en: 'Download .doc' },
@@ -1005,6 +1009,16 @@ export const MESSAGES: Dict = {
   // Workspace
   'ws.review': { ru: 'Обзор', en: 'Review' },
   'ws.backToChat': { ru: 'Назад в чат', en: 'Back to chat' },
+  'ws.draftBadge': { ru: 'Черновик шаблона', en: 'Template draft' },
+  'ws.draftIntro': {
+    ru: 'Это черновик из ваших шаблонов. Текст можно править прямо в документе — изменения сохраняются в шаблон. Нажмите «Анализ рисков ИИ» — я проверю документ и подготовлю правки.',
+    en: 'This is a draft from your templates. You can edit the text right in the document — changes are saved back to the template. Press “AI risk analysis” and I will review the document and prepare edits.',
+  },
+  'ws.analyzeRisks': { ru: 'Анализ рисков ИИ', en: 'AI risk analysis' },
+  'ws.analyzingDraft': { ru: 'ИИ анализирует…', en: 'AI is analyzing…' },
+  'ws.openChat': { ru: 'Открыть чат', en: 'Open chat' },
+  'ws.hideChat': { ru: 'Свернуть чат', en: 'Collapse chat' },
+  'ws.dragResize': { ru: 'Потяните, чтобы изменить ширину. Двойной клик — сброс', en: 'Drag to resize. Double-click to reset' },
   'ws.intro': {
     ru: 'Я добавил {n} правок в документ. Примите или отклоните каждую справа — или примените все сразу. Задавайте вопросы по договору ниже.',
     en: 'I placed {n} tracked changes in the document. Accept or reject each on the right — or apply all at once. Ask me anything about this contract below.',

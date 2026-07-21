@@ -48,7 +48,14 @@ setInterval(() => void checkRetention(db).catch(() => undefined), 24 * 60 * 60 *
 
 // Boot recovery: доработать батчи, прерванные перезапуском, и честно закрыть
 // прерванные воркфлоу-запуски (не «вечное processing» в интерфейсе).
-if (config.batchAutostart) void resumeBatchJobs(db).catch(() => undefined);
+if (config.batchAutostart) {
+  void resumeBatchJobs(db).catch(() => undefined);
+} else {
+  // Флаг предназначен ТОЛЬКО для тестов. Если он выключен в реальном запуске,
+  // POST /batch будет складывать задания в очередь, но никто их не запустит —
+  // громко предупреждаем, чтобы это не осталось незамеченным.
+  console.warn('[batch] BATCH_AUTOSTART=0 — массовый разбор НЕ запускается автоматически (флаг только для тестов). Батчи будут копиться в очереди.');
+}
 void failInterruptedWorkflows(db).catch(() => undefined);
 
 // Журнал сессий: чистка строк старше окна жизни сессии, раз в сутки.

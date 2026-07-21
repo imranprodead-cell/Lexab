@@ -140,6 +140,12 @@ async function createDb(): Promise<Db> {
               await client.query(sql);
             },
           });
+        } catch (err) {
+          // Миграция могла упасть посреди BEGIN/COMMIT, оставив соединение в
+          // аборченной транзакции. Откатываем, иначе и unlock упадёт (25P02), и
+          // отравленное соединение вернётся в пул.
+          await client.query('ROLLBACK').catch(() => undefined);
+          throw err;
         } finally {
           try {
             await client.query('SELECT pg_advisory_unlock($1)', [key]);
@@ -181,12 +187,6 @@ export function getDb(): Promise<Db> {
 
 /** Apply migrations/*.sql in filename order, tracked in schema_migrations. */
 export async function migrate(db: Db): Promise<string[]> {
-  await db.exec(
-    `CREATE TABLE IF NOT EXISTS schema_migrations (
-       name TEXT PRIMARY KEY,
-       applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
-     )`,
-  );
   const here = path.dirname(fileURLToPath(import.meta.url));
   const dir = path.join(here, '..', 'migrations');
   const files = fs.readdirSync(dir).filter((f) => f.endsWith('.sql')).sort();
@@ -195,8 +195,16 @@ export async function migrate(db: Db): Promise<string[]> {
   // Read the ledger and apply every pending migration. Run INSIDE the advisory
   // lock (below) and THROUGH the lock's own connection, so a replica that
   // acquired the lock before us is reflected in `applied` — and a PG_POOL_MAX=1
-  // deployment can still boot (lock + DDL share one connection).
+  // deployment can still boot (lock + DDL share one connection). The ledger
+  // table itself is created HERE (inside the lock) — `CREATE TABLE IF NOT EXISTS`
+  // is not race-safe, so two cold-starting replicas must not run it concurrently.
   const applyPending = async (q: { query: Db['query']; exec: Db['exec'] } = db): Promise<void> => {
+    await q.exec(
+      `CREATE TABLE IF NOT EXISTS schema_migrations (
+         name TEXT PRIMARY KEY,
+         applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+       )`,
+    );
     const applied = new Set(
       (await q.query<{ name: string }>('SELECT name FROM schema_migrations')).rows.map((r) => r.name),
     );

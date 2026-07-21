@@ -8,12 +8,127 @@
 
 /* Left review pane -------------------------------------------------------- */
 .leftPane {
-  width: 40%;
-  min-width: 380px;
+  width: 40%; /* переопределяется инлайн-стилем ресайзера (26–62%) */
+  min-width: 340px;
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--border);
   height: 100%;
+}
+
+/* Перетаскиваемая граница между чатом и документом ------------------------ */
+.splitter {
+  flex: none;
+  width: 10px;
+  margin: 0 -5px 0 -5px; /* невидимо перекрывает границу панели — легче попасть */
+  cursor: col-resize;
+  position: relative;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+}
+.splitterGrip {
+  width: 3px;
+  height: 46px;
+  border-radius: 3px;
+  background: var(--border);
+  transition: background var(--dur-fast, 0.15s), height var(--dur-fast, 0.15s);
+}
+.splitter:hover .splitterGrip,
+.splitterActive .splitterGrip {
+  background: var(--accent);
+  height: 64px;
+}
+
+/* Свёрнутый чат: узкая рейка-кнопка у левого края -------------------------- */
+.chatRail {
+  flex: none;
+  width: 42px;
+  height: 100%;
+  border: none;
+  border-right: 1px solid var(--border);
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 0;
+  cursor: pointer;
+  color: var(--dim);
+  transition: color var(--dur-fast, 0.15s);
+}
+.chatRail:hover {
+  color: var(--accent);
+}
+.chatRailLabel {
+  writing-mode: vertical-rl;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+
+/* Черновик шаблона: панель действий над документом ------------------------- */
+.draftBar {
+  height: 60px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bar-bg);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+  min-width: 0;
+}
+.draftBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-radius: 999px;
+  padding: 5px 11px;
+  white-space: nowrap;
+}
+.draftName {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--mut);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.draftActions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+/* Прогресс/ошибка анализа драфта в левой панели ---------------------------- */
+.draftProgress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  font-size: 13px;
+  color: var(--mut);
+  border-bottom: 1px solid var(--border);
+}
+.draftError {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 20px;
+  font-size: 13px;
+  color: var(--sev-high);
+  border-bottom: 1px solid var(--border);
 }
 .leftHeader {
   height: 60px;

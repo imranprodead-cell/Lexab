@@ -1,4 +1,5 @@
 import { useMemo, useState, type FormEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { downloadBlob } from '@/lib/download';
 import { TopBar } from '@/components/layout/TopBar';
 import { Icon } from '@/components/icons/Icon';
@@ -7,9 +8,11 @@ import { GlassCard } from '@/components/ui/GlassCard';
 import { TextField } from '@/components/ui/TextField';
 import { SelectMenu } from '@/components/ui/SelectMenu';
 import { EmptyState, ErrorState, SkeletonRows } from '@/components/ui/States';
+import ui from '@/components/ui/ui.module.css';
 import { useAsync, useDismissable } from '@/hooks/useAsync';
 import { templatesApi } from '@/api';
 import { COUNTRIES, flagUrl } from '@/data/countries';
+import { useChatStore } from '@/store/useChatStore';
 import { useUIStore } from '@/store/useUIStore';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -118,7 +121,14 @@ export function TemplatesPage() {
     reload: reloadSaved,
   } = useAsync((signal) => templatesApi.listSaved(signal), []);
   const saved = useMemo(() => savedData ?? [], [savedData]);
-  const [viewSaved, setViewSaved] = useState<SavedTemplate | null>(null);
+  const navigate = useNavigate();
+  const adoptDraft = useChatStore((s) => s.adoptDraft);
+  // Свой шаблон открывается сразу в рабочем пространстве (не модалкой):
+  // документ справа, кнопка «Анализ рисков ИИ» — сверху.
+  const openSaved = (s: SavedTemplate) => {
+    adoptDraft({ id: s.id, title: s.title, content: s.content });
+    navigate('/workspace');
+  };
 
   const countryName = (code: string) =>
     lang === 'ru'
@@ -214,7 +224,6 @@ export function TemplatesPage() {
     try {
       await templatesApi.removeSaved(id);
       pushToast(t('tpl.deletedToast'), 'default');
-      if (viewSaved?.id === id) setViewSaved(null);
       reloadSaved();
     } catch (err) {
       pushToast(err instanceof Error ? err.message : t('common.error'), 'error');
@@ -244,7 +253,7 @@ export function TemplatesPage() {
                   <div
                     key={s.id}
                     className={`${styles.card} ${styles.savedCard}`}
-                    onClick={() => setViewSaved(s)}
+                    onClick={() => openSaved(s)}
                   >
                     <button
                       type="button"
@@ -264,7 +273,7 @@ export function TemplatesPage() {
                     <div className={styles.cardTitle}>{s.title}</div>
                     {s.jurisdiction ? <div className={styles.savedMeta}>{s.jurisdiction}</div> : null}
                     <div className={styles.cardCta}>
-                      <Icon name="eye" size={14} />
+                      <Icon name="fileOpen" size={14} />
                       {t('tpl.view')}
                     </div>
                   </div>
@@ -398,12 +407,34 @@ export function TemplatesPage() {
                       onChange={(e) => setTerm(e.target.value)}
                     />
                   </div>
-                  <TextField label={t('tpl.details')} name="details" value={details} onChange={(e) => setDetails(e.target.value)} />
+                  {/* Краткое описание сделки — обязательно (иначе выходит типовая
+                      «рыба»); многострочное, прокрутка вертикальная. */}
+                  <div className={ui.field}>
+                    <label className={ui.label} htmlFor="tpl-details">
+                      {t('tpl.details')}
+                    </label>
+                    <textarea
+                      id="tpl-details"
+                      name="details"
+                      className={`${ui.input} ${styles.detailsArea}`}
+                      value={details}
+                      rows={5}
+                      maxLength={4000}
+                      required
+                      placeholder={t('tpl.detailsPh')}
+                      onChange={(e) => setDetails(e.target.value)}
+                    />
+                  </div>
                   <div className={styles.modalActions}>
                     <Button type="button" onClick={close} disabled={busy}>
                       {t('common.cancel')}
                     </Button>
-                    <Button type="submit" variant="primary" icon="sparkle" disabled={busy || !partyA.trim() || !partyB.trim()}>
+                    <Button
+                      type="submit"
+                      variant="primary"
+                      icon="sparkle"
+                      disabled={busy || !partyA.trim() || !partyB.trim() || details.trim().length < 5}
+                    >
                       {busy ? t('common.loading') : t('tpl.genRun')}
                     </Button>
                   </div>
@@ -431,26 +462,6 @@ export function TemplatesPage() {
         </div>
       ) : null}
 
-      {viewSaved ? (
-        <div className={styles.modalOverlay} onMouseDown={(e) => e.target === e.currentTarget && setViewSaved(null)}>
-          <GlassCard className={styles.modalCard} style={{ maxWidth: 680 }}>
-            <h2 className={styles.modalTitle}>{viewSaved.title}</h2>
-            <pre className={styles.draftPreview}>{viewSaved.content}</pre>
-            <div className={styles.modalActions}>
-              <Button onClick={() => setViewSaved(null)}>{t('common.close')}</Button>
-              <Button icon="trash" onClick={() => void removeSaved(viewSaved.id)}>
-                {t('tpl.delete')}
-              </Button>
-              <Button icon="download" onClick={() => downloadContent(viewSaved.title, viewSaved.content)}>
-                {t('tpl.download')}
-              </Button>
-              <Button variant="primary" icon="docs" onClick={() => void copyContent(viewSaved.content)}>
-                {t('tpl.copy')}
-              </Button>
-            </div>
-          </GlassCard>
-        </div>
-      ) : null}
     </div>
   );
 }

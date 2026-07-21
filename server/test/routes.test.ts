@@ -334,6 +334,68 @@ describe('saved templates (personal library)', () => {
     const res = await app.inject({ method: 'POST', url: '/api/templates/saved', headers: auth(token), payload: { title: '', content: 'x' } });
     assert.equal(res.statusCode, 400);
   });
+
+  // Правки из воркспейса шаблонов: PATCH обновляет текст, чужой id — 404.
+  it('updates saved content via PATCH and enforces ownership', async () => {
+    const a = await makeUser();
+    const b = await makeUser();
+    const save = await app.inject({
+      method: 'POST',
+      url: '/api/templates/saved',
+      headers: auth(a.token),
+      payload: { title: 'Services Agreement', content: 'OLD BODY' },
+    });
+    const saved = JSON.parse(save.body);
+
+    const crossPatch = await app.inject({
+      method: 'PATCH',
+      url: `/api/templates/saved/${saved.id}`,
+      headers: auth(b.token),
+      payload: { content: 'HIJACKED' },
+    });
+    assert.equal(crossPatch.statusCode, 404, 'a foreign id must not update');
+
+    const patch = await app.inject({
+      method: 'PATCH',
+      url: `/api/templates/saved/${saved.id}`,
+      headers: auth(a.token),
+      payload: { content: 'NEW EDITED BODY' },
+    });
+    assert.equal(patch.statusCode, 200, patch.body);
+    assert.equal(JSON.parse(patch.body).content, 'NEW EDITED BODY');
+
+    // The list round-trips the edited text (decrypted from at-rest ciphertext).
+    const list = await app.inject({ method: 'GET', url: '/api/templates/saved', headers: auth(a.token) });
+    assert.equal(JSON.parse(list.body)[0].content, 'NEW EDITED BODY');
+
+    const empty = await app.inject({
+      method: 'PATCH',
+      url: `/api/templates/saved/${saved.id}`,
+      headers: auth(a.token),
+      payload: { content: '' },
+    });
+    assert.equal(empty.statusCode, 400, 'blank content must be rejected');
+  });
+
+  // Краткое описание сделки обязательно — без него генератор не запускается
+  // (иначе выходит типовая «рыба» вместо договора под сделку).
+  it('template generator requires a contract brief (details)', async () => {
+    const { token } = await makeProUser();
+    const missing = await app.inject({
+      method: 'POST',
+      url: '/api/templates/t9/generate',
+      headers: auth(token),
+      payload: { partyA: 'Alpha', partyB: 'Beta' },
+    });
+    assert.equal(missing.statusCode, 400, missing.body);
+    const short = await app.inject({
+      method: 'POST',
+      url: '/api/templates/t9/generate',
+      headers: auth(token),
+      payload: { partyA: 'Alpha', partyB: 'Beta', details: 'ок' },
+    });
+    assert.equal(short.statusCode, 400, 'too-short brief must be rejected');
+  });
 });
 
 describe('contract draft (chat → editable sheet)', () => {
@@ -1223,6 +1285,40 @@ describe('clm (contract lifecycle)', () => {
     assert.equal(await count('Срок договора истекает'), 1, 'no duplicate expiry reminder');
     assert.equal(await count('Срок обязательства близко'), obligationReminders, 'no duplicate obligation reminder');
   });
+
+  it('a stale (past) expiry that is corrected to a near-future date still fires a reminder', async () => {
+    const { checkContractDeadlines } = await import('../src/routes/contracts.routes.ts');
+    const pro = await makeProUser();
+    const an = await app.inject({ method: 'POST', url: '/api/analysis', headers: auth(pro.token), payload: { fileName: 'stale.pdf', fileSize: '9 KB', jurisdiction: 'GB' } });
+    const documentId = JSON.parse(an.body).documentId as string;
+    // Extracted date landed in the PAST → sweep marks reminded=true WITHOUT sending.
+    await db.query('UPDATE contract_terms SET expiry_date = CURRENT_DATE - 2, expiry_reminded = false, auto_renew = false WHERE document_id = $1', [documentId]);
+    await checkContractDeadlines(db);
+    const noNotif = await db.query<{ count: string | number }>("SELECT count(*) AS count FROM notifications WHERE user_id = $1 AND title = 'Срок договора истекает'", [pro.id]);
+    assert.equal(Number(noNotif.rows[0].count), 0, 'a past date sends nothing');
+    const flag = await db.query<{ expiry_reminded: boolean }>('SELECT expiry_reminded FROM contract_terms WHERE document_id = $1', [documentId]);
+    assert.equal(flag.rows[0].expiry_reminded, true, 'the stale row is marked to stop daily churn');
+
+    // Re-analysis corrects the date to a near-future one — the upsert must RESET
+    // the flag (the past date was never really reminded), so the reminder fires.
+    await db.query(
+      `INSERT INTO contract_terms (document_id, expiry_date, expiry_reminded) VALUES ($1, CURRENT_DATE + 5, true)
+       ON CONFLICT (document_id) DO UPDATE SET
+         expiry_reminded = CASE
+           WHEN contract_terms.expiry_date IS NOT DISTINCT FROM EXCLUDED.expiry_date THEN contract_terms.expiry_reminded
+           WHEN contract_terms.expiry_date IS NULL OR EXCLUDED.expiry_date IS NULL THEN false
+           WHEN contract_terms.expiry_date < CURRENT_DATE THEN false
+           WHEN ABS(EXCLUDED.expiry_date - contract_terms.expiry_date) > 3 THEN false
+           ELSE contract_terms.expiry_reminded END,
+         expiry_date = EXCLUDED.expiry_date`,
+      [documentId],
+    );
+    const reset = await db.query<{ expiry_reminded: boolean }>('SELECT expiry_reminded FROM contract_terms WHERE document_id = $1', [documentId]);
+    assert.equal(reset.rows[0].expiry_reminded, false, 'correcting a past date to the future re-arms the reminder');
+    await checkContractDeadlines(db);
+    const fired = await db.query<{ count: string | number }>("SELECT count(*) AS count FROM notifications WHERE user_id = $1 AND title = 'Срок договора истекает'", [pro.id]);
+    assert.equal(Number(fired.rows[0].count), 1, 'the corrected near-future deadline now reminds');
+  });
 });
 
 describe('batch review', () => {
@@ -1454,9 +1550,13 @@ describe('2FA (TOTP)', () => {
     const withCode = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email, password: 'Passw0rd!123', code: loginCode } });
     assert.equal(withCode.statusCode, 200, withCode.body);
 
-    // Anti-replay: the SAME code is rejected on a second login.
+    // Anti-replay: the SAME code is rejected on a second login — and a REPLAYED
+    // (valid) code is NOT logged as auth.login_failed (it's not an attack).
+    const failedBefore = Number((await db.query<{ count: string | number }>("SELECT count(*) AS count FROM audit_events WHERE event_type = 'auth.login_failed' AND actor_label = $1", [email])).rows[0].count);
     const replay = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email, password: 'Passw0rd!123', code: loginCode } });
     assert.equal(replay.statusCode, 401, 'a TOTP code must be single-use (RFC 6238 anti-replay)');
+    const failedAfter = Number((await db.query<{ count: string | number }>("SELECT count(*) AS count FROM audit_events WHERE event_type = 'auth.login_failed' AND actor_label = $1", [email])).rows[0].count);
+    assert.equal(failedAfter, failedBefore, 'a replayed VALID code must not feed the brute-force detector');
 
     // A backup code also logs in — and is single-use.
     const withBackup = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email, password: 'Passw0rd!123', backupCode: backupCodes[0] } });
@@ -1607,6 +1707,87 @@ describe('sessions, DSAR export, retention, access review', () => {
     await checkRetention(db);
     assert.equal((await db.query('SELECT 1 FROM documents WHERE id = $1', [docId])).rows.length, 0, 'trashed doc purged');
     assert.equal((await db.query('SELECT 1 FROM uploads WHERE id = $1', [uploadId])).rows.length, 1, 'the fresh upload must survive the purge');
+  });
+
+  it('retention crypto-shreds the purged doc own bytes but keeps a live same-name doc bytes', async () => {
+    const { checkRetention } = await import('../src/routes/documents.routes.ts');
+    const u = await makeUser();
+    const boundary = '----lexaiShredBoundary';
+    const up = async (content: string) =>
+      app.inject({
+        method: 'POST',
+        url: '/api/uploads',
+        headers: { ...auth(u.token), 'content-type': `multipart/form-data; boundary=${boundary}` },
+        payload: Buffer.from(
+          `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="shred.txt"\r\nContent-Type: text/plain\r\n\r\n${content}\r\n--${boundary}--\r\n`,
+        ),
+      });
+    const upA = JSON.parse((await up('Старая версия А.')).body).id as string;
+    const anA = await app.inject({ method: 'POST', url: '/api/analysis', headers: auth(u.token), payload: { fileName: 'shred.txt', fileSize: '1 KB', jurisdiction: 'GB' } });
+    const docA = JSON.parse(anA.body).documentId as string;
+    await app.inject({ method: 'DELETE', url: `/api/documents/${docA}`, headers: auth(u.token) });
+    const upB = JSON.parse((await up('Живая версия Б.')).body).id as string;
+    await app.inject({ method: 'POST', url: '/api/analysis', headers: auth(u.token), payload: { fileName: 'shred.txt', fileSize: '1 KB', jurisdiction: 'GB' } });
+
+    // Реалистично: старая загрузка старше момента удаления, свежая (upB) — нет.
+    await db.query("UPDATE documents SET deleted_at = now() - interval '400 days' WHERE id = $1", [docA]);
+    await db.query("UPDATE uploads SET created_at = now() - interval '401 days' WHERE id = $1", [upA]);
+    await checkRetention(db);
+    assert.equal((await db.query('SELECT 1 FROM uploads WHERE id = $1', [upA])).rows.length, 0, "purged doc's own upload must be crypto-shredded (no leak)");
+    assert.equal((await db.query('SELECT 1 FROM uploads WHERE id = $1', [upB])).rows.length, 1, "live same-name doc's upload must survive");
+  });
+
+  it('PATCH /documents cannot re-share a soft-deleted document', async () => {
+    const owner = await makeUser();
+    await db.query("UPDATE subscriptions SET plan = 'Business' WHERE user_id = $1", [owner.id]);
+    const an = await app.inject({ method: 'POST', url: '/api/analysis', headers: auth(owner.token), payload: { fileName: 'reshare.pdf', fileSize: '9 KB', jurisdiction: 'GB' } });
+    const documentId = JSON.parse(an.body).documentId as string;
+    await app.inject({ method: 'DELETE', url: `/api/documents/${documentId}`, headers: auth(owner.token) });
+    const reshare = await app.inject({ method: 'PATCH', url: `/api/documents/${documentId}`, headers: auth(owner.token), payload: { teamShared: true } });
+    assert.equal(reshare.statusCode, 404, 'a soft-deleted document must not be re-shareable');
+    const row = await db.query<{ team_shared: boolean }>('SELECT team_shared FROM documents WHERE id = $1', [documentId]);
+    assert.equal(row.rows[0].team_shared, false, 'team_shared stays false on the deleted row');
+  });
+
+  it('content search skips soft-deleted documents', async () => {
+    const u = await makeUser();
+    const boundary = '----lexaiSearchBoundary';
+    await app.inject({
+      method: 'POST',
+      url: '/api/uploads',
+      headers: { ...auth(u.token), 'content-type': `multipart/form-data; boundary=${boundary}` },
+      payload: Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="findme.txt"\r\nContent-Type: text/plain\r\n\r\nуникальноеслововдоговоре z;\r\n--${boundary}--\r\n`),
+    });
+    const an = await app.inject({ method: 'POST', url: '/api/analysis', headers: auth(u.token), payload: { fileName: 'findme.txt', fileSize: '1 KB', jurisdiction: 'GB' } });
+    const documentId = JSON.parse(an.body).documentId as string;
+    await app.inject({ method: 'DELETE', url: `/api/documents/${documentId}`, headers: auth(u.token) });
+    const search = await app.inject({ method: 'GET', url: '/api/documents?search=findme', headers: auth(u.token) });
+    const names = JSON.parse(search.body).map((d: { id: string }) => d.id);
+    assert.ok(!names.includes(documentId), 'soft-deleted document must not appear in search');
+  });
+
+  it('analytics legacy findings join does not count another user findings on a timestamp+score collision', async () => {
+    // User A: a legacy review_event (analysis_id NULL) that collides with B's analysis on (created_at, risk_score).
+    const a = await makeUser();
+    const b = await makeUser();
+    const anB = await app.inject({ method: 'POST', url: '/api/analysis', headers: auth(b.token), payload: { fileName: 'bee.pdf', fileSize: '9 KB', jurisdiction: 'GB' } });
+    const bAnalysis = await db.query<{ id: string; created_at: Date | string; risk_score: number }>(
+      'SELECT id, created_at, risk_score FROM analyses WHERE id = $1',
+      [JSON.parse(anB.body).id],
+    );
+    const bRow = bAnalysis.rows[0];
+    // A legacy event for user A with the SAME created_at + risk_score as B's analysis.
+    await db.query('INSERT INTO review_events (id, user_id, risk_score, created_at, analysis_id) VALUES ($1, $2, $3, $4, NULL)', [
+      `re_collide_${Date.now()}`,
+      a.id,
+      bRow.risk_score,
+      bRow.created_at,
+    ]);
+    const res = await app.inject({ method: 'GET', url: '/api/analytics/summary', headers: auth(a.token) });
+    assert.equal(res.statusCode, 200, res.body);
+    const monthly = JSON.parse(res.body).monthly as { findings: number }[];
+    const totalFindings = monthly.reduce((s, m) => s + (m.findings ?? 0), 0);
+    assert.equal(totalFindings, 0, "user A must not inherit user B's findings via the legacy collision join");
   });
 
   it('retention purge never destroys uploads of a LIVE document sharing the name', async () => {

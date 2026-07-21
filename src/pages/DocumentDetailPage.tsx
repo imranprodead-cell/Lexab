@@ -19,6 +19,7 @@ import { billingApi } from '@/api/billing.api';
 import { TextField } from '@/components/ui/TextField';
 import { DatePicker } from '@/components/ui/DatePicker';
 import { RoleSelect } from '@/components/ui/RoleSelect';
+import { SelectMenu } from '@/components/ui/SelectMenu';
 import { useChatStore } from '@/store/useChatStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -777,20 +778,18 @@ export function DocumentDetailPage() {
                     {wfRedlines ? (
                       <div className={styles.wfOptionBody}>
                         <span className={styles.label}>{t('workflow.minSeverity')}</span>
-                        <span className={styles.auditSelectWrap} style={{ display: 'flex', maxWidth: 220 }}>
-                          <select
-                            className={styles.auditFilter}
-                            style={{ width: '100%' }}
-                            aria-label={t('workflow.minSeverity')}
+                        <div style={{ maxWidth: 220 }}>
+                          <SelectMenu
+                            ariaLabel={t('workflow.minSeverity')}
                             value={wfSeverity}
-                            onChange={(e) => setWfSeverity(e.target.value as Severity)}
-                          >
-                            <option value="High">{t('sev.High')}</option>
-                            <option value="Medium">{t('sev.Medium')}</option>
-                            <option value="Low">{t('sev.Low')}</option>
-                          </select>
-                          <Icon name="chevron" size={14} className={styles.auditSelectChevron} />
-                        </span>
+                            onChange={(v) => setWfSeverity(v as Severity)}
+                            options={[
+                              { value: 'High', label: t('sev.High') },
+                              { value: 'Medium', label: t('sev.Medium') },
+                              { value: 'Low', label: t('sev.Low') },
+                            ]}
+                          />
+                        </div>
                       </div>
                     ) : null}
                   </div>

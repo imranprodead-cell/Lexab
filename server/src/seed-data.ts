@@ -234,9 +234,11 @@ export async function seedDatabase(db: Db): Promise<void> {
     const ageBaseDays = (weekly.length - 1 - week) * 7; // W6 → 0, W1 → 35
     for (let j = 0; j < weekly[week]; j++) {
       const age = ageBaseDays + 0.5 + (j % 12) * 0.5; // stay well inside the bucket
+      // analysis_id связывает событие с посевным анализом → на графике находок
+      // демо-аккаунта видна ненулевая линия (точный join по analysis_id).
       await db.query(
-        'INSERT INTO review_events (id, user_id, risk_score, created_at) VALUES ($1, $2, 41, $3)',
-        [`re_seed_${++eventNo}`, DEMO_USER_ID, daysAgo(age)],
+        'INSERT INTO review_events (id, user_id, risk_score, created_at, analysis_id) VALUES ($1, $2, 41, $3, $4)',
+        [`re_seed_${++eventNo}`, DEMO_USER_ID, daysAgo(age), 'an_employment_v3'],
       );
     }
   }

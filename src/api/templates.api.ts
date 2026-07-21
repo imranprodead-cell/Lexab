@@ -79,6 +79,18 @@ export const templatesApi = {
     return httpBlob('/export/docx', { method: 'POST', body: { title, content } });
   },
 
+  /** Persist workspace edits back into a saved template's text. */
+  async updateSaved(id: string, input: { content: string }): Promise<SavedTemplate> {
+    if (USE_MOCK) {
+      await delay(80);
+      const idx = mockSaved.findIndex((s) => s.id === id);
+      if (idx < 0) throw new Error('Saved template not found');
+      mockSaved[idx] = { ...mockSaved[idx], content: input.content };
+      return clone(mockSaved[idx]);
+    }
+    return http<SavedTemplate>(`/templates/saved/${id}`, { method: 'PATCH', body: input });
+  },
+
   /** Remove a saved template from the personal library. */
   async removeSaved(id: string): Promise<void> {
     if (USE_MOCK) {

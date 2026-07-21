@@ -52,19 +52,21 @@ export async function recordSession(db: Db, userId: string, ip: string | undefin
  * code from the SAME or an earlier step is rejected — the atomic
  * claim-if-newer UPDATE also collapses two concurrent logins with one code.
  */
-export async function verifyUserTotp(db: Db, userId: string, code: string | undefined): Promise<'disabled' | 'ok' | 'required'> {
+export async function verifyUserTotp(db: Db, userId: string, code: string | undefined): Promise<'disabled' | 'ok' | 'required' | 'replay'> {
   const res = await db.query<{ secret_sealed: string; enabled: boolean }>('SELECT secret_sealed, enabled FROM user_totp WHERE user_id = $1', [userId]);
   const row = res.rows[0];
   if (!row || !row.enabled) return 'disabled';
   const secret = openSecret(row.secret_sealed);
   if (!secret || !code) return 'required';
   const step = matchTotpStep(secret, code);
-  if (step === null) return 'required';
+  if (step === null) return 'required'; // не тот код — настоящая неудача
   const claimed = await db.query<{ user_id: string }>(
     'UPDATE user_totp SET last_used_step = $2 WHERE user_id = $1 AND (last_used_step IS NULL OR last_used_step < $2) RETURNING user_id',
     [userId, step],
   );
-  return claimed.rows[0] ? 'ok' : 'required'; // replayed/older code → rejected
+  // Код ВЕРНЫЙ, но этот шаг уже использован (повтор / гонка / рассинхрон часов):
+  // доступ не даём, но и неудачной попыткой не считаем — это не перебор.
+  return claimed.rows[0] ? 'ok' : 'replay';
 }
 
 /** Прунинг журнала сессий: строки старше окна жизни сессии (SESSION_MAX_DAYS)

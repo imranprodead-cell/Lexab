@@ -24,7 +24,7 @@ vi.mock('@/store/useChatHistoryStore', () => ({
 import { analysisApi } from '@/api';
 import { chatsApi } from '@/api/chats.api';
 import type { AnalysisResult, DocBlock } from '@/types/domain';
-import { useChatStore } from './useChatStore';
+import { draftBlocksToText, useChatStore } from './useChatStore';
 
 const mockMessages = chatsApi.messages as ReturnType<typeof vi.fn>;
 const mockGetAnalysis = analysisApi.get as ReturnType<typeof vi.fn>;
@@ -223,5 +223,49 @@ describe('chat store — editor toggles & document undo/redo', () => {
     const s = useChatStore.getState();
     expect(s.analysis?.document).toEqual(docWithSlot);
     expect(s.analysis?.redlines.find((r) => r.id === 'r1')).toBeTruthy();
+  });
+});
+
+describe('chat store — template draft in the workspace', () => {
+  it('adoptDraft opens an editable draft with heading/paragraph blocks and no findings', () => {
+    useChatStore.getState().adoptDraft({
+      id: 'st_1',
+      title: 'Договор поставки',
+      content: 'ДОГОВОР ПОСТАВКИ\n\n1. Предмет договора\n\nПоставщик обязуется поставить товар в срок.',
+    });
+    const s = useChatStore.getState();
+    expect(s.draftSource?.savedTemplateId).toBe('st_1');
+    expect(s.analysis?.canEdit).toBe(true); // правки сохраняются в сам шаблон
+    expect(s.analysis?.findings).toEqual([]);
+    const types = (s.analysis?.document ?? []).map((b) => b.type);
+    expect(types).toEqual(['heading', 'heading', 'paragraph']); // CAPS + «1. …» → заголовки
+  });
+
+  it('draftBlocksToText round-trips the draft text and flattens inline formatting', () => {
+    const content = 'ДОГОВОР ПОСТАВКИ\n\n1. Предмет договора\n\nПоставщик обязуется поставить товар в срок.';
+    useChatStore.getState().adoptDraft({ id: 'st_rt', title: 'Договор', content });
+    const doc = useChatStore.getState().analysis!.document;
+    expect(draftBlocksToText(doc)).toBe(content); // блоки ↔ текст без потерь
+    // Жирный TextRun сплющивается в обычный текст (шаблон хранится как plain text).
+    expect(draftBlocksToText([{ type: 'paragraph', segments: ['Срок: ', { text: '30 дней', marks: ['b'] }] }]))
+      .toBe('Срок: 30 дней');
+  });
+
+  it('updateDraftContent keeps download/copy/analyze in sync with edits', () => {
+    useChatStore.getState().adoptDraft({ id: 'st_upd', title: 'NDA', content: 'Старый текст.' });
+    useChatStore.getState().updateDraftContent('Новый текст.');
+    expect(useChatStore.getState().draftSource?.content).toBe('Новый текст.');
+  });
+
+  it('startAnalysis with keepCanvas keeps the draft on screen while analyzing', async () => {
+    useChatStore.getState().adoptDraft({ id: 'st_2', title: 'NDA', content: 'Текст соглашения.' });
+    // Реальный анализ подменён вечным промисом — ловим состояние «в процессе».
+    const { analysisApi: api } = (await vi.importMock('@/api')) as { analysisApi: Record<string, ReturnType<typeof vi.fn>> };
+    api.analyze = vi.fn().mockReturnValue(new Promise(() => undefined));
+    void useChatStore.getState().startAnalysis({ name: 'NDA.txt', size: '1 KB' }, undefined, { keepCanvas: true });
+    const s = useChatStore.getState();
+    expect(s.phase).toBe('analyzing');
+    expect(s.analysis).not.toBeNull(); // документ НЕ пропал с экрана
+    expect(s.analysis?.id).toBe('draft_st_2');
   });
 });

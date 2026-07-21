@@ -332,6 +332,10 @@ export async function persistAnalysis(
   const terms = gen.terms ?? null;
   const encContractValue = terms?.contractValue ? await encText(db, userId, terms.contractValue) : null;
   const encObligations: { textEnc: string; dueDate: string | null; responsible: string | null; done: boolean; reminded: boolean }[] = [];
+  // Документ, из которого перенесены отметки done/reminded (для TOCTOU-проверки
+  // ниже: если внутри транзакции мы всё же создаём НОВЫЙ документ — например,
+  // прежний удалили в зазоре, — перенос не применяется).
+  let carriedFromDocId: string | null = null;
   if (terms) {
     // Переанализ того же ЖИВОГО документа: сохраняем пользовательские отметки
     // «выполнено» и не шлём повторные напоминания по тем же обязательствам.
@@ -344,6 +348,7 @@ export async function persistAnalysis(
       'SELECT id FROM documents WHERE user_id = $1 AND name = $2 AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1',
       [userId, source.fileName],
     );
+    carriedFromDocId = priorDoc.rows[0]?.id ?? null;
     if (priorDoc.rows[0]) {
       const old = await db.query<{ text_enc: string; due_date: string | null; done: boolean; reminded: boolean }>(
         "SELECT text_enc, to_char(due_date, 'YYYY-MM-DD') AS due_date, done, reminded FROM contract_obligations WHERE document_id = $1",
@@ -456,27 +461,41 @@ export async function persistAnalysis(
            currency = EXCLUDED.currency,
            governing_law = EXCLUDED.governing_law,
            -- Сброс «напомнено» — только при СУЩЕСТВЕННОМ изменении даты: дрейф
-           -- извлечения на ≤3 дня не должен присылать то же напоминание заново.
+           -- извлечения на ≤3 дня не присылает то же напоминание заново. НО если
+           -- прежняя дата была В ПРОШЛОМ, реального напоминания не было (проход
+           -- «просрочено» ставит флаг молча) — исправление даты на будущее должно
+           -- разбудить напоминание.
            expiry_reminded = CASE
              WHEN contract_terms.expiry_date IS NOT DISTINCT FROM EXCLUDED.expiry_date THEN contract_terms.expiry_reminded
              WHEN contract_terms.expiry_date IS NULL OR EXCLUDED.expiry_date IS NULL THEN false
+             WHEN contract_terms.expiry_date < CURRENT_DATE THEN false
              WHEN ABS(EXCLUDED.expiry_date - contract_terms.expiry_date) > 3 THEN false
              ELSE contract_terms.expiry_reminded END,
+           -- Демпфер и для продления: сброс только если ДЕДЛАЙН уведомления
+           -- (expiry − notice_days) сдвинулся более чем на 3 дня (или прежний
+           -- дедлайн был в прошлом = реального напоминания не было).
            renewal_reminded = CASE
-             WHEN contract_terms.renewal_notice_days IS DISTINCT FROM EXCLUDED.renewal_notice_days THEN false
-             WHEN contract_terms.expiry_date IS NOT DISTINCT FROM EXCLUDED.expiry_date THEN contract_terms.renewal_reminded
-             WHEN contract_terms.expiry_date IS NULL OR EXCLUDED.expiry_date IS NULL THEN false
-             WHEN ABS(EXCLUDED.expiry_date - contract_terms.expiry_date) > 3 THEN false
+             WHEN contract_terms.expiry_date IS NULL OR EXCLUDED.expiry_date IS NULL
+                  OR contract_terms.renewal_notice_days IS NULL OR EXCLUDED.renewal_notice_days IS NULL
+               THEN CASE WHEN contract_terms.renewal_notice_days IS DISTINCT FROM EXCLUDED.renewal_notice_days
+                           OR contract_terms.expiry_date IS DISTINCT FROM EXCLUDED.expiry_date THEN false
+                         ELSE contract_terms.renewal_reminded END
+             WHEN (contract_terms.expiry_date - contract_terms.renewal_notice_days) < CURRENT_DATE THEN false
+             WHEN ABS((EXCLUDED.expiry_date - EXCLUDED.renewal_notice_days)
+                      - (contract_terms.expiry_date - contract_terms.renewal_notice_days)) > 3 THEN false
              ELSE contract_terms.renewal_reminded END,
            extracted_at = now()`,
         [documentId, terms.effectiveDate, terms.expiryDate, terms.autoRenew, terms.renewalNoticeDays, encContractValue, terms.currency, terms.governingLaw],
       );
       await tx.query('DELETE FROM contract_obligations WHERE document_id = $1', [documentId]);
+      // Перенос флагов действителен только если пишем в ТОТ ЖЕ документ, из
+      // которого читали (иначе прежний удалили в зазоре и это уже новый).
+      const carryValid = documentId === carriedFromDocId;
       for (let i = 0; i < encObligations.length; i++) {
         const o = encObligations[i];
         await tx.query(
           'INSERT INTO contract_obligations (id, document_id, ord, text_enc, due_date, responsible, reminded, done) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
-          [newId('ob'), documentId, i, o.textEnc, o.dueDate, o.responsible, o.reminded, o.done],
+          [newId('ob'), documentId, i, o.textEnc, o.dueDate, o.responsible, carryValid && o.reminded, carryValid && o.done],
         );
       }
     }

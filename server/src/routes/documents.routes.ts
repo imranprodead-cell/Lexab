@@ -108,7 +108,7 @@ async function searchDocumentContent(db: Db, userId: string, needle: string, log
   const want = needle.toLowerCase();
   const matched = new Set<string>();
   const all = await db.query<{ id: string; name: string }>(
-    'SELECT id, name FROM documents WHERE user_id = $1 ORDER BY updated_at DESC',
+    'SELECT id, name FROM documents WHERE user_id = $1 AND deleted_at IS NULL ORDER BY updated_at DESC',
     [userId],
   );
   const docs = all.rows.slice(0, SEARCH_SCAN_CAP);
@@ -269,7 +269,7 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
     if (typeof body.teamShared !== 'boolean') throw badRequest('Field "teamShared" must be a boolean');
     if (body.teamShared) await assertFeature(db, req.currentUser.id, 'team');
     const res = await db.query<DocumentRow>(
-      `UPDATE documents SET team_shared = $3 WHERE id = $1 AND user_id = $2
+      `UPDATE documents SET team_shared = $3 WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
        RETURNING id, name, counterparty, status, risk, jurisdiction, size_bytes, updated_at, team_shared`,
       [id, req.currentUser.id, body.teamShared],
     );
@@ -531,36 +531,45 @@ export async function checkRetention(db: Db): Promise<void> {
     [String(config.dataRetentionDays)],
   );
   for (const doc of due.rows) {
-    // Uploads are matched by (user_id, file_name) — but a LIVE document of the
-    // same name may exist (re-uploading a file whose old copy sits in the
-    // retention trash creates a fresh document). NEVER touch bytes a live
-    // document relies on: better a leaked file than a destroyed live contract.
-    // Additionally, only uploads created BEFORE the document was trashed can
-    // belong to it — a same-name file uploaded later (fresh upload awaiting
-    // analysis, a queued batch item) must never be purged with the old doc.
-    const liveSameName = await db.query(
-      'SELECT 1 FROM documents WHERE user_id = $1 AND name = $2 AND deleted_at IS NULL LIMIT 1',
-      [doc.user_id, doc.name],
-    );
-    const purgeUploads = !liveSameName.rows[0];
-    const files = purgeUploads
-      ? await db.query<{ storage: 's3' | 'local' | 'supabase'; storage_key: string }>(
-          'SELECT storage, storage_key FROM uploads WHERE user_id = $1 AND file_name = $2 AND created_at <= $3',
-          [doc.user_id, doc.name, doc.deleted_at],
-        )
-      : { rows: [] as { storage: 's3' | 'local' | 'supabase'; storage_key: string }[] };
-    await db.withTx(async (tx) => {
+    // Delete the document + its analyses FIRST, then crypto-shred exactly the
+    // uploads this document owned and nobody else still needs. An upload is
+    // shredded iff it (a) matches this user+file_name, (b) was created no later
+    // than the document was trashed (a same-name file uploaded AFTER belongs to
+    // a re-upload / fresh pre-analysis file, never this doc), and (c) is NOT
+    // referenced by any SURVIVING analysis's upload_id (a live re-analysed doc,
+    // or another soft-deleted copy still inside its own retention window, keeps
+    // its bytes). This restores the crypto-shred guarantee (old ciphertext IS
+    // destroyed) without ever touching bytes a still-present document relies on.
+    // Row deletions (analyses, document, uploads) commit as ONE transaction so a
+    // crash can never leave the document gone but its uploads row (and quota)
+    // dangling — the subquery over surviving analyses stays correct because the
+    // doc's own analyses are already deleted within the tx. Only the file-bytes
+    // delete is best-effort AFTER commit (storage is not transactional).
+    const files = await db.withTx(async (tx) => {
       await tx.query('DELETE FROM analyses WHERE document_id = $1', [doc.id]);
       await tx.query('DELETE FROM documents WHERE id = $1', [doc.id]);
-      if (purgeUploads) {
-        await tx.query('DELETE FROM uploads WHERE user_id = $1 AND file_name = $2 AND created_at <= $3', [doc.user_id, doc.name, doc.deleted_at]);
+      // An upload is shredded iff it belongs to this doc's era (same user+name,
+      // created no later than the trash timestamp) AND nothing still needs it —
+      // no surviving analysis and no queued batch item references its id.
+      const toShred = await tx.query<{ id: string; storage: 's3' | 'local' | 'supabase'; storage_key: string }>(
+        `SELECT id, storage, storage_key FROM uploads
+         WHERE user_id = $1 AND file_name = $2 AND created_at <= $3
+           AND id NOT IN (SELECT upload_id FROM analyses WHERE upload_id IS NOT NULL AND user_id = $1)
+           AND id NOT IN (SELECT upload_id FROM batch_items WHERE upload_id IS NOT NULL)`,
+        [doc.user_id, doc.name, doc.deleted_at],
+      );
+      if (toShred.rows.length) {
+        await tx.query('DELETE FROM uploads WHERE id = ANY($1::text[])', [toShred.rows.map((f) => f.id)]);
       }
+      return toShred.rows;
     });
-    for (const row of files.rows) {
+    for (const row of files) {
       try {
         await deleteFile(row.storage, row.storage_key);
-      } catch {
-        /* best effort — a failed storage delete must not block the purge */
+      } catch (err) {
+        // File bytes couldn't be removed — the row is already gone, so log it:
+        // the ciphertext lingers until a manual sweep (crypto-shred incomplete).
+        console.warn(`[retention] storage delete failed for ${row.storage_key}: ${(err as Error).message}`);
       }
     }
     await audit(db, null, {

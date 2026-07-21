@@ -1016,7 +1016,7 @@ Party A: ${fields.partyA}
 Party B: ${fields.partyB}
 Governing jurisdiction: ${fields.jurisdiction}
 Term / duration: ${fields.term}
-Additional requirements: ${fields.details || '—'}`;
+Contract brief from the user (what the deal is about + key terms — reflect ALL of it in the clauses): ${fields.details || '—'}`;
 
     return await withModelRetry(modelForPlan(plan), async (model) => {
       if (isDeepSeekModel(model)) {

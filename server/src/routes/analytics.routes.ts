@@ -84,7 +84,8 @@ export function analyticsRoutes(app: FastifyInstance, db: Db): void {
       `SELECT re.created_at, count(f.id) AS n
          FROM review_events re
          JOIN analyses a ON (re.analysis_id IS NOT NULL AND a.id = re.analysis_id)
-                         OR (re.analysis_id IS NULL AND a.created_at = re.created_at AND a.risk_score = re.risk_score)
+                         OR (re.analysis_id IS NULL AND a.user_id = re.user_id
+                             AND a.created_at = re.created_at AND a.risk_score = re.risk_score)
          JOIN findings f ON f.analysis_id = a.id
         WHERE re.user_id = $1 AND re.created_at > now() - interval '366 days'
         GROUP BY re.id, re.created_at`,
@@ -132,7 +133,8 @@ export function analyticsRoutes(app: FastifyInstance, db: Db): void {
       `SELECT count(*) FILTER (WHERE NOT f.unverified) AS verified,
               count(*) FILTER (WHERE f.unverified)     AS unverified
          FROM findings f JOIN analyses a ON f.analysis_id = a.id
-        WHERE a.user_id = $1`,
+         LEFT JOIN documents d ON d.id = a.document_id
+        WHERE a.user_id = $1 AND (d.id IS NULL OR d.deleted_at IS NULL)`,
       [userId],
     );
     // The statute corpus is shared, not per-user: freshness per jurisdiction.

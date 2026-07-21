@@ -8,6 +8,7 @@ import { Icon } from '@/components/icons/Icon';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { TextField } from '@/components/ui/TextField';
 import { RoleSelect, type RolePresetKey } from '@/components/ui/RoleSelect';
+import { SelectMenu } from '@/components/ui/SelectMenu';
 import { EmptyState, ErrorState, SkeletonRows } from '@/components/ui/States';
 import { useAsync, clearAsyncCache } from '@/hooks/useAsync';
 import { usePageTitle } from '@/hooks/usePageTitle';
@@ -763,41 +764,24 @@ function AuditLogSection() {
               onChange={(e) => setSearch(e.target.value)}
             />
           </span>
-          <span className={styles.auditSelectWrap}>
-            <select
-              className={styles.auditFilter}
-              value={actorId}
-              onChange={(e) => {
-                setPage(1);
-                setActorId(e.target.value);
-              }}
-            >
-              <option value="">{t('audit.allActors')}</option>
-              {actors.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.label}
-                </option>
-              ))}
-            </select>
-            <Icon name="chevron" size={14} className={styles.auditSelectChevron} />
-          </span>
-          <span className={styles.auditSelectWrap}>
-            <select
-              className={styles.auditFilter}
-              value={group}
-              onChange={(e) => {
-                setPage(1);
-                setGroup(e.target.value);
-              }}
-            >
-              {AUDIT_GROUPS.map((g) => (
-                <option key={g || 'all'} value={g}>
-                  {g ? t(`audit.group.${g}`) : t('audit.allGroups')}
-                </option>
-              ))}
-            </select>
-            <Icon name="chevron" size={14} className={styles.auditSelectChevron} />
-          </span>
+          <SelectMenu
+            ariaLabel={t('audit.allActors')}
+            value={actorId}
+            onChange={(v) => {
+              setPage(1);
+              setActorId(v);
+            }}
+            options={[{ value: '', label: t('audit.allActors') }, ...actors.map((a) => ({ value: a.id, label: a.label }))]}
+          />
+          <SelectMenu
+            ariaLabel={t('audit.allGroups')}
+            value={group}
+            onChange={(v) => {
+              setPage(1);
+              setGroup(v);
+            }}
+            options={AUDIT_GROUPS.map((g) => ({ value: g, label: g ? t(`audit.group.${g}`) : t('audit.allGroups') }))}
+          />
           <Button size="sm" icon="download" onClick={exportCsv}>
             {t('audit.exportCsv')}
           </Button>

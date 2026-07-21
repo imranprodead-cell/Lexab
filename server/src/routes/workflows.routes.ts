@@ -168,6 +168,11 @@ export async function runWorkflow(db: Db, runId: string): Promise<void> {
         if (!source.jurisdiction) source.jurisdiction = docJurisdiction;
         const result = await withAiRequest(db, userId, async (plan) => {
           const gen = await analyzeSource(db, userId, source, plan);
+          // Долгий шаг анализа мог идти десятки секунд — документ могли удалить
+          // за это время. Перепроверяем перед сохранением, чтобы persistAnalysis
+          // не воскресил его дублем; иначе честно валим запуск.
+          const stillLive = await db.query('SELECT 1 FROM documents WHERE id = $1 AND deleted_at IS NULL', [documentId]);
+          if (!stillLive.rows[0]) throw new HttpError(410, 'Документ удалён во время выполнения сценария');
           return persistAnalysis(db, source.ownerUserId ?? ownerId, source, gen, userId);
         });
         analysisId = result.id;
