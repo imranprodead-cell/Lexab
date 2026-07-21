@@ -6,6 +6,7 @@ import { GlassCard } from '@/components/ui/GlassCard';
 import { Icon } from '@/components/icons/Icon';
 import { http } from '@/api/client';
 import { useI18n } from '@/i18n/I18nProvider';
+import { usePageTitle } from '@/hooks/usePageTitle';
 import styles from './pages.module.css';
 
 interface ChainStep {
@@ -31,6 +32,7 @@ interface ApproveInfo {
 export function ApprovePage() {
   const { token = '' } = useParams();
   const { t, lang } = useI18n();
+  usePageTitle(t('approve.pageTitle'));
 
   const [info, setInfo] = useState<ApproveInfo | null>(null);
   const [error, setError] = useState<string | null>(null);

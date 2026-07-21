@@ -61,10 +61,15 @@ export function AppShell() {
 
   return (
     <div className={styles.shell}>
+      {/* Скип-линк (WCAG): первый Tab даёт клавиатурным пользователям прыжок
+          мимо навигации сразу к содержимому. Виден только при фокусе. */}
+      <a href="#main-content" className={styles.skipLink}>
+        {t('a11y.skipToContent')}
+      </a>
       {isMobile ? (
         <button
           className={styles.mobileToggle}
-          aria-label="Menu"
+          aria-label={t('a11y.menu')}
           aria-expanded={mobileNavOpen}
           aria-controls="app-sidebar"
           onClick={() => setMobileNavOpen(!mobileNavOpen)}
@@ -74,7 +79,7 @@ export function AppShell() {
       ) : null}
       {isMobile && mobileNavOpen ? <div className={styles.scrim} onClick={() => setMobileNavOpen(false)} /> : null}
       <SideRail sessions={sessions} user={profile} onNewReview={onNewReview} />
-      <div className={styles.main}>
+      <div className={styles.main} id="main-content">
         {authUser && authUser.emailVerified === false ? (
           <div className={styles.verifyBanner} role="status">
             <span className={styles.verifyBannerText}>{t('verify.banner', { email: authUser.email })}</span>

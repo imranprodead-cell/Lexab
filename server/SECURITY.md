@@ -68,9 +68,27 @@ See `.env.example`. Compliance-relevant keys: `JWT_SECRET`,
 `PASSWORD_BREACH_CHECK`, `DATA_RETENTION_DAYS`, `AUTH_BRUTEFORCE_ALERT_THRESHOLD`,
 `SESSION_MAX_DAYS`.
 
+## Scope notes (honest boundaries for the auditor)
+
+- **Audit-event coverage.** 12 event types remain declared-but-reserved
+  (`file.scan_*` now LIVE when CLAMD_HOST is set; `document.renamed/archived/
+  moved_to_folder/version_restored`, `comment.*`, `user.blocked/unblocked`,
+  `team.ownership_transferred` correspond to features that do not exist yet —
+  they will start emitting the day those features ship, никаких пробелов в
+  trail для существующих действий нет).
+- **Session revocation.** The sessions list supports per-user "sign out
+  everywhere" (token_version bump). Per-single-session revocation is not
+  implemented — sessions are short-lived JWTs; scope this honestly in
+  questionnaires.
+- **Malware scanning.** ClamAV hook (uploads + inbound mail) активируется
+  переменной CLAMD_HOST; без него остаётся magic-byte валидация. Заражённые
+  файлы отклоняются (422) с аудит-событием `file.scan_failed`.
+
 ## Out of scope for code (organisational — track separately)
 
 Security policies & staff training, incident-response plan, third-party
 penetration test, business-continuity / disaster-recovery plan, vendor risk
 management, background checks, change-management approvals, physical security of
 the hosting provider (covered by the provider's own SOC 2 — AWS / Supabase).
+
+**Трекер организационной части: `SECURITY-ORG-CHECKLIST.md` (чеклист основателя).**

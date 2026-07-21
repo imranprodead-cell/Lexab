@@ -72,7 +72,7 @@
   width: 196px;
   padding: 16px;
   cursor: pointer;
-  text-align: left;
+  text-align: start;
   border-radius: 14px;
   transition: transform var(--dur-fast), border-color var(--dur-fast);
   background: transparent;
@@ -224,7 +224,7 @@
   align-items: center;
   gap: 2px;
   margin-top: 4px;
-  margin-left: -7px; /* optically align the first glyph with the text edge */
+  margin-inline-start: -7px; /* optically align the first glyph with the text edge */
 }
 .msgActionBtn {
   width: 30px;
@@ -281,7 +281,7 @@
   color: var(--text);
   font-size: 13.5px;
   font-family: inherit;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
   transition: background var(--dur-fast);
 }
@@ -700,7 +700,7 @@
   border-radius: 10px;
   border: none;
   background: transparent;
-  text-align: left;
+  text-align: start;
   transition: background var(--dur-fast);
 }
 .findingClickable:hover {
@@ -776,7 +776,7 @@
   font-family: inherit;
   font-size: 13.5px;
   line-height: 1.45;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
   transition: background var(--dur-fast);
 }
@@ -964,7 +964,7 @@
 .slashDesc {
   font-size: 13px;
   color: var(--mut);
-  margin-left: 10px;
+  margin-inline-start: 10px;
 }
 .slashHint {
   font-family: var(--font-label);
@@ -975,8 +975,8 @@
 @media (max-width: 600px) {
   .threadInner,
   .composer {
-    padding-left: 16px;
-    padding-right: 16px;
+    padding-inline-start: 16px;
+    padding-inline-end: 16px;
   }
   .welcomeTitle {
     font-size: 27px;

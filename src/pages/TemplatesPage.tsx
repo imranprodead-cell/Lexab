@@ -338,10 +338,16 @@ export function TemplatesPage() {
       {tpl ? (
         <div
           className={styles.modalOverlay}
+          role="dialog"
+          aria-modal="true"
+          aria-label={t('tpl.genTitle')}
           onMouseDown={(e) => {
             // While a draft is generating the AI limit is already being spent —
             // don't let a backdrop click drop the modal and lose the result.
             if (!busy && e.target === e.currentTarget) close();
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape' && !busy) close();
           }}
         >
           <GlassCard className={styles.modalCard} style={{ maxWidth: draft ? 680 : 460 }}>

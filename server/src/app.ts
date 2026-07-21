@@ -148,7 +148,17 @@ export async function buildApp(db: Db): Promise<FastifyInstance> {
 
   await app.register(
     async (api) => {
-      api.get('/health', async () => ({ ok: true, db: db.kind }));
+      // Живой readiness: без реального запроса к базе умершее соединение
+      // выглядело бы «здоровым» и платформа продолжала бы слать трафик.
+      api.get('/health', async (_req, reply) => {
+        try {
+          await db.query('SELECT 1');
+          return { ok: true, db: db.kind };
+        } catch {
+          reply.code(503);
+          return { ok: false, db: db.kind };
+        }
+      });
       authRoutes(api, db);
       googleRoutes(api, db);
       userRoutes(api, db);

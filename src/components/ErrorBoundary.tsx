@@ -20,8 +20,15 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    // A real app would forward this to Sentry/LogRocket here.
     console.error('Unhandled UI error:', error, info.componentStack);
+    // Самые тяжёлые падения фронта (белый экран у пользователя) обязаны
+    // долетать до мониторинга. Динамический импорт — как в main.tsx: без DSN
+    // Sentry не грузится вовсе.
+    if (import.meta.env.VITE_SENTRY_DSN) {
+      void import('@sentry/react')
+        .then((Sentry) => Sentry.captureException(error, { extra: { componentStack: info.componentStack } }))
+        .catch(() => undefined);
+    }
   }
 
   private reset = () => this.setState({ error: null });

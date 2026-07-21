@@ -132,6 +132,14 @@ export async function runWorkflow(db: Db, runId: string): Promise<void> {
   const steps: WorkflowStep[] = typeof run.steps_json === 'string' ? JSON.parse(run.steps_json) : run.steps_json;
   await setRun(db, runId, { status: 'running' });
 
+  // Heartbeat КАЖДУЮ минуту, а не только между шагами: долгий analyze-шаг
+  // (LLM до 5+ минут) без него выглядел «осиротевшим» для recovery-свипа
+  // других инстансов, и живой запуск ложно помечался прерванным.
+  const keepalive = setInterval(() => {
+    void db.query('UPDATE workflow_runs SET updated_at = now() WHERE id = $1 AND status = $2', [runId, 'running']).catch(() => undefined);
+  }, 60_000);
+  keepalive.unref?.();
+
   // The document name — for the approval flow + notifications.
   let docName = 'документ';
   let analysisId = run.analysis_id;
@@ -208,7 +216,14 @@ export async function runWorkflow(db: Db, runId: string): Promise<void> {
       });
     }
 
-    await setRun(db, runId, { status: 'done', current_step: steps.length });
+    // Guard по статусу: если recovery-свип уже пометил запуск failed (например,
+    // при настоящем перезапуске), «done» не должен молча перетирать этот факт.
+    const finished = await db.query(
+      `UPDATE workflow_runs SET status = 'done', current_step = $2, updated_at = now()
+       WHERE id = $1 AND status = 'running' RETURNING id`,
+      [runId, steps.length],
+    );
+    if (!finished.rows[0]) return; // статус переписан извне — завершение не наше
     await audit(db, null, {
       type: 'workflow.completed',
       teamOwnerId: ownerId,
@@ -235,6 +250,8 @@ export async function runWorkflow(db: Db, runId: string): Promise<void> {
       bodyEn: `${docName} · ${message.slice(0, 120)}`,
       action: documentId ? { kind: 'open', data: `/documents/${documentId}` } : undefined,
     }).catch(() => undefined);
+  } finally {
+    clearInterval(keepalive); // на всех путях, иначе интервал жил бы вечно
   }
 }
 
@@ -243,10 +260,11 @@ export async function runWorkflow(db: Db, runId: string): Promise<void> {
  *  идемпотентны для слепого повтора (анализ списывает ИИ-квоту), поэтому
  *  честный fail + повторный запуск пользователем безопаснее автодоигрывания. */
 export async function failInterruptedWorkflows(db: Db): Promise<void> {
+  // Только осиротевшие запуски: живой оркестратор бампает updated_at каждую минуту (keepalive). При деплое с перекрытием инстансов чужая активная работа не трогается.
   await db.query(
     `UPDATE workflow_runs SET status = 'failed',
             error = 'Прерван перезапуском сервера — запустите сценарий ещё раз', updated_at = now()
-     WHERE status IN ('queued', 'running')`,
+     WHERE status IN ('queued', 'running') AND updated_at < now() - interval '3 minutes'`,
   );
 }
 

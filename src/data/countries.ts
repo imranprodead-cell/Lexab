@@ -29,4 +29,6 @@ export const FLAG_OBJECT_POSITION: Record<string, string> = {
   AE: '12% center',
 };
 
-export const flagUrl = (code: string) => `https://flagcdn.com/w160/${code.toLowerCase()}.png`;
+// Флаги самохостятся в public/flags/ (скачаны один раз с flagcdn): IP посетителей
+// не уходит на сторонний CDN (GDPR), и картинки не ломаются без внешней сети.
+export const flagUrl = (code: string) => `/flags/${code.toLowerCase()}.png`;

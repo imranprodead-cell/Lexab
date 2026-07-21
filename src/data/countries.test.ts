@@ -8,6 +8,6 @@ describe('countries', () => {
   });
 
   it('builds lowercase flag URLs', () => {
-    expect(flagUrl('GB')).toBe('https://flagcdn.com/w160/gb.png');
+    expect(flagUrl('GB')).toBe('/flags/gb.png'); // самохост (GDPR: IP не уходит на flagcdn)
   });
 });

@@ -39,6 +39,11 @@ export interface Db extends Queryable {
    * and deadlock a PG_POOL_MAX=1 boot.
    */
   withLock?<T>(key: number, fn: (locked: LockedQueryable) => Promise<T>): Promise<T>;
+  /** Неблокирующий кластерный лок для фоновых задач: если лок уже держит другой
+   *  инстанс (деплой с перекрытием), задача просто пропускает такт — никаких
+   *  двойных писем/списаний. Возвращает false, когда лок занят. На PGlite
+   *  (один процесс по определению) отсутствует — вызывающий код работает напрямую. */
+  tryJobLock?(key: number, fn: () => Promise<void>): Promise<boolean>;
 }
 
 /** Query surface handed to a withLock callback (bound to the lock connection). */
@@ -123,6 +128,23 @@ async function createDb(): Promise<Db> {
           }
           throw err;
         } finally {
+          client.release();
+        }
+      },
+      tryJobLock: async (key, fn) => {
+        // Non-blocking flavour for background sweeps: if another instance holds
+        // the lock (rolling deploy overlap), skip this tick instead of waiting —
+        // exactly-one runner per sweep across the cluster.
+        const client = await pool.connect();
+        let locked = false;
+        try {
+          const res = await client.query('SELECT pg_try_advisory_lock($1) AS ok', [key]);
+          locked = Boolean((res.rows[0] as { ok?: boolean } | undefined)?.ok);
+          if (!locked) return false;
+          await fn();
+          return true;
+        } finally {
+          if (locked) await client.query('SELECT pg_advisory_unlock($1)', [key]).catch(() => undefined);
           client.release();
         }
       },

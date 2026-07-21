@@ -9,8 +9,9 @@ import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../db.ts';
 import { ALLOWED_EXTENSIONS, assertValidFileContent, extractText, fileExtension, MAX_UPLOAD_BYTES } from '../extract.ts';
-import { badRequest, notFound } from '../lib/errors.ts';
+import { badRequest, HttpError, notFound } from '../lib/errors.ts';
 import { audit } from '../lib/audit.ts';
+import { scanUpload } from '../lib/scan.ts';
 import { assertStorageAllowance, withStorageReservation } from '../lib/limits.ts';
 import { encText } from '../lib/docCrypto.ts';
 import { attachmentDisposition, formatSize } from '../lib/format.ts';
@@ -46,6 +47,25 @@ export function uploadRoutes(app: FastifyInstance, db: Db): void {
         throw badRequest('File exceeds the 10 MB limit');
       }
       assertValidFileContent(buffer, fileName);
+
+      // Антивирус (clamd, если настроен): заражённый файл нельзя сохранять —
+      // он будет отдан коллегам, согласующим и подписантам.
+      const scan = await scanUpload(buffer);
+      if (scan.status === 'infected') {
+        await audit(db, req, {
+          type: 'file.scan_failed',
+          target: { type: 'upload', id: fileName, label: fileName },
+          metadata: { signature: scan.signature ?? 'unknown' },
+        });
+        throw new HttpError(422, `Файл отклонён антивирусом (${scan.signature}). / File rejected by antivirus.`);
+      }
+      if (scan.status === 'clean') {
+        await audit(db, req, {
+          type: 'file.scan_passed',
+          target: { type: 'upload', id: fileName, label: fileName },
+          metadata: { bytes: buffer.length },
+        });
+      }
 
       await assertStorageAllowance(db, req.currentUser.id, buffer.length);
       const stored = await saveFile(buffer, fileName, part.mimetype);

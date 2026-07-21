@@ -16,6 +16,7 @@ import { useAuthStore } from '@/store/useAuthStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useResolvedDark } from '@/hooks/useResolvedDark';
 import { useI18n } from '@/i18n/I18nProvider';
+import { usePageTitle } from '@/hooks/usePageTitle';
 import { scrollBehavior } from '@/lib/scroll';
 import styles from './auth.module.css';
 
@@ -62,6 +63,9 @@ export function AuthPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const { t, lang } = useI18n();
+  // На «/» (лендинг) оставляем маркетинговый тайтл по умолчанию — он совпадает
+  // с пререндером и не портит сниппет в поиске; «Вход» — только на /login.
+  usePageTitle(location.pathname === '/' ? undefined : t('auth.signInTitle'));
   const login = useAuthStore((s) => s.login);
   const register = useAuthStore((s) => s.register);
   const adoptSession = useAuthStore((s) => s.adoptSession);

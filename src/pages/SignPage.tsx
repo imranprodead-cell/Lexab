@@ -7,6 +7,7 @@ import { TextField } from '@/components/ui/TextField';
 import { Icon } from '@/components/icons/Icon';
 import { http } from '@/api/client';
 import { useI18n } from '@/i18n/I18nProvider';
+import { usePageTitle } from '@/hooks/usePageTitle';
 import styles from './pages.module.css';
 
 interface SignInfo {
@@ -23,6 +24,7 @@ interface SignInfo {
 export function SignPage() {
   const { token = '' } = useParams();
   const { t } = useI18n();
+  usePageTitle(t('sign.pageTitle'));
 
   const [info, setInfo] = useState<SignInfo | null>(null);
   const [error, setError] = useState<string | null>(null);

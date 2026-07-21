@@ -27,7 +27,6 @@ jobs:
       - run: npm run build
       # Fail the build on a known high/critical vulnerability in prod deps.
       - run: npm audit --omit=dev --audit-level=high
-        continue-on-error: true
 
   server:
     name: Server (lint · typecheck · tests)
@@ -46,4 +45,3 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm audit --omit=dev --audit-level=high
-        continue-on-error: true

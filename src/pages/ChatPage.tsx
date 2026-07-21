@@ -336,7 +336,7 @@ export function ChatPage() {
                           }}
                           onAsk={(q) => sendMessage(q)}
                           onAskCustom={() =>
-                            document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message LexAI"]')?.focus()
+                            document.querySelector<HTMLTextAreaElement>('textarea[data-chat-input]')?.focus()
                           }
                         />
                       ) : null}

@@ -260,7 +260,7 @@
   cursor: pointer;
   color: inherit;
   font: inherit;
-  text-align: left;
+  text-align: start;
   border-radius: 12px;
   transition: background var(--dur-fast);
 }
@@ -293,7 +293,7 @@
   cursor: pointer;
   color: var(--text);
   font: inherit;
-  text-align: left;
+  text-align: start;
   transition: background var(--dur-fast);
 }
 .userMenuHead:hover {
@@ -328,7 +328,7 @@
   color: var(--text);
   font-family: inherit;
   font-size: 13.5px;
-  text-align: left;
+  text-align: start;
   transition: background var(--dur-fast);
 }
 .userMenuItem:hover,
@@ -336,7 +336,7 @@
   background: var(--hover-2);
 }
 .userMenuChevron {
-  margin-left: auto;
+  margin-inline-start: auto;
   display: flex;
   color: var(--mut);
 }
@@ -433,7 +433,7 @@
   align-items: center;
   gap: 5px;
   padding: 5px 9px;
-  margin-left: -9px;
+  margin-inline-start: -9px;
   border: none;
   background: transparent;
   color: var(--text);
@@ -485,7 +485,7 @@
   border: none;
   background: transparent;
   border-radius: 12px;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
   color: var(--text);
 }
@@ -1547,4 +1547,23 @@ a.user:hover {
   background: var(--accent);
   color: var(--on-accent);
   cursor: pointer;
+}
+
+/* Скип-линк: спрятан за экраном, появляется при клавиатурном фокусе (WCAG). */
+.skipLink {
+  position: absolute;
+  top: -48px;
+  inset-inline-start: 12px;
+  z-index: 2000;
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: top 0.15s ease;
+}
+.skipLink:focus {
+  top: 12px;
 }

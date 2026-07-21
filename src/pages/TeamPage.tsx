@@ -314,7 +314,16 @@ export function TeamPage() {
       </div>
 
       {modalOpen ? (
-        <div className={styles.modalOverlay} onMouseDown={(e) => e.target === e.currentTarget && setModalOpen(false)}>
+        <div
+          className={styles.modalOverlay}
+          role="dialog"
+          aria-modal="true"
+          aria-label={t('team.invite')}
+          onMouseDown={(e) => e.target === e.currentTarget && setModalOpen(false)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setModalOpen(false);
+          }}
+        >
           <GlassCard className={styles.modalCard}>
             <h2 className={styles.modalTitle}>{t('team.invite')}</h2>
             <form onSubmit={sendInvite} noValidate>

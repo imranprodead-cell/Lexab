@@ -38,6 +38,12 @@ function maskEmail(addr: string): string {
 }
 
 export async function sendMail(input: MailInput): Promise<{ sent: boolean }> {
+  if (!input.to) {
+    // Пустой адресат (например, не задан CONTACT_EMAIL) — честно пропускаем
+    // с громким логом, а не роняем запрос об ошибку провайдера.
+    console.error(`[mail] skipped "${input.subject}" — empty recipient (is CONTACT_EMAIL set?)`);
+    return { sent: false };
+  }
   if (!config.resendApiKey) {
     console.log(`[mail] (no RESEND_API_KEY) would send to ${maskEmail(input.to)}: ${input.subject}`);
     return { sent: false };

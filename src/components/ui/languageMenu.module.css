@@ -61,7 +61,7 @@
   font-family: inherit;
   font-size: 13.5px;
   cursor: pointer;
-  text-align: left;
+  text-align: start;
 }
 
 .item:hover {

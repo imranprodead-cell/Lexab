@@ -38,8 +38,13 @@ type Dict = Record<string, { ru: string; en: string }>;
  * copy, plan descriptions, …). Only RU has its own text; every other language
  * falls back to English.
  */
-export function pickText(entry: { ru: string; en: string }, lang: Language): string {
-  return lang === 'ru' ? entry.ru : entry.en;
+export function pickText(
+  entry: { ru: string; en: string } & Partial<Record<Language, string>>,
+  lang: Language,
+): string {
+  // Точный язык, если у записи есть перевод (лендинг переведён на все 6);
+  // иначе — прежний фолбэк: русский для ru, английский для остальных.
+  return entry[lang] ?? (lang === 'ru' ? entry.ru : entry.en);
 }
 
 /**
@@ -1048,6 +1053,16 @@ export const MESSAGES: Dict = {
 
   // Send-for-signature modal
   'sign.title': { ru: 'Отправка на e-подпись', en: 'Send for e-signature' },
+  'sign.pageTitle': { ru: 'Подписание документа', en: 'Sign the document' },
+  'approve.pageTitle': { ru: 'Согласование документа', en: 'Document approval' },
+  // Строки для скринридеров (незрячие пользователи слышат их на языке интерфейса).
+  'a11y.closeDialog': { ru: 'Закрыть окно', en: 'Close dialog' },
+  'a11y.loading': { ru: 'Загрузка', en: 'Loading' },
+  'a11y.messageInput': { ru: 'Сообщение для LexAI', en: 'Message LexAI' },
+  'a11y.menu': { ru: 'Меню', en: 'Menu' },
+  'a11y.primaryNav': { ru: 'Основная навигация', en: 'Primary navigation' },
+  'a11y.documentViewer': { ru: 'Просмотр документа', en: 'Document viewer' },
+  'a11y.skipToContent': { ru: 'Перейти к содержимому', en: 'Skip to content' },
   'sign.introA': { ru: 'Получатели получат ', en: 'Recipients will receive ' },
   'sign.introB': { ru: ' с принятыми правками, в порядке подписания.', en: ' with the accepted redlines applied, in signing order.' },
   'sign.namePh': { ru: 'Имя и фамилия', en: 'Full name' },

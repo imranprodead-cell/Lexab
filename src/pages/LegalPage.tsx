@@ -2,6 +2,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Avatar } from '@/components/ui/Avatar';
 import { useI18n } from '@/i18n/I18nProvider';
 import { pickText } from '@/i18n/messages';
+import { usePageTitle } from '@/hooks/usePageTitle';
 import styles from './pages.module.css';
 
 interface Section {
@@ -377,6 +378,19 @@ export function LegalPage({ kind }: { kind: 'terms' | 'privacy' }) {
     else navigate('/');
   };
   const sections = kind === 'terms' ? TERMS : PRIVACY;
+  // Юридический текст существует на русском и английском. Пользователям
+  // остальных языков честно говорим, какая версия юридически обязательна, —
+  // стандартная практика «prevailing language» вместо рискованного машинного
+  // перевода правового документа.
+  const prevailingNote =
+    lang === 'ru' || lang === 'en'
+      ? null
+      : {
+          de: 'Rechtlich verbindlich ist die englische Fassung dieses Dokuments. Diese Seite wird aus praktischen Gründen auf Englisch angezeigt.',
+          ar: 'النسخة الإنجليزية من هذه الوثيقة هي النسخة الملزمة قانونيًا. تُعرض هذه الصفحة بالإنجليزية للتيسير.',
+          kk: 'Бұл құжаттың заңды күші бар нұсқасы — ағылшын тіліндегі нұсқа. Бет ыңғайлылық үшін ағылшын тілінде көрсетіледі.',
+          uz: 'Ushbu hujjatning yuridik kuchga ega matni — inglizcha nusxasi. Sahifa qulaylik uchun ingliz tilida ko‘rsatiladi.',
+        }[lang as 'de' | 'ar' | 'kk' | 'uz'];
   const title =
     kind === 'terms'
       ? lang === 'ru'
@@ -385,6 +399,7 @@ export function LegalPage({ kind }: { kind: 'terms' | 'privacy' }) {
       : lang === 'ru'
         ? 'Политика конфиденциальности'
         : 'Privacy Policy';
+  usePageTitle(title);
 
   return (
     <div className={styles.legalPage}>
@@ -400,6 +415,20 @@ export function LegalPage({ kind }: { kind: 'terms' | 'privacy' }) {
         </div>
         <h1 className={styles.legalTitle}>{title}</h1>
         <p className={styles.legalUpdated}>{lang === 'ru' ? 'Обновлено: июль 2026' : 'Last updated: July 2026'}</p>
+        {prevailingNote ? (
+          <p
+            className={styles.legalP}
+            role="note"
+            style={{
+              padding: '10px 14px',
+              borderRadius: 10,
+              background: 'color-mix(in srgb, var(--accent) 9%, transparent)',
+              border: '1px solid color-mix(in srgb, var(--accent) 25%, transparent)',
+            }}
+          >
+            {prevailingNote}
+          </p>
+        ) : null}
         <nav aria-label={lang === 'ru' ? 'Содержание' : 'Contents'} style={{ margin: '0 0 10px' }}>
           <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: 4 }}>
             {sections.map((s) => (

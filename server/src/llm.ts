@@ -27,7 +27,9 @@ import type { DocBlock, Finding, Redline, Severity } from './types.ts';
 let client: Anthropic | null = null;
 function getClient(): Anthropic | null {
   if (!config.anthropicApiKey) return null;
-  if (!client) client = new Anthropic({ apiKey: config.anthropicApiKey });
+  // 5 минут вместо SDK-шных 10: зависший провайдер не должен держать
+  // пользовательский запрос (и соединение) дольше самого долгого анализа.
+  if (!client) client = new Anthropic({ apiKey: config.anthropicApiKey, timeout: 300_000 });
   return client;
 }
 
@@ -39,7 +41,9 @@ function getClient(): Anthropic | null {
 let dsClient: OpenAI | null = null;
 function getDeepseek(): OpenAI | null {
   if (!config.deepseekApiKey) return null;
-  if (!dsClient) dsClient = new OpenAI({ apiKey: config.deepseekApiKey, baseURL: config.deepseekBaseUrl });
+  // maxRetries 0: у нас свой ретрай (withModelRetry → Anthropic); дефолтные 2
+  // SDK-ретрая по 300с держали бы запрос Free-пользователя до 15 минут.
+  if (!dsClient) dsClient = new OpenAI({ apiKey: config.deepseekApiKey, baseURL: config.deepseekBaseUrl, timeout: 300_000, maxRetries: 0 });
   return dsClient;
 }
 

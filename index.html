@@ -180,20 +180,13 @@
         }
       })();
     </script>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <!-- Fonts load async (media swap) so they never block first paint. -->
-    <link
-      href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700&display=swap"
-      rel="stylesheet"
-      media="print"
-      onload="this.media='all'"
-    />
+    <!-- Шрифты самохостятся (public/fonts/, скачаны с Google Fonts один раз):
+         IP посетителей не уходит в Google (немецкие суды признавали внешнюю
+         загрузку Google Fonts нарушением GDPR), и первый рендер не зависит от
+         чужого CDN. Async-паттерн (media swap) сохранён — не блокирует paint. -->
+    <link href="/fonts/fonts.css" rel="stylesheet" media="print" onload="this.media='all'" />
     <noscript>
-      <link
-        href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700&display=swap"
-        rel="stylesheet"
-      />
+      <link href="/fonts/fonts.css" rel="stylesheet" />
     </noscript>
   </head>
   <body>

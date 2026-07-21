@@ -234,7 +234,8 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
             placeholder={t('chat.input.placeholder')}
             onChange={(e) => updateValue(e.target.value)}
             onKeyDown={onKeyDown}
-            aria-label="Message LexAI"
+            aria-label={t('a11y.messageInput')}
+            data-chat-input
           />
 
           <div className={styles.inputControlsGroup}>

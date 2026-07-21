@@ -1416,8 +1416,10 @@ describe('batch review', () => {
     const start = await app.inject({ method: 'POST', url: '/api/batch', headers: auth(pro.token), payload: { uploadIds: [u1, u2] } });
     const jobId = JSON.parse(start.body).id as string;
     // Симуляция падения: первый элемент застрял в processing, задание — тоже.
+    // Heartbeat состарен: у мёртвого инстанса updated_at перестаёт бампаться,
+    // и только такие (5+ мин тишины) задания recovery вправе трогать.
     await db.query("UPDATE batch_items SET status = 'processing' WHERE batch_id = $1 AND ord = 0", [jobId]);
-    await db.query("UPDATE batch_jobs SET status = 'processing' WHERE id = $1", [jobId]);
+    await db.query("UPDATE batch_jobs SET status = 'processing', updated_at = now() - interval '10 minutes' WHERE id = $1", [jobId]);
 
     await resumeBatchJobs(db);
     const after = JSON.parse((await app.inject({ method: 'GET', url: `/api/batch/${jobId}`, headers: auth(pro.token) })).body);
@@ -1433,6 +1435,8 @@ describe('batch review', () => {
     const documentId = JSON.parse(an.body).documentId as string;
     const wf = await app.inject({ method: 'POST', url: '/api/workflows/run', headers: auth(pro.token), payload: { documentId, steps: [{ kind: 'analyze' }] } });
     const runId = JSON.parse(wf.body).id as string; // остаётся queued (autostart off в тестах)
+    // Состарить heartbeat: recovery трогает только осиротевшие (5+ мин) запуски.
+    await db.query("UPDATE workflow_runs SET updated_at = now() - interval '10 minutes' WHERE id = $1", [runId]);
     await failInterruptedWorkflows(db);
     const run = JSON.parse((await app.inject({ method: 'GET', url: `/api/workflows/${runId}`, headers: auth(pro.token) })).body);
     assert.equal(run.status, 'failed');
@@ -1897,5 +1901,219 @@ describe('sessions, DSAR export, retention, access review', () => {
     assert.equal(csv.statusCode, 200);
     assert.match(csv.headers['content-type'] as string, /text\/csv/);
     assert.match(csv.body, /name,email,role,status,last_active/);
+  });
+});
+
+// ── Launch-critical funnel coverage (pre-launch gap sweep) ────────────────────
+
+describe('e-sign: полный цикл внешнего подписанта (встроенный режим)', () => {
+  it('create → public view → sign by both → Completed → signed PDF downloads', async () => {
+    const pro = await makeProUser();
+    const an = await app.inject({
+      method: 'POST',
+      url: '/api/analysis',
+      headers: auth(pro.token),
+      payload: { fileName: 'sign-loop.pdf', fileSize: '8 KB', jurisdiction: 'GB' },
+    });
+    assert.ok(an.statusCode < 300, an.body);
+
+    const create = await app.inject({
+      method: 'POST',
+      url: '/api/signatures',
+      headers: auth(pro.token),
+      payload: {
+        documentName: 'sign-loop.pdf',
+        recipients: [
+          { name: 'Анна К.', email: 'anna@ext.example' },
+          { name: 'Bob T.', email: 'bob@ext.example' },
+        ],
+      },
+    });
+    assert.equal(create.statusCode, 201, create.body);
+    const request = JSON.parse(create.body);
+    const tokens = request.recipients.map((r: { token: string }) => r.token);
+    assert.equal(tokens.length, 2);
+
+    // Внешний подписант открывает ссылку БЕЗ авторизации и видит замороженный текст.
+    const view = await app.inject({ method: 'GET', url: `/api/sign/${tokens[0]}` });
+    assert.equal(view.statusCode, 200, view.body);
+    const page = JSON.parse(view.body);
+    assert.equal(page.signed, false);
+    assert.ok(page.documentText && page.documentText.length > 0, 'signer sees the frozen document text');
+    assert.equal(page.recipient.email, 'anna@ext.example');
+
+    // Мусорный токен — честный 404, не 500 и не чужой документ.
+    const bad = await app.inject({ method: 'GET', url: '/api/sign/definitely-not-a-token' });
+    assert.equal(bad.statusCode, 404);
+
+    const sign1 = await app.inject({ method: 'POST', url: `/api/sign/${tokens[0]}`, payload: { name: 'Анна Каренина' } });
+    assert.ok(sign1.statusCode < 300, sign1.body);
+    // Повторная подпись той же ссылкой — отклоняется.
+    const dup = await app.inject({ method: 'POST', url: `/api/sign/${tokens[0]}`, payload: { name: 'Анна Каренина' } });
+    assert.equal(dup.statusCode, 400);
+
+    const sign2 = await app.inject({ method: 'POST', url: `/api/sign/${tokens[1]}`, payload: { name: 'Bob Turner' } });
+    assert.ok(sign2.statusCode < 300, sign2.body);
+
+    const list = await app.inject({ method: 'GET', url: '/api/signatures', headers: auth(pro.token) });
+    const mine = JSON.parse(list.body).find((r: { id: string }) => r.id === request.id);
+    assert.equal(mine.status, 'Completed', 'both signed → request completed');
+
+    const pdf = await app.inject({ method: 'GET', url: `/api/signatures/${request.id}/signed.pdf`, headers: auth(pro.token) });
+    assert.equal(pdf.statusCode, 200, 'built-in mode must produce a signed PDF');
+    assert.ok(pdf.rawPayload.subarray(0, 5).toString('latin1').startsWith('%PDF'), 'a real PDF file');
+  });
+});
+
+describe('main funnel: настоящий PDF → анализ → отчёты', () => {
+  async function uploadBinary(token: string, name: string, buffer: Buffer, mime: string): Promise<string> {
+    const boundary = '----lexaiPdfBoundary';
+    const payload = Buffer.concat([
+      Buffer.from(
+        `--${boundary}\r\n` +
+          `Content-Disposition: form-data; name="file"; filename="${name}"\r\n` +
+          `Content-Type: ${mime}\r\n\r\n`,
+      ),
+      buffer,
+      Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/uploads',
+      headers: { ...auth(token), 'content-type': `multipart/form-data; boundary=${boundary}` },
+      payload,
+    });
+    assert.equal(res.statusCode, 201, res.body);
+    return JSON.parse(res.body).id;
+  }
+
+  it('a real PDF file round-trips through extractText into an analysis', async () => {
+    const { buildSimplePdf } = await import('../src/lib/pdf.ts');
+    const pro = await makeProUser();
+    // Настоящий PDF (наш же генератор) — раньше pdf-parse не запускался ни одним тестом.
+    const pdfBytes = await buildSimplePdf('Договор поставки', [
+      { heading: '1. Предмет договора' },
+      { text: 'Поставщик обязуется поставить оборудование до 31 декабря, неустойка 0,5% в день.' },
+    ]);
+    assert.ok(pdfBytes.subarray(0, 5).toString('latin1').startsWith('%PDF'));
+    await uploadBinary(pro.token, 'real-contract.pdf', pdfBytes, 'application/pdf');
+
+    const an = await app.inject({
+      method: 'POST',
+      url: '/api/analysis',
+      headers: auth(pro.token),
+      payload: { fileName: 'real-contract.pdf', fileSize: `${pdfBytes.length} B`, jurisdiction: 'UZ' },
+    });
+    assert.ok(an.statusCode < 300, an.body);
+    const analysis = JSON.parse(an.body);
+    assert.ok(analysis.id, 'analysis created from a parsed PDF');
+    assert.ok(Array.isArray(analysis.document) && analysis.document.length > 0, 'document blocks present');
+  });
+
+  it('analysis report.pdf and document PDF export return real PDFs', async () => {
+    const pro = await makeProUser();
+    const an = await app.inject({
+      method: 'POST',
+      url: '/api/analysis',
+      headers: auth(pro.token),
+      payload: { fileName: 'report-src.docx', fileSize: '9 KB', jurisdiction: 'UZ' },
+    });
+    assert.ok(an.statusCode < 300, an.body);
+    const { id: analysisId, documentId } = JSON.parse(an.body);
+
+    // Клиентский PDF-отчёт (там чинились кириллица/арабский — теперь под тестом).
+    const report = await app.inject({ method: 'GET', url: `/api/analysis/${analysisId}/report.pdf`, headers: auth(pro.token) });
+    assert.equal(report.statusCode, 200, report.body);
+    assert.match(report.headers['content-type'] as string, /application\/pdf/);
+    assert.ok(report.rawPayload.subarray(0, 5).toString('latin1').startsWith('%PDF'));
+    assert.ok(report.rawPayload.length > 1000, 'report is not an empty shell');
+
+    // Экспорт документа в PDF.
+    const exp = await app.inject({
+      method: 'POST',
+      url: `/api/documents/${documentId}/export`,
+      headers: auth(pro.token),
+      payload: { format: 'pdf' },
+    });
+    assert.equal(exp.statusCode, 200, exp.body);
+    assert.ok(exp.rawPayload.subarray(0, 5).toString('latin1').startsWith('%PDF'));
+  });
+});
+
+describe('team: приглашение → принятие → смена роли → удаление', () => {
+  it('runs the full membership lifecycle with ownership enforced', async () => {
+    const owner = await makeUser();
+    await db.query("UPDATE subscriptions SET plan = 'Business' WHERE user_id = $1", [owner.id]);
+    const invitee = await makeUser();
+    const stranger = await makeUser();
+
+    // Пригласить самого себя нельзя; мусорная роль отклоняется.
+    const self = await app.inject({ method: 'POST', url: '/api/team/invite', headers: auth(owner.token), payload: { email: owner.email, role: 'editor' } });
+    assert.equal(self.statusCode, 400);
+    const badRole = await app.inject({ method: 'POST', url: '/api/team/invite', headers: auth(owner.token), payload: { email: invitee.email, role: 'root' } });
+    assert.equal(badRole.statusCode, 400);
+
+    const invite = await app.inject({ method: 'POST', url: '/api/team/invite', headers: auth(owner.token), payload: { email: invitee.email, role: 'editor', title: 'Юрист' } });
+    assert.equal(invite.statusCode, 201, invite.body);
+    const member = JSON.parse(invite.body);
+    assert.ok(member.inviteToken, 'owner view carries the join token');
+
+    // Дубликат приглашения — 409.
+    const dupInv = await app.inject({ method: 'POST', url: '/api/team/invite', headers: auth(owner.token), payload: { email: invitee.email, role: 'viewer' } });
+    assert.equal(dupInv.statusCode, 409);
+
+    // Чужой пользователь не может принять приглашение по этому токену.
+    const strangerAccept = await app.inject({ method: 'POST', url: '/api/team/invitations/accept-by-token', headers: auth(stranger.token), payload: { token: member.inviteToken } });
+    assert.ok(strangerAccept.statusCode >= 400, 'invite is bound to the invited email');
+
+    const accept = await app.inject({ method: 'POST', url: '/api/team/invitations/accept-by-token', headers: auth(invitee.token), payload: { token: member.inviteToken } });
+    assert.equal(accept.statusCode, 204, accept.body);
+
+    const members = JSON.parse((await app.inject({ method: 'GET', url: '/api/team/members', headers: auth(owner.token) })).body);
+    const joined = members.find((m: { email: string }) => m.email === invitee.email);
+    assert.ok(joined, 'accepted member listed');
+    assert.equal(joined.statusKey, 'team.status.active');
+    assert.equal(joined.roleKey, 'team.role.editor');
+
+    // Смена роли владельцем; посторонний — нет.
+    const demote = await app.inject({ method: 'PATCH', url: `/api/team/members/${joined.id}`, headers: auth(owner.token), payload: { role: 'viewer' } });
+    assert.equal(demote.statusCode, 200, demote.body);
+    assert.equal(JSON.parse(demote.body).roleKey, 'team.role.viewer');
+    const foreignPatch = await app.inject({ method: 'PATCH', url: `/api/team/members/${joined.id}`, headers: auth(stranger.token), payload: { role: 'editor' } });
+    assert.ok(foreignPatch.statusCode >= 400, 'cross-tenant role change must fail');
+
+    // Удаление участника.
+    const remove = await app.inject({ method: 'DELETE', url: `/api/team/members/${joined.id}`, headers: auth(owner.token) });
+    assert.ok(remove.statusCode < 300, remove.body);
+    const after = JSON.parse((await app.inject({ method: 'GET', url: '/api/team/members', headers: auth(owner.token) })).body);
+    assert.ok(!after.some((m: { email: string }) => m.email === invitee.email), 'removed member gone');
+  });
+});
+
+describe('compare: две версии договора', () => {
+  it('accepts fileA/fileB multipart and returns a structured diff', async () => {
+    const pro = await makeProUser();
+    const boundary = '----lexaiCmpBoundary';
+    const mk = (field: string, name: string, content: string) =>
+      `--${boundary}\r\n` +
+      `Content-Disposition: form-data; name="${field}"; filename="${name}"\r\n` +
+      'Content-Type: text/plain\r\n\r\n' +
+      `${content}\r\n`;
+    const payload = Buffer.from(
+      mk('fileA', 'v1.txt', 'Срок уведомления о расторжении — 3 месяца. Ответственность не ограничена.') +
+        mk('fileB', 'v2.txt', 'Срок уведомления о расторжении — 1 месяц. Ответственность ограничена суммой договора.') +
+        `--${boundary}--\r\n`,
+    );
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/compare',
+      headers: { ...auth(pro.token), 'content-type': `multipart/form-data; boundary=${boundary}` },
+      payload,
+    });
+    assert.equal(res.statusCode, 200, res.body);
+    const out = JSON.parse(res.body);
+    assert.equal(out.fileA, 'v1.txt');
+    assert.equal(out.fileB, 'v2.txt');
+    assert.ok(Array.isArray(out.changes ?? out.diffs ?? out.items) || typeof out.summary === 'string', 'structured compare result');
   });
 });

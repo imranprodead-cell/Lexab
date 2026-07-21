@@ -78,6 +78,11 @@ export function billingRoutes(app: FastifyInstance, db: Db): void {
       const body = req.body === undefined || req.body === null ? {} : asObject(req.body);
       const note = typeof body.note === 'string' ? body.note.slice(0, 2000) : '';
       const u = req.currentUser;
+      // Без CONTACT_EMAIL письмо пропускается — лид не должен пропасть молча:
+      // громкий лог с данными для связи остаётся в журнале сервера.
+      if (!config.contactEmail) {
+        req.log.error({ lead: { name: u.name, firm: u.firm, email: u.email, note: note.slice(0, 200) } }, 'contact-sales: CONTACT_EMAIL is not set — Enterprise lead only in this log');
+      }
       await sendMail({
         to: config.contactEmail,
         subject: `Enterprise-заявка: ${u.name} (${u.firm})`,

@@ -153,6 +153,17 @@ export async function runBatch(db: Db, jobId: string): Promise<void> {
     [jobId],
   );
 
+  // Heartbeat КАЖДУЮ минуту, а не только между элементами: один долгий анализ
+  // (LLM до 5+ минут) без него делал задание «осиротевшим» для recovery-свипа,
+  // и живой элемент ложно помечался прерванным вторым инстансом.
+  const keepalive = setInterval(() => {
+    void db
+      .query("UPDATE batch_jobs SET updated_at = now() WHERE id = $1 AND status = 'processing'", [jobId])
+      .catch(() => undefined);
+  }, 60_000);
+  keepalive.unref?.();
+
+  try {
   for (const item of items.rows) {
     // Atomic claim — skip if another runner already took this item.
     const claim = await db.query<{ id: string }>(
@@ -181,32 +192,49 @@ export async function runBatch(db: Db, jobId: string): Promise<void> {
         const gen = await analyzeSource(db, owner.user_id, source, plan);
         return persistAnalysis(db, owner.user_id, source, gen, owner.user_id);
       });
+      // Guard по статусу: если recovery-свип успел пометить элемент «прерван»,
+      // поздний успех не должен молча перетирать это обратно в done.
       await db.query(
         `UPDATE batch_items SET status = 'done', document_id = $2, analysis_id = $3,
-                risk_score = $4, risk_level = $5, findings_count = $6, error = NULL WHERE id = $1`,
+                risk_score = $4, risk_level = $5, findings_count = $6, error = NULL
+         WHERE id = $1 AND status = 'processing'`,
         [item.id, result.documentId, result.id, result.riskScore, result.riskLevel, result.findings.length],
       );
     } catch (err) {
       const message = err instanceof HttpError ? err.message : 'Не удалось разобрать файл';
-      await db.query("UPDATE batch_items SET status = 'error', error = $2 WHERE id = $1", [item.id, message.slice(0, 300)]);
+      await db.query("UPDATE batch_items SET status = 'error', error = $2 WHERE id = $1 AND status = 'processing'", [
+        item.id,
+        message.slice(0, 300),
+      ]);
     }
     await syncJob(db, jobId);
   }
   await syncJob(db, jobId);
+  } finally {
+    clearInterval(keepalive); // на всех путях — иначе интервал жил бы вечно
+  }
 }
 
 /**
- * Boot recovery (однократно при старте, index.ts): элементы, оставшиеся в
- * 'processing' после падения/перезапуска, честно помечаются ошибкой
- * «прервано», после чего задания с очередью дорабатываются, а полупустые —
- * финализируются (syncJob выставит итоговый статус). Один инстанс (PM2) —
- * на момент старта другой обработки нет.
+ * Recovery (при старте и раз в 10 минут, index.ts, под кластерным локом):
+ * трогаем ТОЛЬКО осиротевшие задания — их heartbeat (batch_jobs.updated_at,
+ * бампается keepalive-интервалом каждую минуту) молчит 3+ минуты (3 пропущенных удара = инстанс мёртв). При деплое с
+ * перекрытием инстансов старый инстанс ещё работает и бампает updated_at —
+ * его элементы не помечаются «прерванными» и не перезапускаются (двойной
+ * расход ИИ). Осиротевший элемент честно получает ошибку «прервано», хвост
+ * очереди дорабатывается, syncJob финализирует статус.
  */
 export async function resumeBatchJobs(db: Db): Promise<void> {
   await db.query(
-    "UPDATE batch_items SET status = 'error', error = 'Прервано перезапуском сервера' WHERE status = 'processing'",
+    `UPDATE batch_items SET status = 'error', error = 'Прервано перезапуском сервера'
+     WHERE status = 'processing'
+       AND batch_id IN (SELECT id FROM batch_jobs WHERE updated_at < now() - interval '3 minutes')`,
   );
-  const jobs = await db.query<{ id: string }>("SELECT id FROM batch_jobs WHERE status IN ('queued', 'processing')");
+  const jobs = await db.query<{ id: string }>(
+    `SELECT id FROM batch_jobs
+     WHERE status = 'queued'
+        OR (status = 'processing' AND updated_at < now() - interval '3 minutes')`,
+  );
   for (const job of jobs.rows) {
     await runBatch(db, job.id).catch(() => undefined);
   }

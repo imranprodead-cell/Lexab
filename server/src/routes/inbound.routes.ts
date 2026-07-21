@@ -37,6 +37,7 @@ import { asObject, requireString } from '../lib/validate.ts';
 import { generateAnalysis } from '../llm.ts';
 import { getUserByEmail } from '../plugins/auth.ts';
 import { deleteFile, saveFile } from '../storage.ts';
+import { scanUpload } from '../lib/scan.ts';
 import { persistAnalysis } from './analysis.routes.ts';
 
 function headerStr(v: string | string[] | undefined): string {
@@ -136,6 +137,22 @@ export function inboundRoutes(app: FastifyInstance, db: Db): void {
           // never be stored as a "contract".
           if (!verifyFileSignature(buffer, fileName)) {
             results.push({ fileName, error: 'content does not match file type' });
+            continue;
+          }
+
+          // Антивирус (clamd, если настроен) — почтовый канал особенно уязвим
+          // к заражённым вложениям.
+          const scan = await scanUpload(buffer);
+          if (scan.status === 'infected') {
+            // Аудит-событие обязательно: отклонения почтового канала должны
+            // быть видны в SOC2-трейле так же, как у POST /uploads.
+            await audit(db, req, {
+              type: 'file.scan_failed',
+              actorId: user.id,
+              target: { type: 'upload', id: fileName, label: fileName },
+              metadata: { signature: scan.signature ?? 'unknown', channel: 'inbound-email' },
+            }).catch(() => undefined);
+            results.push({ fileName, error: `rejected by antivirus (${scan.signature ?? 'unknown'})` });
             continue;
           }
 

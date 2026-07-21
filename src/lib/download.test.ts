@@ -45,12 +45,15 @@ describe('downloadBlob', () => {
   });
 
   it('проставляет href и download на anchor', () => {
-    let captured: HTMLAnchorElement | null = null;
+    // Снимаем атрибуты прямо в моке (без алиаса this — eslint no-this-alias).
+    let capturedHref: string | null = null;
+    let capturedDownload: string | null = null;
     vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
-      captured = this;
+      capturedHref = this.getAttribute('href');
+      capturedDownload = this.getAttribute('download');
     });
     downloadBlob(new Blob(['x']), 'Договор_поставки.docx');
-    expect(captured!.getAttribute('href')).toBe('blob:test-url');
-    expect(captured!.getAttribute('download')).toBe('Договор_поставки.docx');
+    expect(capturedHref).toBe('blob:test-url');
+    expect(capturedDownload).toBe('Договор_поставки.docx');
   });
 });

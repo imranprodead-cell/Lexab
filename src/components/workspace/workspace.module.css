@@ -12,7 +12,7 @@
   min-width: 340px;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--border);
+  border-inline-end: 1px solid var(--border);
   height: 100%;
 }
 
@@ -48,7 +48,7 @@
   width: 42px;
   height: 100%;
   border: none;
-  border-right: 1px solid var(--border);
+  border-inline-end: 1px solid var(--border);
   background: var(--panel);
   display: flex;
   flex-direction: column;
@@ -103,7 +103,7 @@
   min-width: 0;
 }
 .draftActions {
-  margin-left: auto;
+  margin-inline-start: auto;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -176,7 +176,7 @@
 .findingCardClickable {
   cursor: pointer;
   align-items: center;
-  text-align: left;
+  text-align: start;
   width: 100%;
   transition: background var(--dur-fast), border-color var(--dur-fast);
 }
@@ -469,7 +469,7 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 2px;
-  text-align: left;
+  text-align: start;
   padding: 9px 11px;
   border-radius: 8px;
   border: none;
@@ -544,7 +544,7 @@
   .leftPane {
     width: 100%;
     min-width: 0;
-    border-right: none;
+    border-inline-end: none;
     border-bottom: 1px solid var(--border);
     height: auto;
     max-height: 55vh;
@@ -568,7 +568,7 @@
   justify-content: center;
   width: 22px;
   height: 22px;
-  margin-left: 6px;
+  margin-inline-start: 6px;
   vertical-align: middle;
   border: none;
   border-radius: 6px;
@@ -662,7 +662,7 @@
   }
   .leftPane {
     max-height: 45vh;
-    border-right: none !important;
+    border-inline-end: none !important;
     border-bottom: 1px solid var(--border);
   }
   .toolbar {
@@ -687,7 +687,7 @@
   .leftPane {
     width: 100%;
     max-width: none;
-    border-right: none;
+    border-inline-end: none;
     border-bottom: 1px solid var(--border);
     max-height: 44dvh;
   }

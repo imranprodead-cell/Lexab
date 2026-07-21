@@ -195,11 +195,14 @@ const appRoutes: RouteObject[] = [
             path: 'settings',
             lazy: async () => ({ Component: (await loaders.SettingsPage()).SettingsPage }),
           },
-          {
-            path: '*',
-            lazy: async () => ({ Component: (await loaders.NotFoundPage()).NotFoundPage }),
-          },
         ],
+      },
+      {
+        // Публичный 404 ВНЕ RequireAuth: аноним на битой ссылке видит честную
+        // страницу «не найдено», а не молчаливый редирект на логин (soft-404,
+        // за который поисковики штрафуют).
+        path: '*',
+        lazy: async () => ({ Component: (await loaders.NotFoundPage()).NotFoundPage }),
       },
     ],
   },

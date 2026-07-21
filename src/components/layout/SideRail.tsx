@@ -215,7 +215,7 @@ export function SideRail({ sessions, user, onNewReview }: SideRailProps) {
 
   return (
     <div className={`${styles.railSlot} ${open ? styles.railSlotOpen : ''}`}>
-      <nav id="app-sidebar" className={`${styles.rail} ${open ? styles.railOpen : ''}`} aria-label="Primary">
+      <nav id="app-sidebar" className={`${styles.rail} ${open ? styles.railOpen : ''}`} aria-label={t('a11y.primaryNav')}>
         <div className={styles.brand}>
           {open ? (
             <>

@@ -1,14 +1,27 @@
-# Legal RAG corpus — схема и правила (Этап 1)
+# Legal RAG corpus — схема и правила (обновлено 2026-07-21)
 
 Корпус проверяемых юридических текстов для LexAI. Живёт в той же Supabase
 Postgres, что и приложение (`server/migrations/014_rag_corpus.sql`).
 
 ## Железные правила
 
-1. **Только официальные источники** (белый список): legislation.gov.uk (UK,
-   API/XML), caselaw.nationalarchives.gov.uk (UK практика, этап 2), lex.uz
-   (UZ, этап 2), adilet.zan.kz (KZ, этап 2). Тексты законов НИКОГДА не
-   генерируются моделью и не берутся из блогов/Википедии/агрегаторов.
+1. **Только официальные источники** (белый список, полный):
+   - legislation.gov.uk — законы UK (LIVE, API/XML);
+   - caselaw.nationalarchives.gov.uk — судебная практика UK (в схеме есть
+     `court_cases`, загрузчик НЕ построен — роадмап, см. HANDOFF.md);
+   - lex.uz — Узбекистан (LIVE, 20 актов / 3790 статей);
+   - adilet.zan.kz — Казахстан (LIVE, 4 документа);
+   - gesetze-im-internet.de — ФРГ, офиц. база Bundesministerium der Justiz
+     (LIVE, BGB 2510 §);
+   - govinfo.gov — США, федеральный United States Code от GPO (LIVE, FAA +
+     E-SIGN);
+   - legisquebec.gouv.qc.ca — Канада, офиц. свод законов Квебека (LIVE, CCQ
+     Книга V «Обязательства»);
+   - uaelegislation.gov.ae — ОАЭ, офиц. портал (LIVE, ГК; живой хост за
+     Cloudflare — берётся точный снимок офиц. страницы из web.archive.org,
+     см. `ingest/uaelegislation-ae.ts`).
+   Тексты законов НИКОГДА не генерируются моделью и не берутся из
+   блогов/Википедии/агрегаторов. Больше НИОТКУДА.
 2. **Provenance обязателен** — `source_url`, `retrieved_at`,
    `sha256_checksum` стоят под CHECK-констрейнтами: строка без источника
    физически не вставится.
@@ -19,7 +32,7 @@ Postgres, что и приложение (`server/migrations/014_rag_corpus.sql`
 
 | Таблица | Что хранит |
 |---|---|
-| `jurisdictions` | UK / UZ / KZ: языки, формат цитирования |
+| `jurisdictions` | UK / UZ / KZ / DE / US / CA / AE: языки, формат цитирования |
 | `legal_documents` | акт целиком: официальный ID (`ukpga/1979/54`), название, статус, checksum |
 | `legal_units` | иерархия: part → chapter → section → subsection; «хлебный путь» (`UK / Sale of Goods Act 1979 / Part IV / s.14`), текст, даты действия |
 | `court_cases` | судебные решения (заложено, этап 2) |
@@ -77,9 +90,27 @@ cross-encoder reranker (Voyage rerank-2.5-lite; fail-open: тайм-аут 4с,
 («…Act 1998, s.8» → юнит). Провал любого шага ⇒ `unverified: true` +
 понижение до Low. Хранится в `findings.unit_id` / `findings.unverified`.
 
-## Ограничения Этапа 1 (осознанные)
+## Дополнительные ingestion-модули (все LIVE)
+
+- `npm run rag:ingest:kz` — Казахстан, `ingest/adilet-kz.ts` (fetch через
+  curl — сайт рвёт undici; два стиля разметки: `<h3>` в кодексах и
+  `<p><b>Статья N.</b></p>` в новых законах).
+- `npm run rag:ingest:de` — ФРГ, `ingest/gesetze-de.ts` (XML из xml.zip,
+  встроенная распаковка; немецкий стеммер FTS — миграция 023).
+- `npm run rag:ingest:us` — США, `ingest/govinfo-us.ts` (официальный PDF от
+  GPO через pdf-parse; отсекает редакционные примечания по credit-line).
+- `npm run rag:ingest:ca` — Канада/Квебек, `ingest/legisquebec-ca.ts` (HTML,
+  curl с браузерным UA — иначе 403).
+- `npm run rag:ingest:ae` — ОАЭ, `ingest/uaelegislation-ae.ts` (снимок офиц.
+  страницы из web.archive.org — живой портал за Cloudflare-челленджем).
+
+## Ограничения (осознанные, роадмап в HANDOFF.md)
 
 - Schedules (приложения к актам) не парсятся — только основной корпус акта.
 - Хранится текущая действующая редакция (valid_from = RestrictStartDate);
-  исторические редакции — этап 2 (схема готова).
-- KZ — источник в белом списке, ingestion-модуль не написан (UZ — живой).
+  исторические редакции — позже (схема готова).
+- UK case law: таблица `court_cases` есть, загрузчик не построен.
+- UZ-корпус загружен в русской версии lex.uz (узбекоязычные вопросы работают
+  через query rewriting); узбекоязычный корпус — фаза 5.
+- KZ: аннотации чанков не строились (бюджет) — ретривал на голом тексте
+  статьи + вектор + реранкер.

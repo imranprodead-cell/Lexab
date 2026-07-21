@@ -199,6 +199,11 @@ export const config = {
   /** When set (and Supabase is configured), uploads go to this Storage bucket. */
   supabaseStorageBucket: env('SUPABASE_STORAGE_BUCKET'),
 
+  /* ClamAV (clamd) для антивирусной проверки загрузок. Пусто = проверка
+   * выключена (остаётся сигнатурная magic-byte валидация). */
+  clamdHost: env('CLAMD_HOST'),
+  clamdPort: Number(env('CLAMD_PORT', '3310')),
+
   /** Shared secret for the inbound-email webhook (empty = endpoint disabled). */
   inboundEmailToken: env('INBOUND_EMAIL_TOKEN'),
   /** Optional HMAC signing secret for the inbound-email webhook. When set, every
@@ -207,11 +212,14 @@ export const config = {
   inboundEmailSigningSecret: env('INBOUND_EMAIL_SIGNING_SECRET'),
   /** When 'true', reject inbound messages whose provider-asserted SPF/DKIM/DMARC
    *  result is not a pass — the `from` field is only trusted after authentication. */
-  inboundRequireAuth: env('INBOUND_REQUIRE_SPF_DKIM', 'false') === 'true',
+  // Fail-closed по умолчанию: `from` доверяем только после проверки подлинности
+  // отправителя провайдером; выключать (=false) — осознанно и только локально.
+  inboundRequireAuth: env('INBOUND_REQUIRE_SPF_DKIM', 'true') === 'true',
   /* Outbound email (Resend) + links in emails point at the frontend. */
   resendApiKey: env('RESEND_API_KEY'),
-  /* Where Enterprise "contact sales" requests are delivered. */
-  contactEmail: env('CONTACT_EMAIL', 'imranabidov94@gmail.com'),
+  /* Where Enterprise "contact sales" and feedback are delivered. Empty = the
+   * send is skipped with a loud log — set it in prod (no personal default). */
+  contactEmail: env('CONTACT_EMAIL', ''),
   /* Opt-in demo seeding for local development only. */
   seedDemoData: env('SEED_DEMO_DATA', 'false') === 'true',
   mailFrom: env('MAIL_FROM', 'LexAI <onboarding@resend.dev>'),

@@ -413,7 +413,7 @@ export const DocumentViewer = forwardRef<DocEditorHandle, DocumentViewerProps>(f
   }
 
   return (
-    <section className={styles.rightPane} aria-label="Document viewer">
+    <section className={styles.rightPane} aria-label={t('a11y.documentViewer')}>
       {topBar}
       {!hideHeader ? (
         <div className={styles.docHeader}>

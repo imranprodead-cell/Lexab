@@ -14,6 +14,9 @@ Disallow: /plans
 Disallow: /archive
 Disallow: /compare
 Disallow: /workspace
+Disallow: /playbooks
+Disallow: /contracts
+Disallow: /batch
 Disallow: /sign/
 Disallow: /approve/
 Disallow: /verify-email

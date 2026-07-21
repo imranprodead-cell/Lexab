@@ -27,6 +27,7 @@ import { newId } from '../lib/ids.ts';
 import { assertStorageAllowance, withStorageReservation } from '../lib/limits.ts';
 import { asObject, requireString } from '../lib/validate.ts';
 import { deleteFile, saveFile } from '../storage.ts';
+import { scanUpload } from '../lib/scan.ts';
 
 type Provider = 'google-drive' | 'microsoft' | 'dropbox';
 const PROVIDERS: Provider[] = ['google-drive', 'microsoft', 'dropbox'];
@@ -529,6 +530,13 @@ export function integrationRoutes(app: FastifyInstance, db: Db): void {
       // The declared name/extension isn't trustworthy — verify the bytes match,
       // same as /uploads and the link-import path (defence in depth).
       assertValidFileContent(buffer, name);
+      // Антивирус: байты пришли из внешнего облака — гейт тот же, что у /uploads.
+      {
+        const scan = await scanUpload(buffer);
+        if (scan.status === 'infected') {
+          throw new HttpError(422, `Файл отклонён антивирусом (${scan.signature}). / File rejected by antivirus.`);
+        }
+      }
       await assertStorageAllowance(db, req.currentUser.id, buffer.length);
 
       const mime = ext === '.pdf' ? 'application/pdf' : ext === '.docx' ? DOCX_MIME : 'text/plain';
@@ -630,6 +638,13 @@ export function integrationRoutes(app: FastifyInstance, db: Db): void {
       }
       // Magic-byte check — also rejects any interstitial page that slipped through.
       assertValidFileContent(buffer, name);
+      // Антивирус: байты пришли из внешнего облака — гейт тот же, что у /uploads.
+      {
+        const scan = await scanUpload(buffer);
+        if (scan.status === 'infected') {
+          throw new HttpError(422, `Файл отклонён антивирусом (${scan.signature}). / File rejected by antivirus.`);
+        }
+      }
       await assertStorageAllowance(db, req.currentUser.id, buffer.length);
 
       const mime = ext === '.pdf' ? 'application/pdf' : ext === '.docx' ? DOCX_MIME : 'text/plain';

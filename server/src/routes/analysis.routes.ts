@@ -25,6 +25,7 @@ import { jurisdictionCode, retrieveLegalContext } from '../rag/retrieve.ts';
 import type { RetrievedChunk } from '../rag/types.ts';
 import { validateFindings } from '../rag/validate-citations.ts';
 import { audit } from '../lib/audit.ts';
+import { scanUpload } from '../lib/scan.ts';
 import { decJsonFromJsonb, decText, decTextStrict, encJsonForJsonb, encText } from '../lib/docCrypto.ts';
 import { deleteFile, readFileBytes, saveFile } from '../storage.ts';
 import type { AnalysisResult, DocBlock, Redline } from '../types.ts';
@@ -225,6 +226,11 @@ async function readSource(db: Db, req: FastifyRequest): Promise<AnalysisSource> 
     }
     const buffer = await part.toBuffer();
     assertValidFileContent(buffer, fileName);
+    // Антивирус — тот же гейт, что и POST /uploads (это основной путь загрузки).
+    const scan = await scanUpload(buffer);
+    if (scan.status === 'infected') {
+      throw new HttpError(422, `Файл отклонён антивирусом (${scan.signature}). / File rejected by antivirus.`);
+    }
     // Optional law context sent alongside the file (multipart fields must
     // precede the file part — later fields are not parsed by req.file()).
     const jurisdictionField = (part.fields as Record<string, unknown> | undefined)?.jurisdiction as
@@ -885,38 +891,74 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
 
     // Рамка отчёта — на языке КОНТЕНТА анализа (русский разбор → русские
     // подписи), не UI: файл живёт дольше сессии и уходит третьим лицам.
+    // Узбекоязычный контент получает узбекскую рамку (латиница) — отчёт для
+    // контрагентов в Ташкенте не должен выглядеть полурусским.
     const contentSample = `${a.summary} ${a.findings.map((f) => f.title).join(' ')}`;
-    // Русская рамка — для кириллического И узбекского контента (решение
-    // продукта: рынок СНГ, узбекской рамки пока нет).
-    const ru = looksRussian(contentSample) || looksUzbekLatin(contentSample);
-    const SEV_RU: Record<string, string> = { High: 'Высокий', Medium: 'Средний', Low: 'Низкий' };
-    const SEV_RU_LEVEL: Record<string, string> = { High: 'Высокий', Elevated: 'Повышенный', Low: 'Низкий' };
-    const STATUS_RU: Record<string, string> = { pending: 'на рассмотрении', accepted: 'принята', rejected: 'отклонена' };
-    const sev = (s: string) => (ru ? (SEV_RU[s] ?? s) : s);
+    const frameLang: 'ru' | 'uz' | 'en' = looksUzbekLatin(contentSample)
+      ? 'uz'
+      : looksRussian(contentSample)
+        ? 'ru'
+        : 'en';
+    const FRAMES = {
+      ru: {
+        sev: { High: 'Высокий', Medium: 'Средний', Low: 'Низкий' } as Record<string, string>,
+        level: { High: 'Высокий', Elevated: 'Повышенный', Low: 'Низкий' } as Record<string, string>,
+        status: { pending: 'на рассмотрении', accepted: 'принята', rejected: 'отклонена' } as Record<string, string>,
+        meta: (f: string, s: string, score: number, level: string, n: number) =>
+          `Файл: ${f} (${s}) · Оценка риска: ${score}/100 (${level}) · Проверено пунктов: ${n}`,
+        summary: 'Сводка',
+        findings: (n: number) => `Находки (${n})`,
+        redlines: (n: number) => `Предлагаемые правки (${n})`,
+        replace: (del: string, ins: string, st: string) => `Заменить «${del}» на «${ins}» — статус: ${st}.`,
+        about: 'Об этом отчёте',
+        aboutText: 'Сформировано LexAI. Отчёт подготовлен с помощью ИИ и не является юридической консультацией.',
+        title: 'LexAI — Отчёт о проверке договора',
+      },
+      uz: {
+        sev: { High: 'Yuqori', Medium: "O'rta", Low: 'Past' } as Record<string, string>,
+        level: { High: 'Yuqori', Elevated: "Ko'tarilgan", Low: 'Past' } as Record<string, string>,
+        status: { pending: "ko'rib chiqilmoqda", accepted: 'qabul qilingan', rejected: 'rad etilgan' } as Record<string, string>,
+        meta: (f: string, s: string, score: number, level: string, n: number) =>
+          `Fayl: ${f} (${s}) · Xavf bahosi: ${score}/100 (${level}) · Tekshirilgan bandlar: ${n}`,
+        summary: 'Xulosa',
+        findings: (n: number) => `Topilmalar (${n})`,
+        redlines: (n: number) => `Taklif etilgan tahrirlar (${n})`,
+        replace: (del: string, ins: string, st: string) => `«${del}» o'rniga «${ins}» — holati: ${st}.`,
+        about: 'Ushbu hisobot haqida',
+        aboutText: "LexAI tomonidan shakllantirilgan. Hisobot AI yordamida tayyorlangan va yuridik maslahat hisoblanmaydi.",
+        title: 'LexAI — Shartnoma tekshiruvi hisoboti',
+      },
+      en: {
+        sev: {} as Record<string, string>,
+        level: {} as Record<string, string>,
+        status: {} as Record<string, string>,
+        meta: (f: string, s: string, score: number, level: string, n: number) =>
+          `File: ${f} (${s}) · Risk score: ${score}/100 (${level}) · Clauses reviewed: ${n}`,
+        summary: 'Summary',
+        findings: (n: number) => `Findings (${n})`,
+        redlines: (n: number) => `Suggested redlines (${n})`,
+        replace: (del: string, ins: string, st: string) => `Replace "${del}" with "${ins}" — status: ${st}.`,
+        about: 'About this report',
+        aboutText: 'Generated by LexAI contract intelligence. This report is an AI-assisted review and does not constitute legal advice.',
+        title: 'LexAI — Contract Review Report',
+      },
+    } as const;
+    const F = FRAMES[frameLang];
+    const sev = (s: string) => F.sev[s] ?? s;
     const sections: { heading?: string; text?: string }[] = [
-      {
-        text: ru
-          ? `Файл: ${a.fileName} (${a.fileSize}) · Оценка риска: ${a.riskScore}/100 (${SEV_RU_LEVEL[a.riskLevel] ?? a.riskLevel}) · Проверено пунктов: ${a.clausesReviewed}`
-          : `File: ${a.fileName} (${a.fileSize}) · Risk score: ${a.riskScore}/100 (${a.riskLevel}) · Clauses reviewed: ${a.clausesReviewed}`,
-      },
-      { heading: ru ? 'Сводка' : 'Summary' },
+      { text: F.meta(a.fileName, a.fileSize, a.riskScore, F.level[a.riskLevel] ?? a.riskLevel, a.clausesReviewed) },
+      { heading: F.summary },
       { text: a.summary },
-      { heading: ru ? `Находки (${a.findings.length})` : `Findings (${a.findings.length})` },
+      { heading: F.findings(a.findings.length) },
       ...a.findings.map((f, i) => ({ text: `${i + 1}. [${sev(f.severity)}] ${f.title} — ${f.citation}` })),
-      { heading: ru ? `Предлагаемые правки (${a.redlines.length})` : `Suggested redlines (${a.redlines.length})` },
+      { heading: F.redlines(a.redlines.length) },
       ...a.redlines.map((r, i) => ({
-        text: ru
-          ? `${i + 1}. [${sev(r.severity)}] Заменить «${r.delText}» на «${r.insText}» — статус: ${STATUS_RU[r.status] ?? r.status}.`
-          : `${i + 1}. [${r.severity}] Replace "${r.delText}" with "${r.insText}" — status: ${r.status}.`,
+        text: `${i + 1}. [${sev(r.severity)}] ${F.replace(r.delText, r.insText, F.status[r.status] ?? r.status)}`,
       })),
-      { heading: ru ? 'Об этом отчёте' : 'About this report' },
-      {
-        text: ru
-          ? 'Сформировано LexAI. Отчёт подготовлен с помощью ИИ и не является юридической консультацией.'
-          : 'Generated by LexAI contract intelligence. This report is an AI-assisted review and does not constitute legal advice.',
-      },
+      { heading: F.about },
+      { text: F.aboutText },
     ];
-    const pdf = await buildSimplePdf(ru ? 'LexAI — Отчёт о проверке договора' : 'LexAI — Contract Review Report', sections);
+    const pdf = await buildSimplePdf(F.title, sections);
     reply.header('Content-Type', 'application/pdf');
     reply.header('Content-Disposition', attachmentDisposition(`LexAI_Report_${a.fileName}`, 'pdf'));
     reply.header('Cache-Control', 'no-store');

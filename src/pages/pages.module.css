@@ -242,7 +242,7 @@
   border-collapse: collapse;
 }
 .th {
-  text-align: left;
+  text-align: start;
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.05em;
@@ -260,7 +260,7 @@
   color: var(--text);
 }
 .sortArrow {
-  margin-left: 6px;
+  margin-inline-start: 6px;
   color: var(--accent);
 }
 .pagination {
@@ -618,7 +618,7 @@
   font-size: 14px;
   color: var(--dim);
   font-weight: 500;
-  margin-left: 4px;
+  margin-inline-start: 4px;
 }
 
 /* Chart panels ------------------------------------------------------------ */
@@ -1578,8 +1578,8 @@
     font-size: 22px;
   }
   .container {
-    padding-left: 4px;
-    padding-right: 4px;
+    padding-inline-start: 4px;
+    padding-inline-end: 4px;
   }
 }
 
@@ -1638,7 +1638,7 @@
 
 .jurisName {
   flex: 1;
-  text-align: left;
+  text-align: start;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1694,7 +1694,7 @@
   font-family: inherit;
   font-size: 14px;
   cursor: pointer;
-  text-align: left;
+  text-align: start;
 }
 
 .jurisOption:hover {
@@ -1843,7 +1843,7 @@
   font-weight: 600;
   color: var(--mut);
   text-decoration: line-through;
-  margin-right: 8px;
+  margin-inline-end: 8px;
 }
 
 .planPriceNote {
@@ -2269,7 +2269,7 @@
 
 .wfOptionBody {
   margin-top: 10px;
-  padding-left: 30px;
+  padding-inline-start: 30px;
 }
 
 .wfChecklist {
@@ -2430,7 +2430,7 @@
   border-radius: 12px;
   background: transparent;
   font-family: inherit;
-  text-align: left;
+  text-align: start;
   cursor: pointer;
 }
 
@@ -2708,7 +2708,7 @@
 .legendCount {
   color: var(--dim);
   font-weight: 400;
-  margin-left: 5px;
+  margin-inline-start: 5px;
 }
 
 /* ── Analytics: section headers + risk centre ─────────────────────────── */
@@ -2859,7 +2859,7 @@
   background: var(--hover-2);
   border-radius: 6px;
   padding: 1px 7px;
-  margin-right: 6px;
+  margin-inline-end: 6px;
 }
 .corpusNote {
   font-size: 12px;
