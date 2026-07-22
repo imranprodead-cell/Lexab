@@ -2240,6 +2240,12 @@ describe('tts (озвучка ответов)', () => {
     assert.equal(detectTtsLanguage('Договор проверен по базе «Әділет» и признан действительным по праву РФ.'), 'ru', 'одна казахская буква в названии не перекрашивает русский текст');
   });
 
+  it('режим аутентификации определяется по форме ключа', async () => {
+    const { ttsAuthMode } = await import('../src/routes/tts.routes.ts');
+    assert.equal(ttsAuthMode('{"type":"service_account"}'), 'service-account');
+    assert.equal(ttsAuthMode('AIzaSyFakeKey123'), 'api-key');
+  });
+
   it('обрезка не рвёт суррогатные пары (эмодзи)', async () => {
     const { clipTtsText } = await import('../src/routes/tts.routes.ts');
     const clipped = clipTtsText('🙂'.repeat(3000), 3800);

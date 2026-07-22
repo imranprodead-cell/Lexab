@@ -75,13 +75,20 @@ interface TtsAttempt {
   languageCode: string;
 }
 
-async function synthesize(a: TtsAttempt, text: string, token: string, projectId: string, timeoutMs: number): Promise<Buffer> {
+/** Режим аутентификации по форме значения GOOGLE_TTS_CREDENTIALS_JSON:
+ *  JSON сервисного аккаунта → OAuth и полная цепочка Gemini→Chirp;
+ *  простой API-ключ (AIza…) → только Chirp3-HD (Gemini-модели требуют
+ *  IAM-роль aiplatform, которую API-ключ нести не может — живой 403). */
+export function ttsAuthMode(cred: string): 'service-account' | 'api-key' {
+  return cred.trim().startsWith('{') ? 'service-account' : 'api-key';
+}
+
+async function synthesize(a: TtsAttempt, text: string, authHeaders: Record<string, string>, timeoutMs: number): Promise<Buffer> {
   const res = await fetch(SYNTH_URL, {
     method: 'POST',
     headers: {
-      authorization: `Bearer ${token}`,
+      ...authHeaders,
       'content-type': 'application/json',
-      ...(projectId ? { 'x-goog-user-project': projectId } : {}),
     },
     body: JSON.stringify({
       // prompt поддерживают только Gemini-модели — Chirp3-HD его не принимает.
@@ -124,18 +131,30 @@ export function ttsRoutes(app: FastifyInstance): void {
       if (used + text.length > TTS_DAILY_CHARS_PER_USER) {
         throw new HttpError(429, 'Дневной лимит озвучки исчерпан — попробуйте завтра. / Daily text-to-speech limit reached, try again tomorrow.');
       }
-      dailyUsage.set(req.currentUser.id, { day, chars: used + text.length });
 
-      const { token, projectId } = await googleAccessToken(config.googleTtsCredentialsJson, OAUTH_SCOPE);
+      const mode = ttsAuthMode(config.googleTtsCredentialsJson);
+      let authHeaders: Record<string, string>;
+      if (mode === 'service-account') {
+        const { token, projectId } = await googleAccessToken(config.googleTtsCredentialsJson, OAUTH_SCOPE);
+        authHeaders = { authorization: `Bearer ${token}`, ...(projectId ? { 'x-goog-user-project': projectId } : {}) };
+      } else {
+        authHeaders = { 'x-goog-api-key': config.googleTtsCredentialsJson.trim() };
+      }
 
-      // Порядок попыток: каждая Gemini-модель × кандидаты languageCode,
-      // затем стабильный Chirp3-HD (если для языка существует).
+      // Порядок попыток: каждая Gemini-модель × кандидаты languageCode (только
+      // при сервисном аккаунте), затем стабильный Chirp3-HD (если существует).
       const attempts: TtsAttempt[] = [];
-      for (const model of TTS_MODEL_CHAIN) {
-        for (const code of TTS_LANGUAGE_CODES[lang]) attempts.push({ model, voice: TTS_VOICE, languageCode: code });
+      if (mode === 'service-account') {
+        for (const model of TTS_MODEL_CHAIN) {
+          for (const code of TTS_LANGUAGE_CODES[lang]) attempts.push({ model, voice: TTS_VOICE, languageCode: code });
+        }
       }
       const chirpLocale = TTS_CHIRP_LOCALES[lang];
       if (chirpLocale) attempts.push({ voice: `${chirpLocale}-Chirp3-HD-${TTS_VOICE}`, languageCode: chirpLocale });
+      if (attempts.length === 0) {
+        // API-ключ + язык без Chirp-локали (uz/kk): честно объясняем, что нужно.
+        throw new HttpError(502, 'Для озвучки этого языка нужен ключ сервисного аккаунта Google (см. server/.env.example). / This language needs a Google service-account key.');
+      }
 
       // Общий дедлайн: фолбэк не должен держать соединение минутами.
       const deadline = Date.now() + TTS_TOTAL_DEADLINE_MS;
@@ -145,7 +164,7 @@ export function ttsRoutes(app: FastifyInstance): void {
         const left = deadline - Date.now();
         if (left < 3_000) break;
         try {
-          audio = await synthesize(a, text, token, projectId, Math.min(TTS_ATTEMPT_TIMEOUT_MS, left));
+          audio = await synthesize(a, text, authHeaders, Math.min(TTS_ATTEMPT_TIMEOUT_MS, left));
           break;
         } catch (err) {
           lastErr = err instanceof Error ? err.message : String(err);
@@ -153,9 +172,11 @@ export function ttsRoutes(app: FastifyInstance): void {
         }
       }
       if (!audio) {
-        req.log.error({ lang, lastErr }, 'tts: все шаги фолбэка исчерпаны');
+        req.log.error({ lang, mode, lastErr }, 'tts: все шаги фолбэка исчерпаны');
         throw new HttpError(502, 'Не удалось озвучить текст — сервис временно недоступен. / Text-to-speech is temporarily unavailable.');
       }
+      // Дневной счётчик — только за фактически синтезированное.
+      dailyUsage.set(req.currentUser.id, { day, chars: used + text.length });
       return reply.header('content-type', 'audio/mpeg').header('cache-control', 'no-store').send(audio);
     },
   );
