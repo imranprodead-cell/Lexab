@@ -6,6 +6,7 @@
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -27,6 +28,15 @@ process.env.SEED_DEMO_DATA = 'false';
 process.env.BATCH_AUTOSTART = '0';
 // No network in tests: don't call the HIBP breach API on register/password.
 process.env.PASSWORD_BREACH_CHECK = '0';
+// Озвучка (POST /tts): валидный по форме ключ сервисного аккаунта, чтобы роут
+// был «настроен»; сами вызовы Google перехватываются моком fetch в сьюте tts.
+process.env.GOOGLE_TTS_CREDENTIALS_JSON = JSON.stringify({
+  type: 'service_account',
+  project_id: 'tts-test-project',
+  client_email: 'tts-test@test.iam.gserviceaccount.com',
+  private_key: crypto.generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
+  token_uri: 'https://oauth2.googleapis.com/token',
+});
 // Many users register from one loopback IP in this suite — lift the per-minute
 // auth cap so the rate limiter (still 10/min in production) doesn't throttle it.
 process.env.AUTH_RATE_LIMIT_MAX = '1000';
@@ -2115,5 +2125,127 @@ describe('compare: две версии договора', () => {
     assert.equal(out.fileA, 'v1.txt');
     assert.equal(out.fileB, 'v2.txt');
     assert.ok(Array.isArray(out.changes ?? out.diffs ?? out.items) || typeof out.summary === 'string', 'structured compare result');
+  });
+});
+
+describe('tts (озвучка ответов)', () => {
+  const realFetch = globalThis.fetch;
+  // Каждый вызов Cloud TTS пишется сюда; failModels — какие model_name мок
+  // отклоняет 404-м (для проверки фолбэка preview → stable).
+  let synthCalls: { voice: Record<string, unknown>; input: Record<string, unknown>; audioConfig: Record<string, unknown> }[] = [];
+  let failModels: string[] = [];
+
+  before(() => {
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('oauth2.googleapis.com')) {
+        return new Response(JSON.stringify({ access_token: 'test-access-token', expires_in: 3600 }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      if (url.includes('texttospeech.googleapis.com')) {
+        const body = JSON.parse(String(init?.body ?? '{}')) as (typeof synthCalls)[number];
+        synthCalls.push(body);
+        if (failModels.includes(String(body.voice?.model_name))) {
+          return new Response(JSON.stringify({ error: { message: 'model is not available' } }), { status: 404 });
+        }
+        return new Response(JSON.stringify({ audioContent: Buffer.from('ID3-fake-mp3-bytes').toString('base64') }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+      return realFetch(input as RequestInfo, init);
+    }) as typeof fetch;
+  });
+  after(() => {
+    globalThis.fetch = realFetch;
+  });
+
+  it('без токена — 401', async () => {
+    const res = await app.inject({ method: 'POST', url: '/api/tts', payload: { text: 'Привет' } });
+    assert.equal(res.statusCode, 401);
+  });
+
+  it('пустой текст — 400', async () => {
+    const u = await makeUser();
+    const res = await app.inject({ method: 'POST', url: '/api/tts', headers: auth(u.token), payload: { text: '   ' } });
+    assert.equal(res.statusCode, 400);
+  });
+
+  it('отдаёт MP3: модель 3.1 первой, русский languageCode, голос один', async () => {
+    const u = await makeUser();
+    synthCalls = [];
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/tts',
+      headers: auth(u.token),
+      payload: { text: 'Настоящий договор аренды может быть расторгнут в одностороннем порядке.' },
+    });
+    assert.equal(res.statusCode, 200, res.body);
+    assert.equal(res.headers['content-type'], 'audio/mpeg');
+    assert.ok(res.rawPayload.toString('latin1').startsWith('ID3-fake'), 'бинарный MP3-ответ');
+    assert.equal(synthCalls.length, 1);
+    assert.equal(synthCalls[0].voice.model_name, 'gemini-3.1-flash-tts-preview');
+    assert.equal(synthCalls[0].voice.languageCode, 'ru-RU');
+    assert.equal(synthCalls[0].voice.name, 'Kore');
+    assert.equal(typeof synthCalls[0].input.prompt, 'string', 'стилевая инструкция уходит в input.prompt');
+    assert.equal(synthCalls[0].audioConfig.audioEncoding, 'MP3');
+  });
+
+  it('фолбэк: preview-модель недоступна → синтез на gemini-2.5-flash-tts', async () => {
+    const u = await makeUser();
+    synthCalls = [];
+    failModels = ['gemini-3.1-flash-tts-preview'];
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/tts',
+        headers: auth(u.token),
+        payload: { text: 'Договор поставки товара действует один год.' },
+      });
+      assert.equal(res.statusCode, 200, res.body);
+      assert.equal(synthCalls[0].voice.model_name, 'gemini-3.1-flash-tts-preview');
+      assert.equal(synthCalls[synthCalls.length - 1].voice.model_name, 'gemini-2.5-flash-tts');
+    } finally {
+      failModels = [];
+    }
+  });
+
+  it('длинный текст обрезается до лимита байт по границе предложения', async () => {
+    const u = await makeUser();
+    synthCalls = [];
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/tts',
+      headers: auth(u.token),
+      payload: { text: 'Стороны согласовали существенные условия сделки. '.repeat(300) },
+    });
+    assert.equal(res.statusCode, 200, res.body);
+    const sent = String(synthCalls[0].input.text);
+    assert.ok(Buffer.byteLength(sent, 'utf8') <= 3800, `обрезано до лимита (ушло ${Buffer.byteLength(sent, 'utf8')} байт)`);
+    assert.ok(sent.trimEnd().endsWith('.'), 'обрезка по границе предложения');
+  });
+
+  it('определяет язык текста для languageCode на всех 6 языках', async () => {
+    const { detectTtsLanguage } = await import('../src/routes/tts.routes.ts');
+    assert.equal(detectTtsLanguage('Настоящий договор аренды помещения заключён между сторонами.'), 'ru');
+    assert.equal(detectTtsLanguage('This agreement shall be governed by the laws of England and Wales.'), 'en');
+    assert.equal(detectTtsLanguage('Dieser Vertrag unterliegt deutschem Recht, die Haftung ist beschränkt.'), 'de');
+    assert.equal(detectTtsLanguage('يخضع هذا العقد لقوانين دولة الإمارات العربية المتحدة.'), 'ar');
+    assert.equal(detectTtsLanguage('Ushbu shartnoma tomonlar oʻrtasida tuzildi va qonun bilan tartibga solinadi.'), 'uz');
+    assert.equal(detectTtsLanguage('Осы шарт Қазақстан Республикасының заңнамасына сәйкес жасалды.'), 'kk');
+    // Ложные срабатывания (находки адверсарной проверки):
+    assert.equal(detectTtsLanguage("The meeting starts at nine o'clock at Diego's office."), 'en', 'английские притяжательные — не узбекский');
+    assert.equal(detectTtsLanguage('Договор проверен по базе «Әділет» и признан действительным по праву РФ.'), 'ru', 'одна казахская буква в названии не перекрашивает русский текст');
+  });
+
+  it('обрезка не рвёт суррогатные пары (эмодзи)', async () => {
+    const { clipTtsText } = await import('../src/routes/tts.routes.ts');
+    const clipped = clipTtsText('🙂'.repeat(3000), 3800);
+    assert.ok(Buffer.byteLength(clipped, 'utf8') <= 3800);
+    assert.ok(clipped.length > 0);
+    // encodeURIComponent бросает URIError на одиноком суррогате
+    assert.doesNotThrow(() => encodeURIComponent(clipped), 'нет одиноких суррогатов на конце');
   });
 });

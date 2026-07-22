@@ -342,6 +342,7 @@ const uz: Record<string, string> = {
   "chat.act.more": "Yana",
   "chat.act.speak": "Ovoz chiqarib oʻqish",
   "chat.act.speakStop": "Oʻqishni toʻxtatish",
+  "chat.act.speakError": "Ovozli oʻqib boʻlmadi. Keyinroq urinib koʻring.",
   "chat.act.downloadTxt": ".txt sifatida yuklab olish",
   "chat.act.thanks": "Fikringiz uchun rahmat",
   "ghost.enter": "Sharpa rejimi",

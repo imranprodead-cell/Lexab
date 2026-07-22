@@ -342,6 +342,7 @@ const kk: Record<string, string> = {
   "chat.act.more": "Тағы",
   "chat.act.speak": "Дауыстап оқу",
   "chat.act.speakStop": "Оқуды тоқтату",
+  "chat.act.speakError": "Дауыстап оқу мүмкін болмады. Кейінірек қайталап көріңіз.",
   "chat.act.downloadTxt": ".txt ретінде жүктеу",
   "chat.act.thanks": "Пікіріңіз үшін рахмет",
   "ghost.enter": "Елес режимі",

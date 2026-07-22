@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { ttsApi } from '@/api';
 import { Icon } from '@/components/icons/Icon';
 import { useDismissable } from '@/hooks/useAsync';
 import { downloadBlob } from '@/lib/download';
@@ -13,29 +14,42 @@ interface MessageActionsProps {
   onFeedback: (messageId: string, value: 'up' | 'down' | null) => void;
 }
 
+// One narration per window (like the old speechSynthesis behaviour): starting
+// a message's narration stops whichever other message is currently playing.
+let activeNarration: { stop: () => void } | null = null;
+
 /**
  * Action row under a finished assistant reply: thumbs up/down, copy and a
  * small overflow menu (read aloud, download as .txt). Icon-only buttons carry
  * aria-labels and tooltips; touch targets expand to 44px on coarse pointers.
- * While narration plays, a visible stop button joins the row.
+ * Narration is server-synthesized MP3 (POST /tts); the menu item toggles
+ * play/stop and the fetched audio is cached per message for replays.
  */
 export function MessageActions({ message, onFeedback }: MessageActionsProps) {
-  const { t, lang } = useI18n();
+  const { t } = useI18n();
   const pushToast = useUIStore((s) => s.pushToast);
   const [copied, setCopied] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [speaking, setSpeaking] = useState(false);
+  const [speech, setSpeech] = useState<'idle' | 'loading' | 'playing'>('idle');
   const menuRef = useDismissable<HTMLDivElement>(() => setMenuOpen(false), menuOpen);
   const menuBtnRef = useRef<HTMLButtonElement>(null);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const speakingRef = useRef(false); // survives cleanup — did THIS message start speech?
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const audioUrlRef = useRef<string | null>(null);
+  const speechSeq = useRef(0); // invalidates in-flight requests on stop/unmount
+  const abortRef = useRef<AbortController | null>(null);
+  const narrationHandle = useRef<{ stop: () => void }>({ stop: () => {} });
 
-  // Unmount only: clear the copy-revert timer and stop narration this
-  // message started (speechSynthesis is a global channel).
+  // Unmount only: clear the copy-revert timer, stop playback and release the
+  // cached object URL (a blob URL pins the whole MP3 in memory until revoked).
   useEffect(
     () => () => {
       if (copyTimer.current) clearTimeout(copyTimer.current);
-      if (speakingRef.current && 'speechSynthesis' in window) window.speechSynthesis.cancel();
+      speechSeq.current++;
+      abortRef.current?.abort();
+      audioRef.current?.pause();
+      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+      if (activeNarration === narrationHandle.current) activeNarration = null;
     },
     [],
   );
@@ -68,32 +82,60 @@ export function MessageActions({ message, onFeedback }: MessageActionsProps) {
   };
 
   const stopSpeaking = () => {
-    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-    speakingRef.current = false;
-    setSpeaking(false);
+    speechSeq.current++; // a loading request that resolves later must not start playback
+    abortRef.current?.abort(); // don't let a cancelled synthesis keep running (it's billed)
+    audioRef.current?.pause();
+    audioRef.current = null;
+    if (activeNarration === narrationHandle.current) activeNarration = null;
+    setSpeech('idle');
   };
+  narrationHandle.current.stop = stopSpeaking;
 
-  const speak = () => {
+  const speak = async () => {
     setMenuOpen(false);
-    if (!('speechSynthesis' in window)) return;
-    if (speaking) {
+    if (speech !== 'idle') {
       stopSpeaking();
       return;
     }
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = lang === 'ru' ? 'ru-RU' : 'en-US';
-    utterance.onend = () => {
-      speakingRef.current = false;
-      setSpeaking(false);
-    };
-    utterance.onerror = () => {
-      speakingRef.current = false;
-      setSpeaking(false);
-    };
-    window.speechSynthesis.cancel(); // one narration at a time
-    window.speechSynthesis.speak(utterance);
-    speakingRef.current = true;
-    setSpeaking(true);
+    if (activeNarration && activeNarration !== narrationHandle.current) activeNarration.stop();
+    activeNarration = narrationHandle.current;
+    const seq = ++speechSeq.current;
+    setSpeech('loading');
+    // Create the element inside the click gesture and "unlock" it: Safari/iOS
+    // rejects play() that only happens after an async fetch. The empty play()
+    // fails silently and marks the element as user-activated.
+    const audio = new Audio();
+    audio.play().catch(() => {});
+    audioRef.current = audio;
+    try {
+      if (!audioUrlRef.current) {
+        abortRef.current = new AbortController();
+        const blob = await ttsApi.synthesize(text, abortRef.current.signal);
+        if (seq !== speechSeq.current) return; // stopped/unmounted while loading
+        audioUrlRef.current = URL.createObjectURL(blob);
+      }
+      const done = () => {
+        if (seq === speechSeq.current) {
+          audioRef.current = null;
+          if (activeNarration === narrationHandle.current) activeNarration = null;
+          setSpeech('idle');
+        }
+      };
+      audio.onended = done;
+      audio.onerror = done;
+      audio.src = audioUrlRef.current;
+      await audio.play();
+      if (seq !== speechSeq.current) {
+        audio.pause();
+        return;
+      }
+      setSpeech('playing');
+    } catch {
+      if (seq === speechSeq.current) {
+        stopSpeaking();
+        pushToast(t('chat.act.speakError'), 'error');
+      }
+    }
   };
 
   const downloadTxt = () => {
@@ -116,8 +158,6 @@ export function MessageActions({ message, onFeedback }: MessageActionsProps) {
     const next = e.key === 'ArrowDown' ? (idx + 1) % items.length : (idx - 1 + items.length) % items.length;
     items[next].focus();
   };
-
-  const speechSupported = typeof window !== 'undefined' && 'speechSynthesis' in window;
 
   return (
     <div className={styles.msgActions}>
@@ -151,18 +191,6 @@ export function MessageActions({ message, onFeedback }: MessageActionsProps) {
         <Icon name={copied ? 'check' : 'copy'} size={15} />
       </button>
 
-      {speaking ? (
-        <button
-          type="button"
-          className={`${styles.msgActionBtn} ${styles.msgActionOn}`}
-          aria-label={t('chat.act.speakStop')}
-          title={t('chat.act.speakStop')}
-          onClick={stopSpeaking}
-        >
-          <Icon name="volume" size={15} />
-        </button>
-      ) : null}
-
       <div className={styles.msgMenuWrap} ref={menuRef} onKeyDown={onMenuKeyDown}>
         <button
           ref={menuBtnRef}
@@ -178,12 +206,10 @@ export function MessageActions({ message, onFeedback }: MessageActionsProps) {
         </button>
         {menuOpen ? (
           <div className={styles.msgMenu} role="menu" data-popover-layer>
-            {speechSupported ? (
-              <button type="button" role="menuitem" className={styles.msgMenuItem} onClick={speak}>
-                <Icon name="volume" size={15} />
-                {speaking ? t('chat.act.speakStop') : t('chat.act.speak')}
-              </button>
-            ) : null}
+            <button type="button" role="menuitem" className={styles.msgMenuItem} onClick={() => void speak()}>
+              <Icon name="volume" size={15} />
+              {speech === 'idle' ? t('chat.act.speak') : t('chat.act.speakStop')}
+            </button>
             <button type="button" role="menuitem" className={styles.msgMenuItem} onClick={downloadTxt}>
               <Icon name="download" size={15} />
               {t('chat.act.downloadTxt')}

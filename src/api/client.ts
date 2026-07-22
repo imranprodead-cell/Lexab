@@ -291,8 +291,11 @@ export async function httpForm<T>(path: string, form: FormData): Promise<T> {
 }
 
 /** Authenticated binary download (e.g. the PDF analysis report). */
-export async function httpBlob(path: string, options: { method?: 'GET' | 'POST'; body?: unknown } = {}): Promise<Blob> {
-  const { method = 'GET', body } = options;
+export async function httpBlob(
+  path: string,
+  options: { method?: 'GET' | 'POST'; body?: unknown; signal?: AbortSignal } = {},
+): Promise<Blob> {
+  const { method = 'GET', body, signal } = options;
   const authH = authHeader();
   const response = await fetch(`${BASE_URL}${path}`, {
     method,
@@ -301,6 +304,7 @@ export async function httpBlob(path: string, options: { method?: 'GET' | 'POST';
       ...authH,
     },
     body: body === undefined ? undefined : JSON.stringify(body),
+    signal,
   });
   if (!response.ok) {
     noteUnauthorized(path, response.status, authH.Authorization);

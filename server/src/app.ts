@@ -36,6 +36,7 @@ import { workflowRoutes } from './routes/workflows.routes.ts';
 import { securityRoutes } from './routes/security.routes.ts';
 import { uploadRoutes } from './routes/uploads.routes.ts';
 import { userRoutes } from './routes/user.routes.ts';
+import { ttsRoutes } from './routes/tts.routes.ts';
 
 export async function buildApp(db: Db): Promise<FastifyInstance> {
   const app = Fastify({
@@ -185,6 +186,7 @@ export async function buildApp(db: Db): Promise<FastifyInstance> {
       ssoRoutes(api, db);
       integrationRoutes(api, db);
       feedbackRoutes(api, db);
+      ttsRoutes(api);
     },
     { prefix: config.apiPrefix },
   );

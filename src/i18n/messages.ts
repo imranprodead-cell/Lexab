@@ -654,6 +654,7 @@ export const MESSAGES: Dict = {
   'chat.act.more': { ru: 'Ещё', en: 'More' },
   'chat.act.speak': { ru: 'Прочитать вслух', en: 'Read aloud' },
   'chat.act.speakStop': { ru: 'Остановить чтение', en: 'Stop reading' },
+  'chat.act.speakError': { ru: 'Не удалось озвучить. Попробуйте позже.', en: 'Could not play the audio. Try again later.' },
   'chat.act.downloadTxt': { ru: 'Скачать как .txt', en: 'Download as .txt' },
   'chat.act.thanks': { ru: 'Спасибо за отзыв', en: 'Thanks for the feedback' },
 

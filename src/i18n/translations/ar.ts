@@ -342,6 +342,7 @@ const ar: Record<string, string> = {
   "chat.act.more": "المزيد",
   "chat.act.speak": "قراءة بصوت عالٍ",
   "chat.act.speakStop": "إيقاف القراءة",
+  "chat.act.speakError": "تعذّر تشغيل الصوت. حاول مرة أخرى لاحقًا.",
   "chat.act.downloadTxt": "تنزيل بصيغة ‎.txt",
   "chat.act.thanks": "شكرًا على ملاحظتك",
   "ghost.enter": "الوضع الخفي",

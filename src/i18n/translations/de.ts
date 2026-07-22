@@ -342,6 +342,7 @@ const de: Record<string, string> = {
   "chat.act.more": "Mehr",
   "chat.act.speak": "Vorlesen",
   "chat.act.speakStop": "Vorlesen beenden",
+  "chat.act.speakError": "Vorlesen fehlgeschlagen. Bitte versuchen Sie es später erneut.",
   "chat.act.downloadTxt": "Als .txt herunterladen",
   "chat.act.thanks": "Danke für Ihr Feedback",
   "ghost.enter": "Geistermodus",

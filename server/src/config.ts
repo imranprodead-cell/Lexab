@@ -181,6 +181,10 @@ export const config = {
   googleDriveClientSecret: env('GOOGLE_DRIVE_CLIENT_SECRET', env('GOOGLE_CLIENT_SECRET')),
   /** Browser API key for the Google Picker (optional but recommended). */
   googleApiKey: env('GOOGLE_API_KEY'),
+  /** JSON-ключ сервисного аккаунта GCP для озвучки ответов (Gemini-TTS через
+   *  Cloud Text-to-Speech; API-ключи этот API не принимает). Весь JSON одной
+   *  строкой. Пусто = POST /tts отвечает 503, остальное не затронуто. */
+  googleTtsCredentialsJson: env('GOOGLE_TTS_CREDENTIALS_JSON'),
   msClientId: env('MS_CLIENT_ID'),
   msClientSecret: env('MS_CLIENT_SECRET'),
   dropboxAppKey: env('DROPBOX_APP_KEY'),
