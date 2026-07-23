@@ -290,6 +290,38 @@ export async function httpForm<T>(path: string, form: FormData): Promise<T> {
   return (await response.json()) as T;
 }
 
+/** Authenticated streaming request: returns the raw Response so the caller can
+ *  consume response.body progressively (e.g. the TTS audio stream fed into
+ *  MediaSource). Non-OK responses are mapped to ApiError like everywhere else. */
+export async function httpStream(
+  path: string,
+  options: { method?: 'GET' | 'POST'; body?: unknown; signal?: AbortSignal } = {},
+): Promise<Response> {
+  const { method = 'GET', body, signal } = options;
+  const authH = authHeader();
+  const response = await fetch(`${BASE_URL}${path}`, {
+    method,
+    headers: {
+      ...(body === undefined ? {} : { 'Content-Type': 'application/json' }),
+      ...authH,
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    signal,
+  });
+  if (!response.ok) {
+    noteUnauthorized(path, response.status, authH.Authorization);
+    let message = `Request failed (${response.status})`;
+    try {
+      const data = (await response.json()) as { message?: string };
+      if (data?.message) message = data.message;
+    } catch {
+      /* non-JSON error body */
+    }
+    throw new ApiError(message, response.status);
+  }
+  return response;
+}
+
 /** Authenticated binary download (e.g. the PDF analysis report). */
 export async function httpBlob(
   path: string,

@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { ttsApi } from '@/api';
-import { BASE_URL } from '@/api/client';
 import { Icon } from '@/components/icons/Icon';
 import { useDismissable } from '@/hooks/useAsync';
 import { downloadBlob } from '@/lib/download';
@@ -36,8 +35,7 @@ export function MessageActions({ message, onFeedback }: MessageActionsProps) {
   const menuBtnRef = useRef<HTMLButtonElement>(null);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const audioUrlRef = useRef<string | null>(null); // blob-URL кэш фолбэк-пути
-  const streamUrlRef = useRef<string | null>(null); // url стрима (реплей в TTL бесплатен)
+  const audioUrlRef = useRef<string | null>(null); // blob-кэш прослушанного (повтор бесплатен)
   const speechSeq = useRef(0); // invalidates in-flight requests on stop/unmount
   const abortRef = useRef<AbortController | null>(null);
   const narrationHandle = useRef<{ stop: () => void }>({ stop: () => {} });
@@ -56,8 +54,6 @@ export function MessageActions({ message, onFeedback }: MessageActionsProps) {
         audio.load();
       }
       if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
-      // В демо-режиме prepare выдаёт blob-URL — его тоже нужно освободить.
-      if (streamUrlRef.current?.startsWith('blob:')) URL.revokeObjectURL(streamUrlRef.current);
       if (activeNarration === narrationHandle.current) activeNarration = null;
     },
     [],
@@ -107,28 +103,80 @@ export function MessageActions({ message, onFeedback }: MessageActionsProps) {
   };
   narrationHandle.current.stop = stopSpeaking;
 
-  /** Resolves once playback actually started ('playing'); rejects on error or
-   *  watchdog timeout (Safari may refuse chunked streams — caller falls back). */
-  const playUntilStarted = (audio: HTMLAudioElement, src: string) =>
-    new Promise<void>((resolve, reject) => {
-      let settled = false;
-      const finish = (ok: boolean, err?: unknown) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(watchdog);
-        audio.removeEventListener('playing', onPlaying);
-        audio.removeEventListener('error', onError);
-        if (ok) resolve();
-        else reject(err ?? new Error('tts stream failed'));
-      };
-      const watchdog = setTimeout(() => finish(false, new Error('tts watchdog')), 8000);
-      const onPlaying = () => finish(true);
-      const onError = () => finish(false, new Error('tts stream error'));
-      audio.addEventListener('playing', onPlaying);
-      audio.addEventListener('error', onError);
-      audio.src = src;
-      audio.play().catch((err) => finish(false, err));
-    });
+  /** Streaming playback via MediaSource: fetch pulls the chunked MP3 (works
+   *  reliably everywhere fetch works) and bytes are appended to a SourceBuffer
+   *  as they arrive — a plain `audio.src = streamUrl` is NOT used because
+   *  Chrome closes chunked no-Content-Length media connections after the first
+   *  burst and plays only the first sentence (observed live). */
+  const canStreamMse = () =>
+    typeof window !== 'undefined' && typeof MediaSource !== 'undefined' && MediaSource.isTypeSupported('audio/mpeg');
+
+  const playViaMse = async (audio: HTMLAudioElement, seq: number, markPlaying: () => void): Promise<void> => {
+    abortRef.current = new AbortController();
+    const res = await ttsApi.stream(text, abortRef.current.signal); // resolves when the first chunk is ready
+    if (seq !== speechSeq.current) {
+      void res.body?.cancel().catch(() => {});
+      return;
+    }
+    if (!res.body) throw new Error('tts stream: empty body');
+    const ms = new MediaSource();
+    const msUrl = URL.createObjectURL(ms);
+    const opened = new Promise<void>((resolve) => ms.addEventListener('sourceopen', () => resolve(), { once: true }));
+    audio.src = msUrl;
+    await opened;
+    URL.revokeObjectURL(msUrl); // элемент уже держит источник
+    const sb = ms.addSourceBuffer('audio/mpeg');
+    const append = (data: Uint8Array) =>
+      new Promise<void>((resolve, reject) => {
+        const onErr = () => {
+          sb.removeEventListener('updateend', onEnd);
+          reject(new Error('mse append error'));
+        };
+        const onEnd = () => {
+          sb.removeEventListener('error', onErr);
+          resolve();
+        };
+        sb.addEventListener('updateend', onEnd, { once: true });
+        sb.addEventListener('error', onErr, { once: true });
+        sb.appendBuffer(data as BufferSource);
+      });
+    const reader = res.body.getReader();
+    const collected: BlobPart[] = [];
+    let started = false;
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (seq !== speechSeq.current) {
+          void reader.cancel().catch(() => {});
+          return;
+        }
+        if (done) break;
+        collected.push(value);
+        await append(value);
+        if (!started) {
+          started = true;
+          await audio.play();
+          if (seq !== speechSeq.current) {
+            audio.pause();
+            return;
+          }
+          markPlaying();
+        }
+      }
+      if (ms.readyState === 'open') ms.endOfStream();
+      // Кэш на повтор: следующее прослушивание — мгновенно и бесплатно.
+      if (!audioUrlRef.current) audioUrlRef.current = URL.createObjectURL(new Blob(collected, { type: 'audio/mpeg' }));
+    } catch (err) {
+      // До старта звука — честная ошибка (уйдём в blob-фолбэк); после старта —
+      // мягко завершаем: пусть доиграет уже буферизованное.
+      if (!started) throw err;
+      try {
+        if (ms.readyState === 'open') ms.endOfStream();
+      } catch {
+        /* источник уже отсоединён (стоп) */
+      }
+    }
+  };
 
   const speak = async () => {
     setMenuOpen(false);
@@ -158,46 +206,31 @@ export function MessageActions({ message, onFeedback }: MessageActionsProps) {
       audio.onerror = done;
       setSpeech('playing');
     };
-    // Path 1: progressive stream — sound starts after the first short sentence
-    // is synthesized (~1.5–3s), the rest keeps streaming while it plays.
+    // Path 0: локальный кэш прошлого прослушивания — мгновенно и бесплатно.
+    // Path 1: MSE-стрим — звук после синтеза первого короткого куска (~2–3 с).
     try {
-      for (let attempt = 0; attempt < 2; attempt++) {
-        if (!streamUrlRef.current) {
-          abortRef.current = new AbortController();
-          const { url } = await ttsApi.prepare(text, abortRef.current.signal);
-          if (seq !== speechSeq.current) return;
-          streamUrlRef.current = url;
-        }
-        const src = streamUrlRef.current.startsWith('blob:') ? streamUrlRef.current : `${BASE_URL}${streamUrlRef.current}`;
-        try {
-          await playUntilStarted(audio, src);
-          if (seq !== speechSeq.current) {
-            audio.pause();
-            return;
-          }
-          markPlaying();
+      if (audioUrlRef.current) {
+        audio.onended = done;
+        audio.onerror = done;
+        audio.src = audioUrlRef.current;
+        await audio.play();
+        if (seq !== speechSeq.current) {
+          audio.pause();
           return;
-        } catch (err) {
-          if (seq !== speechSeq.current) return;
-          // Re-prepare helps only for an expired stream URL; a watchdog
-          // timeout would just burn a second pipeline for nothing.
-          if (attempt === 0 && !(err instanceof Error && err.message === 'tts watchdog')) {
-            streamUrlRef.current = null;
-            continue;
-          }
-          throw err;
         }
+        setSpeech('playing');
+        return;
       }
+      if (!canStreamMse()) throw new Error('mse unsupported');
+      await playViaMse(audio, seq, markPlaying);
     } catch {
       if (seq !== speechSeq.current) return;
-      // Stop the stream download BEFORE falling back: otherwise the <audio>
-      // keeps pulling the pipeline (double billing) and may start audibly
-      // playing mid-"loading" while the blob is being synthesized too.
+      // Stop any stream leftovers BEFORE falling back — no double audio/traffic.
       audio.pause();
       audio.removeAttribute('src');
       audio.load();
-      // Path 2: silent fallback to the whole-file blob (Safari refusing the
-      // chunked stream, or an older server without /tts/prepare).
+      // Path 2: silent fallback to the whole-file blob (Safari without MP3
+      // MediaSource support, demo mode, or an older server).
       try {
         if (!audioUrlRef.current) {
           abortRef.current = new AbortController();

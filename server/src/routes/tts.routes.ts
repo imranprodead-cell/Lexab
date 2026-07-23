@@ -2,28 +2,24 @@
  * Озвучка ответов ассистента (MP3, Gemini 3.1 Flash TTS через Cloud
  * Text-to-Speech, фолбэк 3.1 → 2.5 → Chirp3-HD; настройка — ../tts.config.ts).
  *
- * Три роута:
- *  - POST /tts          — весь текст одним ответом (совместимость + фолбэк
- *                         клиента для Safari/старых сборок);
- *  - POST /tts/prepare  — мгновенный старт: режет текст на куски, создаёт
- *                         запись стрима, возвращает {url};
- *  - GET  /tts/stream/:id — прогрессивный MP3-стрим: куски синтезируются
- *                         конвейером и уходят клиенту по мере готовности;
- *                         первый звук = синтез одного короткого предложения.
+ * Два роута:
+ *  - POST /tts        — весь текст одним ответом (фолбэк клиента для Safari
+ *                       без MediaSource-поддержки MP3 и для старых сборок);
+ *  - POST /tts/stream — мгновенный старт: конвейер по предложениям, MP3-байты
+ *                       уходят прогрессивно (chunked) по мере синтеза; клиент
+ *                       читает fetch-ом и играет через MediaSource. Первый
+ *                       звук = синтез одного короткого куска (~90 символов).
  * ИИ-квоту тарифа не расходует; защита от прожига: rate-limit, дневной потолок
- * символов, общий лимит байт на нажатие (TTS_MAX_TOTAL_BYTES).
+ * символов, общий лимит байт на нажатие (TTS_MAX_TOTAL_BYTES), отмена синтеза
+ * при обрыве клиента.
  */
 import { PassThrough } from 'node:stream';
 import type { FastifyInstance } from 'fastify';
 import { config } from '../config.ts';
-import { HttpError, notFound } from '../lib/errors.ts';
+import { HttpError } from '../lib/errors.ts';
 import { googleAccessToken } from '../lib/googleAuth.ts';
 import {
-  createStreamRecord,
-  getStreamRecord,
-  addReader,
-  removeReader,
-  startPipeline,
+  runChunkPipeline,
   splitTtsChunks,
   isLangNegCached,
   negCacheLang,
@@ -35,6 +31,7 @@ import {
   TTS_ATTEMPT_TIMEOUT_MS,
   TTS_CHIRP_LOCALES,
   TTS_DAILY_CHARS_PER_USER,
+  TTS_FAST_FIRST,
   TTS_LANGUAGE_CODES,
   TTS_MAX_TEXT_BYTES,
   TTS_MAX_TOTAL_BYTES,
@@ -235,85 +232,83 @@ export function ttsRoutes(app: FastifyInstance): void {
     },
   );
 
-  /* Мгновенный старт: создать запись стрима, вернуть url. Синтез стартует на
-   * первом GET — осиротевшие записи (стоп/двойной клик) не стоят ни цента. */
+  /* Мгновенный старт: конвейер по предложениям внутри одного авторизованного
+   * запроса. Первый кусок синтезируется ДО отправки заголовков (честные
+   * 4xx/5xx, если не вышло), затем ответ становится chunked-стримом и куски
+   * уходят по мере готовности. Обрыв клиента отменяет синтез (грейс не нужен —
+   * клиент читает fetch-ом, у него нет Safari-probe-запросов). */
   app.post(
-    '/tts/prepare',
+    '/tts/stream',
     { preHandler: [app.authenticate], config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
-    async (req) => {
+    async (req, reply) => {
       requireConfigured();
       const body = asObject(req.body);
       const raw = requireString(body, 'text', { min: 1, max: 30_000 }).trim();
       if (!raw) throw new HttpError(400, 'Пустой текст. / Empty text.');
       const text = clipTtsText(raw, TTS_MAX_TOTAL_BYTES);
       const lang = detectTtsLanguage(text);
-      ensureDailyBudget(req.currentUser.id, text.length);
+      const userId = req.currentUser.id;
+      ensureDailyBudget(userId, text.length);
       const chunks = splitTtsChunks(text);
       if (chunks.length === 0) throw new HttpError(400, 'Пустой текст. / Empty text.');
-      const rec = createStreamRecord(req.currentUser.id, chunks, requireAttempts(lang));
-      // Путь БЕЗ префикса /api: клиентский BASE_URL уже кончается на /api.
-      return { url: `/tts/stream/${rec.id}` };
-    },
-  );
+      const attempts = requireAttempts(lang);
+      const authHeaders = await resolveTtsAuth();
 
-  /* Прогрессивный MP3-стрим. Без Bearer: <audio> не умеет заголовки — модель
-   * доверия как у публичных ссылок /sign/:token: невыводимый uuid (capability
-   * URL) + TTL 10 мин + id вычищается из access-логов (redactUrl). Утечка id
-   * даёт максимум прослушивание этого ролика в TTL: синтез и списание
-   * происходят один раз, реплеи идут из кэша.
-   * Range игнорируем (честный 200 + Accept-Ranges: none) — так Safari
-   * воспринимает ответ как live-поток и играет прогрессивно. */
-  app.get(
-    '/tts/stream/:id',
-    { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } },
-    async (req, reply) => {
-      requireConfigured();
-      const { id } = req.params as { id: string };
-      const rec = getStreamRecord(id);
-      if (!rec) throw notFound('Стрим озвучки не найден или истёк / Audio stream not found or expired');
-
-      reply
-        .header('content-type', 'audio/mpeg')
-        .header('cache-control', 'no-store')
-        .header('accept-ranges', 'none')
-        .header('x-accel-buffering', 'no');
-
-      // Готовый результат: цельный Buffer с Content-Length (Safari-реплей).
-      if (rec.complete) return reply.send(Buffer.concat(rec.buffers));
-
-      addReader(rec);
-      const pt = new PassThrough();
-      let sent = 0;
-      const push = () => {
-        while (sent < rec.buffers.length) pt.write(rec.buffers[sent++]);
-      };
-      const finish = () => {
-        push();
-        if (!pt.writableEnded) pt.end();
-      };
-      const onChunk = () => push();
-      rec.events.on('chunk', onChunk);
-      rec.events.on('end', finish);
-      reply.raw.on('close', () => {
-        rec.events.off('chunk', onChunk);
-        rec.events.off('end', finish);
-        removeReader(rec);
+      const clientGone = new AbortController();
+      req.raw.on('close', () => {
+        if (req.raw.destroyed && !reply.raw.writableEnded) clientGone.abort();
       });
 
-      if (!rec.running && !rec.complete) {
-        const authHeaders = await resolveTtsAuth(); // до первого байта — ошибки уходят обычным HttpError-путём
-        startPipeline(rec, {
-          synthesize: (a, chunkText, signal, timeoutMs) => synthesize(a, chunkText, authHeaders, timeoutMs, signal),
-          attemptTimeoutMs: TTS_ATTEMPT_TIMEOUT_MS,
-          totalDeadlineMs: TTS_TOTAL_DEADLINE_MS,
-          onChunkDone: (chars) => addDailyUsage(rec.userId, chars),
-          log: (obj, msg) => req.log.warn(obj, msg),
-        });
+      const pt = new PassThrough();
+      let firstChunkSent: ((ok: boolean) => void) | null = null;
+      const firstChunk = new Promise<boolean>((resolve) => {
+        firstChunkSent = resolve;
+      });
+
+      // Быстрый старт: первое предложение — мгновенный Chirp3-HD тем же именем
+      // голоса (~1 с против ~4 с Gemini); остальной ролик — Gemini. Только при
+      // сервисном аккаунте (в api-key-режиме основная цепочка и так Chirp).
+      const chirpLocale = TTS_CHIRP_LOCALES[lang];
+      const fastFirstAttempt =
+        TTS_FAST_FIRST && chirpLocale && ttsAuthMode(config.googleTtsCredentialsJson) === 'service-account'
+          ? { voice: `${chirpLocale}-Chirp3-HD-${TTS_VOICE}`, languageCode: chirpLocale }
+          : undefined;
+
+      const pipeline = runChunkPipeline(chunks, attempts, {
+        synthesize: (a, chunkText, signal, timeoutMs) => synthesize(a, chunkText, authHeaders, timeoutMs, signal),
+        signal: clientGone.signal,
+        attemptTimeoutMs: TTS_ATTEMPT_TIMEOUT_MS,
+        totalDeadlineMs: TTS_TOTAL_DEADLINE_MS,
+        fastFirstAttempt,
+        emit: (buf) => {
+          pt.write(buf);
+          firstChunkSent?.(true);
+          firstChunkSent = null;
+        },
+        onChunkDone: (chars) => addDailyUsage(userId, chars),
+        log: (obj, msg) => req.log.warn(obj, msg),
+      });
+      void pipeline.then((result) => {
+        firstChunkSent?.(false);
+        firstChunkSent = null;
+        if (!result.complete && result.done > 0) {
+          req.log.error({ done: result.done, total: result.total }, 'tts-stream: ролик отдан не целиком');
+        }
+        pt.end();
+      });
+
+      // Первый кусок ждём ДО заголовков: провал = честная HTTP-ошибка.
+      const ok = await firstChunk;
+      if (!ok) {
+        pt.destroy();
+        req.log.error({ lang }, 'tts-stream: первый кусок не синтезировался');
+        throw new HttpError(502, 'Не удалось озвучить текст — сервис временно недоступен. / Text-to-speech is temporarily unavailable.');
       }
-      push();
-      // Гонка: конвейер мог завершиться между getStreamRecord и подпиской.
-      if (!rec.running && (rec.complete || rec.incomplete)) finish();
-      return reply.send(pt);
+      return reply
+        .header('content-type', 'audio/mpeg')
+        .header('cache-control', 'no-store')
+        .header('x-accel-buffering', 'no')
+        .send(pt);
     },
   );
 }

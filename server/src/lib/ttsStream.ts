@@ -1,26 +1,20 @@
 /**
- * Ядро стриминговой озвучки: резка текста на куски, склейка MP3, стор записей
- * стрима с конвейером синтеза и негативный кэш languageCode.
+ * Ядро стриминговой озвучки: резка текста на куски, склейка MP3, конвейер
+ * синтеза и негативный кэш languageCode.
  *
- * Дизайн под Safari: конвейер живёт НЕЗАВИСИМО от HTTP-соединений (Safari шлёт
- * пробный Range-запрос и рвёт его) — записи считают читателей (refcount), и
- * только после ухода всех читателей грейс-таймер отменяет запросы к Google.
- * Вся логика чистая и экспортирована для тестов; сетевой вызов synthesize
- * передаётся снаружи (роут) — модуль не знает про Fastify и fetch.
+ * Конвейер живёт внутри ОДНОГО авторизованного POST-запроса (клиент читает
+ * поток через fetch и играет через MediaSource): куски синтезируются
+ * последовательно с префетчем и отдаются наружу через emit по мере готовности.
+ * Оплата (onChunkDone) — в момент фактического обращения к Google, а не при
+ * выпуске куска. Вся логика чистая и экспортирована для тестов; сетевой вызов
+ * synthesize передаётся снаружи — модуль не знает про Fastify и fetch.
  */
-import crypto from 'node:crypto';
-import { EventEmitter } from 'node:events';
 import {
-  TTS_ABORT_GRACE_MS,
   TTS_CHUNK_TARGET_CHARS,
   TTS_FIRST_CHUNK_MAX_CHARS,
   TTS_LANG_NEG_CACHE_MS,
   TTS_MAX_TEXT_BYTES,
   TTS_PIPELINE_CONCURRENCY,
-  TTS_STREAM_MAX_PER_USER,
-  TTS_STREAM_MAX_RECORDS,
-  TTS_STREAM_MAX_TOTAL_BYTES,
-  TTS_STREAM_TTL_MS,
 } from '../tts.config.ts';
 
 /** Комбинация модель/голос/languageCode одной попытки синтеза. */
@@ -66,9 +60,11 @@ export function negCacheLang(model: string | undefined, code: string): void {
 
 /* ── Резка текста на куски ──────────────────────────────────────────────────── */
 
-/** Первый кусок — маленький (первое предложение, длинное режется по запятой):
- *  его синтез = время до первого звука. Остальные — по границам предложений
- *  до ~target символов. Суррогатные пары не рвутся. */
+/** Первый кусок — маленький (начало первого предложения): его синтез = время
+ *  до первого звука. Остальные — по границам предложений до ~target символов.
+ *  Каждый кусок ≤ TTS_MAX_TEXT_BYTES байт (лимит Cloud TTS) — предложение без
+ *  знаков препинания иначе падало бы детерминированным 400.
+ *  Суррогатные пары не рвутся. */
 export function splitTtsChunks(
   text: string,
   firstMax = TTS_FIRST_CHUNK_MAX_CHARS,
@@ -101,9 +97,6 @@ export function splitTtsChunks(
     }
   }
   if (cur.trim()) chunks.push(cur.trim());
-  // Жёсткий байтовый кап: предложение без знаков препинания может превысить
-  // лимит Cloud TTS (~4000 байт на input.text) — такой кусок падал бы
-  // детерминированным 400 на КАЖДОМ реплее (прожиг денег, находка ломателя).
   return chunks
     .flatMap((c) => hardSplitByBytes(c, TTS_MAX_TEXT_BYTES))
     .filter((c) => c.length > 0);
@@ -150,185 +143,56 @@ export function stripTrailingId3v1(buf: Buffer): Buffer {
   return buf;
 }
 
-/* ── Стор записей стрима ────────────────────────────────────────────────────── */
-
-export interface TtsStreamRecord {
-  id: string;
-  userId: string;
-  chunkTexts: string[];
-  /** Цепочка попыток для ПЕРВОГО куска (модель×код + Chirp-фолбэк). */
-  attempts: TtsAttempt[];
-  /** Замораживается после первого успеха: куски 2+ идут той же комбинацией —
-   *  откат на Chirp посреди ролика дал бы слышимую смену тембра. */
-  attempt: TtsAttempt | null;
-  buffers: Buffer[];
-  /** Успешно синтезированные, но ещё не выпущенные куски (префетчи, пережившие
-   *  провал соседнего куска): реплей переиспользует их, а не платит заново. */
-  pending: Map<number, Buffer>;
-  bytes: number;
-  readers: number;
-  events: EventEmitter;
-  running: boolean;
-  complete: boolean;
-  /** Конвейер сдался на середине — реплей докачает недостающее. */
-  incomplete: boolean;
-  createdAt: number;
-  abort: AbortController | null;
-  graceTimer: NodeJS.Timeout | null;
-}
-
-const records = new Map<string, TtsStreamRecord>();
-let totalBytes = 0;
-
-function drop(rec: TtsStreamRecord): void {
-  records.delete(rec.id);
-  totalBytes -= rec.bytes;
-}
-
-function isExpired(rec: TtsStreamRecord): boolean {
-  return Date.now() - rec.createdAt > TTS_STREAM_TTL_MS;
-}
-
-/** TTL-подметание + LRU по записям и байтам; активные записи не выселяются —
- *  кроме «жёстко протухших» (2×TTL): застрявший readers-счётчик (обрыв в
- *  async-окне до подписки на close) не должен закреплять запись навечно. */
-function evictIdle(): void {
-  const now = Date.now();
-  for (const rec of records.values()) {
-    if (isExpired(rec) && rec.readers <= 0 && !rec.running) drop(rec);
-    else if (now - rec.createdAt > TTS_STREAM_TTL_MS * 2) {
-      rec.abort?.abort();
-      drop(rec);
-    }
-  }
-  const idle = [...records.values()]
-    .filter((r) => r.readers <= 0 && !r.running)
-    .sort((a, b) => a.createdAt - b.createdAt);
-  for (const rec of idle) {
-    if (records.size <= TTS_STREAM_MAX_RECORDS && totalBytes <= TTS_STREAM_MAX_TOTAL_BYTES) break;
-    drop(rec);
-  }
-}
-
-export function createStreamRecord(userId: string, chunkTexts: string[], attempts: TtsAttempt[]): TtsStreamRecord {
-  evictIdle();
-  // Пер-пользовательский кап: спам prepare не выселяет чужие стримы (LRU),
-  // а перерабатывает собственные старые записи.
-  const own = [...records.values()]
-    .filter((r) => r.userId === userId && r.readers <= 0 && !r.running)
-    .sort((a, b) => a.createdAt - b.createdAt);
-  while (own.length >= TTS_STREAM_MAX_PER_USER) drop(own.shift()!);
-  const rec: TtsStreamRecord = {
-    id: crypto.randomUUID(),
-    userId,
-    chunkTexts,
-    attempts,
-    attempt: null,
-    buffers: [],
-    pending: new Map(),
-    bytes: 0,
-    readers: 0,
-    events: new EventEmitter(),
-    running: false,
-    complete: false,
-    incomplete: false,
-    createdAt: Date.now(),
-    abort: null,
-    graceTimer: null,
-  };
-  rec.events.setMaxListeners(50); // параллельные читатели Safari-probe + реплеи
-  records.set(rec.id, rec);
-  return rec;
-}
-
-export function getStreamRecord(id: string): TtsStreamRecord | undefined {
-  const rec = records.get(id);
-  if (!rec) return undefined;
-  if (isExpired(rec) && rec.readers <= 0 && !rec.running) {
-    drop(rec);
-    return undefined;
-  }
-  return rec;
-}
-
-export function addReader(rec: TtsStreamRecord): void {
-  rec.readers += 1;
-  if (rec.graceTimer) {
-    clearTimeout(rec.graceTimer);
-    rec.graceTimer = null;
-  }
-}
-
-/** Грейс-отмена синтеза, когда его никто не слушает: и после ухода последнего
- *  читателя, и если конвейер стартовал уже без читателей (обрыв в async-окне
- *  до старта — иначе синтез добежал бы до конца впустую, находка ломателя). */
-function armGraceIfUnwatched(rec: TtsStreamRecord): void {
-  if (rec.readers > 0 || rec.graceTimer || !rec.running) return;
-  rec.graceTimer = setTimeout(() => {
-    rec.graceTimer = null;
-    if (rec.readers === 0) rec.abort?.abort();
-  }, TTS_ABORT_GRACE_MS);
-  rec.graceTimer.unref?.();
-}
-
-export function removeReader(rec: TtsStreamRecord): void {
-  rec.readers = Math.max(0, rec.readers - 1);
-  armGraceIfUnwatched(rec);
-}
-
 /* ── Конвейер синтеза ───────────────────────────────────────────────────────── */
 
-export interface PipelineDeps {
+export interface ChunkPipelineDeps {
   synthesize: (a: TtsAttempt, text: string, signal: AbortSignal, timeoutMs: number) => Promise<Buffer>;
+  signal: AbortSignal;
   attemptTimeoutMs: number;
   totalDeadlineMs: number;
+  /** Кусок готов к отправке клиенту (ID3 уже срезан, порядок строгий). */
+  emit: (buf: Buffer, index: number) => void;
   /** Списание дневного счётчика — за каждый ФАКТИЧЕСКИ синтезированный кусок. */
   onChunkDone?: (chars: number) => void;
+  /** Быстрый движок ТОЛЬКО для первого куска (Chirp ~1 с против ~4 с Gemini);
+   *  НЕ замораживается — остальные куски идут основной цепочкой attempts. */
+  fastFirstAttempt?: TtsAttempt;
   log?: (obj: Record<string, unknown>, msg: string) => void;
 }
 
-/** Идемпотентный запуск: уже бегущий или завершённый конвейер не трогаем.
- *  Возобновление после стопа/незавершёнки продолжает с готовых кусков. */
-export function startPipeline(rec: TtsStreamRecord, deps: PipelineDeps): void {
-  if (rec.running || rec.complete) return;
-  rec.running = true;
-  rec.incomplete = false;
-  rec.abort = new AbortController();
-  armGraceIfUnwatched(rec);
-  void runPipeline(rec, deps).finally(() => {
-    rec.running = false;
-    rec.abort = null;
-    rec.events.emit('end');
-  });
+export interface ChunkPipelineResult {
+  done: number;
+  total: number;
+  complete: boolean;
 }
 
-async function runPipeline(rec: TtsStreamRecord, deps: PipelineDeps): Promise<void> {
+/** Последовательный конвейер с префетчем: первый кусок пробует цепочку
+ *  attempts (рабочая комбинация замораживается — смена модели посреди ролика
+ *  дала бы слышимую смену тембра), куски 2+ идут замороженной комбинацией с
+ *  одним ретраем. Ошибка куска N — чистая остановка на границе предложения. */
+export async function runChunkPipeline(chunkTexts: string[], attempts: TtsAttempt[], deps: ChunkPipelineDeps): Promise<ChunkPipelineResult> {
+  const total = chunkTexts.length;
   const deadline = Date.now() + deps.totalDeadlineMs;
-  const total = rec.chunkTexts.length;
-  const signal = rec.abort!.signal;
   const left = () => deadline - Date.now();
+  const signal = deps.signal;
+  let attempt: TtsAttempt | null = null;
+  let done = 0;
   const inflight = new Map<number, Promise<Buffer>>();
 
-  // Куски 2+: замороженная комбинация, 1 ретрай (сеть/429), без смены тембра.
   const synthFrozen = async (idx: number): Promise<Buffer> => {
-    const a = rec.attempt!;
+    const a = attempt!;
     try {
-      return await deps.synthesize(a, rec.chunkTexts[idx], signal, Math.min(deps.attemptTimeoutMs, left()));
+      return await deps.synthesize(a, chunkTexts[idx], signal, Math.min(deps.attemptTimeoutMs, left()));
     } catch (err) {
       if (signal.aborted || left() < 3_000) throw err;
-      return deps.synthesize(a, rec.chunkTexts[idx], signal, Math.min(deps.attemptTimeoutMs, left()));
+      return deps.synthesize(a, chunkTexts[idx], signal, Math.min(deps.attemptTimeoutMs, left()));
     }
   };
-  // Оплата — в момент ФАКТИЧЕСКОГО обращения к Google (не при выпуске куска
-  // читателю): иначе успешный префетч, выброшенный из-за провала соседа,
-  // пересинтезировался бы на каждом реплее бесплатно для счётчика (находка
-  // ломателя). Успех уходит в rec.pending и переживает перезапуски конвейера.
   const ensureStarted = (idx: number): void => {
-    if (idx >= total || idx < rec.buffers.length) return;
-    if (rec.pending.has(idx) || inflight.has(idx) || !rec.attempt) return;
+    if (idx >= total || inflight.has(idx) || !attempt) return;
     const p = synthFrozen(idx).then((b) => {
-      deps.onChunkDone?.(rec.chunkTexts[idx].length);
-      rec.pending.set(idx, b);
+      // Оплата в момент обращения к Google, даже если кусок не будет отдан.
+      deps.onChunkDone?.(chunkTexts[idx].length);
       return b;
     });
     p.catch(() => {}); // reject добирается через await ниже; глушим unhandled
@@ -336,22 +200,33 @@ async function runPipeline(rec: TtsStreamRecord, deps: PipelineDeps): Promise<vo
   };
 
   try {
-    for (let i = rec.buffers.length; i < total; i++) {
+    for (let i = 0; i < total; i++) {
       if (left() < 3_000) throw new Error('дедлайн конвейера исчерпан');
-      let buf: Buffer;
-      if (!rec.attempt) {
+      let buf: Buffer | null = null;
+      const fast = deps.fastFirstAttempt;
+      if (i === 0 && fast && !attempt && !isLangNegCached(fast.model, fast.languageCode)) {
+        try {
+          buf = await deps.synthesize(fast, chunkTexts[0], signal, Math.min(deps.attemptTimeoutMs, left()));
+          deps.onChunkDone?.(chunkTexts[0].length);
+        } catch (err) {
+          if (err instanceof TtsUpstreamError && err.status === 400) negCacheLang(fast.model, fast.languageCode);
+          deps.log?.({ err: String(err).slice(0, 160) }, 'tts-stream: быстрый первый кусок не удался — обычная цепочка');
+          buf = null;
+        }
+      }
+      if (buf === null && !attempt) {
         // Первый синтез: цепочка попыток; рабочая комбинация замораживается.
         let lastErr: unknown = new Error('нет доступных комбинаций синтеза');
         let ok = false;
         buf = Buffer.alloc(0);
-        for (const a of rec.attempts) {
+        for (const a of attempts) {
           if (isLangNegCached(a.model, a.languageCode)) continue;
           if (left() < 3_000) break;
           try {
-            buf = await deps.synthesize(a, rec.chunkTexts[i], signal, Math.min(deps.attemptTimeoutMs, left()));
-            rec.attempt = a;
+            buf = await deps.synthesize(a, chunkTexts[i], signal, Math.min(deps.attemptTimeoutMs, left()));
+            attempt = a;
             ok = true;
-            deps.onChunkDone?.(rec.chunkTexts[i].length);
+            deps.onChunkDone?.(chunkTexts[i].length);
             break;
           } catch (err) {
             lastErr = err;
@@ -361,37 +236,29 @@ async function runPipeline(rec: TtsStreamRecord, deps: PipelineDeps): Promise<vo
           }
         }
         if (!ok) throw lastErr;
-      } else {
+      } else if (buf === null) {
         ensureStarted(i);
         for (let k = 1; k < TTS_PIPELINE_CONCURRENCY; k++) ensureStarted(i + k);
-        const cached = rec.pending.get(i);
-        buf = cached ?? (await inflight.get(i)!);
-        rec.pending.delete(i);
+        buf = await inflight.get(i)!;
         inflight.delete(i);
       }
-      if (i > 0) buf = stripLeadingId3(buf);
-      if (i < total - 1) buf = stripTrailingId3v1(buf);
-      rec.buffers.push(buf);
-      rec.bytes += buf.length;
-      totalBytes += buf.length;
-      rec.events.emit('chunk');
-      if (rec.readers === 0) armGraceIfUnwatched(rec);
+      if (i > 0) buf = stripLeadingId3(buf!);
+      if (i < total - 1) buf = stripTrailingId3v1(buf!);
+      deps.emit(buf!, i);
+      done += 1;
     }
-    rec.complete = true;
+    return { done, total, complete: true };
   } catch (err) {
-    // Чистое завершение на границе последнего готового предложения; реплей
-    // докачает (incomplete). Внеполосного сигнала об обрыве у <audio> нет.
-    rec.incomplete = rec.buffers.length < total;
+    // Чистая остановка на границе последнего готового предложения.
     deps.log?.(
-      { err: String(err).slice(0, 200), got: rec.buffers.length, total, aborted: signal.aborted },
+      { err: String(err).slice(0, 200), got: done, total, aborted: signal.aborted },
       'tts-stream: конвейер остановлен досрочно',
     );
+    return { done, total, complete: false };
   }
 }
 
 /** Полный сброс модульного состояния — ТОЛЬКО для тестов. */
 export function resetTtsStreamForTests(): void {
-  records.clear();
-  totalBytes = 0;
   negLangCache.clear();
 }

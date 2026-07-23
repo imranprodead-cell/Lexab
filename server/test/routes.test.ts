@@ -2282,12 +2282,12 @@ describe('tts (озвучка ответов)', () => {
     const long = `Первое предложение. ${'Дальше идёт длинное предложение о существенных условиях договора и порядке расчётов между сторонами. '.repeat(15)}`;
     const chunks = splitTtsChunks(long);
     assert.ok(chunks.length >= 3, `ожидалось ≥3 кусков, получено ${chunks.length}`);
-    assert.ok(chunks[0].length <= 160, 'первый кусок — короткий (быстрый старт)');
+    assert.ok(chunks[0].length <= 90, 'первый кусок — короткий (быстрый старт)');
     const noSpace = (s: string) => s.replace(/\s+/g, '');
     assert.equal(chunks.map(noSpace).join(''), noSpace(long), 'ни один символ не потерян');
     // очень длинное первое предложение режется по запятой
     const commas = splitTtsChunks(`${'вводное слово, '.repeat(30)}конец первого. Второе предложение.`);
-    assert.ok(commas[0].length <= 160);
+    assert.ok(commas[0].length <= 90);
     // эмодзи на границе первого куска не рвутся
     const emoji = splitTtsChunks(`${'🙂'.repeat(200)} и дальше обычный текст. Второе предложение.`);
     assert.doesNotThrow(() => encodeURIComponent(emoji.join('')), 'нет одиноких суррогатов');
@@ -2310,54 +2310,43 @@ describe('tts (озвучка ответов)', () => {
     assert.ok(stripTrailingId3v1(payload).equals(payload));
   });
 
-  it('prepare: 401 без токена, 400 на пустой текст, url без префикса /api', async () => {
-    const anon = await app.inject({ method: 'POST', url: '/api/tts/prepare', payload: { text: 'Привет' } });
+  it('stream: 401 без токена, 400 на пустой текст', async () => {
+    const anon = await app.inject({ method: 'POST', url: '/api/tts/stream', payload: { text: 'Привет' } });
     assert.equal(anon.statusCode, 401);
     const u = await makeUser();
-    const empty = await app.inject({ method: 'POST', url: '/api/tts/prepare', headers: auth(u.token), payload: { text: '   ' } });
+    const empty = await app.inject({ method: 'POST', url: '/api/tts/stream', headers: auth(u.token), payload: { text: '   ' } });
     assert.equal(empty.statusCode, 400);
-    const ok = await app.inject({ method: 'POST', url: '/api/tts/prepare', headers: auth(u.token), payload: { text: 'Привет. Это проверка стрима.' } });
-    assert.equal(ok.statusCode, 200, ok.body);
-    const { url } = JSON.parse(ok.body) as { url: string };
-    assert.match(url, /^\/tts\/stream\/[0-9a-f-]{36}$/, 'путь без /api (BASE_URL клиента уже содержит префикс)');
   });
 
-  it('stream: неизвестный id — 404', async () => {
-    const res = await app.inject({ method: 'GET', url: '/api/tts/stream/00000000-0000-4000-8000-000000000000' });
-    assert.equal(res.statusCode, 404);
-  });
-
-  it('stream: конвейер по кускам, склейка со срезкой ID3, реплей бесплатный', async () => {
+  it('stream: конвейер по кускам, склейка со срезкой ID3, честный 502 при полном отказе', async () => {
     const { resetTtsStreamForTests } = await import('../src/lib/ttsStream.ts');
     resetTtsStreamForTests();
     const u = await makeUser();
-    const text = `Первое предложение специально короткое. ${'Дальше идёт длинная часть текста, которая обязана уехать во второй кусок конвейера синтеза речи. '.repeat(3)}`;
-    const prep = await app.inject({ method: 'POST', url: '/api/tts/prepare', headers: auth(u.token), payload: { text } });
-    assert.equal(prep.statusCode, 200, prep.body);
-    const { url } = JSON.parse(prep.body) as { url: string };
+    const text = `Первое предложение короткое. ${'Дальше идёт длинная часть текста, которая обязана уехать во второй кусок конвейера синтеза речи. '.repeat(3)}`;
 
     const p1 = Buffer.from('AAAA-mp3-first-chunk');
     const p2 = Buffer.from('BBBB-mp3-second-chunk');
     synthCalls = [];
     audioQueue = [withId3(16, p1), withId3(24, p2)];
     try {
-      const res = await app.inject({ method: 'GET', url: `/api${url}` });
-      assert.equal(res.statusCode, 200);
+      const res = await app.inject({ method: 'POST', url: '/api/tts/stream', headers: auth(u.token), payload: { text } });
+      assert.equal(res.statusCode, 200, res.body?.slice?.(0, 200));
       assert.equal(res.headers['content-type'], 'audio/mpeg');
       assert.equal(synthCalls.length, 2, 'два куска — ровно два вызова Google');
-      assert.ok(String(synthCalls[0].input.text).length <= 160, 'первый кусок маленький');
+      assert.ok(String(synthCalls[0].input.text).length <= 90, 'первый кусок маленький (быстрый старт)');
       // Склейка: 1-й кусок целиком, у 2-го срезан ведущий ID3-тег.
       const expected = Buffer.concat([withId3(16, p1), p2]);
       assert.ok(res.rawPayload.equals(expected), 'payload = кусок1 + кусок2 без ID3');
 
-      // Реплей того же url: мгновенно из кэша, без новых вызовов Google.
-      const res2 = await app.inject({ method: 'GET', url: `/api${url}` });
-      assert.equal(res2.statusCode, 200);
-      assert.ok(res2.rawPayload.equals(expected), 'реплей отдаёт тот же звук');
-      assert.equal(synthCalls.length, 2, 'реплей бесплатный');
-      assert.ok(res2.headers['content-length'], 'готовый результат — цельным телом с Content-Length (Safari)');
+      // Полный отказ синтеза (первый кусок не собрался) → честный HTTP 502.
+      failModels = ['gemini-3.1-flash-tts-preview', 'gemini-2.5-flash-tts'];
+      failCodes = ['ru-RU']; // валит и Chirp-шаг
+      const dead = await app.inject({ method: 'POST', url: '/api/tts/stream', headers: auth(u.token), payload: { text: 'Проверка отказа.' } });
+      assert.equal(dead.statusCode, 502);
     } finally {
       audioQueue = [];
+      failModels = [];
+      failCodes = [];
       resetTtsStreamForTests();
     }
   });

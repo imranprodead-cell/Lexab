@@ -1,6 +1,6 @@
 /** Озвучка ответа ассистента: сервер синтезирует MP3 (Gemini-TTS, фолбэки на
  *  сервере). Текст уходит в POST /tts, обратно приходит бинарный audio/mpeg. */
-import { USE_MOCK, http, httpBlob } from './client';
+import { USE_MOCK, httpBlob, httpStream } from './client';
 
 /** Полсекунды тишины в WAV — «озвучка» демо-режима без сети. */
 function silentWav(): Blob {
@@ -34,10 +34,11 @@ export const ttsApi = {
     if (USE_MOCK) return Promise.resolve(silentWav());
     return httpBlob('/tts', { method: 'POST', body: { text: text.slice(0, 20_000) }, signal });
   },
-  /** Мгновенный старт: сервер вернёт url прогрессивного MP3-стрима (первый
-   *  звук — через ~1.5–3 с, остальное доигрывает по мере синтеза). */
-  prepare: (text: string, signal?: AbortSignal): Promise<{ url: string }> => {
-    if (USE_MOCK) return Promise.resolve({ url: URL.createObjectURL(silentWav()) });
-    return http<{ url: string }>('/tts/prepare', { method: 'POST', body: { text: text.slice(0, 20_000) }, signal });
+  /** Мгновенный старт: прогрессивный MP3-стрим (куски по предложениям по мере
+   *  синтеза). Вызывающий читает response.body и кормит MediaSource.
+   *  В демо-режиме бросает — компонент уходит в blob-фолбэк (silentWav). */
+  stream: (text: string, signal?: AbortSignal): Promise<Response> => {
+    if (USE_MOCK) return Promise.reject(new Error('mock mode: no streaming'));
+    return httpStream('/tts/stream', { method: 'POST', body: { text: text.slice(0, 20_000) }, signal });
   },
 };
