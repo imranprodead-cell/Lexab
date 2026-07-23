@@ -2188,7 +2188,7 @@ describe('tts (озвучка ответов)', () => {
     assert.equal(synthCalls.length, 1);
     assert.equal(synthCalls[0].voice.model_name, 'gemini-3.1-flash-tts-preview');
     assert.equal(synthCalls[0].voice.languageCode, 'ru-RU');
-    assert.equal(synthCalls[0].voice.name, 'Kore');
+    assert.equal(synthCalls[0].voice.name, 'Charon');
     assert.equal(typeof synthCalls[0].input.prompt, 'string', 'стилевая инструкция уходит в input.prompt');
     assert.equal(synthCalls[0].audioConfig.audioEncoding, 'MP3');
   });

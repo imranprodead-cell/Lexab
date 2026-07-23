@@ -7,8 +7,10 @@
 
 export type TtsLang = 'ru' | 'en' | 'de' | 'ar' | 'uz' | 'kk';
 
-/** Один голос для всех языков — голоса Gemini-TTS языконезависимы. */
-export const TTS_VOICE = 'Kore';
+/** Один голос для всех языков — голоса Gemini-TTS языконезависимы.
+ *  Charon («информативный», низкий уверенный) — выбор пользователя из живого
+ *  прослушивания 7 образцов (2026-07-23); существует и в Chirp3-HD. */
+export const TTS_VOICE = 'Charon';
 
 /** Цепочка Gemini-моделей: preview → stable. Порядок = порядок попыток. */
 export const TTS_MODEL_CHAIN = ['gemini-3.1-flash-tts-preview', 'gemini-2.5-flash-tts'];
@@ -48,4 +50,4 @@ export const TTS_TOTAL_DEADLINE_MS = 90_000;
 export const TTS_ATTEMPT_TIMEOUT_MS = 45_000;
 
 /** Стилевая инструкция (input.prompt) — поддерживается только Gemini-моделями. */
-export const TTS_PROMPT = 'Read the text aloud in a calm, clear, professional voice.';
+export const TTS_PROMPT = 'Speak in a warm, lively, natural tone — a confident, friendly legal advisor explaining things clearly to a client.';
