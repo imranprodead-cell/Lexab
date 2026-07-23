@@ -30,7 +30,7 @@ import { asObject, requireEmail, requireString } from '../lib/validate.ts';
 import { assertFeature, planFor, planHasFeature } from '../lib/limits.ts';
 import { sealSecret, openSecret } from '../lib/secrets.ts';
 import { audit } from '../lib/audit.ts';
-import { getUserById, type UserRow } from '../plugins/auth.ts';
+import { invalidateTtsAuthCache, getUserById, type UserRow } from '../plugins/auth.ts';
 
 const RATE_LIMIT = { rateLimit: { max: 20, timeWindow: '1 minute' } };
 const SSO_NONCE_COOKIE = 'lexai_sso_nonce';
@@ -360,6 +360,7 @@ async function jitProvision(db: Db, cfg: SsoConfigRow, email: string, name: stri
     if (!existing.rows[0].email_verified) {
       const scrubbed = await hashPassword(crypto.randomBytes(32).toString('hex'));
       await db.query('UPDATE users SET password_hash = $2, verify_token = NULL, verify_expires = NULL, email_verified = true, token_version = token_version + 1 WHERE id = $1', [userId, scrubbed]);
+      invalidateTtsAuthCache();
     }
   } else {
     userId = newId('u');

@@ -35,7 +35,10 @@ export function MessageActions({ message, onFeedback }: MessageActionsProps) {
   const menuBtnRef = useRef<HTMLButtonElement>(null);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const audioUrlRef = useRef<string | null>(null); // blob-кэш прослушанного (повтор бесплатен)
+  // blob-кэш прослушанного (повтор бесплатен). С TTL: иначе вкладка вечно
+  // играла бы звук, синтезированный до серверных фиксов озвучки.
+  const audioCacheRef = useRef<{ url: string; at: number } | null>(null);
+  const AUDIO_CACHE_TTL_MS = 15 * 60 * 1000;
   const speechSeq = useRef(0); // invalidates in-flight requests on stop/unmount
   const abortRef = useRef<AbortController | null>(null);
   const narrationHandle = useRef<{ stop: () => void }>({ stop: () => {} });
@@ -53,7 +56,7 @@ export function MessageActions({ message, onFeedback }: MessageActionsProps) {
         audio.removeAttribute('src'); // прерывает докачку стрима
         audio.load();
       }
-      if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+      if (audioCacheRef.current) URL.revokeObjectURL(audioCacheRef.current.url);
       if (activeNarration === narrationHandle.current) activeNarration = null;
     },
     [],
@@ -84,6 +87,18 @@ export function MessageActions({ message, onFeedback }: MessageActionsProps) {
     const next = message.feedback === value ? null : value;
     onFeedback(message.id, next);
     if (next) pushToast(t('chat.act.thanks'), 'success');
+  };
+
+  /** Кэшированный blob-URL, если не протух; протухший — освобождается. */
+  const freshCachedUrl = () => {
+    const c = audioCacheRef.current;
+    if (!c) return null;
+    if (Date.now() - c.at > AUDIO_CACHE_TTL_MS) {
+      URL.revokeObjectURL(c.url);
+      audioCacheRef.current = null;
+      return null;
+    }
+    return c.url;
   };
 
   const stopSpeaking = () => {
@@ -164,8 +179,11 @@ export function MessageActions({ message, onFeedback }: MessageActionsProps) {
         }
       }
       if (ms.readyState === 'open') ms.endOfStream();
-      // Кэш на повтор: следующее прослушивание — мгновенно и бесплатно.
-      if (!audioUrlRef.current) audioUrlRef.current = URL.createObjectURL(new Blob(collected, { type: 'audio/mpeg' }));
+      // Кэш на повтор (только ПОЛНЫЙ ролик — обрезанный сюда не доходит:
+      // сервер рвёт соединение destroy-ем, и read() выше бросает).
+      if (!audioCacheRef.current) {
+        audioCacheRef.current = { url: URL.createObjectURL(new Blob(collected, { type: 'audio/mpeg' })), at: Date.now() };
+      }
     } catch (err) {
       // До старта звука — честная ошибка (уйдём в blob-фолбэк); после старта —
       // мягко завершаем: пусть доиграет уже буферизованное.
@@ -209,10 +227,11 @@ export function MessageActions({ message, onFeedback }: MessageActionsProps) {
     // Path 0: локальный кэш прошлого прослушивания — мгновенно и бесплатно.
     // Path 1: MSE-стрим — звук после синтеза первого короткого куска (~2–3 с).
     try {
-      if (audioUrlRef.current) {
+      const cached = freshCachedUrl();
+      if (cached) {
         audio.onended = done;
         audio.onerror = done;
-        audio.src = audioUrlRef.current;
+        audio.src = cached;
         await audio.play();
         if (seq !== speechSeq.current) {
           audio.pause();
@@ -232,15 +251,17 @@ export function MessageActions({ message, onFeedback }: MessageActionsProps) {
       // Path 2: silent fallback to the whole-file blob (Safari without MP3
       // MediaSource support, demo mode, or an older server).
       try {
-        if (!audioUrlRef.current) {
+        let url = freshCachedUrl();
+        if (!url) {
           abortRef.current = new AbortController();
           const blob = await ttsApi.synthesize(text, abortRef.current.signal);
           if (seq !== speechSeq.current) return;
-          audioUrlRef.current = URL.createObjectURL(blob);
+          url = URL.createObjectURL(blob);
+          audioCacheRef.current = { url, at: Date.now() };
         }
         audio.onended = done;
         audio.onerror = done;
-        audio.src = audioUrlRef.current;
+        audio.src = url;
         await audio.play();
         if (seq !== speechSeq.current) {
           audio.pause();

@@ -23,7 +23,7 @@ import { verifyPassword } from '../lib/passwords.ts';
 import { openSecret, sealSecret } from '../lib/secrets.ts';
 import { generateBackupCodes, generateTotpSecret, hashBackupCode, matchTotpStep, otpauthUri } from '../lib/totp.ts';
 import { asObject, requireString } from '../lib/validate.ts';
-import { getUserByEmail, signToken, toProfile, type UserRow } from '../plugins/auth.ts';
+import { invalidateTtsAuthCache, getUserByEmail, signToken, toProfile, type UserRow } from '../plugins/auth.ts';
 
 // ─── Helpers shared with the login path ──────────────────────────────────────
 
@@ -261,6 +261,7 @@ export function securityRoutes(app: FastifyInstance, db: Db): void {
   // clear the session log, and return a fresh token so THIS client stays in.
   app.post('/me/sessions/revoke-others', { preHandler: [app.authenticateReal], config: RATE }, async (req) => {
     await db.query('UPDATE users SET token_version = token_version + 1 WHERE id = $1', [req.currentUser.id]);
+    invalidateTtsAuthCache(req.currentUser.id);
     await db.query('DELETE FROM user_sessions WHERE user_id = $1', [req.currentUser.id]);
     await recordSession(db, req.currentUser.id, req.ip, req.headers['user-agent']);
     const fresh = await db.query<UserRow>('SELECT id, email, name, initials, firm, jurisdiction, avatar_url, token_version, email_verified FROM users WHERE id = $1', [req.currentUser.id]);

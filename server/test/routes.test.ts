@@ -2325,6 +2325,41 @@ describe('tts (озвучка ответов)', () => {
     assert.equal(safe, 'Стороны стали строить статью правильно. Пропуск.');
   });
 
+  it('номера норм «6.2» → «точка», даты и разряды не тронуты, резчик не рвёт числа', async () => {
+    const { normalizeDottedNumbersRu, splitTtsChunks, stripMarkdownForSpeech } = await import('../src/lib/ttsStream.ts');
+    assert.equal(normalizeDottedNumbersRu('пункт 6.2 договора'), 'пункт 6 точка 2 договора');
+    assert.equal(normalizeDottedNumbersRu('пункт 6.2.1'), 'пункт 6 точка 2 точка 1');
+    assert.equal(normalizeDottedNumbersRu('ст. 346.11 НК'), 'ст. 346 точка 11 НК');
+    assert.equal(normalizeDottedNumbersRu('от 01.02.2026 года'), 'от 01.02.2026 года', 'дата не тронута');
+    assert.equal(normalizeDottedNumbersRu('сумма 1.000.000 сум'), 'сумма 1.000.000 сум', 'разряды не тронуты');
+    assert.equal(normalizeDottedNumbersRu('1. Первый пункт списка'), '1. Первый пункт списка', 'нумерация списка не тронута');
+    // резчик: «6.2» не разрывается между «предложениями»
+    const chunks = splitTtsChunks('Согласно статье 6.2 Закона стороны несут ответственность. Второе предложение для теста.');
+    assert.ok(chunks.some((c) => c.includes('6.2')), `число целиком в одном куске: ${JSON.stringify(chunks)}`);
+    // настоящая граница предложения после числа по-прежнему работает
+    const real = splitTtsChunks('Договор действует 1142. Два года подряд без перерыва.');
+    assert.ok(real[0].trimEnd().endsWith('1142.'), JSON.stringify(real));
+    // дозакрытые дыры стрипа: разделители таблиц, маркер +, экранирование
+    const table = stripMarkdownForSpeech('| Кол 1 | Кол 2 |\n| --- | :---: |\n| а | б |');
+    assert.ok(!table.includes('-') && !table.includes(':'), `разделитель таблицы вычищен: ${table}`);
+    assert.equal(stripMarkdownForSpeech('+ пункт списка'), 'пункт списка');
+    assert.equal(stripMarkdownForSpeech('\\*важно\\*'), 'важно');
+  });
+
+  it('auth-кэш TTS: 30-сек кэш работает и мгновенно инвалидируется', async () => {
+    const { invalidateTtsAuthCache } = await import('../src/plugins/auth.ts');
+    const u = await makeUser();
+    const ok1 = await app.inject({ method: 'POST', url: '/api/tts', headers: auth(u.token), payload: { text: 'Кэш раз.' } });
+    assert.equal(ok1.statusCode, 200, ok1.body);
+    // Отзываем сессию прямо в БД: без кэша следующий запрос был бы 401
+    await db.query('UPDATE users SET token_version = token_version + 1 WHERE id = $1', [u.id]);
+    const cachedOk = await app.inject({ method: 'POST', url: '/api/tts', headers: auth(u.token), payload: { text: 'Кэш два.' } });
+    assert.equal(cachedOk.statusCode, 200, 'в 30-сек окне кэша запрос ещё проходит');
+    invalidateTtsAuthCache(u.id);
+    const revoked = await app.inject({ method: 'POST', url: '/api/tts', headers: auth(u.token), payload: { text: 'Кэш три.' } });
+    assert.equal(revoked.statusCode, 401, 'после инвалидации отзыв мгновенный');
+  });
+
   it('срезка ID3: заголовок (и footer) у начала, ID3v1-хвост, чужое не трогаем', async () => {
     const { stripLeadingId3, stripTrailingId3v1 } = await import('../src/lib/ttsStream.ts');
     const payload = Buffer.from([0xff, 0xfb, 0x90, 0x64, 1, 2, 3, 4]);

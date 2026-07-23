@@ -23,6 +23,7 @@ import {
   splitTtsChunks,
   stripMarkdownForSpeech,
   normalizeLegalAbbrRu,
+  normalizeDottedNumbersRu,
   isLangNegCached,
   negCacheLang,
   TtsUpstreamError,
@@ -143,6 +144,22 @@ async function synthesize(
   return Buffer.from(data.audioContent, 'base64');
 }
 
+/** synthesize с замером — распределение латентности моделей копится в логах
+ *  (вход для настройки fast-first и цепочки). */
+async function synthesizeTimed(
+  a: TtsAttempt,
+  text: string,
+  authHeaders: Record<string, string>,
+  timeoutMs: number,
+  signal: AbortSignal | undefined,
+  log: (obj: Record<string, unknown>, msg: string) => void,
+): Promise<Buffer> {
+  const t0 = Date.now();
+  const buf = await synthesize(a, text, authHeaders, timeoutMs, signal);
+  log({ model: a.model ?? a.voice, chars: text.length, ms: Date.now() - t0 }, 'tts: synthesize');
+  return buf;
+}
+
 /* ── Дневной потолок символов на пользователя (в памяти процесса, дата UTC) ── */
 
 const dailyUsage = new Map<string, { day: string; chars: number }>();
@@ -186,15 +203,15 @@ export function ttsRoutes(app: FastifyInstance): void {
   /* Весь текст одним ответом — совместимость и клиентский фолбэк. */
   app.post(
     '/tts',
-    { preHandler: [app.authenticate], config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
+    { preHandler: [app.authenticateTts], config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
     async (req, reply) => {
       requireConfigured();
       const body = asObject(req.body);
       const raw = stripMarkdownForSpeech(requireString(body, 'text', { min: 1, max: 30_000 })).trim();
       if (!raw) throw new HttpError(400, 'Пустой текст. / Empty text.');
       const lang = detectTtsLanguage(raw);
-      // «ст. 1142» → «статья 1142»: сокращения Gemini-TTS иначе угадывает.
-      const text = clipTtsText(lang === 'ru' ? normalizeLegalAbbrRu(raw) : raw, TTS_MAX_TEXT_BYTES);
+      // «ст. 1142» → «статья 1142», «6.2» → «6 точка 2»: иначе Gemini угадывает.
+      const text = clipTtsText(lang === 'ru' ? normalizeDottedNumbersRu(normalizeLegalAbbrRu(raw)) : raw, TTS_MAX_TEXT_BYTES);
       ensureDailyBudget(req.currentUser.id, text.length);
       const attempts = requireAttempts(lang);
       const authHeaders = await resolveTtsAuth();
@@ -242,7 +259,7 @@ export function ttsRoutes(app: FastifyInstance): void {
    * клиент читает fetch-ом, у него нет Safari-probe-запросов). */
   app.post(
     '/tts/stream',
-    { preHandler: [app.authenticate], config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
+    { preHandler: [app.authenticateTts], config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
     async (req, reply) => {
       requireConfigured();
       const body = asObject(req.body);
@@ -250,8 +267,10 @@ export function ttsRoutes(app: FastifyInstance): void {
       const raw = stripMarkdownForSpeech(requireString(body, 'text', { min: 1, max: 30_000 })).trim();
       if (!raw) throw new HttpError(400, 'Пустой текст. / Empty text.');
       const lang = detectTtsLanguage(raw);
-      // «ст. 1142» → «статья 1142»: сокращения Gemini-TTS иначе угадывает.
-      const text = clipTtsText(lang === 'ru' ? normalizeLegalAbbrRu(raw) : raw, TTS_MAX_TOTAL_BYTES);
+      // «ст. 1142» → «статья 1142», «6.2» → «6 точка 2»: иначе Gemini угадывает.
+      const text = clipTtsText(lang === 'ru' ? normalizeDottedNumbersRu(normalizeLegalAbbrRu(raw)) : raw, TTS_MAX_TOTAL_BYTES);
+      // Диагностика «голос сказал странное»: что РЕАЛЬНО ушло в синтез.
+      req.log.info({ ttsText: text.slice(0, 300) }, 'tts-stream: финальный текст');
       const userId = req.currentUser.id;
       ensureDailyBudget(userId, text.length);
       const chunks = splitTtsChunks(text);
@@ -274,13 +293,15 @@ export function ttsRoutes(app: FastifyInstance): void {
       // голоса (~1 с против ~4 с Gemini); остальной ролик — Gemini. Только при
       // сервисном аккаунте (в api-key-режиме основная цепочка и так Chirp).
       const chirpLocale = TTS_CHIRP_LOCALES[lang];
+      // При коротком ответе (<3 кусков) fast-first выключен: иначе весь ответ
+      // читал бы Chirp, а не основная модель.
       const fastFirstAttempt =
-        TTS_FAST_FIRST && chirpLocale && ttsAuthMode(config.googleTtsCredentialsJson) === 'service-account'
+        TTS_FAST_FIRST && chunks.length >= 3 && chirpLocale && ttsAuthMode(config.googleTtsCredentialsJson) === 'service-account'
           ? { voice: `${chirpLocale}-Chirp3-HD-${TTS_VOICE}`, languageCode: chirpLocale }
           : undefined;
 
       const pipeline = runChunkPipeline(chunks, attempts, {
-        synthesize: (a, chunkText, signal, timeoutMs) => synthesize(a, chunkText, authHeaders, timeoutMs, signal),
+        synthesize: (a, chunkText, signal, timeoutMs) => synthesizeTimed(a, chunkText, authHeaders, timeoutMs, signal, (o, m) => req.log.info(o, m)),
         signal: clientGone.signal,
         attemptTimeoutMs: TTS_ATTEMPT_TIMEOUT_MS,
         totalDeadlineMs: TTS_TOTAL_DEADLINE_MS,
@@ -298,6 +319,11 @@ export function ttsRoutes(app: FastifyInstance): void {
         firstChunkSent = null;
         if (!result.complete && result.done > 0) {
           req.log.error({ done: result.done, total: result.total }, 'tts-stream: ролик отдан не целиком');
+          // destroy, не end: у клиента read() упадёт, буфер доиграет, но
+          // обрезанный ролик НЕ закэшируется как полный. Невычитанные байты
+          // внутреннего буфера при этом теряются — ролик и так неполный.
+          pt.destroy(new Error('incomplete'));
+          return;
         }
         pt.end();
       });

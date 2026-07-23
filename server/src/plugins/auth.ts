@@ -33,9 +33,31 @@ declare module 'fastify' {
     /** Like authenticate, but NEVER falls back to the demo user — AI endpoints
      *  use this so an invalid token cannot burn the Anthropic key. */
     authenticateReal: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    /** authenticate с 30-сек кэшем позитивных резолвов — ТОЛЬКО для роутов
+     *  озвучки: срезает DB round-trip (~0.5–1 с до Supabase) с каждого клика.
+     *  Отзыв сессии в этом же инстансе мгновенный (invalidateTtsAuthCache
+     *  дёргается при logout/смене пароля/ревокации); в мульти-инстансе окно
+     *  ≤30 с — осознанный компромисс: ущерб ограничен rate-limit озвучки и
+     *  дневным потолком символов. */
+    authenticateTts: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
   interface FastifyRequest {
     currentUser: UserRow;
+  }
+}
+
+const ttsAuthCache = new Map<string, { user: UserRow; exp: number }>();
+const TTS_AUTH_CACHE_TTL_MS = 30_000;
+
+/** Мгновенная (в рамках инстанса) инвалидация TTS-кэша авторизации — вызывать
+ *  при любом bump token_version и удалении аккаунта. Без userId — полный сброс. */
+export function invalidateTtsAuthCache(userId?: string): void {
+  if (!userId) {
+    ttsAuthCache.clear();
+    return;
+  }
+  for (const [k, v] of ttsAuthCache) {
+    if (v.user.id === userId) ttsAuthCache.delete(k);
   }
 }
 
@@ -99,6 +121,29 @@ export function registerAuth(app: FastifyInstance, db: Db): void {
     const user = await resolveToken(req);
     if (!user) throw unauthorized('Войдите в аккаунт, чтобы использовать ИИ');
     req.currentUser = user;
+  });
+
+  // Кэширующий вариант для озвучки (см. комментарий в декларации типа).
+  app.decorate('authenticateTts', async (req: FastifyRequest) => {
+    const header = req.headers.authorization ?? '';
+    const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+    if (token) {
+      const hit = ttsAuthCache.get(token);
+      if (hit && hit.exp > Date.now()) {
+        req.currentUser = hit.user;
+        return;
+      }
+    }
+    const user = await resolveToken(req);
+    if (!user) throw unauthorized('Войдите в аккаунт, чтобы использовать ИИ');
+    req.currentUser = user;
+    if (token) {
+      if (ttsAuthCache.size > 500) {
+        const now = Date.now();
+        for (const [k, v] of ttsAuthCache) if (v.exp <= now) ttsAuthCache.delete(k);
+      }
+      ttsAuthCache.set(token, { user, exp: Date.now() + TTS_AUTH_CACHE_TTL_MS });
+    }
   });
 }
 

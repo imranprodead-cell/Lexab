@@ -21,7 +21,7 @@ import { badRequest } from '../lib/errors.ts';
 import { newId } from '../lib/ids.ts';
 import { hashPassword } from '../lib/passwords.ts';
 import { asObject, requireString } from '../lib/validate.ts';
-import { getUserById, signToken, toProfile, type UserRow } from '../plugins/auth.ts';
+import { invalidateTtsAuthCache, getUserById, signToken, toProfile, type UserRow } from '../plugins/auth.ts';
 import { audit } from '../lib/audit.ts';
 import { assertSsoNotRequired } from './sso.routes.ts';
 
@@ -104,6 +104,7 @@ async function findOrCreateUser(db: Db, profile: GoogleProfile): Promise<UserRow
         'UPDATE users SET password_hash = $2, verify_token = NULL, verify_expires = NULL, token_version = token_version + 1 WHERE id = $1',
         [id, scrubbedHash],
       );
+      invalidateTtsAuthCache();
     }
     await db.query('UPDATE users SET google_sub = $2, email_verified = true, avatar_url = COALESCE($3, avatar_url) WHERE id = $1', [
       id,

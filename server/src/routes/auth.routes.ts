@@ -19,7 +19,7 @@ import { recordBillingEvent, TERMS_VERSION } from '../lib/billing.ts';
 import { audit, countRecent } from '../lib/audit.ts';
 import { assertSsoNotRequired } from './sso.routes.ts';
 import { deleteFile } from '../storage.ts';
-import { getUserByEmail, getUserById, signToken, toProfile, type UserRow } from '../plugins/auth.ts';
+import { invalidateTtsAuthCache, getUserByEmail, getUserById, signToken, toProfile, type UserRow } from '../plugins/auth.ts';
 
 const RATE_LIMIT = { rateLimit: { max: config.authRateLimitMax, timeWindow: '1 minute' } };
 
@@ -303,6 +303,7 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
   app.post('/auth/logout', { preHandler: [app.authenticate], config: RATE_LIMIT }, async (req, reply) => {
     // Bump token_version → all previously issued tokens become invalid.
     await db.query('UPDATE users SET token_version = token_version + 1 WHERE id = $1', [req.currentUser.id]);
+    invalidateTtsAuthCache(req.currentUser.id);
     await audit(db, req, { type: 'auth.logout', teamOwnerId: req.currentUser.id });
     reply.code(204);
   });
@@ -377,6 +378,7 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
        WHERE id = $1`,
       [row.id, passwordHash],
     );
+    invalidateTtsAuthCache();
     // Owning the mailbox proves the email → auto-login with a fresh session.
     const fresh = (await getUserById(db, row.id)) as UserRow;
     await audit(db, req, { type: 'auth.password_reset', actorId: fresh.id, actorLabel: fresh.email, teamOwnerId: fresh.id });
@@ -396,6 +398,7 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
       throw unauthorized('Текущий пароль неверен');
     }
     const passwordHash = await hashPassword(newPassword);
+    invalidateTtsAuthCache(req.currentUser.id);
     await db.query('UPDATE users SET password_hash = $2, token_version = token_version + 1 WHERE id = $1', [
       user.id,
       passwordHash,
@@ -432,6 +435,7 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
     );
     const auditOwnerId = owner.rows[0]?.owner_user_id ?? req.currentUser.id;
     await audit(db, req, { type: 'auth.account_deleted', teamOwnerId: auditOwnerId });
+    invalidateTtsAuthCache(req.currentUser.id);
     await db.query('DELETE FROM users WHERE id = $1', [req.currentUser.id]);
     // Best effort: a failed storage delete must not keep the account alive.
     for (const row of files.rows) {

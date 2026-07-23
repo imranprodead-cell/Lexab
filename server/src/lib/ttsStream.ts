@@ -74,7 +74,8 @@ export function stripMarkdownForSpeech(s: string): string {
       .replace(/```[\s\S]*?```/g, ' ') // код-блоки не начитываем
       .replace(/`([^`]*)`/g, '$1')
       .replace(/^#{1,6}[ \t]*/gm, '') // заголовки
-      .replace(/^[ \t]*[-*•][ \t]+/gm, '') // маркеры списков
+      .replace(/^[ \t]*(?=.*-)[|:\s-]+$/gm, ' ') // разделители таблиц (| --- |:---:|) — ДО замены |
+      .replace(/^[ \t]*[-*+•][ \t]+/gm, '') // маркеры списков
       .replace(/^[ \t]*>[ \t]?/gm, '') // цитаты
       .replace(/\*\*([^*]+)\*\*/g, '$1') // жирный
       .replace(/__([^_]+)__/g, '$1')
@@ -83,10 +84,22 @@ export function stripMarkdownForSpeech(s: string): string {
       .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1') // ссылки/картинки → их текст
       .replace(/\|/g, ' ') // таблицы
       .replace(/^[ \t]*[-=]{3,}[ \t]*$/gm, ' ') // горизонтальные линии
-      .replace(/[*#_`~]+/g, ' ') // осиротевшие маркеры разметки целиком
+      .replace(/[*#_`~\\]+/g, ' ') // осиротевшие маркеры разметки и \-экранирование
       .replace(/[ \t]{2,}/g, ' ')
       .trim()
   );
+}
+
+/** «6.2»/«6.2.1»/«346.11» → «6 точка 2 …» — юристы произносят номера норм
+ *  через «точка», Gemini иначе читает «шесть два». Токенный регекс с гвардами:
+ *  даты dd.mm.yy(yy) не трогаем (модель читает их правильно сама), разрядные
+ *  точки «1.000.000» не трогаем. ТОЛЬКО для русского текста. */
+export function normalizeDottedNumbersRu(s: string): string {
+  return s.replace(/\d+(?:\.\d+)+/g, (m) => {
+    if (/^\d{1,2}\.\d{1,2}\.(?:\d{2}|\d{4})$/.test(m)) return m; // дата
+    if (/^\d{1,3}(?:\.\d{3})+$/.test(m)) return m; // разряды тысяч
+    return m.replace(/\./g, ' точка ');
+  });
 }
 
 /** Русские юридические сокращения → полные слова. Gemini-TTS — языковая
@@ -138,7 +151,16 @@ export function splitTtsChunks(
 ): string[] {
   const clean = text.trim();
   if (!clean) return [];
-  const sentences = clean.match(/[^.!?؟\n]+[.!?؟]*\s*/g) ?? [clean];
+  const rawSentences = clean.match(/[^.!?؟\n]+[.!?؟]*\s*/g) ?? [clean];
+  // Склейка ложных разрывов внутри чисел: «…6.» + «2 Закона» (точка БЕЗ
+  // пробела в хвосте — у настоящей границы \s* уже съел пробел). Без этого
+  // «6.2» рвётся между кусками синтеза и звучит «шесть [пауза] два».
+  const sentences: string[] = [];
+  for (const s of rawSentences) {
+    const prev = sentences[sentences.length - 1];
+    if (prev && /\d\.$/.test(prev) && /^\d/.test(s)) sentences[sentences.length - 1] = prev + s;
+    else sentences.push(s);
+  }
   const chunks: string[] = [];
   const first = sentences[0] ?? clean;
   let rest: string[];
