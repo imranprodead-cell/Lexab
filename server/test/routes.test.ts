@@ -2311,6 +2311,20 @@ describe('tts (озвучка ответов)', () => {
     assert.ok(!clean.includes('const x'), 'код-блок не начитывается');
   });
 
+  it('юридические сокращения разворачиваются («ст.» не превращается в «стакан»)', async () => {
+    const { normalizeLegalAbbrRu } = await import('../src/lib/ttsStream.ts');
+    const out = normalizeLegalAbbrRu('Согласно ст. 1142 и п. 3 ч. 2 ГК РУз, а также ЗРУ-1137, т.е. новому закону об ООО.');
+    assert.ok(out.includes('статья 1142'), out);
+    assert.ok(out.includes('пункт 3'), out);
+    assert.ok(out.includes('часть 2'), out);
+    assert.ok(out.includes('гэ ка эр уз'), out);
+    assert.ok(out.includes('зэ эр у 1137'), out);
+    assert.ok(out.includes('то есть'), out);
+    // «ст» без точки-цифры и обычные слова не трогаются
+    const safe = normalizeLegalAbbrRu('Стороны стали строить статью правильно. Пропуск.');
+    assert.equal(safe, 'Стороны стали строить статью правильно. Пропуск.');
+  });
+
   it('срезка ID3: заголовок (и footer) у начала, ID3v1-хвост, чужое не трогаем', async () => {
     const { stripLeadingId3, stripTrailingId3v1 } = await import('../src/lib/ttsStream.ts');
     const payload = Buffer.from([0xff, 0xfb, 0x90, 0x64, 1, 2, 3, 4]);

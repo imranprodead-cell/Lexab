@@ -73,5 +73,9 @@ export const TTS_PIPELINE_CONCURRENCY = 2;
  *  не существуют) не переспрашиваем сутки — экономит ~1.5 с на каждом клике. */
 export const TTS_LANG_NEG_CACHE_MS = 24 * 60 * 60 * 1000;
 
-/** Стилевая инструкция (input.prompt) — поддерживается только Gemini-моделями. */
-export const TTS_PROMPT = 'Speak in a warm, lively, natural tone — a confident, friendly legal advisor explaining things clearly to a client.';
+/** Стилевая инструкция (input.prompt) — поддерживается только Gemini-моделями.
+ *  Вторая фраза обязательна: Gemini-TTS — языковая модель и без неё порой
+ *  «дочитывает своё» или заменяет слова. */
+export const TTS_PROMPT =
+  'Speak in a warm, lively, natural tone — a confident, friendly legal advisor explaining things clearly to a client. ' +
+  'Read the text EXACTLY as written: never add, skip, replace or paraphrase words; read numbers and citations plainly.';

@@ -22,6 +22,7 @@ import {
   runChunkPipeline,
   splitTtsChunks,
   stripMarkdownForSpeech,
+  normalizeLegalAbbrRu,
   isLangNegCached,
   negCacheLang,
   TtsUpstreamError,
@@ -191,8 +192,9 @@ export function ttsRoutes(app: FastifyInstance): void {
       const body = asObject(req.body);
       const raw = stripMarkdownForSpeech(requireString(body, 'text', { min: 1, max: 30_000 })).trim();
       if (!raw) throw new HttpError(400, 'Пустой текст. / Empty text.');
-      const text = clipTtsText(raw, TTS_MAX_TEXT_BYTES);
-      const lang = detectTtsLanguage(text);
+      const lang = detectTtsLanguage(raw);
+      // «ст. 1142» → «статья 1142»: сокращения Gemini-TTS иначе угадывает.
+      const text = clipTtsText(lang === 'ru' ? normalizeLegalAbbrRu(raw) : raw, TTS_MAX_TEXT_BYTES);
       ensureDailyBudget(req.currentUser.id, text.length);
       const attempts = requireAttempts(lang);
       const authHeaders = await resolveTtsAuth();
@@ -247,8 +249,9 @@ export function ttsRoutes(app: FastifyInstance): void {
       // Markdown → простой текст: иначе голос читает «решётка, звёздочка».
       const raw = stripMarkdownForSpeech(requireString(body, 'text', { min: 1, max: 30_000 })).trim();
       if (!raw) throw new HttpError(400, 'Пустой текст. / Empty text.');
-      const text = clipTtsText(raw, TTS_MAX_TOTAL_BYTES);
-      const lang = detectTtsLanguage(text);
+      const lang = detectTtsLanguage(raw);
+      // «ст. 1142» → «статья 1142»: сокращения Gemini-TTS иначе угадывает.
+      const text = clipTtsText(lang === 'ru' ? normalizeLegalAbbrRu(raw) : raw, TTS_MAX_TOTAL_BYTES);
       const userId = req.currentUser.id;
       ensureDailyBudget(userId, text.length);
       const chunks = splitTtsChunks(text);
