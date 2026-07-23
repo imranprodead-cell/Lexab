@@ -25,6 +25,7 @@ import {
   normalizeLegalAbbrRu,
   normalizeDottedNumbersRu,
   isLangNegCached,
+  isLanguageArgumentError,
   negCacheLang,
   TtsUpstreamError,
   type TtsAttempt,
@@ -32,6 +33,7 @@ import {
 import { asObject, requireString } from '../lib/validate.ts';
 import {
   TTS_ATTEMPT_TIMEOUT_MS,
+  TTS_FIRST_ATTEMPT_TIMEOUT_MS,
   TTS_CHIRP_LOCALES,
   TTS_DAILY_CHARS_PER_USER,
   TTS_FAST_FIRST,
@@ -178,9 +180,20 @@ function addDailyUsage(userId: string, chars: number): void {
   dailyUsage.set(userId, { day, chars: usedToday(userId) + chars });
 }
 
-function ensureDailyBudget(userId: string, chars: number): void {
+/** Резерв бюджета СРАЗУ (проверка+списание в одном синхронном тике — гонка
+ *  параллельного залпа закрыта, находка финального аудита); фактически
+ *  несинтезированное возвращается refundDailyBudget-ом по завершении. */
+function reserveDailyBudget(userId: string, chars: number): void {
   if (usedToday(userId) + chars > TTS_DAILY_CHARS_PER_USER) {
     throw new HttpError(429, 'Дневной лимит озвучки исчерпан — попробуйте завтра. / Daily text-to-speech limit reached, try again tomorrow.');
+  }
+  addDailyUsage(userId, chars);
+}
+
+function refundDailyBudget(userId: string, chars: number): void {
+  if (chars > 0) {
+    const day = new Date().toISOString().slice(0, 10);
+    dailyUsage.set(userId, { day, chars: Math.max(0, usedToday(userId) - chars) });
   }
 }
 
@@ -212,42 +225,46 @@ export function ttsRoutes(app: FastifyInstance): void {
       const lang = detectTtsLanguage(raw);
       // «ст. 1142» → «статья 1142», «6.2» → «6 точка 2»: иначе Gemini угадывает.
       const text = clipTtsText(lang === 'ru' ? normalizeDottedNumbersRu(normalizeLegalAbbrRu(raw)) : raw, TTS_MAX_TEXT_BYTES);
-      ensureDailyBudget(req.currentUser.id, text.length);
+      // Обрыв клиента: слушаем reply.raw — req.raw эмитит 'close' уже при
+      // дочитывании ТЕЛА запроса и фикс на нём был мёртв (доказано живым
+      // сокетом в финальном аудите).
+      const clientGone = new AbortController();
+      reply.raw.on('close', () => {
+        if (!reply.raw.writableEnded) clientGone.abort();
+      });
+      reserveDailyBudget(req.currentUser.id, text.length);
       const attempts = requireAttempts(lang);
       const authHeaders = await resolveTtsAuth();
-
-      // Обрыв клиента (стоп/закрытая вкладка) отменяет запрос к Google —
-      // синтез в закрытый сокет всё равно оплачивается (находка ломателя).
-      const clientGone = new AbortController();
-      req.raw.on('close', () => {
-        if (req.raw.destroyed && !reply.raw.writableEnded) clientGone.abort();
-      });
 
       // Общий дедлайн: фолбэк не должен держать соединение минутами.
       const deadline = Date.now() + TTS_TOTAL_DEADLINE_MS;
       let audio: Buffer | null = null;
       let lastErr = '';
-      for (const a of attempts) {
-        if (isLangNegCached(a.model, a.languageCode)) continue;
-        if (clientGone.signal.aborted) throw new HttpError(499, 'Клиент отменил запрос. / Client cancelled.');
-        const left = deadline - Date.now();
-        if (left < 3_000) break;
-        try {
-          audio = await synthesize(a, text, authHeaders, Math.min(TTS_ATTEMPT_TIMEOUT_MS, left), clientGone.signal);
-          break;
-        } catch (err) {
-          lastErr = err instanceof Error ? err.message : String(err);
-          if (err instanceof TtsUpstreamError && err.status === 400) negCacheLang(a.model, a.languageCode);
-          req.log.warn({ step: a.model ?? a.voice, languageCode: a.languageCode, err: lastErr }, 'tts: шаг не сработал');
-          if (clientGone.signal.aborted) break; // клиент ушёл — не жечь следующие шаги
+      passes: for (const includeSoft of [true, false]) {
+        let anyTried = false;
+        for (const a of attempts) {
+          if (isLangNegCached(a.model, a.languageCode, includeSoft)) continue;
+          if (clientGone.signal.aborted) throw new HttpError(499, 'Клиент отменил запрос. / Client cancelled.');
+          const left = deadline - Date.now();
+          if (left < 3_000) break passes;
+          anyTried = true;
+          try {
+            audio = await synthesize(a, text, authHeaders, Math.min(TTS_ATTEMPT_TIMEOUT_MS, left), clientGone.signal);
+            break passes;
+          } catch (err) {
+            lastErr = err instanceof Error ? err.message : String(err);
+            if (isLanguageArgumentError(err)) negCacheLang(a.model, a.languageCode);
+            req.log.warn({ step: a.model ?? a.voice, languageCode: a.languageCode, err: lastErr }, 'tts: шаг не сработал');
+            if (clientGone.signal.aborted) break passes; // клиент ушёл — не жечь следующие шаги
+          }
         }
+        if (anyTried) break; // спасательный проход — только если всё скипнул кэш
       }
       if (!audio) {
+        refundDailyBudget(req.currentUser.id, text.length); // ничего не синтезировано
         req.log.error({ lang, lastErr }, 'tts: все шаги фолбэка исчерпаны');
         throw new HttpError(502, 'Не удалось озвучить текст — сервис временно недоступен. / Text-to-speech is temporarily unavailable.');
       }
-      // Дневной счётчик — только за фактически синтезированное.
-      addDailyUsage(req.currentUser.id, text.length);
       return reply.header('content-type', 'audio/mpeg').header('cache-control', 'no-store').send(audio);
     },
   );
@@ -269,19 +286,19 @@ export function ttsRoutes(app: FastifyInstance): void {
       const lang = detectTtsLanguage(raw);
       // «ст. 1142» → «статья 1142», «6.2» → «6 точка 2»: иначе Gemini угадывает.
       const text = clipTtsText(lang === 'ru' ? normalizeDottedNumbersRu(normalizeLegalAbbrRu(raw)) : raw, TTS_MAX_TOTAL_BYTES);
-      // Диагностика «голос сказал странное»: что РЕАЛЬНО ушло в синтез.
-      req.log.info({ ttsText: text.slice(0, 300) }, 'tts-stream: финальный текст');
+      // ВАЖНО (приватность): сам текст в логи НЕ пишем — дисциплина проекта
+      // «метаданные без текста договора» (находка финального аудита).
       const userId = req.currentUser.id;
-      ensureDailyBudget(userId, text.length);
       const chunks = splitTtsChunks(text);
       if (chunks.length === 0) throw new HttpError(400, 'Пустой текст. / Empty text.');
       const attempts = requireAttempts(lang);
-      const authHeaders = await resolveTtsAuth();
-
+      // Обрыв клиента: reply.raw (см. комментарий в /tts — req.raw тут мёртв).
       const clientGone = new AbortController();
-      req.raw.on('close', () => {
-        if (req.raw.destroyed && !reply.raw.writableEnded) clientGone.abort();
+      reply.raw.on('close', () => {
+        if (!reply.raw.writableEnded) clientGone.abort();
       });
+      reserveDailyBudget(userId, text.length);
+      const authHeaders = await resolveTtsAuth();
 
       const pt = new PassThrough();
       let firstChunkSent: ((ok: boolean) => void) | null = null;
@@ -300,10 +317,12 @@ export function ttsRoutes(app: FastifyInstance): void {
           ? { voice: `${chirpLocale}-Chirp3-HD-${TTS_VOICE}`, languageCode: chirpLocale }
           : undefined;
 
+      let synthesizedChars = 0;
       const pipeline = runChunkPipeline(chunks, attempts, {
         synthesize: (a, chunkText, signal, timeoutMs) => synthesizeTimed(a, chunkText, authHeaders, timeoutMs, signal, (o, m) => req.log.info(o, m)),
         signal: clientGone.signal,
         attemptTimeoutMs: TTS_ATTEMPT_TIMEOUT_MS,
+        firstAttemptTimeoutMs: TTS_FIRST_ATTEMPT_TIMEOUT_MS,
         totalDeadlineMs: TTS_TOTAL_DEADLINE_MS,
         fastFirstAttempt,
         emit: (buf) => {
@@ -311,10 +330,14 @@ export function ttsRoutes(app: FastifyInstance): void {
           firstChunkSent?.(true);
           firstChunkSent = null;
         },
-        onChunkDone: (chars) => addDailyUsage(userId, chars),
+        onChunkDone: (chars) => {
+          synthesizedChars += chars;
+        },
         log: (obj, msg) => req.log.warn(obj, msg),
       });
       void pipeline.then((result) => {
+        // Возврат неиспользованной части резерва (оплата = фактический синтез).
+        refundDailyBudget(userId, Math.max(0, text.length - synthesizedChars));
         firstChunkSent?.(false);
         firstChunkSent = null;
         if (!result.complete && result.done > 0) {

@@ -50,6 +50,9 @@ export const TTS_DAILY_CHARS_PER_USER = 100_000;
  *  preview-модель временами думает 45+ с) и быстро уступают ход Chirp3-HD. */
 export const TTS_TOTAL_DEADLINE_MS = 90_000;
 export const TTS_ATTEMPT_TIMEOUT_MS = 10_000;
+/** Попытки ПЕРВОГО куска короче: больная модель не должна держать первый звук
+ *  10+ секунд (критично для коротких ответов, где fast-first выключен). */
+export const TTS_FIRST_ATTEMPT_TIMEOUT_MS = 6_000;
 /** «Кэш деградации»: модель, ответившая таймаутом, пропускается эти N мс —
  *  хвост ролика сразу читает Chirp вместо повторных ожиданий по 10 с. */
 export const TTS_SLOW_CACHE_MS = 3 * 60 * 1000;

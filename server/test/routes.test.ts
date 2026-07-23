@@ -2346,6 +2346,39 @@ describe('tts (озвучка ответов)', () => {
     assert.equal(stripMarkdownForSpeech('\\*важно\\*'), 'важно');
   });
 
+  it('находки финального аудита: нег-кэш только языковых 400, Заглавные сокращения, резчик и стрип', async () => {
+    const { isLanguageArgumentError, TtsUpstreamError, normalizeLegalAbbrRu, splitTtsChunks, stripMarkdownForSpeech, hardSplitByBytes } = await import('../src/lib/ttsStream.ts');
+    // H1: не-языковой 400 (текст-зависимый) НЕ должен отравлять кэш на сутки
+    assert.equal(isLanguageArgumentError(new TtsUpstreamError(400, 'HTTP 400: unsupported language code')), true);
+    assert.equal(isLanguageArgumentError(new TtsUpstreamError(400, 'HTTP 400: Invalid prompt content')), false);
+    assert.equal(isLanguageArgumentError(new TtsUpstreamError(429, 'unsupported language code')), false);
+    // M4: сокращения с Заглавной (начало предложения)
+    assert.ok(normalizeLegalAbbrRu('Ст. 5 применяется всегда.').startsWith('статья 5'), 'Ст. → статья');
+    assert.ok(normalizeLegalAbbrRu('Т.е. немедленно.').startsWith('то есть'), 'Т.е. → то есть');
+    assert.ok(normalizeLegalAbbrRu('П. 3 обязателен.').startsWith('пункт 3'), 'П. → пункт');
+    // L7: «1.» нумерации не становится отдельным первым куском
+    const listChunks = splitTtsChunks('1. Первый пункт списка важен. 2. Второй пункт тоже важен.');
+    assert.notEqual(listChunks[0].trim(), '1.', JSON.stringify(listChunks));
+    // L8: экранированное «6\\.2» не разрывается пробелом
+    assert.equal(stripMarkdownForSpeech('Пункт 6\\.2 договора'), 'Пункт 6.2 договора');
+    // L5: hardSplitByBytes гарантированно завершается на крошечных лимитах
+    assert.ok(Array.isArray(hardSplitByBytes('😀😀😀', 2)), 'нет вечного цикла');
+  });
+
+  it('кэш отказов: мягкие (таймаут) не выключают язык без Chirp-фолбэка', async () => {
+    const { negCacheLang, isLangNegCached, resetTtsStreamForTests } = await import('../src/lib/ttsStream.ts');
+    resetTtsStreamForTests();
+    try {
+      negCacheLang('gemini-x', 'kk-KZ', 60_000, false); // мягкая запись (деградация)
+      assert.equal(isLangNegCached('gemini-x', 'kk-KZ', true), true, 'обычный проход пропускает');
+      assert.equal(isLangNegCached('gemini-x', 'kk-KZ', false), false, 'спасательный проход — пробует');
+      negCacheLang('gemini-y', 'uz-UZ'); // жёсткая (языковой 400, сутки)
+      assert.equal(isLangNegCached('gemini-y', 'uz-UZ', false), true, 'жёсткая запись держится всегда');
+    } finally {
+      resetTtsStreamForTests();
+    }
+  });
+
   it('auth-кэш TTS: 30-сек кэш работает и мгновенно инвалидируется', async () => {
     const { invalidateTtsAuthCache } = await import('../src/plugins/auth.ts');
     const u = await makeUser();

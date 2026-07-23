@@ -38,32 +38,45 @@ export class TtsUpstreamError extends Error {
 
 /* ── Негативный кэш languageCode ────────────────────────────────────────────── */
 
-const negLangCache = new Map<string, number>(); // `${model}|${code}` → истекает-в
+// `${model}|${code}` → { истекает-в, hard: жёсткий отказ (кода не существует) }
+const negLangCache = new Map<string, { exp: number; hard: boolean }>();
 
 function negKey(model: string | undefined, code: string): string {
   return `${model ?? 'chirp'}|${code}`;
 }
 
-export function isLangNegCached(model: string | undefined, code: string): boolean {
-  const exp = negLangCache.get(negKey(model, code));
-  if (exp === undefined) return false;
-  if (Date.now() > exp) {
+/** includeSoft=false — учитывать только ЖЁСТКИЕ записи (языковой 400):
+ *  второй проход цепочки игнорирует «мягкий» кэш деградации, чтобы язык без
+ *  Chirp-фолбэка (uz/kk) не получал 502 из-за одних лишь таймаутов. */
+export function isLangNegCached(model: string | undefined, code: string, includeSoft = true): boolean {
+  const rec = negLangCache.get(negKey(model, code));
+  if (!rec) return false;
+  if (Date.now() > rec.exp) {
     negLangCache.delete(negKey(model, code));
     return false;
   }
-  return true;
+  return rec.hard || includeSoft;
 }
 
-/** Кэшируются детерминированные отказы (HTTP 400 — кода не существует; сутки)
- *  и — с коротким ttl — деградация модели (таймаут: пропускаем её пару минут,
- *  чтобы хвост ролика не ждал по 10 с на каждом куске). */
-export function negCacheLang(model: string | undefined, code: string, ttlMs = TTS_LANG_NEG_CACHE_MS): void {
-  negLangCache.set(negKey(model, code), Date.now() + ttlMs);
+/** hard=true — детерминированный языковой 400 (кода не существует; сутки);
+ *  hard=false — «мягкая» деградация (таймаут; минуты): хвост ролика не ждёт
+ *  больную модель по 10 с на каждом куске, но язык не отключается насовсем. */
+export function negCacheLang(model: string | undefined, code: string, ttlMs = TTS_LANG_NEG_CACHE_MS, hard = true): void {
+  negLangCache.set(negKey(model, code), { exp: Date.now() + ttlMs, hard });
 }
 
 /** Таймаут от AbortSignal.timeout (не путать с отменой клиента — AbortError). */
 export function isTimeoutError(err: unknown): boolean {
   return err instanceof Error && err.name === 'TimeoutError';
+}
+
+/** 400 именно ПРО ЯЗЫК/ГОЛОС (несуществующий languageCode и т.п.) — только
+ *  такие можно класть в суточный негативный кэш. Google отдаёт 400 и по
+ *  причинам, зависящим от текста запроса; кэшировать их означало бы выключить
+ *  целый язык для всех пользователей на сутки из-за одного кривого запроса
+ *  (находка финального аудита). */
+export function isLanguageArgumentError(err: unknown): boolean {
+  return err instanceof TtsUpstreamError && err.status === 400 && /languag|locale|voice/i.test(err.message);
 }
 
 /** Markdown → простой текст для синтеза: без этого голос читает «решётка,
@@ -84,7 +97,8 @@ export function stripMarkdownForSpeech(s: string): string {
       .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1') // ссылки/картинки → их текст
       .replace(/\|/g, ' ') // таблицы
       .replace(/^[ \t]*[-=]{3,}[ \t]*$/gm, ' ') // горизонтальные линии
-      .replace(/[*#_`~\\]+/g, ' ') // осиротевшие маркеры разметки и \-экранирование
+      .replace(/\\(?=\S)/g, '') // \-экранирование убираем БЕЗ пробела («6\.2» → «6.2»)
+      .replace(/[*#_`~\\]+/g, ' ') // осиротевшие маркеры разметки
       .replace(/[ \t]{2,}/g, ' ')
       .trim()
   );
@@ -113,16 +127,16 @@ export function normalizeLegalAbbrRu(s: string): string {
   const B = '(?<![а-яёА-ЯЁa-zA-Z0-9])'; // левая граница слова
   const E = '(?![а-яёА-ЯЁa-zA-Z])'; // правая граница слова
   const rules: [RegExp, string][] = [
-    [new RegExp(`${B}ст\\.\\s*(?=\\d)`, 'g'), 'статья '],
-    [new RegExp(`${B}ч\\.\\s*(?=\\d)`, 'g'), 'часть '],
-    [new RegExp(`${B}пп\\.\\s*(?=\\d)`, 'g'), 'подпункт '],
-    [new RegExp(`${B}п\\.\\s*(?=\\d)`, 'g'), 'пункт '],
-    [new RegExp(`${B}абз\\.\\s*(?=\\d)`, 'g'), 'абзац '],
-    [new RegExp(`${B}гл\\.\\s*(?=\\d)`, 'g'), 'глава '],
-    [new RegExp(`${B}т\\.\\s?е\\.`, 'g'), 'то есть'],
-    [new RegExp(`${B}т\\.\\s?д\\.`, 'g'), 'так далее'],
-    [new RegExp(`${B}т\\.\\s?ч\\.`, 'g'), 'том числе'],
-    [new RegExp(`${B}т\\.\\s?п\\.`, 'g'), 'тому подобное'],
+    [new RegExp(`${B}[Сс]т\\.\\s*(?=\\d)`, 'g'), 'статья '],
+    [new RegExp(`${B}[Чч]\\.\\s*(?=\\d)`, 'g'), 'часть '],
+    [new RegExp(`${B}[Пп]п\\.\\s*(?=\\d)`, 'g'), 'подпункт '],
+    [new RegExp(`${B}[Пп]\\.\\s*(?=\\d)`, 'g'), 'пункт '],
+    [new RegExp(`${B}[Аа]бз\\.\\s*(?=\\d)`, 'g'), 'абзац '],
+    [new RegExp(`${B}[Гг]л\\.\\s*(?=\\d)`, 'g'), 'глава '],
+    [new RegExp(`${B}[Тт]\\.\\s?е\\.`, 'g'), 'то есть'],
+    [new RegExp(`${B}[Тт]\\.\\s?д\\.`, 'g'), 'так далее'],
+    [new RegExp(`${B}[Тт]\\.\\s?ч\\.`, 'g'), 'том числе'],
+    [new RegExp(`${B}[Тт]\\.\\s?п\\.`, 'g'), 'тому подобное'],
     [new RegExp(`${B}ЭПК${E}`, 'g'), 'э пэ ка'],
     [new RegExp(`${B}ГПК${E}`, 'g'), 'гэ пэ ка'],
     [new RegExp(`${B}ГК${E}`, 'g'), 'гэ ка'],
@@ -159,6 +173,8 @@ export function splitTtsChunks(
   for (const s of rawSentences) {
     const prev = sentences[sentences.length - 1];
     if (prev && /\d\.$/.test(prev) && /^\d/.test(s)) sentences[sentences.length - 1] = prev + s;
+    // «1. » нумерации не должна становиться отдельным (первым) куском
+    else if (prev && /^\s*\d{1,3}\.\s*$/.test(prev)) sentences[sentences.length - 1] = prev + s;
     else sentences.push(s);
   }
   const chunks: string[] = [];
@@ -193,6 +209,7 @@ export function splitTtsChunks(
 /** Резка строки на части ≤ maxBytes UTF-8, по пробелу где возможно,
  *  суррогат-безопасно. Гарантированно завершается. */
 export function hardSplitByBytes(s: string, maxBytes: number): string[] {
+  if (maxBytes < 4) maxBytes = 4; // минимум один любой код-поинт — гарантия прогресса
   if (Buffer.byteLength(s, 'utf8') <= maxBytes) return [s];
   const parts: string[] = [];
   let restStr = s;
@@ -237,6 +254,10 @@ export interface ChunkPipelineDeps {
   synthesize: (a: TtsAttempt, text: string, signal: AbortSignal, timeoutMs: number) => Promise<Buffer>;
   signal: AbortSignal;
   attemptTimeoutMs: number;
+  /** Таймаут попыток ПЕРВОГО куска (короче общего: больная модель не должна
+   *  держать первый звук 10+ секунд, особенно на коротких ответах без
+   *  fast-first). По умолчанию = attemptTimeoutMs. */
+  firstAttemptTimeoutMs?: number;
   totalDeadlineMs: number;
   /** Кусок готов к отправке клиенту (ID3 уже срезан, порядок строгий). */
   emit: (buf: Buffer, index: number) => void;
@@ -297,8 +318,8 @@ export async function runChunkPipeline(chunkTexts: string[], attempts: TtsAttemp
           buf = await deps.synthesize(fast, chunkTexts[0], signal, Math.min(deps.attemptTimeoutMs, left()));
           deps.onChunkDone?.(chunkTexts[0].length);
         } catch (err) {
-          if (err instanceof TtsUpstreamError && err.status === 400) negCacheLang(fast.model, fast.languageCode);
-          if (isTimeoutError(err)) negCacheLang(fast.model, fast.languageCode, TTS_SLOW_CACHE_MS);
+          if (isLanguageArgumentError(err)) negCacheLang(fast.model, fast.languageCode);
+          if (isTimeoutError(err)) negCacheLang(fast.model, fast.languageCode, TTS_SLOW_CACHE_MS, false);
           deps.log?.({ err: String(err).slice(0, 160) }, 'tts-stream: быстрый первый кусок не удался — обычная цепочка');
           buf = null;
         }
@@ -308,24 +329,32 @@ export async function runChunkPipeline(chunkTexts: string[], attempts: TtsAttemp
         let lastErr: unknown = new Error('нет доступных комбинаций синтеза');
         let ok = false;
         buf = Buffer.alloc(0);
-        for (const a of attempts) {
-          if (isLangNegCached(a.model, a.languageCode)) continue;
-          if (left() < 3_000) break;
-          try {
-            buf = await deps.synthesize(a, chunkTexts[i], signal, Math.min(deps.attemptTimeoutMs, left()));
-            attempt = a;
-            ok = true;
-            deps.onChunkDone?.(chunkTexts[i].length);
-            break;
-          } catch (err) {
-            lastErr = err;
-            if (err instanceof TtsUpstreamError && err.status === 400) negCacheLang(a.model, a.languageCode);
-            // Деградация модели (таймаут) — пропускаем её несколько минут,
-            // чтобы следующие куски/клики сразу уходили в живой Chirp.
-            if (isTimeoutError(err)) negCacheLang(a.model, a.languageCode, TTS_SLOW_CACHE_MS);
-            deps.log?.({ step: a.model ?? a.voice, languageCode: a.languageCode, err: String(err).slice(0, 200) }, 'tts-stream: попытка не удалась');
-            if (signal.aborted) break;
+        const chainTimeout = i === 0 ? (deps.firstAttemptTimeoutMs ?? deps.attemptTimeoutMs) : deps.attemptTimeoutMs;
+        // Два прохода: обычный (уважает весь кэш) и спасательный (игнорирует
+        // «мягкие» таймаут-записи) — язык без Chirp-фолбэка не должен получать
+        // 502 только из-за кэша деградации (казахский, находка живого теста).
+        passes: for (const includeSoft of [true, false]) {
+          let anyTried = false;
+          for (const a of attempts) {
+            if (isLangNegCached(a.model, a.languageCode, includeSoft)) continue;
+            if (left() < 3_000) break passes;
+            anyTried = true;
+            try {
+              buf = await deps.synthesize(a, chunkTexts[i], signal, Math.min(chainTimeout, left()));
+              attempt = a;
+              ok = true;
+              deps.onChunkDone?.(chunkTexts[i].length);
+              break passes;
+            } catch (err) {
+              lastErr = err;
+              if (isLanguageArgumentError(err)) negCacheLang(a.model, a.languageCode);
+              // Деградация (таймаут) — мягкая запись: пропуск на минуты.
+              if (isTimeoutError(err)) negCacheLang(a.model, a.languageCode, TTS_SLOW_CACHE_MS, false);
+              deps.log?.({ step: a.model ?? a.voice, languageCode: a.languageCode, err: String(err).slice(0, 200) }, 'tts-stream: попытка не удалась');
+              if (signal.aborted) break passes;
+            }
           }
+          if (anyTried) break; // второй проход только если ВСЁ было отфильтровано кэшем
         }
         if (!ok) throw lastErr;
       } else if (buf === null) {

@@ -136,10 +136,17 @@ export function MessageActions({ message, onFeedback }: MessageActionsProps) {
     if (!res.body) throw new Error('tts stream: empty body');
     const ms = new MediaSource();
     const msUrl = URL.createObjectURL(ms);
-    const opened = new Promise<void>((resolve) => ms.addEventListener('sourceopen', () => resolve(), { once: true }));
+    const opened = new Promise<void>((resolve) => {
+      ms.addEventListener('sourceopen', () => resolve(), { once: true });
+      setTimeout(resolve, 3000); // стоп/детач в микроокне не должен подвесить промис навсегда
+    });
     audio.src = msUrl;
     await opened;
     URL.revokeObjectURL(msUrl); // элемент уже держит источник
+    if (seq !== speechSeq.current || ms.readyState !== 'open') {
+      void res.body.cancel().catch(() => {});
+      return;
+    }
     const sb = ms.addSourceBuffer('audio/mpeg');
     const append = (data: Uint8Array) =>
       new Promise<void>((resolve, reject) => {
@@ -178,6 +185,7 @@ export function MessageActions({ message, onFeedback }: MessageActionsProps) {
           markPlaying();
         }
       }
+      if (!started) throw new Error('tts stream: пусто'); // защита от 200 без байт
       if (ms.readyState === 'open') ms.endOfStream();
       // Кэш на повтор (только ПОЛНЫЙ ролик — обрезанный сюда не доходит:
       // сервер рвёт соединение destroy-ем, и read() выше бросает).
@@ -185,9 +193,14 @@ export function MessageActions({ message, onFeedback }: MessageActionsProps) {
         audioCacheRef.current = { url: URL.createObjectURL(new Blob(collected, { type: 'audio/mpeg' })), at: Date.now() };
       }
     } catch (err) {
-      // До старта звука — честная ошибка (уйдём в blob-фолбэк); после старта —
-      // мягко завершаем: пусть доиграет уже буферизованное.
-      if (!started) throw err;
+      // Сбой MSE/сети: ОБЯЗАТЕЛЬНО рвём скачивание — иначе сервер продолжит
+      // синтезировать (и платить) в уже ненужное соединение (находка аудита).
+      void reader.cancel().catch(() => {});
+      if (!started) {
+        abortRef.current?.abort();
+        throw err; // уйдём в blob-фолбэк
+      }
+      // После старта — мягко: пусть доиграет буферизованное.
       try {
         if (ms.readyState === 'open') ms.endOfStream();
       } catch {
@@ -253,6 +266,7 @@ export function MessageActions({ message, onFeedback }: MessageActionsProps) {
       try {
         let url = freshCachedUrl();
         if (!url) {
+          abortRef.current?.abort(); // добить возможный живой стрим-запрос
           abortRef.current = new AbortController();
           const blob = await ttsApi.synthesize(text, abortRef.current.signal);
           if (seq !== speechSeq.current) return;

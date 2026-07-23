@@ -437,6 +437,9 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
     await audit(db, req, { type: 'auth.account_deleted', teamOwnerId: auditOwnerId });
     invalidateTtsAuthCache(req.currentUser.id);
     await db.query('DELETE FROM users WHERE id = $1', [req.currentUser.id]);
+    // Повторно ПОСЛЕ удаления: параллельный authenticateTts мог перезаписать
+    // кэш в окне между первой инвалидацией и коммитом DELETE (находка аудита).
+    invalidateTtsAuthCache(req.currentUser.id);
     // Best effort: a failed storage delete must not keep the account alive.
     for (const row of files.rows) {
       try {
