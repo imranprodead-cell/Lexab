@@ -2299,6 +2299,18 @@ describe('tts (озвучка ответов)', () => {
     }
   });
 
+  it('markdown вычищается перед озвучкой (голос не читает «решётка, звёздочка»)', async () => {
+    const { stripMarkdownForSpeech } = await import('../src/lib/ttsStream.ts');
+    const md = '## Порядок определения долей\n\n**1. Супружеская доля** выделяется *до* определения массы.\n- пункт списка\n> цитата\nСсылка на [статью 1142](https://lex.uz/x) и `код`.\n\n```js\nconst x = 1;\n```\nКонец.';
+    const clean = stripMarkdownForSpeech(md);
+    assert.ok(!/[#*`>|]/.test(clean), `не осталось символов разметки: ${clean}`);
+    assert.ok(clean.includes('Порядок определения долей'), 'текст заголовка сохранён');
+    assert.ok(clean.includes('Супружеская доля'), 'жирный текст сохранён');
+    assert.ok(clean.includes('статью 1142'), 'текст ссылки сохранён без URL');
+    assert.ok(!clean.includes('https://'), 'URL не начитывается');
+    assert.ok(!clean.includes('const x'), 'код-блок не начитывается');
+  });
+
   it('срезка ID3: заголовок (и footer) у начала, ID3v1-хвост, чужое не трогаем', async () => {
     const { stripLeadingId3, stripTrailingId3v1 } = await import('../src/lib/ttsStream.ts');
     const payload = Buffer.from([0xff, 0xfb, 0x90, 0x64, 1, 2, 3, 4]);

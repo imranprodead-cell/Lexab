@@ -21,6 +21,7 @@ import { googleAccessToken } from '../lib/googleAuth.ts';
 import {
   runChunkPipeline,
   splitTtsChunks,
+  stripMarkdownForSpeech,
   isLangNegCached,
   negCacheLang,
   TtsUpstreamError,
@@ -188,7 +189,7 @@ export function ttsRoutes(app: FastifyInstance): void {
     async (req, reply) => {
       requireConfigured();
       const body = asObject(req.body);
-      const raw = requireString(body, 'text', { min: 1, max: 30_000 }).trim();
+      const raw = stripMarkdownForSpeech(requireString(body, 'text', { min: 1, max: 30_000 })).trim();
       if (!raw) throw new HttpError(400, 'Пустой текст. / Empty text.');
       const text = clipTtsText(raw, TTS_MAX_TEXT_BYTES);
       const lang = detectTtsLanguage(text);
@@ -243,7 +244,8 @@ export function ttsRoutes(app: FastifyInstance): void {
     async (req, reply) => {
       requireConfigured();
       const body = asObject(req.body);
-      const raw = requireString(body, 'text', { min: 1, max: 30_000 }).trim();
+      // Markdown → простой текст: иначе голос читает «решётка, звёздочка».
+      const raw = stripMarkdownForSpeech(requireString(body, 'text', { min: 1, max: 30_000 })).trim();
       if (!raw) throw new HttpError(400, 'Пустой текст. / Empty text.');
       const text = clipTtsText(raw, TTS_MAX_TOTAL_BYTES);
       const lang = detectTtsLanguage(text);

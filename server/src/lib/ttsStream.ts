@@ -15,6 +15,7 @@ import {
   TTS_LANG_NEG_CACHE_MS,
   TTS_MAX_TEXT_BYTES,
   TTS_PIPELINE_CONCURRENCY,
+  TTS_SLOW_CACHE_MS,
 } from '../tts.config.ts';
 
 /** Комбинация модель/голос/languageCode одной попытки синтеза. */
@@ -53,9 +54,39 @@ export function isLangNegCached(model: string | undefined, code: string): boolea
   return true;
 }
 
-/** Кэшируются ТОЛЬКО детерминированные отказы (HTTP 400 — кода не существует). */
-export function negCacheLang(model: string | undefined, code: string): void {
-  negLangCache.set(negKey(model, code), Date.now() + TTS_LANG_NEG_CACHE_MS);
+/** Кэшируются детерминированные отказы (HTTP 400 — кода не существует; сутки)
+ *  и — с коротким ttl — деградация модели (таймаут: пропускаем её пару минут,
+ *  чтобы хвост ролика не ждал по 10 с на каждом куске). */
+export function negCacheLang(model: string | undefined, code: string, ttlMs = TTS_LANG_NEG_CACHE_MS): void {
+  negLangCache.set(negKey(model, code), Date.now() + ttlMs);
+}
+
+/** Таймаут от AbortSignal.timeout (не путать с отменой клиента — AbortError). */
+export function isTimeoutError(err: unknown): boolean {
+  return err instanceof Error && err.name === 'TimeoutError';
+}
+
+/** Markdown → простой текст для синтеза: без этого голос читает «решётка,
+ *  звёздочка звёздочка» на заголовках и жирном тексте ИИ-ответов. */
+export function stripMarkdownForSpeech(s: string): string {
+  return (
+    s
+      .replace(/```[\s\S]*?```/g, ' ') // код-блоки не начитываем
+      .replace(/`([^`]*)`/g, '$1')
+      .replace(/^#{1,6}[ \t]*/gm, '') // заголовки
+      .replace(/^[ \t]*[-*•][ \t]+/gm, '') // маркеры списков
+      .replace(/^[ \t]*>[ \t]?/gm, '') // цитаты
+      .replace(/\*\*([^*]+)\*\*/g, '$1') // жирный
+      .replace(/__([^_]+)__/g, '$1')
+      .replace(/\*([^*\n]+)\*/g, '$1') // курсив
+      .replace(/_([^_\n]+)_/g, '$1')
+      .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1') // ссылки/картинки → их текст
+      .replace(/\|/g, ' ') // таблицы
+      .replace(/^[ \t]*[-=]{3,}[ \t]*$/gm, ' ') // горизонтальные линии
+      .replace(/[*#]{2,}/g, ' ') // осиротевшие маркеры
+      .replace(/[ \t]{2,}/g, ' ')
+      .trim()
+  );
 }
 
 /* ── Резка текста на куски ──────────────────────────────────────────────────── */
@@ -210,6 +241,7 @@ export async function runChunkPipeline(chunkTexts: string[], attempts: TtsAttemp
           deps.onChunkDone?.(chunkTexts[0].length);
         } catch (err) {
           if (err instanceof TtsUpstreamError && err.status === 400) negCacheLang(fast.model, fast.languageCode);
+          if (isTimeoutError(err)) negCacheLang(fast.model, fast.languageCode, TTS_SLOW_CACHE_MS);
           deps.log?.({ err: String(err).slice(0, 160) }, 'tts-stream: быстрый первый кусок не удался — обычная цепочка');
           buf = null;
         }
@@ -231,6 +263,9 @@ export async function runChunkPipeline(chunkTexts: string[], attempts: TtsAttemp
           } catch (err) {
             lastErr = err;
             if (err instanceof TtsUpstreamError && err.status === 400) negCacheLang(a.model, a.languageCode);
+            // Деградация модели (таймаут) — пропускаем её несколько минут,
+            // чтобы следующие куски/клики сразу уходили в живой Chirp.
+            if (isTimeoutError(err)) negCacheLang(a.model, a.languageCode, TTS_SLOW_CACHE_MS);
             deps.log?.({ step: a.model ?? a.voice, languageCode: a.languageCode, err: String(err).slice(0, 200) }, 'tts-stream: попытка не удалась');
             if (signal.aborted) break;
           }
