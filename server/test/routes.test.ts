@@ -2131,9 +2131,26 @@ describe('compare: две версии договора', () => {
 describe('tts (озвучка ответов)', () => {
   const realFetch = globalThis.fetch;
   // Каждый вызов Cloud TTS пишется сюда; failModels — какие model_name мок
-  // отклоняет 404-м (для проверки фолбэка preview → stable).
+  // отклоняет 404-м (для проверки фолбэка preview → stable); failCodes — какие
+  // languageCode отклоняет 400-м (для негативного кэша); audioQueue — очередь
+  // подменных аудио-байтов (для проверки склейки стрима), пусто = дефолт.
   let synthCalls: { voice: Record<string, unknown>; input: Record<string, unknown>; audioConfig: Record<string, unknown> }[] = [];
   let failModels: string[] = [];
+  let failCodes: string[] = [];
+  let audioQueue: Buffer[] = [];
+
+  // Корректный ID3v2-заголовок (synchsafe-размер) + полезные MP3-байты.
+  const withId3 = (tagBytes: number, payload: Buffer, footer = false): Buffer => {
+    const h = Buffer.alloc(10);
+    h.write('ID3', 0, 'latin1');
+    h[3] = 4;
+    h[5] = footer ? 0x10 : 0;
+    h[6] = (tagBytes >> 21) & 0x7f;
+    h[7] = (tagBytes >> 14) & 0x7f;
+    h[8] = (tagBytes >> 7) & 0x7f;
+    h[9] = tagBytes & 0x7f;
+    return Buffer.concat([h, Buffer.alloc(tagBytes + (footer ? 10 : 0), 1), payload]);
+  };
 
   before(() => {
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -2150,7 +2167,11 @@ describe('tts (озвучка ответов)', () => {
         if (failModels.includes(String(body.voice?.model_name))) {
           return new Response(JSON.stringify({ error: { message: 'model is not available' } }), { status: 404 });
         }
-        return new Response(JSON.stringify({ audioContent: Buffer.from('ID3-fake-mp3-bytes').toString('base64') }), {
+        if (failCodes.includes(String(body.voice?.languageCode))) {
+          return new Response(JSON.stringify({ error: { message: 'INVALID_ARGUMENT: unsupported language code' } }), { status: 400 });
+        }
+        const audio = audioQueue.length ? audioQueue.shift()! : Buffer.from('ID3-fake-mp3-bytes');
+        return new Response(JSON.stringify({ audioContent: audio.toString('base64') }), {
           status: 200,
           headers: { 'content-type': 'application/json' },
         });
@@ -2253,5 +2274,113 @@ describe('tts (озвучка ответов)', () => {
     assert.ok(clipped.length > 0);
     // encodeURIComponent бросает URIError на одиноком суррогате
     assert.doesNotThrow(() => encodeURIComponent(clipped), 'нет одиноких суррогатов на конце');
+  });
+
+  it('splitTtsChunks: первый кусок маленький, текст не теряется, эмодзи целы', async () => {
+    const { splitTtsChunks } = await import('../src/lib/ttsStream.ts');
+    assert.deepEqual(splitTtsChunks('Короткий текст.'), ['Короткий текст.']);
+    const long = `Первое предложение. ${'Дальше идёт длинное предложение о существенных условиях договора и порядке расчётов между сторонами. '.repeat(15)}`;
+    const chunks = splitTtsChunks(long);
+    assert.ok(chunks.length >= 3, `ожидалось ≥3 кусков, получено ${chunks.length}`);
+    assert.ok(chunks[0].length <= 160, 'первый кусок — короткий (быстрый старт)');
+    const noSpace = (s: string) => s.replace(/\s+/g, '');
+    assert.equal(chunks.map(noSpace).join(''), noSpace(long), 'ни один символ не потерян');
+    // очень длинное первое предложение режется по запятой
+    const commas = splitTtsChunks(`${'вводное слово, '.repeat(30)}конец первого. Второе предложение.`);
+    assert.ok(commas[0].length <= 160);
+    // эмодзи на границе первого куска не рвутся
+    const emoji = splitTtsChunks(`${'🙂'.repeat(200)} и дальше обычный текст. Второе предложение.`);
+    assert.doesNotThrow(() => encodeURIComponent(emoji.join('')), 'нет одиноких суррогатов');
+    // предложение-монстр без знаков препинания НЕ должно дать кусок больше
+    // лимита Cloud TTS в БАЙТАХ (иначе детерминированный 400 на каждом реплее)
+    const monster = splitTtsChunks(`Начало. ${'б'.repeat(6000)} конец. Последнее предложение.`);
+    for (const c of monster) {
+      assert.ok(Buffer.byteLength(c, 'utf8') <= 3800, `кусок ${Buffer.byteLength(c, 'utf8')} байт > лимита`);
+    }
+  });
+
+  it('срезка ID3: заголовок (и footer) у начала, ID3v1-хвост, чужое не трогаем', async () => {
+    const { stripLeadingId3, stripTrailingId3v1 } = await import('../src/lib/ttsStream.ts');
+    const payload = Buffer.from([0xff, 0xfb, 0x90, 0x64, 1, 2, 3, 4]);
+    assert.ok(stripLeadingId3(withId3(16, payload)).equals(payload), 'обычный тег срезан');
+    assert.ok(stripLeadingId3(withId3(16, payload, true)).equals(payload), 'тег с footer срезан целиком');
+    assert.ok(stripLeadingId3(payload).equals(payload), 'без тега — без изменений');
+    const v1 = Buffer.concat([payload, Buffer.from('TAG', 'latin1'), Buffer.alloc(125, 2)]);
+    assert.ok(stripTrailingId3v1(v1).equals(payload), 'ID3v1-хвост срезан');
+    assert.ok(stripTrailingId3v1(payload).equals(payload));
+  });
+
+  it('prepare: 401 без токена, 400 на пустой текст, url без префикса /api', async () => {
+    const anon = await app.inject({ method: 'POST', url: '/api/tts/prepare', payload: { text: 'Привет' } });
+    assert.equal(anon.statusCode, 401);
+    const u = await makeUser();
+    const empty = await app.inject({ method: 'POST', url: '/api/tts/prepare', headers: auth(u.token), payload: { text: '   ' } });
+    assert.equal(empty.statusCode, 400);
+    const ok = await app.inject({ method: 'POST', url: '/api/tts/prepare', headers: auth(u.token), payload: { text: 'Привет. Это проверка стрима.' } });
+    assert.equal(ok.statusCode, 200, ok.body);
+    const { url } = JSON.parse(ok.body) as { url: string };
+    assert.match(url, /^\/tts\/stream\/[0-9a-f-]{36}$/, 'путь без /api (BASE_URL клиента уже содержит префикс)');
+  });
+
+  it('stream: неизвестный id — 404', async () => {
+    const res = await app.inject({ method: 'GET', url: '/api/tts/stream/00000000-0000-4000-8000-000000000000' });
+    assert.equal(res.statusCode, 404);
+  });
+
+  it('stream: конвейер по кускам, склейка со срезкой ID3, реплей бесплатный', async () => {
+    const { resetTtsStreamForTests } = await import('../src/lib/ttsStream.ts');
+    resetTtsStreamForTests();
+    const u = await makeUser();
+    const text = `Первое предложение специально короткое. ${'Дальше идёт длинная часть текста, которая обязана уехать во второй кусок конвейера синтеза речи. '.repeat(3)}`;
+    const prep = await app.inject({ method: 'POST', url: '/api/tts/prepare', headers: auth(u.token), payload: { text } });
+    assert.equal(prep.statusCode, 200, prep.body);
+    const { url } = JSON.parse(prep.body) as { url: string };
+
+    const p1 = Buffer.from('AAAA-mp3-first-chunk');
+    const p2 = Buffer.from('BBBB-mp3-second-chunk');
+    synthCalls = [];
+    audioQueue = [withId3(16, p1), withId3(24, p2)];
+    try {
+      const res = await app.inject({ method: 'GET', url: `/api${url}` });
+      assert.equal(res.statusCode, 200);
+      assert.equal(res.headers['content-type'], 'audio/mpeg');
+      assert.equal(synthCalls.length, 2, 'два куска — ровно два вызова Google');
+      assert.ok(String(synthCalls[0].input.text).length <= 160, 'первый кусок маленький');
+      // Склейка: 1-й кусок целиком, у 2-го срезан ведущий ID3-тег.
+      const expected = Buffer.concat([withId3(16, p1), p2]);
+      assert.ok(res.rawPayload.equals(expected), 'payload = кусок1 + кусок2 без ID3');
+
+      // Реплей того же url: мгновенно из кэша, без новых вызовов Google.
+      const res2 = await app.inject({ method: 'GET', url: `/api${url}` });
+      assert.equal(res2.statusCode, 200);
+      assert.ok(res2.rawPayload.equals(expected), 'реплей отдаёт тот же звук');
+      assert.equal(synthCalls.length, 2, 'реплей бесплатный');
+      assert.ok(res2.headers['content-length'], 'готовый результат — цельным телом с Content-Length (Safari)');
+    } finally {
+      audioQueue = [];
+      resetTtsStreamForTests();
+    }
+  });
+
+  it('негативный кэш: uz-UZ после 400 сутки не переспрашивается', async () => {
+    const { resetTtsStreamForTests } = await import('../src/lib/ttsStream.ts');
+    resetTtsStreamForTests();
+    const u = await makeUser();
+    const uzText = 'Ushbu shartnoma tomonlar oʻrtasida tuzildi va qonun bilan tartibga solinadi.';
+    failCodes = ['uz-UZ'];
+    try {
+      synthCalls = [];
+      const r1 = await app.inject({ method: 'POST', url: '/api/tts', headers: auth(u.token), payload: { text: uzText } });
+      assert.equal(r1.statusCode, 200, r1.body);
+      assert.equal(synthCalls[0].voice.languageCode, 'uz-UZ', 'первая попытка — честный код');
+      assert.equal(synthCalls[1].voice.languageCode, 'en-US', 'второй кандидат сработал');
+      synthCalls = [];
+      const r2 = await app.inject({ method: 'POST', url: '/api/tts', headers: auth(u.token), payload: { text: uzText } });
+      assert.equal(r2.statusCode, 200, r2.body);
+      assert.equal(synthCalls[0].voice.languageCode, 'en-US', 'uz-UZ пропущен по негативному кэшу');
+    } finally {
+      failCodes = [];
+      resetTtsStreamForTests();
+    }
   });
 });

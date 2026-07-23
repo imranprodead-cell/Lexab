@@ -135,7 +135,7 @@ export async function buildApp(db: Db): Promise<FastifyInstance> {
   // OAuth code/state/token query params (CWE-532).
   const redactUrl = (url: string): string =>
     url
-      .replace(/(\/(?:sign|approve|invite-info)\/)[^/?#]+/g, '$1[redacted]')
+      .replace(/(\/(?:sign|approve|invite-info|tts\/stream)\/)[^/?#]+/g, '$1[redacted]')
       .replace(/([?&](?:code|token|state)=)[^&]+/gi, '$1[redacted]');
   app.addHook('onResponse', (req, reply, done) => {
     req.log.info(

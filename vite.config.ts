@@ -60,6 +60,9 @@ function cspPlugin(): Plugin {
           `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://*.gstatic.com`,
           `font-src 'self' https://fonts.gstatic.com data:`,
           `img-src 'self' data: blob: https://*.googleusercontent.com https://*.gstatic.com https://*.google.com`,
+          // Озвучка: blob: — фолбэк-плеер, apiOrigin — прогрессивный MP3-стрим
+          // (без media-src default-src 'self' блокирует ОБА пути в прод-сборке).
+          `media-src ${["'self'", 'blob:', apiOrigin].filter(Boolean).join(' ')}`,
           `connect-src ${connect.join(' ')}`,
           `frame-src https://accounts.google.com https://docs.google.com https://drive.google.com https://*.google.com`,
         ].join('; ');

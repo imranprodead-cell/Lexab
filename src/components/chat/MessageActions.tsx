@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { ttsApi } from '@/api';
+import { BASE_URL } from '@/api/client';
 import { Icon } from '@/components/icons/Icon';
 import { useDismissable } from '@/hooks/useAsync';
 import { downloadBlob } from '@/lib/download';
@@ -35,7 +36,8 @@ export function MessageActions({ message, onFeedback }: MessageActionsProps) {
   const menuBtnRef = useRef<HTMLButtonElement>(null);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const audioUrlRef = useRef<string | null>(null);
+  const audioUrlRef = useRef<string | null>(null); // blob-URL кэш фолбэк-пути
+  const streamUrlRef = useRef<string | null>(null); // url стрима (реплей в TTL бесплатен)
   const speechSeq = useRef(0); // invalidates in-flight requests on stop/unmount
   const abortRef = useRef<AbortController | null>(null);
   const narrationHandle = useRef<{ stop: () => void }>({ stop: () => {} });
@@ -47,8 +49,15 @@ export function MessageActions({ message, onFeedback }: MessageActionsProps) {
       if (copyTimer.current) clearTimeout(copyTimer.current);
       speechSeq.current++;
       abortRef.current?.abort();
-      audioRef.current?.pause();
+      const audio = audioRef.current;
+      if (audio) {
+        audio.pause();
+        audio.removeAttribute('src'); // прерывает докачку стрима
+        audio.load();
+      }
       if (audioUrlRef.current) URL.revokeObjectURL(audioUrlRef.current);
+      // В демо-режиме prepare выдаёт blob-URL — его тоже нужно освободить.
+      if (streamUrlRef.current?.startsWith('blob:')) URL.revokeObjectURL(streamUrlRef.current);
       if (activeNarration === narrationHandle.current) activeNarration = null;
     },
     [],
@@ -84,12 +93,42 @@ export function MessageActions({ message, onFeedback }: MessageActionsProps) {
   const stopSpeaking = () => {
     speechSeq.current++; // a loading request that resolves later must not start playback
     abortRef.current?.abort(); // don't let a cancelled synthesis keep running (it's billed)
-    audioRef.current?.pause();
+    const audio = audioRef.current;
+    if (audio) {
+      audio.pause();
+      // removeAttribute + load aborts the in-flight stream download; src=''
+      // would resolve to the page URL and can fire a bogus request/error.
+      audio.removeAttribute('src');
+      audio.load();
+    }
     audioRef.current = null;
     if (activeNarration === narrationHandle.current) activeNarration = null;
     setSpeech('idle');
   };
   narrationHandle.current.stop = stopSpeaking;
+
+  /** Resolves once playback actually started ('playing'); rejects on error or
+   *  watchdog timeout (Safari may refuse chunked streams — caller falls back). */
+  const playUntilStarted = (audio: HTMLAudioElement, src: string) =>
+    new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const finish = (ok: boolean, err?: unknown) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(watchdog);
+        audio.removeEventListener('playing', onPlaying);
+        audio.removeEventListener('error', onError);
+        if (ok) resolve();
+        else reject(err ?? new Error('tts stream failed'));
+      };
+      const watchdog = setTimeout(() => finish(false, new Error('tts watchdog')), 8000);
+      const onPlaying = () => finish(true);
+      const onError = () => finish(false, new Error('tts stream error'));
+      audio.addEventListener('playing', onPlaying);
+      audio.addEventListener('error', onError);
+      audio.src = src;
+      audio.play().catch((err) => finish(false, err));
+    });
 
   const speak = async () => {
     setMenuOpen(false);
@@ -107,33 +146,79 @@ export function MessageActions({ message, onFeedback }: MessageActionsProps) {
     const audio = new Audio();
     audio.play().catch(() => {});
     audioRef.current = audio;
-    try {
-      if (!audioUrlRef.current) {
-        abortRef.current = new AbortController();
-        const blob = await ttsApi.synthesize(text, abortRef.current.signal);
-        if (seq !== speechSeq.current) return; // stopped/unmounted while loading
-        audioUrlRef.current = URL.createObjectURL(blob);
+    const done = () => {
+      if (seq === speechSeq.current) {
+        audioRef.current = null;
+        if (activeNarration === narrationHandle.current) activeNarration = null;
+        setSpeech('idle');
       }
-      const done = () => {
-        if (seq === speechSeq.current) {
-          audioRef.current = null;
-          if (activeNarration === narrationHandle.current) activeNarration = null;
-          setSpeech('idle');
-        }
-      };
+    };
+    const markPlaying = () => {
       audio.onended = done;
       audio.onerror = done;
-      audio.src = audioUrlRef.current;
-      await audio.play();
-      if (seq !== speechSeq.current) {
-        audio.pause();
-        return;
-      }
       setSpeech('playing');
+    };
+    // Path 1: progressive stream — sound starts after the first short sentence
+    // is synthesized (~1.5–3s), the rest keeps streaming while it plays.
+    try {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        if (!streamUrlRef.current) {
+          abortRef.current = new AbortController();
+          const { url } = await ttsApi.prepare(text, abortRef.current.signal);
+          if (seq !== speechSeq.current) return;
+          streamUrlRef.current = url;
+        }
+        const src = streamUrlRef.current.startsWith('blob:') ? streamUrlRef.current : `${BASE_URL}${streamUrlRef.current}`;
+        try {
+          await playUntilStarted(audio, src);
+          if (seq !== speechSeq.current) {
+            audio.pause();
+            return;
+          }
+          markPlaying();
+          return;
+        } catch (err) {
+          if (seq !== speechSeq.current) return;
+          // Re-prepare helps only for an expired stream URL; a watchdog
+          // timeout would just burn a second pipeline for nothing.
+          if (attempt === 0 && !(err instanceof Error && err.message === 'tts watchdog')) {
+            streamUrlRef.current = null;
+            continue;
+          }
+          throw err;
+        }
+      }
     } catch {
-      if (seq === speechSeq.current) {
-        stopSpeaking();
-        pushToast(t('chat.act.speakError'), 'error');
+      if (seq !== speechSeq.current) return;
+      // Stop the stream download BEFORE falling back: otherwise the <audio>
+      // keeps pulling the pipeline (double billing) and may start audibly
+      // playing mid-"loading" while the blob is being synthesized too.
+      audio.pause();
+      audio.removeAttribute('src');
+      audio.load();
+      // Path 2: silent fallback to the whole-file blob (Safari refusing the
+      // chunked stream, or an older server without /tts/prepare).
+      try {
+        if (!audioUrlRef.current) {
+          abortRef.current = new AbortController();
+          const blob = await ttsApi.synthesize(text, abortRef.current.signal);
+          if (seq !== speechSeq.current) return;
+          audioUrlRef.current = URL.createObjectURL(blob);
+        }
+        audio.onended = done;
+        audio.onerror = done;
+        audio.src = audioUrlRef.current;
+        await audio.play();
+        if (seq !== speechSeq.current) {
+          audio.pause();
+          return;
+        }
+        setSpeech('playing');
+      } catch {
+        if (seq === speechSeq.current) {
+          stopSpeaking();
+          pushToast(t('chat.act.speakError'), 'error');
+        }
       }
     }
   };

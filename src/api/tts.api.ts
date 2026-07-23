@@ -1,6 +1,6 @@
 /** Озвучка ответа ассистента: сервер синтезирует MP3 (Gemini-TTS, фолбэки на
  *  сервере). Текст уходит в POST /tts, обратно приходит бинарный audio/mpeg. */
-import { USE_MOCK, httpBlob } from './client';
+import { USE_MOCK, http, httpBlob } from './client';
 
 /** Полсекунды тишины в WAV — «озвучка» демо-режима без сети. */
 function silentWav(): Blob {
@@ -33,5 +33,11 @@ export const ttsApi = {
   synthesize: (text: string, signal?: AbortSignal): Promise<Blob> => {
     if (USE_MOCK) return Promise.resolve(silentWav());
     return httpBlob('/tts', { method: 'POST', body: { text: text.slice(0, 20_000) }, signal });
+  },
+  /** Мгновенный старт: сервер вернёт url прогрессивного MP3-стрима (первый
+   *  звук — через ~1.5–3 с, остальное доигрывает по мере синтеза). */
+  prepare: (text: string, signal?: AbortSignal): Promise<{ url: string }> => {
+    if (USE_MOCK) return Promise.resolve({ url: URL.createObjectURL(silentWav()) });
+    return http<{ url: string }>('/tts/prepare', { method: 'POST', body: { text: text.slice(0, 20_000) }, signal });
   },
 };

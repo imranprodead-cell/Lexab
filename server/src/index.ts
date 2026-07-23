@@ -9,6 +9,8 @@ import { resumeBatchJobs } from './routes/batch.routes.ts';
 import { failInterruptedWorkflows } from './routes/workflows.routes.ts';
 import { pruneStaleSessions } from './routes/security.routes.ts';
 import { checkBillingLifecycle } from './lib/billing.ts';
+import { googleAccessToken } from './lib/googleAuth.ts';
+import { TTS_OAUTH_SCOPE, ttsAuthMode } from './routes/tts.routes.ts';
 import { getDb, migrate } from './db.ts';
 import { seedIfEmpty } from './seed-data.ts';
 
@@ -111,6 +113,18 @@ if (!config.anthropicApiKey) {
 const app = await buildApp(db);
 await app.listen({ port: config.port, host: config.host });
 console.log(`LexAI API listening on http://localhost:${config.port}${config.apiPrefix}`);
+
+// Прогрев OAuth-токена озвучки (только сервисный аккаунт): без прогрева первый
+// клик «Прочитать вслух» платит ~0.5 с за обмен JWT→token. Здесь, а не в
+// buildApp — тесты строят app без сети. Рефреш чаще часа жизни токена.
+if (config.googleTtsCredentialsJson && ttsAuthMode(config.googleTtsCredentialsJson) === 'service-account') {
+  const warmTtsAuth = () =>
+    googleAccessToken(config.googleTtsCredentialsJson, TTS_OAUTH_SCOPE).catch((err: unknown) =>
+      console.warn('[tts] прогрев OAuth не удался:', String(err).slice(0, 160)),
+    );
+  void warmTtsAuth();
+  setInterval(warmTtsAuth, 25 * 60 * 1000).unref();
+}
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.once(signal, async () => {
