@@ -151,7 +151,15 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
   };
 
+  /** Consuming the draft (send / slash-pick) must kill an in-flight improve —
+   *  otherwise its late result would REFILL the just-cleared composer. */
+  const cancelImprove = () => {
+    improveAbortRef.current?.abort();
+    improveAbortRef.current = null;
+  };
+
   const pick = (command: Command) => {
+    cancelImprove();
     if (command.cmd === '/analyze') {
       clearValue();
       setSlashOpen(false);
@@ -164,6 +172,7 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
   };
 
   const submit = () => {
+    cancelImprove();
     const trimmed = value.trim();
     if (!trimmed) return;
     if (trimmed.startsWith('/analyze')) {

