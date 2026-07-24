@@ -1012,6 +1012,10 @@ export const MESSAGES: Dict = {
   'chat.attach': { ru: 'Прикрепить договор', en: 'Attach contract' },
   'chat.sendLabel': { ru: 'Отправить сообщение', en: 'Send message' },
   'chat.improve': { ru: 'Улучшить промпт', en: 'Improve prompt' },
+  'chat.improveShort': {
+    ru: 'Опишите запрос подробнее — минимум 5 слов',
+    en: 'Describe your request in at least 5 words',
+  },
   'chat.improveError': {
     ru: 'Не удалось улучшить запрос. Попробуйте ещё раз.',
     en: 'Couldn’t improve the prompt. Please try again.',

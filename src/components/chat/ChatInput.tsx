@@ -14,6 +14,10 @@ import styles from './chat.module.css';
 /* Unsent text survives page switches (and reloads) until it is sent. */
 const DRAFTS_KEY = 'lexai.drafts';
 
+/** Потолок высоты поля ввода — большая «плашка», длинный промпт читается
+ *  целиком (дальше — внутренняя прокрутка). Синхронен с max-height в CSS. */
+const MAX_COMPOSER_HEIGHT = 320;
+
 function loadDraft(key: string): string {
   try {
     const all = JSON.parse(localStorage.getItem(DRAFTS_KEY) ?? '{}') as Record<string, string>;
@@ -75,7 +79,7 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
     const ta = textareaRef.current;
     if (ta && ta.value) {
       ta.style.height = 'auto';
-      ta.style.height = `${Math.min(200, ta.scrollHeight)}px`;
+      ta.style.height = `${Math.min(MAX_COMPOSER_HEIGHT, ta.scrollHeight)}px`;
     }
   }, []);
 
@@ -93,7 +97,7 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
       const ta = textareaRef.current;
       if (ta) {
         ta.style.height = 'auto';
-        ta.style.height = `${Math.min(200, ta.scrollHeight)}px`;
+        ta.style.height = `${Math.min(MAX_COMPOSER_HEIGHT, ta.scrollHeight)}px`;
       }
     },
     [draftKey, ephemeral],
@@ -113,7 +117,7 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
   /** ✦: rewrite the draft into a clear prompt and put it back into the box. */
   const onImprove = async () => {
     const draft = value.trim();
-    if (!draft || improving) return;
+    if (!draft || !improveReady || improving) return;
     improveAbortRef.current?.abort();
     const controller = new AbortController();
     improveAbortRef.current = controller;
@@ -215,6 +219,9 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
   };
 
   const hasText = value.trim().length > 0;
+  // ✦ активна только когда пользователь реально описал запрос (≥5 слов) —
+  // на обрывке из пары слов модели нечего улучшать, она начнёт додумывать.
+  const improveReady = value.trim().split(/\s+/).filter(Boolean).length >= 5;
 
   return (
     <div className={`${styles.composer} ${compact ? styles.composerCompact : ''}`}>
@@ -225,10 +232,9 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
 
         {banner}
 
-        {/* Slim single-row pill: controls sit on the left and right of the
-            text. The bar aligns its items to the bottom, so as the text grows
-            taller the buttons stay anchored on the bottom row — they never
-            drift down or float. */}
+        {/* ChatGPT-style two-row pill: the textarea spans the FULL width on
+            top (no side gutters squeezing long prompts), the buttons live in
+            their own row underneath — attach/cloud left, ✦/mic/send right. */}
         <GlassCard className={styles.inputBar}>
           <input
             ref={fileInputRef}
@@ -241,30 +247,6 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
               e.target.value = ''; // allow re-selecting the same file
             }}
           />
-
-          <div className={styles.inputControlsGroup}>
-            <button
-              type="button"
-              title={t('chat.attach')}
-              aria-label={t('chat.attach')}
-              onClick={onAttach}
-              className={styles.attachBtn}
-            >
-              <Icon name="plus" size={20} />
-            </button>
-
-            {onCloudImport ? (
-              <button
-                type="button"
-                title={t('cloud.title')}
-                aria-label={t('cloud.title')}
-                onClick={onCloudImport}
-                className={styles.attachBtn}
-              >
-                <Icon name="cloud" size={18} />
-              </button>
-            ) : null}
-          </div>
 
           <textarea
             ref={textareaRef}
@@ -279,15 +261,40 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
             readOnly={improving}
           />
 
-          <div className={styles.inputControlsGroup}>
+          <div className={styles.inputControlsRow}>
+            <div className={styles.inputControlsGroup}>
+              <button
+                type="button"
+                title={t('chat.attach')}
+                aria-label={t('chat.attach')}
+                onClick={onAttach}
+                className={styles.attachBtn}
+              >
+                <Icon name="plus" size={20} />
+              </button>
+
+              {onCloudImport ? (
+                <button
+                  type="button"
+                  title={t('cloud.title')}
+                  aria-label={t('cloud.title')}
+                  onClick={onCloudImport}
+                  className={styles.attachBtn}
+                >
+                  <Icon name="cloud" size={18} />
+                </button>
+              ) : null}
+            </div>
+
+            <div className={styles.inputControlsGroup}>
             <button
               type="button"
               className={styles.micBtn}
               aria-label={t('chat.improve')}
-              title={t('chat.improve')}
+              title={hasText && !improveReady ? t('chat.improveShort') : t('chat.improve')}
               onClick={onImprove}
-              disabled={!hasText || improving}
-              style={{ color: improving ? 'var(--accent)' : 'var(--dim)', opacity: hasText || improving ? 1 : 0.45 }}
+              disabled={!improveReady || improving}
+              style={{ color: improving ? 'var(--accent)' : 'var(--dim)', opacity: improveReady || improving ? 1 : 0.45 }}
             >
               {improving ? <Spinner size={16} /> : <Icon name="sparkle" size={18} />}
             </button>
@@ -306,18 +313,19 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
               </button>
             ) : null}
 
-            <button
-              type="button"
-              className={styles.sendBtn}
-              aria-label={t('chat.sendLabel')}
-              onClick={submit}
-              style={{
-                background: hasText ? 'var(--accent)' : 'var(--hover-2)',
-                color: hasText ? 'var(--on-accent)' : 'var(--mut)',
-              }}
-            >
-              <Icon name="send" size={16} strokeWidth={2} />
-            </button>
+              <button
+                type="button"
+                className={styles.sendBtn}
+                aria-label={t('chat.sendLabel')}
+                onClick={submit}
+                style={{
+                  background: hasText ? 'var(--accent)' : 'var(--hover-2)',
+                  color: hasText ? 'var(--on-accent)' : 'var(--mut)',
+                }}
+              >
+                <Icon name="send" size={16} strokeWidth={2} />
+              </button>
+            </div>
           </div>
         </GlassCard>
 

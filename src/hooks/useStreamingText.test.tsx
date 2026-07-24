@@ -46,6 +46,13 @@ describe('useStreamingText onceKey', () => {
     act(() => other.root.unmount());
   });
 
+  it('persists seen keys to localStorage (no replay after a page reload)', () => {
+    const { root } = mount('key-persist');
+    act(() => root.unmount());
+    const stored = JSON.parse(localStorage.getItem('lexab.seenAnim') ?? '[]') as string[];
+    expect(stored).toContain('key-persist');
+  });
+
   it('renders instantly when reduce-motion is on', () => {
     act(() => useUIStore.setState({ reduceMotion: true }));
     const { root, out } = mount('key-motion');

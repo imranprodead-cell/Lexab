@@ -544,6 +544,7 @@ const ar: Record<string, string> = {
   "chat.micStop": "إيقاف التسجيل",
   "chat.attach": "إرفاق عقد",
   "chat.improve": "تحسين الطلب",
+  "chat.improveShort": "صِف طلبك بمزيد من التفصيل — 5 كلمات على الأقل",
   "chat.improveError": "تعذّر تحسين الطلب. حاول مرة أخرى.",
   "chat.sendLabel": "إرسال الرسالة",
   "ws.review": "مراجعة",

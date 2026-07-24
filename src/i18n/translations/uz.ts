@@ -544,6 +544,7 @@ const uz: Record<string, string> = {
   "chat.micStop": "Yozishni toʻxtatish",
   "chat.attach": "Shartnomani biriktirish",
   "chat.improve": "Promptni yaxshilash",
+  "chat.improveShort": "So‘rovingizni batafsilroq yozing — kamida 5 ta so‘z",
   "chat.improveError": "So‘rovni yaxshilab bo‘lmadi. Qayta urinib ko‘ring.",
   "chat.sendLabel": "Xabar yuborish",
   "ws.review": "Tahlil",

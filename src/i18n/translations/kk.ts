@@ -544,6 +544,7 @@ const kk: Record<string, string> = {
   "chat.micStop": "Жазуды тоқтату",
   "chat.attach": "Шартты тіркеу",
   "chat.improve": "Промптты жақсарту",
+  "chat.improveShort": "Сұрауыңызды толығырақ сипаттаңыз — кемінде 5 сөз",
   "chat.improveError": "Сұрауды жақсарту мүмкін болмады. Қайталап көріңіз.",
   "chat.sendLabel": "Хабарлама жіберу",
   "ws.review": "Талдау",

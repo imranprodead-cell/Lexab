@@ -1,10 +1,36 @@
 import { useEffect, useRef, useState } from 'react';
 import { useUIStore } from '@/store/useUIStore';
 
-/** Keys whose typewriter already ran this session (e.g. an analysis summary):
- *  reopening the same chat shows the text instantly instead of replaying the
- *  animation. Module-level — survives remounts, dies with the tab. */
-const seenKeys = new Set<string>();
+/** Keys whose typewriter already ran (e.g. an analysis summary): reopening
+ *  the same chat — or reloading the page — shows the text instantly instead
+ *  of replaying the animation. Persisted in localStorage (capped), so a
+ *  refresh or a next-day visit doesn't re-type old content. */
+const SEEN_STORAGE_KEY = 'lexab.seenAnim';
+const SEEN_CAP = 300;
+
+const seenKeys = new Set<string>(
+  (() => {
+    try {
+      const raw = localStorage.getItem(SEEN_STORAGE_KEY);
+      const arr: unknown = raw ? JSON.parse(raw) : [];
+      return Array.isArray(arr) ? (arr.filter((k) => typeof k === 'string') as string[]) : [];
+    } catch {
+      return [];
+    }
+  })(),
+);
+
+function markSeen(key: string) {
+  if (seenKeys.has(key)) return;
+  seenKeys.add(key);
+  try {
+    // Keep insertion order; drop the oldest beyond the cap.
+    const arr = [...seenKeys];
+    localStorage.setItem(SEEN_STORAGE_KEY, JSON.stringify(arr.slice(Math.max(0, arr.length - SEEN_CAP))));
+  } catch {
+    /* storage blocked — the mark still holds for this tab */
+  }
+}
 
 /**
  * Reveals `text` character-by-character to mimic streaming model output.
@@ -25,7 +51,7 @@ export function useStreamingText(text: string, charsPerTick = 2, tickMs = 16, on
     }
     // Mark at animation START — leaving the page mid-animation must not
     // replay the whole typewriter on the next visit.
-    if (onceKey !== undefined) seenKeys.add(onceKey);
+    if (onceKey !== undefined) markSeen(onceKey);
     setLength(0);
     raf.current = setInterval(() => {
       setLength((prev) => {

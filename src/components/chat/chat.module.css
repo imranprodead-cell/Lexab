@@ -813,10 +813,11 @@
   position: relative;
   z-index: 1; /* sits on top of the tucked upsell strip */
   display: flex;
-  align-items: flex-end; /* buttons anchor to the bottom row as the text grows */
+  flex-direction: column; /* ChatGPT-style: text on top full-width, buttons row below */
+  align-items: stretch;
   gap: 4px;
-  padding: 11px 12px; /* taller, comfortable pill (not a thin line) */
-  border-radius: 28px;
+  padding: 10px 14px 8px;
+  border-radius: 24px;
   background: var(--surface-translucent);
 }
 .inputControlsGroup {
@@ -824,6 +825,13 @@
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
+}
+/* Нижний ряд кнопок: скрепка/облако слева, ✦/микрофон/отправить справа. */
+.inputControlsRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
 }
 .attachBtn {
   width: 34px;
@@ -871,10 +879,10 @@
   font-family: inherit;
   font-size: 15px;
   line-height: 1.45;
-  /* Vertical padding sizes a single line to ~34px so it lines up with the
-     round controls; extra text just grows the pill upward. */
-  padding: 6px 6px;
-  max-height: 200px;
+  /* Full-width top row: long prompts get the whole pill width to breathe;
+     extra text grows the pill upward (JS caps the height). */
+  padding: 6px 4px 2px;
+  max-height: 320px;
   min-width: 0;
 }
 .sendBtn {

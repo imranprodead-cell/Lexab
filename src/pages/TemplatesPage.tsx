@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { downloadBlob } from '@/lib/download';
 import { TopBar } from '@/components/layout/TopBar';
@@ -10,7 +10,8 @@ import { SelectMenu } from '@/components/ui/SelectMenu';
 import { EmptyState, ErrorState, SkeletonRows } from '@/components/ui/States';
 import ui from '@/components/ui/ui.module.css';
 import { useAsync, useDismissable } from '@/hooks/useAsync';
-import { templatesApi } from '@/api';
+import { promptsApi, templatesApi } from '@/api';
+import { Spinner } from '@/components/ui/Spinner';
 import { COUNTRIES, flagUrl } from '@/data/countries';
 import { useChatStore } from '@/store/useChatStore';
 import { useUIStore } from '@/store/useUIStore';
@@ -107,6 +108,32 @@ export function TemplatesPage() {
   const [term, setTerm] = useState('');
   const [details, setDetails] = useState('');
   const [busy, setBusy] = useState(false);
+  // ✦ «Улучшить промпт» для брифа договора — тот же эндпоинт, что в чате.
+  const [improving, setImproving] = useState(false);
+  const improveAbortRef = useRef<AbortController | null>(null);
+  useEffect(() => () => improveAbortRef.current?.abort(), []);
+  // Активна только когда пользователь реально описал, что хочет (≥5 слов).
+  const detailsReady = details.trim().split(/\s+/).filter(Boolean).length >= 5;
+
+  const improveDetails = async () => {
+    const draftText = details.trim();
+    if (!draftText || !detailsReady || improving) return;
+    improveAbortRef.current?.abort();
+    const controller = new AbortController();
+    improveAbortRef.current = controller;
+    setImproving(true);
+    try {
+      const better = await promptsApi.improve(draftText, controller.signal);
+      if (!controller.signal.aborted && better.trim()) setDetails(better.trim());
+    } catch (err) {
+      if (!(err instanceof DOMException && err.name === 'AbortError')) {
+        pushToast(t('chat.improveError'), 'error');
+      }
+    } finally {
+      if (improveAbortRef.current === controller) improveAbortRef.current = null;
+      setImproving(false);
+    }
+  };
   const [draft, setDraft] = useState<{ title: string; content: string } | null>(null);
   const [saving, setSaving] = useState(false);
   // Once a draft is saved to the library, block re-saving the same draft —
@@ -147,6 +174,8 @@ export function TemplatesPage() {
   };
 
   const close = () => {
+    improveAbortRef.current?.abort();
+    setImproving(false);
     setTpl(null);
     setDraft(null);
     setSavedDraft(false);
@@ -160,6 +189,7 @@ export function TemplatesPage() {
   const generate = async (e: FormEvent) => {
     e.preventDefault();
     if (!tpl || !partyA.trim() || !partyB.trim()) return;
+    improveAbortRef.current?.abort(); // поздний результат ✦ не должен перезаписать бриф
     setBusy(true);
     try {
       setDraft(
@@ -416,9 +446,34 @@ export function TemplatesPage() {
                   {/* Краткое описание сделки — обязательно (иначе выходит типовая
                       «рыба»); многострочное, прокрутка вертикальная. */}
                   <div className={ui.field}>
-                    <label className={ui.label} htmlFor="tpl-details">
-                      {t('tpl.details')}
-                    </label>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+                      <label className={ui.label} htmlFor="tpl-details">
+                        {t('tpl.details')}
+                      </label>
+                      <button
+                        type="button"
+                        onClick={improveDetails}
+                        disabled={!detailsReady || improving || busy}
+                        title={details.trim() && !detailsReady ? t('chat.improveShort') : t('chat.improve')}
+                        aria-label={t('chat.improve')}
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          background: 'transparent',
+                          border: 'none',
+                          cursor: 'pointer',
+                          color: improving ? 'var(--accent)' : 'var(--dim)',
+                          opacity: detailsReady || improving ? 1 : 0.5,
+                          fontSize: 12.5,
+                          fontFamily: 'var(--font-label)',
+                          padding: '2px 4px',
+                        }}
+                      >
+                        {improving ? <Spinner size={13} /> : <Icon name="sparkle" size={14} />}
+                        {t('chat.improve')}
+                      </button>
+                    </div>
                     <textarea
                       id="tpl-details"
                       name="details"
@@ -427,6 +482,7 @@ export function TemplatesPage() {
                       rows={5}
                       maxLength={4000}
                       required
+                      readOnly={improving}
                       placeholder={t('tpl.detailsPh')}
                       onChange={(e) => setDetails(e.target.value)}
                     />

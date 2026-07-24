@@ -544,6 +544,7 @@ const de: Record<string, string> = {
   "chat.micStop": "Aufnahme stoppen",
   "chat.attach": "Vertrag anhängen",
   "chat.improve": "Prompt verbessern",
+  "chat.improveShort": "Beschreiben Sie Ihre Anfrage genauer — mindestens 5 Wörter",
   "chat.improveError": "Der Prompt konnte nicht verbessert werden. Bitte erneut versuchen.",
   "chat.sendLabel": "Nachricht senden",
   "ws.review": "Prüfung",

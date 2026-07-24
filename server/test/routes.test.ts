@@ -322,6 +322,8 @@ describe('prompt improver', () => {
     assert.equal(short.statusCode, 400);
     const long = await app.inject({ method: 'POST', url: '/api/prompts/improve', headers: auth(token), payload: { text: 'x'.repeat(4001) } });
     assert.equal(long.statusCode, 400);
+    const fewWords = await app.inject({ method: 'POST', url: '/api/prompts/improve', headers: auth(token), payload: { text: 'проверь мой договор аренды' } });
+    assert.equal(fewWords.statusCode, 400, 'under 5 words there is nothing to improve');
   });
 
   it('returns the rewritten prompt (deterministic dev fallback)', async () => {
@@ -330,10 +332,10 @@ describe('prompt improver', () => {
       method: 'POST',
       url: '/api/prompts/improve',
       headers: auth(token),
-      payload: { text: 'проверь договор аренды' },
+      payload: { text: 'проверь договор аренды на скрытые риски' },
     });
     assert.equal(res.statusCode, 200, res.body);
-    assert.equal(JSON.parse(res.body).text, '[dev] проверь договор аренды');
+    assert.equal(JSON.parse(res.body).text, '[dev] проверь договор аренды на скрытые риски');
   });
 });
 
