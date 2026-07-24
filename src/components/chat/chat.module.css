@@ -1030,3 +1030,104 @@
     opacity: 0.85;
   }
 }
+
+/* Markdown body of an assistant reply -------------------------------------- */
+/* Only theme tokens (dark+light both correct) and logical properties (RTL). */
+.markdown {
+  white-space: normal; /* the parent bubble is pre-wrap; markdown handles its own breaks */
+  word-break: break-word;
+}
+.markdown > :first-child {
+  margin-top: 0;
+}
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+.markdown p,
+.markdown ul,
+.markdown ol,
+.markdown table,
+.markdown pre,
+.markdown blockquote {
+  margin: 0 0 10px;
+}
+.markdown h1,
+.markdown h2,
+.markdown h3,
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  margin: 14px 0 6px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+.markdown h1 {
+  font-size: 1.15em;
+}
+.markdown h2 {
+  font-size: 1.08em;
+}
+.markdown h3,
+.markdown h4,
+.markdown h5,
+.markdown h6 {
+  font-size: 1em;
+}
+.markdown ul,
+.markdown ol {
+  padding-inline-start: 22px;
+}
+.markdown li {
+  margin-bottom: 4px;
+}
+.markdown li > ul,
+.markdown li > ol {
+  margin: 4px 0 0;
+}
+.markdown code {
+  background: var(--hover-2);
+  border-radius: 5px;
+  padding: 1px 5px;
+  font-size: 0.92em;
+}
+.markdown pre {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  overflow-x: auto;
+}
+.markdown pre code {
+  background: none;
+  padding: 0;
+}
+.markdown table {
+  display: block; /* a wide table scrolls inside the bubble instead of overflowing */
+  overflow-x: auto;
+  border-collapse: collapse;
+  max-width: 100%;
+}
+.markdown th,
+.markdown td {
+  border: 1px solid var(--border);
+  padding: 5px 10px;
+  text-align: start;
+  vertical-align: top;
+}
+.markdown th {
+  background: var(--hover-2);
+  font-weight: 600;
+}
+.markdown blockquote {
+  border-inline-start: 3px solid var(--accent);
+  padding-inline-start: 12px;
+  color: var(--mut);
+}
+.markdown a {
+  color: var(--accent);
+}
+.markdown hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 12px 0;
+}

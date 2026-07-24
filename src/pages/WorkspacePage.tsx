@@ -8,6 +8,7 @@ import { Button, IconButton } from '@/components/ui/Button';
 import { SkeletonRows } from '@/components/ui/States';
 import { Spinner } from '@/components/ui/Spinner';
 import { ChatInput } from '@/components/chat/ChatInput';
+import { MarkdownMessage } from '@/components/chat/MarkdownMessage';
 import { DocumentViewer, type ActiveBlock, type DocEditorHandle } from '@/components/workspace/DocumentViewer';
 import { EditorToolbar } from '@/components/workspace/EditorToolbar';
 import { FloatingToolbar } from '@/components/workspace/FloatingToolbar';
@@ -377,7 +378,7 @@ export function WorkspacePage() {
                       </div>
                     ) : (
                       <div key={m.id} className={styles.qaAssistant}>
-                        {m.text}
+                        <MarkdownMessage text={m.text ?? ''} />
                         {m.streaming ? '…' : ''}
                       </div>
                     ),

@@ -11,6 +11,7 @@ import { SummaryCard } from '@/components/chat/SummaryCard';
 import { ChatInput } from '@/components/chat/ChatInput';
 import { CloudImportModal } from '@/components/chat/CloudImportModal';
 import { MessageActions } from '@/components/chat/MessageActions';
+import { MarkdownMessage } from '@/components/chat/MarkdownMessage';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { ScalesMascot } from '@/components/ui/ScalesMascot';
@@ -236,7 +237,9 @@ export function ChatPage() {
       <div key={m.id} className={chat.msgAssistant}>
         <Avatar size={30} />
         <div className={chat.msgAssistantBody}>
-          <div className={`${chat.msgAssistantText} ${chat.textIn}`}>{m.text}</div>
+          <div className={`${chat.msgAssistantText} ${chat.textIn}`}>
+            <MarkdownMessage text={m.text ?? ''} />
+          </div>
           {!m.streaming && m.text ? <MessageActions message={m} onFeedback={setFeedback} /> : null}
         </div>
       </div>

@@ -69,6 +69,8 @@ export function MessageActions({ message, onFeedback }: MessageActionsProps) {
     first?.focus();
   }, [menuOpen, menuRef]);
 
+  // Copy/download intentionally keep the RAW markdown source (not the rendered
+  // look) — pasting into an editor preserves the structure, as in ChatGPT.
   const text = message.text ?? '';
 
   const copy = async () => {
