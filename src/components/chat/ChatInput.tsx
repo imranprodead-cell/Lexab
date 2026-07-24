@@ -14,9 +14,12 @@ import styles from './chat.module.css';
 /* Unsent text survives page switches (and reloads) until it is sent. */
 const DRAFTS_KEY = 'lexai.drafts';
 
-/** Потолок высоты поля ввода — большая «плашка», длинный промпт читается
- *  целиком (дальше — внутренняя прокрутка). Синхронен с max-height в CSS. */
-const MAX_COMPOSER_HEIGHT = 320;
+/** Потолок высоты поля ввода: плашка растёт вместе с текстом до половины
+ *  экрана (не меньше 320px, не больше 560px) — длинный запрос читается
+ *  целиком, дальше включается внутренняя прокрутка. Синхронен с max-height
+ *  в CSS (min(50vh, 560px)). */
+const composerCap = () =>
+  typeof window === 'undefined' ? 320 : Math.max(320, Math.min(Math.round(window.innerHeight * 0.5), 560));
 
 function loadDraft(key: string): string {
   try {
@@ -79,7 +82,7 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
     const ta = textareaRef.current;
     if (ta && ta.value) {
       ta.style.height = 'auto';
-      ta.style.height = `${Math.min(MAX_COMPOSER_HEIGHT, ta.scrollHeight)}px`;
+      ta.style.height = `${Math.min(composerCap(), ta.scrollHeight)}px`;
     }
   }, []);
 
@@ -97,7 +100,7 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
       const ta = textareaRef.current;
       if (ta) {
         ta.style.height = 'auto';
-        ta.style.height = `${Math.min(MAX_COMPOSER_HEIGHT, ta.scrollHeight)}px`;
+        ta.style.height = `${Math.min(composerCap(), ta.scrollHeight)}px`;
       }
     },
     [draftKey, ephemeral],
