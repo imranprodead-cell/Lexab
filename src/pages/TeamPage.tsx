@@ -569,35 +569,31 @@ function teamLabel(value: string, kind: 'role' | 'status', t: (k: string) => str
 function AccessReviewSection() {
   const { t, lang } = useI18n();
   const pushToast = useUIStore((s) => s.pushToast);
-  const [rows, setRows] = useState<AccessReviewRow[] | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [locked, setLocked] = useState(false);
-  // Stable refs so a language switch doesn't re-run the load effect.
+  // Stable ref so a language switch doesn't re-run the error effect.
   const pushToastRef = useRef(pushToast);
   pushToastRef.current = pushToast;
-  const tRef = useRef(t);
-  tRef.current = t;
 
+  // useAsync: cached across visits (instant on return, silent revalidate).
+  // The 402 "not on Business" answer is a VIEW and caches too; team changes
+  // and plan purchase call clearAsyncCache(), which re-runs the fetcher.
+  const { data: view, loading, error } = useAsync<{ locked: true } | { locked: false; rows: AccessReviewRow[] }>(
+    async () => {
+      try {
+        return { locked: false, rows: await securityApi.accessReview.list() };
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 402) return { locked: true };
+        throw err;
+      }
+    },
+    [],
+  );
+  const locked = view?.locked === true;
+  const rows = view && !view.locked ? view.rows : null;
+
+  // A load failure surfaces as a toast (kept from the old behaviour).
   useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    securityApi.accessReview
-      .list()
-      .then((data) => {
-        if (cancelled) return;
-        setRows(data);
-        setLocked(false);
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        if (err instanceof ApiError && err.status === 402) setLocked(true);
-        else pushToastRef.current(err instanceof Error && err.message ? err.message : tRef.current('common.error'), 'error');
-      })
-      .finally(() => !cancelled && setLoading(false));
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    if (error) pushToastRef.current(error, 'error');
+  }, [error]);
 
   const exportCsv = async () => {
     try {
@@ -706,6 +702,9 @@ function AuditLogSection() {
     return () => clearTimeout(id);
   }, [search]);
 
+  // NB: intentionally NOT migrated to useAsync — this loader APPENDS pages
+  // (page>1) and accumulates the actors filter across them; a per-deps cache
+  // would fragment the pages and replay appends as duplicate rows.
   useEffect(() => {
     let cancelled = false;
     setLoading(true);

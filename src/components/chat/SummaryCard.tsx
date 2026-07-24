@@ -32,7 +32,9 @@ interface SummaryCardProps {
 /** Post-analysis report: streaming summary, risk gauge, top findings, actions. */
 export function SummaryCard({ analysis, onOpenWorkspace, onOpenFinding, onAsk, onAskCustom }: SummaryCardProps) {
   const { t } = useI18n();
-  const { visible } = useStreamingText(analysis.summary);
+  // onceKey = analysis id: the typewriter runs only the first time this
+  // analysis is shown — reopening the chat renders the summary instantly.
+  const { visible } = useStreamingText(analysis.summary, 2, 16, analysis.id);
 
   // "Ask a question" opens a picker with questions tailored to THIS document
   // (built from its top findings) instead of firing a canned message.

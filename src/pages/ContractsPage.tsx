@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState, type MouseEvent } from 'react';
+import { Fragment, useMemo, useState, type MouseEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { Icon, type IconName } from '@/components/icons/Icon';
@@ -9,6 +9,7 @@ import { ExpiryChip } from '@/components/contracts/ExpiryChip';
 import { ObligationList } from '@/components/contracts/ObligationList';
 import { contractsApi } from '@/api';
 import { ApiError } from '@/api/util';
+import { useAsync } from '@/hooks/useAsync';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -37,30 +38,25 @@ export function ContractsPage() {
   const isMobile = useMediaQuery('(max-width: 700px)');
   usePageTitle(t('contracts.title'));
 
-  const [data, setData] = useState<ContractRow[] | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [locked, setLocked] = useState(false); // 402 → not on Pro+
   const [filter, setFilter] = useState<Filter>('all');
   const [expanded, setExpanded] = useState<string | null>(null);
 
-  const load = () => {
-    setLoading(true);
-    setError(null);
-    contractsApi
-      .list()
-      .then((rows) => {
-        setData(rows);
-        setLocked(false);
-      })
-      .catch((err) => {
-        if (err instanceof ApiError && err.status === 402) setLocked(true);
-        else setError(err instanceof Error ? err.message : t('common.error'));
-      })
-      .finally(() => setLoading(false));
-  };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(load, []);
+  // useAsync: revisiting the section renders instantly from the session cache
+  // and revalidates silently — no skeleton on return. The 402 "not on Pro+"
+  // answer is a VIEW (not an error) so it caches too; buying a plan calls
+  // clearAsyncCache(), which re-runs every mounted fetcher.
+  const { data, loading, error, reload } = useAsync<{ locked: true } | { locked: false; rows: ContractRow[] }>(
+    async () => {
+      try {
+        return { locked: false, rows: await contractsApi.list() };
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 402) return { locked: true };
+        throw err;
+      }
+    },
+    [],
+  );
+  const locked = data?.locked === true;
 
   const formatDate = (iso: string): string =>
     new Date(iso).toLocaleDateString(lang === 'ru' ? 'ru-RU' : 'en-GB', {
@@ -69,7 +65,7 @@ export function ContractsPage() {
       year: 'numeric',
     });
 
-  const rows = useMemo(() => data ?? [], [data]);
+  const rows = useMemo(() => (data && !data.locked ? data.rows : []), [data]);
 
   const stats = useMemo(
     () => ({
@@ -154,7 +150,7 @@ export function ContractsPage() {
               }
             />
           ) : error ? (
-            <ErrorState message={error} onRetry={load} />
+            <ErrorState message={error} onRetry={reload} />
           ) : rows.length === 0 ? (
             <EmptyState
               icon="calendar"

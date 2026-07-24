@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { Icon } from '@/components/icons/Icon';
@@ -10,6 +10,7 @@ import { EmptyState, ErrorState, SkeletonRows } from '@/components/ui/States';
 import { SelectMenu } from '@/components/ui/SelectMenu';
 import { playbooksApi } from '@/api';
 import { ApiError } from '@/api/util';
+import { useAsync } from '@/hooks/useAsync';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { useUIStore } from '@/store/useUIStore';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -42,29 +43,23 @@ export function PlaybooksPage() {
   const pushToast = useUIStore((s) => s.pushToast);
   usePageTitle(t('playbooks.title'));
 
-  const [data, setData] = useState<Playbook[] | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [locked, setLocked] = useState(false); // 402 → not on Pro+
-
-  const load = () => {
-    setLoading(true);
-    setError(null);
-    playbooksApi
-      .list()
-      .then((rows) => {
-        setData(rows);
-        setLocked(false);
-      })
-      .catch((err) => {
-        if (err instanceof ApiError && err.status === 402) setLocked(true);
-        else setError(err instanceof Error ? err.message : t('common.error'));
-      })
-      .finally(() => setLoading(false));
-  };
-  // Load once on mount; create/save/delete call load() to refresh.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(load, []);
+  // useAsync: revisiting the section renders instantly from the session cache
+  // and revalidates silently. The 402 "not on Pro+" answer is a VIEW (cached
+  // too); buying a plan calls clearAsyncCache(), which re-runs the fetcher.
+  // Create/save/delete call reload() — a silent refresh, no skeleton flash.
+  const { data: view, loading, error, reload } = useAsync<{ locked: true } | { locked: false; rows: Playbook[] }>(
+    async () => {
+      try {
+        return { locked: false, rows: await playbooksApi.list() };
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 402) return { locked: true };
+        throw err;
+      }
+    },
+    [],
+  );
+  const locked = view?.locked === true;
+  const data = view && !view.locked ? view.rows : null;
 
   // Editor modal state — `editing` is the playbook being edited, or null on create.
   const [editorOpen, setEditorOpen] = useState(false);
@@ -138,7 +133,7 @@ export function PlaybooksPage() {
         pushToast(t('playbooks.createdToast'), 'success');
       }
       closeEditor();
-      load();
+      reload();
     } catch (err) {
       setFormError(err instanceof Error ? err.message : t('common.error'));
     } finally {
@@ -153,7 +148,7 @@ export function PlaybooksPage() {
       await playbooksApi.remove(editing.id);
       pushToast(t('playbooks.deletedToast'), 'default');
       closeEditor();
-      load();
+      reload();
     } catch (err) {
       pushToast(err instanceof Error ? err.message : t('common.error'), 'error');
     } finally {
@@ -197,7 +192,7 @@ export function PlaybooksPage() {
               }
             />
           ) : error ? (
-            <ErrorState message={error} onRetry={load} />
+            <ErrorState message={error} onRetry={reload} />
           ) : (data ?? []).length === 0 ? (
             <EmptyState
               icon="shield"

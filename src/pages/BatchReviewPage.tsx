@@ -11,6 +11,7 @@ import { batchApi } from '@/api';
 import { uploadsApi } from '@/api/uploads.api';
 import { ApiError } from '@/api/util';
 import { COUNTRIES, countryName } from '@/data/countries';
+import { useAsync } from '@/hooks/useAsync';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { useUIStore } from '@/store/useUIStore';
@@ -49,11 +50,6 @@ export function BatchReviewPage() {
   const country = useUIStore((s) => s.country);
   usePageTitle(t('batch.title'));
 
-  const [history, setHistory] = useState<BatchJob[] | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [locked, setLocked] = useState(false); // 402 → not on Pro+
-
   const [files, setFiles] = useState<Picked[]>([]);
   const [jurisdiction, setJurisdiction] = useState(country);
   const [busy, setBusy] = useState(false);
@@ -63,30 +59,27 @@ export function BatchReviewPage() {
   // The job currently being viewed (with items). null = compose view.
   const [job, setJob] = useState<BatchJob | null>(null);
 
-  const load = () => {
-    setLoading(true);
-    setError(null);
-    batchApi
-      .list()
-      .then((rows) => {
-        setHistory(rows);
-        setLocked(false);
-      })
-      .catch((err) => {
-        if (err instanceof ApiError && err.status === 402) setLocked(true);
-        else setError(err instanceof Error ? err.message : t('common.error'));
-      })
-      .finally(() => setLoading(false));
-  };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(load, []);
-
-  /** Refresh the history list without the full-page loading skeleton. */
-  const refreshHistory = () =>
-    batchApi
-      .list()
-      .then(setHistory)
-      .catch(() => undefined);
+  // History list via useAsync: revisiting the section renders instantly from
+  // the session cache and revalidates silently. The 402 "not on Pro+" answer
+  // is a VIEW (cached too); buying a plan calls clearAsyncCache(). reload()
+  // doubles as the old silent refreshHistory (no skeleton over the job view).
+  // The job POLLING below stays manual — dynamic stop conditions are not
+  // useAsync's job.
+  const { data: historyView, loading, error, reload: refreshHistory } = useAsync<
+    { locked: true } | { locked: false; rows: BatchJob[] }
+  >(
+    async () => {
+      try {
+        return { locked: false, rows: await batchApi.list() };
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 402) return { locked: true };
+        throw err;
+      }
+    },
+    [],
+  );
+  const locked = historyView?.locked === true;
+  const history = historyView && !historyView.locked ? historyView.rows : null;
 
   // Poll the viewed job until it is done, then stop. Re-armed only when the id
   // or the status changes, so the interval survives progress updates.
@@ -485,7 +478,7 @@ export function BatchReviewPage() {
               }
             />
           ) : error ? (
-            <ErrorState message={error} onRetry={load} />
+            <ErrorState message={error} onRetry={refreshHistory} />
           ) : job ? (
             renderJob(job)
           ) : (
