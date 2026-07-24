@@ -131,5 +131,19 @@ export function useAsync<T>(fetcher: (signal: AbortSignal) => Promise<T>, deps: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [...deps, nonce]);
 
-  return { data, loading, error, reload: () => setNonce((n) => n + 1) };
+  /** Optimistically replace the on-screen data AND the session cache — e.g.
+   *  insert a just-created row instantly instead of waiting for a refetch.
+   *  Pair with reload() to true-up against the server in the background. */
+  const mutate = (updater: (prev: T | null) => T | null) => {
+    setData((prev) => {
+      const next = updater(prev);
+      if (key !== null) {
+        if (next == null) asyncCache.delete(key);
+        else asyncCache.set(key, next);
+      }
+      return next;
+    });
+  };
+
+  return { data, loading, error, reload: () => setNonce((n) => n + 1), mutate };
 }

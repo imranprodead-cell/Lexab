@@ -41,6 +41,13 @@ async function playbookOwner(db: Db, userId: string): Promise<string> {
   return res.rows[0]?.owner_user_id ?? userId;
 }
 
+/** Feature-гейт и владелец команды параллельно: оба ходят в БД, а каждый
+ *  лишний последовательный запрос — это сетевой круг до Supabase (~100 мс). */
+async function resolveOwner(db: Db, userId: string): Promise<string> {
+  const [, ownerId] = await Promise.all([assertFeature(db, userId, 'playbooks'), playbookOwner(db, userId)]);
+  return ownerId;
+}
+
 async function assertCanWrite(db: Db, userId: string, ownerId: string): Promise<void> {
   if (userId === ownerId) return; // the team owner
   const role = await teamRoleFor(db, userId, ownerId);
@@ -92,32 +99,74 @@ async function loadOne(db: Db, ownerId: string, id: string): Promise<Playbook | 
  *  nested query inside an open withTx() would deadlock. */
 async function writeRules(tx: Queryable, playbookId: string, encRules: string[]): Promise<void> {
   await tx.query('DELETE FROM playbook_rules WHERE playbook_id = $1', [playbookId]);
-  for (let i = 0; i < encRules.length; i++) {
-    await tx.query('INSERT INTO playbook_rules (id, playbook_id, ord, text_enc) VALUES ($1, $2, $3, $4)', [
-      newId('pr'),
-      playbookId,
-      i,
-      encRules[i],
-    ]);
-  }
+  if (encRules.length === 0) return;
+  // Одна многострочная вставка вместо N отдельных: каждый запрос — сетевой
+  // круг до облачной базы (~150-250 мс), на 5 правилах это была секундная задержка.
+  const params: unknown[] = [];
+  const tuples = encRules.map((enc, i) => {
+    params.push(newId('pr'), playbookId, i, enc);
+    const b = params.length;
+    return `($${b - 3}, $${b - 2}, $${b - 1}, $${b})`;
+  });
+  await tx.query(`INSERT INTO playbook_rules (id, playbook_id, ord, text_enc) VALUES ${tuples.join(', ')}`, params);
 }
 
 export function playbookRoutes(app: FastifyInstance, db: Db): void {
   app.get('/playbooks', { preHandler: [app.authenticate] }, async (req): Promise<Playbook[]> => {
-    await assertFeature(db, req.currentUser.id, 'playbooks');
-    const ownerId = await playbookOwner(db, req.currentUser.id);
-    const res = await db.query<{ id: string }>('SELECT id FROM playbooks WHERE owner_user_id = $1 ORDER BY created_at DESC', [ownerId]);
-    const out: Playbook[] = [];
+    const ownerId = await resolveOwner(db, req.currentUser.id);
+    // Один JOIN вместо 1+2N запросов (loadOne на каждую строку): на облачной
+    // базе N+1 превращал список из пяти плейбуков в секунды ожидания.
+    const res = await db.query<{
+      id: string;
+      name: string;
+      jurisdiction: string | null;
+      active: boolean;
+      created_at: Date | string;
+      updated_at: Date | string;
+      text_enc: string | null;
+    }>(
+      `SELECT p.id, p.name, p.jurisdiction, p.active, p.created_at, p.updated_at, r.text_enc
+         FROM playbooks p
+         LEFT JOIN playbook_rules r ON r.playbook_id = p.id
+        WHERE p.owner_user_id = $1
+        ORDER BY p.created_at DESC, r.ord`,
+      [ownerId],
+    );
+    const byId = new Map<string, Playbook>();
+    const pending: Promise<void>[] = [];
     for (const row of res.rows) {
-      const pb = await loadOne(db, ownerId, row.id);
-      if (pb) out.push(pb);
+      let pb = byId.get(row.id);
+      if (!pb) {
+        pb = {
+          id: row.id,
+          name: row.name,
+          jurisdiction: row.jurisdiction,
+          active: row.active,
+          rules: [],
+          createdAt: toIso(row.created_at),
+          updatedAt: toIso(row.updated_at),
+        };
+        byId.set(row.id, pb);
+      }
+      if (row.text_enc !== null) {
+        const target = pb;
+        const idx = target.rules.length;
+        target.rules.push(''); // слот держит порядок при параллельной расшифровке
+        pending.push(
+          decText(db, ownerId, row.text_enc).then((text) => {
+            target.rules[idx] = text ?? '';
+          }),
+        );
+      }
     }
-    return out;
+    await Promise.all(pending);
+    // decText null (нерасшифровалось) — правило выпадает, как и в loadOne.
+    for (const pb of byId.values()) pb.rules = pb.rules.filter((r) => r !== '');
+    return [...byId.values()];
   });
 
   app.post('/playbooks', { preHandler: [app.authenticateReal] }, async (req, reply): Promise<Playbook> => {
-    await assertFeature(db, req.currentUser.id, 'playbooks');
-    const ownerId = await playbookOwner(db, req.currentUser.id);
+    const ownerId = await resolveOwner(db, req.currentUser.id);
     await assertCanWrite(db, req.currentUser.id, ownerId);
     const body = asObject(req.body);
     const name = requireString(body, 'name', { min: 1, max: 200 });
@@ -126,21 +175,28 @@ export function playbookRoutes(app: FastifyInstance, db: Db): void {
     const id = newId('pb');
     // Encrypt BEFORE the transaction — see writeRules (avoids a PGlite deadlock).
     const encRules = await Promise.all(rules.map((r) => encText(db, ownerId, r)));
+    // RETURNING даёт таймстампы сразу — ответ собирается без повторного
+    // чтения и расшифровки только что записанных правил (loadOne).
+    let stamps!: { created_at: Date | string; updated_at: Date | string };
     await db.withTx(async (tx) => {
-      await tx.query('INSERT INTO playbooks (id, owner_user_id, name, jurisdiction, active) VALUES ($1, $2, $3, $4, true)', [id, ownerId, name, jurisdiction]);
+      const ins = await tx.query<{ created_at: Date | string; updated_at: Date | string }>(
+        'INSERT INTO playbooks (id, owner_user_id, name, jurisdiction, active) VALUES ($1, $2, $3, $4, true) RETURNING created_at, updated_at',
+        [id, ownerId, name, jurisdiction],
+      );
+      stamps = ins.rows[0];
       await writeRules(tx, id, encRules);
     });
     reply.code(201);
-    return (await loadOne(db, ownerId, id))!;
+    return { id, name, jurisdiction, active: true, rules, createdAt: toIso(stamps.created_at), updatedAt: toIso(stamps.updated_at) };
   });
 
   app.patch('/playbooks/:id', { preHandler: [app.authenticateReal] }, async (req): Promise<Playbook> => {
-    await assertFeature(db, req.currentUser.id, 'playbooks');
-    const ownerId = await playbookOwner(db, req.currentUser.id);
+    const ownerId = await resolveOwner(db, req.currentUser.id);
     await assertCanWrite(db, req.currentUser.id, ownerId);
     const { id } = req.params as { id: string };
-    const existing = await loadOne(db, ownerId, id);
-    if (!existing) throw notFound('Плейбук не найден');
+    // Лёгкая проверка существования вместо полного loadOne с расшифровкой.
+    const exists = await db.query<{ id: string }>('SELECT id FROM playbooks WHERE id = $1 AND owner_user_id = $2', [id, ownerId]);
+    if (!exists.rows[0]) throw notFound('Плейбук не найден');
     const body = asObject(req.body);
 
     const sets: string[] = ['updated_at = now()'];
@@ -168,8 +224,7 @@ export function playbookRoutes(app: FastifyInstance, db: Db): void {
   });
 
   app.delete('/playbooks/:id', { preHandler: [app.authenticateReal] }, async (req, reply) => {
-    await assertFeature(db, req.currentUser.id, 'playbooks');
-    const ownerId = await playbookOwner(db, req.currentUser.id);
+    const ownerId = await resolveOwner(db, req.currentUser.id);
     await assertCanWrite(db, req.currentUser.id, ownerId);
     const { id } = req.params as { id: string };
     const res = await db.query<{ id: string }>('DELETE FROM playbooks WHERE id = $1 AND owner_user_id = $2 RETURNING id', [id, ownerId]);

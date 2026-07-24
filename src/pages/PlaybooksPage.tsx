@@ -47,7 +47,7 @@ export function PlaybooksPage() {
   // and revalidates silently. The 402 "not on Pro+" answer is a VIEW (cached
   // too); buying a plan calls clearAsyncCache(), which re-runs the fetcher.
   // Create/save/delete call reload() — a silent refresh, no skeleton flash.
-  const { data: view, loading, error, reload } = useAsync<{ locked: true } | { locked: false; rows: Playbook[] }>(
+  const { data: view, loading, error, reload, mutate } = useAsync<{ locked: true } | { locked: false; rows: Playbook[] }>(
     async () => {
       try {
         return { locked: false, rows: await playbooksApi.list() };
@@ -124,12 +124,15 @@ export function PlaybooksPage() {
     setSaving(true);
     try {
       if (editing) {
-        await playbooksApi.update(editing.id, { name, jurisdiction, active: form.active, rules });
+        const updated = await playbooksApi.update(editing.id, { name, jurisdiction, active: form.active, rules });
+        // Мгновенно показать результат из ответа сервера; reload() тихо сверит.
+        mutate((v) => (v && !v.locked ? { locked: false, rows: v.rows.map((r) => (r.id === updated.id ? updated : r)) } : v));
         pushToast(t('playbooks.savedToast'), 'success');
       } else {
-        const created = await playbooksApi.create({ name, jurisdiction, rules });
+        let created = await playbooksApi.create({ name, jurisdiction, rules });
         // POST always creates an active playbook; honour an "off" toggle after.
-        if (!form.active) await playbooksApi.update(created.id, { active: false });
+        if (!form.active) created = await playbooksApi.update(created.id, { active: false });
+        mutate((v) => (v && !v.locked ? { locked: false, rows: [created, ...v.rows.filter((r) => r.id !== created.id)] } : v));
         pushToast(t('playbooks.createdToast'), 'success');
       }
       closeEditor();
@@ -146,6 +149,8 @@ export function PlaybooksPage() {
     setDeleteBusy(true);
     try {
       await playbooksApi.remove(editing.id);
+      const removedId = editing.id;
+      mutate((v) => (v && !v.locked ? { locked: false, rows: v.rows.filter((r) => r.id !== removedId) } : v));
       pushToast(t('playbooks.deletedToast'), 'default');
       closeEditor();
       reload();

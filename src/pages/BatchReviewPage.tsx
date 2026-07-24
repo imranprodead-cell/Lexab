@@ -65,7 +65,7 @@ export function BatchReviewPage() {
   // doubles as the old silent refreshHistory (no skeleton over the job view).
   // The job POLLING below stays manual — dynamic stop conditions are not
   // useAsync's job.
-  const { data: historyView, loading, error, reload: refreshHistory } = useAsync<
+  const { data: historyView, loading, error, reload: refreshHistory, mutate: mutateHistory } = useAsync<
     { locked: true } | { locked: false; rows: BatchJob[] }
   >(
     async () => {
@@ -172,6 +172,8 @@ export function BatchReviewPage() {
       const created = await batchApi.start(ids, law);
       setJob(created);
       setFiles([]);
+      // Мгновенно добавить задачу в историю; reload тихо сверит с сервером.
+      mutateHistory((v) => (v && !v.locked ? { locked: false, rows: [created, ...v.rows.filter((r) => r.id !== created.id)] } : v));
       void refreshHistory(); // silent — don't flash the page skeleton over the job view
     } catch (err) {
       pushToast(err instanceof Error ? err.message : t('common.error'), 'error');
