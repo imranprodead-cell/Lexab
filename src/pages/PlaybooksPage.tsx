@@ -48,9 +48,9 @@ export function PlaybooksPage() {
   // too); buying a plan calls clearAsyncCache(), which re-runs the fetcher.
   // Create/save/delete call reload() — a silent refresh, no skeleton flash.
   const { data: view, loading, error, reload, mutate } = useAsync<{ locked: true } | { locked: false; rows: Playbook[] }>(
-    async () => {
+    async (signal) => {
       try {
-        return { locked: false, rows: await playbooksApi.list() };
+        return { locked: false, rows: await playbooksApi.list(signal) };
       } catch (err) {
         if (err instanceof ApiError && err.status === 402) return { locked: true };
         throw err;

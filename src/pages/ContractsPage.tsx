@@ -46,9 +46,9 @@ export function ContractsPage() {
   // answer is a VIEW (not an error) so it caches too; buying a plan calls
   // clearAsyncCache(), which re-runs every mounted fetcher.
   const { data, loading, error, reload } = useAsync<{ locked: true } | { locked: false; rows: ContractRow[] }>(
-    async () => {
+    async (signal) => {
       try {
-        return { locked: false, rows: await contractsApi.list() };
+        return { locked: false, rows: await contractsApi.list(signal) };
       } catch (err) {
         if (err instanceof ApiError && err.status === 402) return { locked: true };
         throw err;

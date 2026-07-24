@@ -577,9 +577,9 @@ function AccessReviewSection() {
   // The 402 "not on Business" answer is a VIEW and caches too; team changes
   // and plan purchase call clearAsyncCache(), which re-runs the fetcher.
   const { data: view, loading, error } = useAsync<{ locked: true } | { locked: false; rows: AccessReviewRow[] }>(
-    async () => {
+    async (signal) => {
       try {
-        return { locked: false, rows: await securityApi.accessReview.list() };
+        return { locked: false, rows: await securityApi.accessReview.list(signal) };
       } catch (err) {
         if (err instanceof ApiError && err.status === 402) return { locked: true };
         throw err;

@@ -880,10 +880,10 @@
   font-size: 15px;
   line-height: 1.45;
   /* Full-width top row: long prompts get the whole pill width to breathe;
-     extra text grows the pill upward — up to half the screen (JS mirror:
-     composerCap in ChatInput). */
+     extra text grows the pill upward — up to half the screen (exact JS
+     mirror: composerCap in ChatInput). */
   padding: 6px 4px 2px;
-  max-height: min(50vh, 560px);
+  max-height: clamp(320px, 50vh, 560px);
   min-width: 0;
 }
 .sendBtn {

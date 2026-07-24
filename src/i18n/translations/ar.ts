@@ -545,6 +545,7 @@ const ar: Record<string, string> = {
   "chat.attach": "إرفاق عقد",
   "chat.improve": "تحسين الطلب",
   "chat.improveShort": "صِف طلبك بمزيد من التفصيل — 5 كلمات على الأقل",
+  "chat.improveLong": "النص طويل جدًا للتحسين (حتى 4000 حرف)",
   "chat.improveError": "تعذّر تحسين الطلب. حاول مرة أخرى.",
   "chat.sendLabel": "إرسال الرسالة",
   "ws.review": "مراجعة",

@@ -1016,6 +1016,10 @@ export const MESSAGES: Dict = {
     ru: 'Опишите запрос подробнее — минимум 5 слов',
     en: 'Describe your request in at least 5 words',
   },
+  'chat.improveLong': {
+    ru: 'Текст слишком длинный для улучшения (до 4000 символов)',
+    en: 'Text is too long to improve (up to 4,000 characters)',
+  },
   'chat.improveError': {
     ru: 'Не удалось улучшить запрос. Попробуйте ещё раз.',
     en: 'Couldn’t improve the prompt. Please try again.',

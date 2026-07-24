@@ -545,6 +545,7 @@ const uz: Record<string, string> = {
   "chat.attach": "Shartnomani biriktirish",
   "chat.improve": "Promptni yaxshilash",
   "chat.improveShort": "So‘rovingizni batafsilroq yozing — kamida 5 ta so‘z",
+  "chat.improveLong": "Matn yaxshilash uchun juda uzun (4000 belgigacha)",
   "chat.improveError": "So‘rovni yaxshilab bo‘lmadi. Qayta urinib ko‘ring.",
   "chat.sendLabel": "Xabar yuborish",
   "ws.review": "Tahlil",

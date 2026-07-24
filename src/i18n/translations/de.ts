@@ -545,6 +545,7 @@ const de: Record<string, string> = {
   "chat.attach": "Vertrag anhängen",
   "chat.improve": "Prompt verbessern",
   "chat.improveShort": "Beschreiben Sie Ihre Anfrage genauer — mindestens 5 Wörter",
+  "chat.improveLong": "Der Text ist zu lang für die Verbesserung (bis 4000 Zeichen)",
   "chat.improveError": "Der Prompt konnte nicht verbessert werden. Bitte erneut versuchen.",
   "chat.sendLabel": "Nachricht senden",
   "ws.review": "Prüfung",

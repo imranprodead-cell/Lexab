@@ -102,8 +102,12 @@ export function useAsync<T>(fetcher: (signal: AbortSignal) => Promise<T>, deps: 
 
     fetcher(controller.signal)
       .then((result) => {
+        // A superseded fetch (reload()/unmount already happened) must not
+        // touch the CACHE either — otherwise its stale list would overwrite
+        // an optimistic mutate() (deleted row resurrects, created row vanishes).
+        if (!alive || controller.signal.aborted) return;
         if (key !== null && result != null) asyncCache.set(key, result);
-        if (alive) setData(result);
+        setData(result);
       })
       .catch((err: unknown) => {
         if (!alive || controller.signal.aborted) return;
@@ -116,9 +120,10 @@ export function useAsync<T>(fetcher: (signal: AbortSignal) => Promise<T>, deps: 
           setError(err instanceof Error ? err.message : 'Not found.');
           return;
         }
-        // With stale data on screen a failed refresh stays silent; the next
-        // visit or reload() retries.
-        if (!hasCached) setError(err instanceof Error ? err.message : 'Something went wrong.');
+        // With data ON SCREEN a failed refresh stays silent (the next visit or
+        // reload() retries) — including right after clearAsyncCache(), when
+        // the cache is empty but the old list is still rendered.
+        if (!hasCached && dataRef.current === null) setError(err instanceof Error ? err.message : 'Something went wrong.');
       })
       .finally(() => {
         if (alive) setLoading(false);

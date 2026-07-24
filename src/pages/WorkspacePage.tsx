@@ -378,8 +378,9 @@ export function WorkspacePage() {
                       </div>
                     ) : (
                       <div key={m.id} className={styles.qaAssistant}>
-                        <MarkdownMessage text={m.text ?? ''} />
-                        {m.streaming ? '…' : ''}
+                        {/* «…» внутри текста: после блочного markdown-рендера
+                            отдельный текстовый узел падал бы на свою строку. */}
+                        <MarkdownMessage text={m.streaming ? `${m.text ?? ''}…` : (m.text ?? '')} />
                       </div>
                     ),
                   )}

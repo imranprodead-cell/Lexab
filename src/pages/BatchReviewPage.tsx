@@ -68,9 +68,9 @@ export function BatchReviewPage() {
   const { data: historyView, loading, error, reload: refreshHistory, mutate: mutateHistory } = useAsync<
     { locked: true } | { locked: false; rows: BatchJob[] }
   >(
-    async () => {
+    async (signal) => {
       try {
-        return { locked: false, rows: await batchApi.list() };
+        return { locked: false, rows: await batchApi.list(signal) };
       } catch (err) {
         if (err instanceof ApiError && err.status === 402) return { locked: true };
         throw err;

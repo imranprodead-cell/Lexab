@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Icon } from '@/components/icons/Icon';
 import { GlassCard } from '@/components/ui/GlassCard';
 import { Spinner } from '@/components/ui/Spinner';
@@ -16,10 +16,13 @@ const DRAFTS_KEY = 'lexai.drafts';
 
 /** Потолок высоты поля ввода: плашка растёт вместе с текстом до половины
  *  экрана (не меньше 320px, не больше 560px) — длинный запрос читается
- *  целиком, дальше включается внутренняя прокрутка. Синхронен с max-height
- *  в CSS (min(50vh, 560px)). */
+ *  целиком, дальше включается внутренняя прокрутка. Точное зеркало CSS
+ *  max-height: clamp(320px, 50vh, 560px). */
 const composerCap = () =>
   typeof window === 'undefined' ? 320 : Math.max(320, Math.min(Math.round(window.innerHeight * 0.5), 560));
+
+/** Потолок текста для кнопки ✦ — совпадает с серверным лимитом /prompts/improve. */
+const IMPROVE_MAX_CHARS = 4000;
 
 function loadDraft(key: string): string {
   try {
@@ -77,14 +80,27 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
   // Leaving the page mid-improve must not leak the request.
   useEffect(() => () => improveAbortRef.current?.abort(), []);
 
-  // A restored draft can be multi-line — size the textarea to it on mount.
-  useEffect(() => {
+  /** Единственная точка измерения высоты плашки. */
+  const measureHeight = useCallback(() => {
     const ta = textareaRef.current;
-    if (ta && ta.value) {
-      ta.style.height = 'auto';
-      ta.style.height = `${Math.min(composerCap(), ta.scrollHeight)}px`;
-    }
+    if (!ta) return;
+    ta.style.height = 'auto';
+    ta.style.height = `${Math.min(composerCap(), ta.scrollHeight)}px`;
   }, []);
+
+  // Высота следует за ЗНАЧЕНИЕМ, а не за нажатием клавиши: программные записи
+  // (результат ✦, диктовка, восстановленный черновик) должны растить плашку
+  // так же, как печать. useLayoutEffect замеряет ПОСЛЕ обновления DOM новым
+  // текстом, но до отрисовки — замер по старому содержимому исключён.
+  useLayoutEffect(() => {
+    measureHeight();
+  }, [value, measureHeight]);
+
+  // Смена размера окна меняет потолок (50vh) — перемеряем без нажатий клавиш.
+  useEffect(() => {
+    window.addEventListener('resize', measureHeight);
+    return () => window.removeEventListener('resize', measureHeight);
+  }, [measureHeight]);
 
   const onAttach = () => {
     if (onFile) fileInputRef.current?.click();
@@ -97,11 +113,8 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
       if (!ephemeral) saveDraft(draftKey, next);
       setSlashOpen(next.startsWith('/') && !next.includes(' '));
       setSlashIndex(0);
-      const ta = textareaRef.current;
-      if (ta) {
-        ta.style.height = 'auto';
-        ta.style.height = `${Math.min(composerCap(), ta.scrollHeight)}px`;
-      }
+      // Высоту меряет layout-эффект на [value] — здесь замер был бы по
+      // СТАРОМУ DOM (React 18 батчит setValue в программных путях).
     },
     [draftKey, ephemeral],
   );
@@ -113,6 +126,7 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
   );
 
   const onMic = () => {
+    if (improving) return; // диктовка поверх работающего ✦ молча теряла бы текст
     if (!voice.listening) micBaseRef.current = value ? `${value.replace(/\s*$/, '')} ` : '';
     voice.toggle();
   };
@@ -121,6 +135,7 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
   const onImprove = async () => {
     const draft = value.trim();
     if (!draft || !improveReady || improving) return;
+    if (voice.listening) voice.toggle(); // остановить диктовку — иначе поздний transcript перезапишет результат ✦
     improveAbortRef.current?.abort();
     const controller = new AbortController();
     improveAbortRef.current = controller;
@@ -153,9 +168,7 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
   const clearValue = () => {
     setValue('');
     if (!ephemeral) saveDraft(draftKey, '');
-    // Collapse back to a single line — a tall textarea must not stay tall
-    // (deformed pill) after the long message it held was sent or cleared.
-    if (textareaRef.current) textareaRef.current.style.height = 'auto';
+    // Схлопывание к одной строке делает layout-эффект на [value].
   };
 
   /** Consuming the draft (send / slash-pick) must kill an in-flight improve —
@@ -190,7 +203,6 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
     onSend?.(trimmed);
     clearValue();
     setSlashOpen(false);
-    if (textareaRef.current) textareaRef.current.style.height = 'auto';
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -224,7 +236,11 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
   const hasText = value.trim().length > 0;
   // ✦ активна только когда пользователь реально описал запрос (≥5 слов) —
   // на обрывке из пары слов модели нечего улучшать, она начнёт додумывать.
-  const improveReady = value.trim().split(/\s+/).filter(Boolean).length >= 5;
+  // И не длиннее серверного лимита — иначе кнопка выглядит рабочей, а сервер
+  // отвечает 400 с непонятным для пользователя тостом.
+  const improveTooLong = value.trim().length > IMPROVE_MAX_CHARS;
+  const improveReady = value.trim().split(/\s+/).filter(Boolean).length >= 5 && !improveTooLong;
+  const improveHint = improveTooLong ? t('chat.improveLong') : hasText && !improveReady ? t('chat.improveShort') : t('chat.improve');
 
   return (
     <div className={`${styles.composer} ${compact ? styles.composerCompact : ''}`}>
@@ -294,7 +310,7 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
               type="button"
               className={styles.micBtn}
               aria-label={t('chat.improve')}
-              title={hasText && !improveReady ? t('chat.improveShort') : t('chat.improve')}
+              title={improveHint}
               onClick={onImprove}
               disabled={!improveReady || improving}
               style={{ color: improving ? 'var(--accent)' : 'var(--dim)', opacity: improveReady || improving ? 1 : 0.45 }}
@@ -309,7 +325,8 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
                 aria-label={voice.listening ? t('chat.micStop') : t('chat.micStart')}
                 title={voice.listening ? t('chat.micStop') : t('chat.micStart')}
                 onClick={onMic}
-                style={{ color: voice.listening ? 'var(--accent)' : 'var(--dim)' }}
+                disabled={improving}
+                style={{ color: voice.listening ? 'var(--accent)' : 'var(--dim)', opacity: improving ? 0.45 : 1 }}
                 data-listening={voice.listening ? 'true' : undefined}
               >
                 <Icon name="mic" size={18} />

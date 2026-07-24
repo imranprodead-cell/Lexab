@@ -898,9 +898,13 @@ export async function improvePrompt(draft: string): Promise<string> {
       return runDeepseek({
         op: 'improve-prompt',
         model,
-        maxTokens: 1000,
+        // Черновик до 4000 символов; структурная переработка длиннее оригинала —
+        // 2000 токенов с запасом. failOnLength: молча обрезанный промпт ХУЖЕ
+        // ошибки — он заменил бы собой полный текст пользователя.
+        maxTokens: 2000,
         system: IMPROVE_PROMPT_SYSTEM,
         messages: [{ role: 'user', content: draft }],
+        failOnLength: true,
         // Микрозапрос: без этого reasoning deepseek-v4-pro съедает весь бюджет
         // и ответ приходит пустым (та же ловушка, что у history-summary).
         thinkingDisabled: true,
@@ -912,12 +916,16 @@ export async function improvePrompt(draft: string): Promise<string> {
     if (!api) throw serviceUnavailable(LLM_UNAVAILABLE);
     const stream = api.beta.messages.stream({
       model: 'claude-haiku-4-5',
-      max_tokens: 1000,
+      max_tokens: 2000,
       system: IMPROVE_PROMPT_SYSTEM,
       messages: [{ role: 'user', content: draft }],
     });
     const message = await stream.finalMessage();
     logUsage('improve-prompt', 'claude-haiku-4-5', message);
+    if (message.stop_reason === 'max_tokens') {
+      // Тот же принцип, что failOnLength: не подменяем текст пользователя обрубком.
+      throw new Error('improve-prompt output truncated at max_tokens');
+    }
     return textOf(message);
   });
   return text.trim() || draft;
