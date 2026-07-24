@@ -1,0 +1,66 @@
+{
+  "at": "2026-07-24T15:51:48.522Z",
+  "model": "deepseek-v4-pro",
+  "golden": "uz-contract-law.jsonl",
+  "questions": 69,
+  "retrieval": {
+    "hit@5": 0.971,
+    "hit@10": 0.971,
+    "recall@10": 0.944
+  },
+  "misses": [
+    {
+      "question": "Kontragent shartnomani jiddiy buzyapti, lekin uni o'zaro kelishuv bilan bekor qilishga rozi bo'lmayapti. Men shartnomani bekor qilish uchun sudga murojaat qilsam bo'ladimi va buning uchun qanday asos talab qilinadi?",
+      "expected_unit_ids": [
+        "lu_uz_111181_st-382"
+      ],
+      "top10_unit_ids": [
+        "lu_uz_6257291_st-513",
+        "lu_uz_6257291_st-21",
+        "lu_uz_6257291_st-5",
+        "lu_uz_111181_st-236",
+        "lu_uz_180550_st-704",
+        "lu_uz_180550_st-705",
+        "lu_uz_6257291_st-104",
+        "lu_uz_6257291_st-95",
+        "lu_uz_180550_st-822",
+        "lu_uz_6257291_st-94"
+      ]
+    },
+    {
+      "question": "Do'konimdan mijoz ko'ylak sotib oldi, uch kundan keyin rangi yoqmadi deb almashtirishni so'rayapti. Tovar sifatli, kiyilmagan, upakovkasi joyida. Men uni almashtirib berishga yoki pulini qaytarishga majburmanmi va mijoz qancha muddat ichida murojaat qilishi mumkin?",
+      "expected_unit_ids": [
+        "lu_uz_14643_st-18"
+      ],
+      "top10_unit_ids": [
+        "lu_uz_180550_st-403",
+        "lu_uz_180550_st-415",
+        "lu_uz_180550_st-409",
+        "lu_uz_180550_st-424",
+        "lu_uz_180550_st-405",
+        "lu_uz_180550_st-427",
+        "lu_uz_180550_st-419",
+        "lu_uz_180550_st-447",
+        "lu_uz_180550_st-407",
+        "lu_uz_10872_st-28"
+      ]
+    }
+  ],
+  "corpus": {
+    "jurisdiction": "UZ",
+    "documents": 20,
+    "chunks": 3790,
+    "contextCoverage": 1,
+    "embeddingCoverage": 1
+  },
+  "baseline": {
+    "findings": 134,
+    "citationPrecision": 0.157,
+    "unverifiedShare": 0.843
+  },
+  "rag": {
+    "findings": 106,
+    "citationPrecision": 0.991,
+    "unverifiedShare": 0.009
+  }
+}
