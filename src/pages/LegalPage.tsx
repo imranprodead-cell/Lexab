@@ -17,8 +17,8 @@ const TERMS: Section[] = [
     h: { ru: '1. Определения', en: '1. Definitions' },
     p: [
       {
-        ru: '«Сервис» — платформа LexAI, доступная через веб-приложение, включая анализ документов, чат с ИИ-ассистентом, шаблоны, электронные подписи и связанные функции. «Мы», «LexAI» — оператор сервиса. «Пользователь», «вы» — лицо, создавшее аккаунт или использующее сервис. «Контент пользователя» — документы, тексты и иные материалы, которые вы загружаете в сервис. «Тариф» — выбранный вами план подписки, определяющий объём доступных функций.',
-        en: '“Service” means the LexAI platform available through the web application, including document analysis, the AI assistant chat, templates, e-signatures and related features. “We” and “LexAI” mean the service operator. “User” and “you” mean the person who created an account or uses the service. “User content” means documents, texts and other materials you upload to the service. “Plan” means the subscription plan you selected, which defines the scope of available features.',
+        ru: '«Сервис» — платформа Lexab, доступная через веб-приложение, включая анализ документов, чат с ИИ-ассистентом, шаблоны, электронные подписи и связанные функции. «Мы», «Lexab» — оператор сервиса. «Пользователь», «вы» — лицо, создавшее аккаунт или использующее сервис. «Контент пользователя» — документы, тексты и иные материалы, которые вы загружаете в сервис. «Тариф» — выбранный вами план подписки, определяющий объём доступных функций.',
+        en: '“Service” means the Lexab platform available through the web application, including document analysis, the AI assistant chat, templates, e-signatures and related features. “We” and “Lexab” mean the service operator. “User” and “you” mean the person who created an account or uses the service. “User content” means documents, texts and other materials you upload to the service. “Plan” means the subscription plan you selected, which defines the scope of available features.',
       },
     ],
   },
@@ -27,8 +27,8 @@ const TERMS: Section[] = [
     h: { ru: '2. Описание сервиса', en: '2. Service description' },
     p: [
       {
-        ru: 'LexAI — платформа интеллектуального анализа договоров: загрузка документов, автоматический поиск рисков с привязкой к законодательству, правки, шаблоны, чат с ИИ-ассистентом и электронные подписи.',
-        en: 'LexAI is an AI contract-intelligence platform: document upload, automated risk review linked to legislation, redlines, templates, an AI assistant chat and e-signatures.',
+        ru: 'Lexab — платформа интеллектуального анализа договоров: загрузка документов, автоматический поиск рисков с привязкой к законодательству, правки, шаблоны, чат с ИИ-ассистентом и электронные подписи.',
+        en: 'Lexab is an AI contract-intelligence platform: document upload, automated risk review linked to legislation, redlines, templates, an AI assistant chat and e-signatures.',
       },
       {
         ru: 'Анализ выполняют большие языковые модели. Находки, ссылающиеся на правовые нормы, сопоставляются с базой официальных текстов законов, а цитаты проходят автоматическую проверку: ссылка без подтверждённого источника помечается как непроверенная.',
@@ -49,8 +49,8 @@ const TERMS: Section[] = [
         en: 'AI can make mistakes: it may miss risks, misinterpret legal provisions or misjudge the severity of contract terms. Any analysis output must be reviewed by a qualified lawyer before decisions are made on its basis.',
       },
       {
-        ru: 'Ответственность за принятые решения — подписание договора, отказ от сделки, направление претензии и тому подобное — несёт пользователь или его юрист. LexAI — вспомогательный инструмент, а не замена профессионального суждения.',
-        en: 'Responsibility for decisions taken — signing a contract, walking away from a deal, sending a claim and the like — rests with the user or their lawyer. LexAI is a supporting tool, not a substitute for professional judgement.',
+        ru: 'Ответственность за принятые решения — подписание договора, отказ от сделки, направление претензии и тому подобное — несёт пользователь или его юрист. Lexab — вспомогательный инструмент, а не замена профессионального суждения.',
+        en: 'Responsibility for decisions taken — signing a contract, walking away from a deal, sending a claim and the like — rests with the user or their lawyer. Lexab is a supporting tool, not a substitute for professional judgement.',
       },
     ],
   },
@@ -109,12 +109,12 @@ const TERMS: Section[] = [
     h: { ru: '7. Интеллектуальная собственность', en: '7. Intellectual property' },
     p: [
       {
-        ru: 'Загруженные вами документы и материалы остаются вашей собственностью. Вы предоставляете LexAI ограниченную лицензию на их обработку исключительно для оказания услуг: хранение, извлечение текста, анализ и отображение результатов в вашем кабинете. Эта лицензия прекращается при удалении документа или аккаунта.',
-        en: 'Documents and materials you upload remain your property. You grant LexAI a limited licence to process them solely to provide the service: storage, text extraction, analysis and displaying results in your workspace. This licence ends when the document or the account is deleted.',
+        ru: 'Загруженные вами документы и материалы остаются вашей собственностью. Вы предоставляете Lexab ограниченную лицензию на их обработку исключительно для оказания услуг: хранение, извлечение текста, анализ и отображение результатов в вашем кабинете. Эта лицензия прекращается при удалении документа или аккаунта.',
+        en: 'Documents and materials you upload remain your property. You grant Lexab a limited licence to process them solely to provide the service: storage, text extraction, analysis and displaying results in your workspace. This licence ends when the document or the account is deleted.',
       },
       {
-        ru: 'Сервис, его код, интерфейс, товарные обозначения и база правовых текстов с аннотациями принадлежат LexAI или используются на законных основаниях. Настоящие условия не передают вам никаких прав на сервис, кроме права пользования в рамках выбранного тарифа.',
-        en: 'The service, its code, interface, trade marks and the annotated corpus of legal texts belong to LexAI or are used under lawful grounds. These terms grant you no rights in the service other than the right to use it under your chosen plan.',
+        ru: 'Сервис, его код, интерфейс, товарные обозначения и база правовых текстов с аннотациями принадлежат Lexab или используются на законных основаниях. Настоящие условия не передают вам никаких прав на сервис, кроме права пользования в рамках выбранного тарифа.',
+        en: 'The service, its code, interface, trade marks and the annotated corpus of legal texts belong to Lexab or are used under lawful grounds. These terms grant you no rights in the service other than the right to use it under your chosen plan.',
       },
     ],
   },
@@ -151,12 +151,12 @@ const TERMS: Section[] = [
     h: { ru: '10. Ограничение ответственности', en: '10. Limitation of liability' },
     p: [
       {
-        ru: 'В максимальной степени, допустимой применимым правом, LexAI не отвечает за косвенные убытки, упущенную выгоду, потерю данных или деловой репутации, возникшие в связи с использованием сервиса или невозможностью его использования.',
-        en: 'To the maximum extent permitted by applicable law, LexAI is not liable for indirect losses, lost profits, loss of data or goodwill arising from the use of, or inability to use, the service.',
+        ru: 'В максимальной степени, допустимой применимым правом, Lexab не отвечает за косвенные убытки, упущенную выгоду, потерю данных или деловой репутации, возникшие в связи с использованием сервиса или невозможностью его использования.',
+        en: 'To the maximum extent permitted by applicable law, Lexab is not liable for indirect losses, lost profits, loss of data or goodwill arising from the use of, or inability to use, the service.',
       },
       {
-        ru: 'Совокупная ответственность LexAI по любым требованиям ограничена суммой, уплаченной вами за сервис за 12 месяцев, предшествующих событию, из которого возникло требование. Ничто в этих условиях не ограничивает ответственность, которая не может быть ограничена по закону.',
-        en: 'LexAI’s aggregate liability for any claims is limited to the amount you paid for the service in the 12 months preceding the event giving rise to the claim. Nothing in these terms limits liability that cannot be limited by law.',
+        ru: 'Совокупная ответственность Lexab по любым требованиям ограничена суммой, уплаченной вами за сервис за 12 месяцев, предшествующих событию, из которого возникло требование. Ничто в этих условиях не ограничивает ответственность, которая не может быть ограничена по закону.',
+        en: 'Lexab’s aggregate liability for any claims is limited to the amount you paid for the service in the 12 months preceding the event giving rise to the claim. Nothing in these terms limits liability that cannot be limited by law.',
       },
     ],
   },
@@ -189,8 +189,8 @@ const TERMS: Section[] = [
     h: { ru: '13. Применимое право и оператор', en: '13. Governing law and operator' },
     p: [
       {
-        ru: 'Оператор сервиса — LexAI. [Полные реквизиты юридического лица будут указаны до коммерческого запуска.]',
-        en: 'The service operator is LexAI. [Full legal-entity details will be provided before commercial launch.]',
+        ru: 'Оператор сервиса — Lexab. [Полные реквизиты юридического лица будут указаны до коммерческого запуска.]',
+        en: 'The service operator is Lexab. [Full legal-entity details will be provided before commercial launch.]',
       },
       {
         ru: 'Применимое право и порядок разрешения споров будут определены вместе с реквизитами оператора; до этого мы просим направлять любые претензии через контакты, указанные ниже, — мы постараемся разрешить спор путём переговоров.',
@@ -407,7 +407,7 @@ export function LegalPage({ kind }: { kind: 'terms' | 'privacy' }) {
         <div className={styles.legalTop}>
           <Link to="/" className={styles.legalBrand}>
             <Avatar size={30} />
-            <span>LexAI</span>
+            <span>Lexab</span>
           </Link>
           <button type="button" className={styles.legalBack} onClick={goBack}>
             ← {lang === 'ru' ? 'Назад' : 'Back'}

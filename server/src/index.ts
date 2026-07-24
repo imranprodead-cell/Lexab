@@ -112,7 +112,7 @@ if (!config.anthropicApiKey) {
 
 const app = await buildApp(db);
 await app.listen({ port: config.port, host: config.host });
-console.log(`LexAI API listening on http://localhost:${config.port}${config.apiPrefix}`);
+console.log(`Lexab API listening on http://localhost:${config.port}${config.apiPrefix}`);
 
 // Прогрев OAuth-токена озвучки (только сервисный аккаунт): без прогрева первый
 // клик «Прочитать вслух» платит ~0.5 с за обмен JWT→token. Здесь, а не в

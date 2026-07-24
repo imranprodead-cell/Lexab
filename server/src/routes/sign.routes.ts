@@ -255,7 +255,7 @@ export function signRoutes(app: FastifyInstance, db: Db): void {
           html: mailLayout(
             'Все подписи получены',
             `<p>Документ <strong>${escapeMailHtml(row.document_name)}</strong> подписан всеми получателями.</p>
-             <p>Последняя подпись: <strong>${escapeMailHtml(name)}</strong>. Статус запроса в LexAI — «Completed».</p>`,
+             <p>Последняя подпись: <strong>${escapeMailHtml(name)}</strong>. Статус запроса в Lexab — «Completed».</p>`,
             'Открыть раздел «Подписи»',
             `${config.appBaseUrl}/signatures`,
           ),

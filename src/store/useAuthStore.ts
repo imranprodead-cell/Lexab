@@ -73,7 +73,7 @@ async function mockAuth(user: UserProfile): Promise<Session> {
 
 /** Mock-mode profile derived from the entered credentials — no seeded persona. */
 function mockProfile(name: string, email: string): UserProfile {
-  return { name, initials: initials(name), firm: 'LexAI', jurisdiction: 'United Kingdom', email };
+  return { name, initials: initials(name), firm: 'Lexab', jurisdiction: 'United Kingdom', email };
 }
 
 /** iat/exp (seconds) from a JWT payload, or null for opaque/mock tokens. */

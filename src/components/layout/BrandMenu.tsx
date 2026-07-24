@@ -6,7 +6,7 @@ import { useI18n } from '@/i18n/I18nProvider';
 import styles from './layout.module.css';
 
 /**
- * The "LexAI ⌄" brand switcher in the chat top bar. Opens a ChatGPT-style
+ * The "Lexab ⌄" brand switcher in the chat top bar. Opens a ChatGPT-style
  * dropdown: a Pro upsell row (with an Upgrade button) and the current tier.
  */
 export function BrandMenu() {
@@ -24,7 +24,7 @@ export function BrandMenu() {
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
       >
-        <span className={styles.brandMenuName}>LexAI</span>
+        <span className={styles.brandMenuName}>Lexab</span>
         <span className={`${styles.brandMenuChevron} ${open ? styles.brandMenuChevronOpen : ''}`}>
           <Icon name="chevron" size={16} />
         </span>
@@ -37,7 +37,7 @@ export function BrandMenu() {
               <Icon name="sparkle" size={18} />
             </span>
             <div className={styles.brandMenuText}>
-              <div className={styles.brandMenuItemTitle}>LexAI Pro</div>
+              <div className={styles.brandMenuItemTitle}>Lexab Pro</div>
               <div className={styles.brandMenuItemDesc}>{t('brand.proDesc')}</div>
             </div>
             <button
@@ -63,7 +63,7 @@ export function BrandMenu() {
               <Icon name="shield" size={18} />
             </span>
             <div className={styles.brandMenuText}>
-              <div className={styles.brandMenuItemTitle}>LexAI</div>
+              <div className={styles.brandMenuItemTitle}>Lexab</div>
               <div className={styles.brandMenuItemDesc}>{t('brand.baseDesc')}</div>
             </div>
             <span className={styles.brandMenuCheck}>

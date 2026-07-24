@@ -1,6 +1,6 @@
 /**
  * POST /inbound/email — webhook for e-mail intake ("send a contract to
- * contracts@your-domain and it appears in LexAI, analysed").
+ * contracts@your-domain and it appears in Lexab, analysed").
  *
  * Provider-agnostic JSON shape (map your provider's inbound webhook to it):
  *   { "from": "user@firm.com", "subject": "...", "timestamp": 1700000000,

@@ -50,7 +50,7 @@ function authHeader(): Record<string, string> {
 /** Fired once per 401 so the auth store can drop the dead session and route
  *  the user to the login screen ("session expired") instead of leaving pages
  *  stuck on a generic error card. */
-export const SESSION_EXPIRED_EVENT = 'lexai:session-expired';
+export const SESSION_EXPIRED_EVENT = 'lexab:session-expired';
 
 // Endpoints where a 401 means "bad credentials", not "session expired":
 // login, register, password reset/verify flows, Google/SSO exchanges and the

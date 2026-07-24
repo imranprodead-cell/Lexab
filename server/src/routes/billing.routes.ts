@@ -150,7 +150,7 @@ export function billingRoutes(app: FastifyInstance, db: Db): void {
     // Durable-medium confirmation restating the waiver + no-refund rule.
     void sendMail({
       to: req.currentUser.email,
-      subject: `LexAI: подписка ${normalized} активирована`,
+      subject: `Lexab: подписка ${normalized} активирована`,
       html: mailLayout(
         'Подписка активирована',
         `<p>Здравствуйте, <strong>${escapeMailHtml(req.currentUser.name)}</strong>!</p>

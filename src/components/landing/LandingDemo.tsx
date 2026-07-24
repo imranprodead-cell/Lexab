@@ -30,8 +30,8 @@ const DEMO = {
     en: 'except for losses caused by its negligence or wilful misconduct',
   },
   note: {
-    ru: 'Иллюстрация анализа LexAI. Результат зависит от документа и юрисдикции.',
-    en: 'An illustration of a LexAI review. Actual output depends on the document and jurisdiction.',
+    ru: 'Иллюстрация анализа Lexab. Результат зависит от документа и юрисдикции.',
+    en: 'An illustration of a Lexab review. Actual output depends on the document and jurisdiction.',
   },
 } as const satisfies Record<string, Text2 | string>;
 
@@ -45,7 +45,7 @@ const TYPE_MS = 20; // per character
 const PAUSE = { think: 1400, finding: 950, citation: 950, hold: 3200, fadeOut: 350 } as const;
 
 /**
- * Scripted product demo: the clause "types itself", LexAI "thinks" (same
+ * Scripted product demo: the clause "types itself", Lexab "thinks" (same
  * loader as the real chat), then the finding, verified citation and redline
  * appear — and the loop restarts. Pure frontend, no AI calls. The loop only
  * runs while visible and is replaced by a static frame under reduced motion.

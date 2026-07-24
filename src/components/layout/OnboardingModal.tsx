@@ -18,8 +18,8 @@ const STEPS: Step[] = [
     icon: 'search',
     title: { ru: 'Анализируйте контракты', en: 'Analyze contracts' },
     body: {
-      ru: 'Перетащите документ в чат — LexAI разберёт риски и предложит правки со ссылками на закон.',
-      en: 'Drop a document into the chat — LexAI surfaces risks and suggests redlines with citations.',
+      ru: 'Перетащите документ в чат — Lexab разберёт риски и предложит правки со ссылками на закон.',
+      en: 'Drop a document into the chat — Lexab surfaces risks and suggests redlines with citations.',
     },
   },
   {
@@ -69,7 +69,7 @@ export function OnboardingModal() {
   return (
     <Modal
       open={open}
-      title={`LexAI · ${step + 1}/${STEPS.length}`}
+      title={`Lexab · ${step + 1}/${STEPS.length}`}
       onClose={finish}
       footer={
         <>

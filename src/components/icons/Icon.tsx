@@ -1,7 +1,7 @@
 import type { CSSProperties, ReactNode } from 'react';
 
 /**
- * Icon set — 24×24 stroke icons ported from the LexAI prototype. Rendered as
+ * Icon set — 24×24 stroke icons ported from the Lexab prototype. Rendered as
  * inline SVG so they inherit `currentColor` and can be sized freely.
  * Each entry is the SVG geometry (paths / rects / circles) for that glyph.
  */

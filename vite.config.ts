@@ -22,7 +22,7 @@ function cspPlugin(): Plugin {
     }
   };
   return {
-    name: 'lexai-csp',
+    name: 'lexab-csp',
     apply: 'build',
     transformIndexHtml: {
       order: 'post',

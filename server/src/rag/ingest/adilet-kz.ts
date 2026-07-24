@@ -32,7 +32,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export async function fetchAdiletHtml(code: string): Promise<{ html: string; url: string }> {
   if (!/^[A-Za-z0-9_]+$/.test(code)) throw new Error(`invalid adilet doc code: ${code}`);
   const url = `https://adilet.zan.kz/rus/docs/${code}`;
-  const ua = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 LexAI-corpus-ingest/1.0';
+  const ua = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Lexab-corpus-ingest/1.0';
   let lastErr: Error | null = null;
   for (let attempt = 1; attempt <= 4; attempt++) {
     try {

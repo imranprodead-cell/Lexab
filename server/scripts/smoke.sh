@@ -3,7 +3,7 @@
 set -euo pipefail
 
 BASE="${BASE:-http://localhost:8080/api}"
-PASS="${SEED_DEMO_PASSWORD:-lexai-demo}"
+PASS="${SEED_DEMO_PASSWORD:-lexab-demo}"
 fail() { echo "✗ $1" >&2; exit 1; }
 ok() { echo "✓ $1"; }
 

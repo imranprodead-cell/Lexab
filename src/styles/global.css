@@ -1,5 +1,5 @@
 /* ============================================================================
-   LexAI global stylesheet — design tokens, resets, keyframes, utilities.
+   Lexab global stylesheet — design tokens, resets, keyframes, utilities.
    Colors are exposed as CSS custom properties so the accent can be re-themed
    at runtime (see UI store). Component styling lives in feature-scoped
    *.module.css files.

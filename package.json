@@ -1,9 +1,9 @@
 {
-  "name": "lexai-frontend",
+  "name": "lexab-frontend",
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "LexAI — AI contract intelligence platform. Production frontend (React + TypeScript + Vite).",
+  "description": "Lexab — AI contract intelligence platform. Production frontend (React + TypeScript + Vite).",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build && node scripts/prerender.mjs",

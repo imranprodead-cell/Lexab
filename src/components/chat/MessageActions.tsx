@@ -296,7 +296,7 @@ export function MessageActions({ message, onFeedback }: MessageActionsProps) {
   const downloadTxt = () => {
     setMenuOpen(false);
     const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-    downloadBlob(blob, 'LexAI_reply.txt');
+    downloadBlob(blob, 'Lexab_reply.txt');
   };
 
   const onMenuKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {

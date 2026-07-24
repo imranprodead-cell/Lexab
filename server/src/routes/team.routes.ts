@@ -255,10 +255,10 @@ export function teamRoutes(app: FastifyInstance, db: Db): void {
     const safeFirm = escapeMailHtml(req.currentUser.firm);
     void sendMail({
       to: email,
-      subject: `${req.currentUser.name} приглашает вас в команду LexAI`,
+      subject: `${req.currentUser.name} приглашает вас в команду Lexab`,
       html: mailLayout(
-        'Приглашение в команду LexAI',
-        `<p><strong>${safeName}</strong> (${safeFirm}) приглашает вас в свою команду в LexAI${title ? ` — должность «<strong>${escapeMailHtml(title)}</strong>»` : ''}.</p>
+        'Приглашение в команду Lexab',
+        `<p><strong>${safeName}</strong> (${safeFirm}) приглашает вас в свою команду в Lexab${title ? ` — должность «<strong>${escapeMailHtml(title)}</strong>»` : ''}.</p>
          <p>Откройте ссылку и войдите (или зарегистрируйтесь) с почтой <strong>${escapeMailHtml(email)}</strong> — приглашение будет ждать вас в разделе «Команда».</p>`,
         'Принять приглашение',
         inviteUrl,

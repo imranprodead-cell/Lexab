@@ -120,7 +120,7 @@ async function findOrCreateUser(db: Db, profile: GoogleProfile): Promise<UserRow
   const passwordHash = await hashPassword(crypto.randomBytes(32).toString('hex'));
   await db.query(
     `INSERT INTO users (id, email, password_hash, name, initials, firm, jurisdiction, avatar_url, google_sub)
-     VALUES ($1, $2, $3, $4, $5, 'LexAI', 'United Kingdom', $6, $7)`,
+     VALUES ($1, $2, $3, $4, $5, 'Lexab', 'United Kingdom', $6, $7)`,
     [id, email, passwordHash, name, initialsOf(name), profile.picture ?? null, profile.sub],
   );
   await db.query(`INSERT INTO subscriptions (user_id, plan, status) VALUES ($1, 'Free', 'active')`, [id]);
@@ -130,7 +130,7 @@ async function findOrCreateUser(db: Db, profile: GoogleProfile): Promise<UserRow
   await db.query(`INSERT INTO notifications (id, user_id, icon, title) VALUES ($1, $2, 'docs', $3)`, [
     newId('n'),
     id,
-    'Добро пожаловать в LexAI! Загрузите первый контракт для анализа.',
+    'Добро пожаловать в Lexab! Загрузите первый контракт для анализа.',
   ]);
   return (await getUserById(db, id)) as UserRow;
 }

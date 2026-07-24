@@ -1,5 +1,5 @@
 /**
- * Core domain model for LexAI.
+ * Core domain model for Lexab.
  *
  * These types are the contract between the UI and the API layer. The mock API
  * and any future real backend must both satisfy them, so screens never need to

@@ -125,7 +125,7 @@ export const config = {
   /** Previous master key — decrypt-only, set during a key rotation window. */
   dataEncryptionKeyPrevious: env('DATA_ENCRYPTION_KEY_PREVIOUS'),
   /** Password for the opt-in seeded demo account (only when SEED_DEMO_DATA=true). */
-  seedDemoPassword: env('SEED_DEMO_PASSWORD', 'lexai-demo'),
+  seedDemoPassword: env('SEED_DEMO_PASSWORD', 'lexab-demo'),
   /** Batch review kicks off background processing from POST /batch. Tests set
    *  BATCH_AUTOSTART=0 and drive runBatch() deterministically instead (the
    *  single-connection PGlite adapter must not race a fire-and-forget loop). */
@@ -226,7 +226,7 @@ export const config = {
   contactEmail: env('CONTACT_EMAIL', ''),
   /* Opt-in demo seeding for local development only. */
   seedDemoData: env('SEED_DEMO_DATA', 'false') === 'true',
-  mailFrom: env('MAIL_FROM', 'LexAI <onboarding@resend.dev>'),
+  mailFrom: env('MAIL_FROM', 'Lexab <onboarding@resend.dev>'),
   /* Test mode without a verified domain: route ALL outgoing mail to this address. */
   mailRedirectTo: env('MAIL_REDIRECT_TO'),
   appBaseUrl: env('APP_BASE_URL', 'http://localhost:5173'),

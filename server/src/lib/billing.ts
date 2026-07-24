@@ -147,7 +147,7 @@ export async function checkBillingLifecycle(db: Db): Promise<void> {
     await markPastDue(db, row.user_id, row.email, row.plan);
     void sendMail({
       to: row.email,
-      subject: 'LexAI: не удалось продлить подписку',
+      subject: 'Lexab: не удалось продлить подписку',
       html: mailLayout(
         'Продление не прошло',
         `<p>Здравствуйте, <strong>${escapeMailHtml(row.name)}</strong>!</p>
@@ -170,7 +170,7 @@ export async function checkBillingLifecycle(db: Db): Promise<void> {
     await downgradeToFree(db, row.user_id, row.email, 'past_due');
     void sendMail({
       to: row.email,
-      subject: 'LexAI: тариф переведён на Free',
+      subject: 'Lexab: тариф переведён на Free',
       html: mailLayout(
         'Подписка завершена',
         `<p>Здравствуйте, <strong>${escapeMailHtml(row.name)}</strong>!</p>

@@ -84,7 +84,7 @@ export const securityApi = {
     async setup(): Promise<TwoFactorSetup> {
       if (USE_MOCK) {
         await delay(150);
-        return { secret: 'JBSWY3DPEHPK3PXP', otpauthUri: 'otpauth://totp/LexAI:you@example.com?secret=JBSWY3DPEHPK3PXP&issuer=LexAI' };
+        return { secret: 'JBSWY3DPEHPK3PXP', otpauthUri: 'otpauth://totp/Lexab:you@example.com?secret=JBSWY3DPEHPK3PXP&issuer=Lexab' };
       }
       return http<TwoFactorSetup>('/me/2fa/setup', { method: 'POST' });
     },
@@ -122,7 +122,7 @@ export const securityApi = {
         await delay(200);
         const raw = localStorage.getItem('lexai.auth');
         const session = raw ? (JSON.parse(raw) as RotatedSession) : null;
-        return { token: `mock_${Date.now()}`, user: session?.user ?? { name: 'You', initials: 'YO', firm: 'LexAI', jurisdiction: 'United Kingdom', email: 'you@example.com' } };
+        return { token: `mock_${Date.now()}`, user: session?.user ?? { name: 'You', initials: 'YO', firm: 'Lexab', jurisdiction: 'United Kingdom', email: 'you@example.com' } };
       }
       return http<RotatedSession>('/me/sessions/revoke-others', { method: 'POST' });
     },
@@ -132,11 +132,11 @@ export const securityApi = {
   async exportData(): Promise<void> {
     if (USE_MOCK) {
       await delay(200);
-      downloadBlob(new Blob(['{"export":"demo"}'], { type: 'application/json' }), 'lexai-data-export.json');
+      downloadBlob(new Blob(['{"export":"demo"}'], { type: 'application/json' }), 'lexab-data-export.json');
       return;
     }
     const blob = await httpBlob('/me/export');
-    downloadBlob(blob, 'lexai-data-export.json');
+    downloadBlob(blob, 'lexab-data-export.json');
   },
 
   accessReview: {

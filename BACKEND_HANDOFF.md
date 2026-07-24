@@ -1,4 +1,4 @@
-# LexAI — Backend Handoff
+# Lexab — Backend Handoff
 
 This frontend is **complete and backend-agnostic**. Every network call goes
 through `src/api/*`, which today returns mock data. Your job (backend) is to
@@ -139,7 +139,7 @@ for `/analysis` and chat.
 
 ## Prompt to paste into Claude Code
 
-> This repo is a finished React + TypeScript + Vite **frontend** for “LexAI”, an
+> This repo is a finished React + TypeScript + Vite **frontend** for “Lexab”, an
 > AI contract-intelligence app. It talks to the backend only through
 > `src/api/*`, gated by `VITE_USE_MOCK_API`. Read `BACKEND_HANDOFF.md`,
 > `API.md`, and `src/types/domain.ts`, then build a production backend that

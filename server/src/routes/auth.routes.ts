@@ -63,11 +63,11 @@ export async function sendVerificationMail(db: Db, userId: string, email: string
   const url = `${config.appBaseUrl}/verify-email?token=${token}`;
   void sendMail({
     to: email,
-    subject: 'Подтвердите почту в LexAI',
+    subject: 'Подтвердите почту в Lexab',
     html: mailLayout(
       'Подтвердите вашу почту',
       `<p>Здравствуйте, <strong>${escapeMailHtml(name)}</strong>!</p>
-       <p>Нажмите кнопку, чтобы подтвердить адрес <strong>${escapeMailHtml(email)}</strong> и открыть все возможности LexAI — включая приглашения в команды. Ссылка действует <strong>24 часа</strong>.</p>`,
+       <p>Нажмите кнопку, чтобы подтвердить адрес <strong>${escapeMailHtml(email)}</strong> и открыть все возможности Lexab — включая приглашения в команды. Ссылка действует <strong>24 часа</strong>.</p>`,
       'Подтвердить почту',
       url,
     ),
@@ -94,16 +94,16 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
       await hashPassword(password);
       void sendMail({
         to: existing.email,
-        subject: 'Попытка регистрации в LexAI',
+        subject: 'Попытка регистрации в Lexab',
         html: mailLayout(
-          'У вас уже есть аккаунт LexAI',
+          'У вас уже есть аккаунт Lexab',
           `<p>Кто-то попытался зарегистрироваться с вашим адресом <strong>${escapeMailHtml(existing.email)}</strong>.</p>
            <p>${
              existing.google_sub
                ? 'Ваш аккаунт привязан ко входу через Google — используйте кнопку «Продолжить с Google».'
                : 'Если это были вы — просто войдите. Забыли пароль? Воспользуйтесь восстановлением пароля.'
            }</p>`,
-          'Войти в LexAI',
+          'Войти в Lexab',
           `${config.appBaseUrl}/login`,
         ),
       });
@@ -119,7 +119,7 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
       await tx.query(
         `INSERT INTO users (id, email, password_hash, name, initials, firm, jurisdiction)
          VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [id, email, passwordHash, name, initialsOf(name), 'LexAI', 'United Kingdom'],
+        [id, email, passwordHash, name, initialsOf(name), 'Lexab', 'United Kingdom'],
       );
       await tx.query(`INSERT INTO subscriptions (user_id, plan, status) VALUES ($1, 'Free', 'active')`, [id]);
       await tx.query(`INSERT INTO user_stats (user_id) VALUES ($1)`, [id]);
@@ -132,7 +132,7 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
         payload: { ip: req.ip, termsVersion: TERMS_VERSION, at: 'signup' },
       });
     });
-    await notify(db, id, 'docs', 'Добро пожаловать в LexAI!', 'Welcome to LexAI!', {
+    await notify(db, id, 'docs', 'Добро пожаловать в Lexab!', 'Welcome to Lexab!', {
       bodyRu: 'Загрузите первый контракт для анализа',
       bodyEn: 'Upload your first contract for review',
     });
@@ -204,7 +204,7 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
             });
             void sendMail({
               to: target.email,
-              subject: 'LexAI: подозрительная активность входа',
+              subject: 'Lexab: подозрительная активность входа',
               html: mailLayout(
                 'Замечены подозрительные попытки входа',
                 `<p>За последние 5 минут в ваш аккаунт было <strong>${recent}</strong> неудачных попыток входа. Если это были не вы — смените пароль.</p>`,
@@ -326,7 +326,7 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
       const url = `${config.appBaseUrl}/reset-password?token=${token}`;
       void sendMail({
         to: user.email,
-        subject: 'Сброс пароля LexAI',
+        subject: 'Сброс пароля Lexab',
         html: mailLayout(
           'Сброс пароля',
           `<p>Здравствуйте, <strong>${escapeMailHtml(user.name)}</strong>!</p>

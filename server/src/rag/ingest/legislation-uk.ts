@@ -35,7 +35,7 @@ export async function fetchActXml(officialSourceId: string): Promise<{ xml: stri
   let lastErr: Error | null = null;
   for (let attempt = 1; attempt <= 4; attempt++) {
     try {
-      const res = await fetch(url, { headers: { 'user-agent': 'LexAI-corpus-ingest/1.0' } });
+      const res = await fetch(url, { headers: { 'user-agent': 'Lexab-corpus-ingest/1.0' } });
       if (res.status === 429 || res.status >= 500) throw new Error(`HTTP ${res.status}`);
       if (!res.ok) throw new Error(`HTTP ${res.status} (permanent)`);
       const xml = await res.text();

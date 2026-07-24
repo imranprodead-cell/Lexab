@@ -86,7 +86,7 @@ export function verifyTotp(secretBase32: string, code: string, atMs: number = Da
 }
 
 /** otpauth:// URI for the QR code / manual entry in an authenticator app. */
-export function otpauthUri(secretBase32: string, account: string, issuer = 'LexAI'): string {
+export function otpauthUri(secretBase32: string, account: string, issuer = 'Lexab'): string {
   const label = encodeURIComponent(`${issuer}:${account}`);
   const params = new URLSearchParams({ secret: secretBase32, issuer, algorithm: 'SHA1', digits: String(DIGITS), period: String(STEP_SECONDS) });
   return `otpauth://totp/${label}?${params.toString()}`;

@@ -14,7 +14,7 @@ import path from 'node:path';
 // Env must be set BEFORE config is imported (config reads it at load time), so
 // everything that touches config is loaded via dynamic import below.
 process.env.DATABASE_URL = '';
-process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'lexai-test-'));
+process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'lexab-test-'));
 process.env.ANTHROPIC_API_KEY = '';
 process.env.DEEPSEEK_API_KEY = ''; // an ambient key must not make "no network" tests hit the real API
 process.env.LLM_FALLBACK = 'dev';
@@ -1015,7 +1015,7 @@ describe('chat SSE streaming', () => {
 describe('file downloads stay decrypted and provider-URL-free', () => {
   it('POST /uploads returns no provider url and stores url = NULL', async () => {
     const u = await makeUser();
-    const boundary = '----lexaiTestBoundary42';
+    const boundary = '----lexabTestBoundary42';
     const payload = Buffer.from(
       `--${boundary}\r\n` +
         'Content-Disposition: form-data; name="file"; filename="contract.txt"\r\n' +
@@ -1382,7 +1382,7 @@ describe('clm (contract lifecycle)', () => {
 describe('batch review', () => {
   // Upload a .txt file via the real /uploads route and return its id.
   async function uploadFile(token: string, name: string, content: string): Promise<string> {
-    const boundary = '----lexaiBatchBoundary';
+    const boundary = '----lexabBatchBoundary';
     const payload = Buffer.from(
       `--${boundary}\r\n` +
         `Content-Disposition: form-data; name="file"; filename="${name}"\r\n` +
@@ -1657,7 +1657,7 @@ describe('sessions, DSAR export, retention, access review', () => {
     await app.inject({ method: 'POST', url: '/api/analysis', headers: auth(u.token), payload: { fileName: 'export-me.pdf', fileSize: '10 KB', jurisdiction: 'GB' } });
     const res = await app.inject({ method: 'GET', url: '/api/me/export', headers: auth(u.token) });
     assert.equal(res.statusCode, 200, res.body);
-    assert.match(res.headers['content-disposition'] as string, /attachment; filename="lexai-data-export\.json"/);
+    assert.match(res.headers['content-disposition'] as string, /attachment; filename="lexab-data-export\.json"/);
     const data = JSON.parse(res.body);
     assert.equal(data.account.email, u.email);
     assert.ok(Array.isArray(data.documents) && data.documents.length >= 1, 'documents included');
@@ -1750,7 +1750,7 @@ describe('sessions, DSAR export, retention, access review', () => {
     await app.inject({ method: 'DELETE', url: `/api/documents/${docId}`, headers: auth(u.token) });
     await db.query("UPDATE documents SET deleted_at = now() - interval '400 days' WHERE id = $1", [docId]);
     // Свежая загрузка того же имени ПОСЛЕ удаления — анализ ещё не запущен.
-    const boundary = '----lexaiFreshBoundary';
+    const boundary = '----lexabFreshBoundary';
     const payload = Buffer.from(
       `--${boundary}\r\n` +
         'Content-Disposition: form-data; name="file"; filename="fresh-after.txt"\r\n' +
@@ -1774,7 +1774,7 @@ describe('sessions, DSAR export, retention, access review', () => {
   it('retention crypto-shreds the purged doc own bytes but keeps a live same-name doc bytes', async () => {
     const { checkRetention } = await import('../src/routes/documents.routes.ts');
     const u = await makeUser();
-    const boundary = '----lexaiShredBoundary';
+    const boundary = '----lexabShredBoundary';
     const up = async (content: string) =>
       app.inject({
         method: 'POST',
@@ -1813,7 +1813,7 @@ describe('sessions, DSAR export, retention, access review', () => {
 
   it('content search skips soft-deleted documents', async () => {
     const u = await makeUser();
-    const boundary = '----lexaiSearchBoundary';
+    const boundary = '----lexabSearchBoundary';
     await app.inject({
       method: 'POST',
       url: '/api/uploads',
@@ -1855,7 +1855,7 @@ describe('sessions, DSAR export, retention, access review', () => {
   it('retention purge never destroys uploads of a LIVE document sharing the name', async () => {
     const { checkRetention } = await import('../src/routes/documents.routes.ts');
     const u = await makeUser();
-    const boundary = '----lexaiRetBoundary';
+    const boundary = '----lexabRetBoundary';
     const mkPayload = (content: string) =>
       Buffer.from(
         `--${boundary}\r\n` +
@@ -2006,7 +2006,7 @@ describe('e-sign: полный цикл внешнего подписанта (�
 
 describe('main funnel: настоящий PDF → анализ → отчёты', () => {
   async function uploadBinary(token: string, name: string, buffer: Buffer, mime: string): Promise<string> {
-    const boundary = '----lexaiPdfBoundary';
+    const boundary = '----lexabPdfBoundary';
     const payload = Buffer.concat([
       Buffer.from(
         `--${boundary}\r\n` +
@@ -2132,7 +2132,7 @@ describe('team: приглашение → принятие → смена ро�
 describe('compare: две версии договора', () => {
   it('accepts fileA/fileB multipart and returns a structured diff', async () => {
     const pro = await makeProUser();
-    const boundary = '----lexaiCmpBoundary';
+    const boundary = '----lexabCmpBoundary';
     const mk = (field: string, name: string, content: string) =>
       `--${boundary}\r\n` +
       `Content-Disposition: form-data; name="${field}"; filename="${name}"\r\n` +

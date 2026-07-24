@@ -23,7 +23,7 @@ export async function pwnedCount(password: string): Promise<number> {
     let text: string;
     try {
       const res = await fetch(`https://api.pwnedpasswords.com/range/${prefix}`, {
-        headers: { 'Add-Padding': 'true', 'User-Agent': 'LexAI-password-check' },
+        headers: { 'Add-Padding': 'true', 'User-Agent': 'Lexab-password-check' },
         signal: controller.signal,
       });
       if (!res.ok) return 0;

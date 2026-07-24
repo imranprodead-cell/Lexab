@@ -99,10 +99,10 @@ export const analysisApi = {
     let blob: Blob;
     if (USE_MOCK) {
       await delay(300);
-      blob = new Blob([`LexAI demo report for ${fileName}`], { type: 'text/plain' });
+      blob = new Blob([`Lexab demo report for ${fileName}`], { type: 'text/plain' });
     } else {
       blob = await httpBlob(`/analysis/${id}/report.pdf`);
     }
-    downloadBlob(blob, `LexAI_Report_${fileName.replace(/\.[^.]+$/, '')}.pdf`);
+    downloadBlob(blob, `Lexab_Report_${fileName.replace(/\.[^.]+$/, '')}.pdf`);
   },
 };

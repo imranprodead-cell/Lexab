@@ -43,7 +43,7 @@ export function VerifyEmailPage() {
     <div className={styles.signPage}>
       <div className={styles.signHeader}>
         <Avatar size={30} />
-        <span className={styles.signBrand}>LexAI</span>
+        <span className={styles.signBrand}>Lexab</span>
       </div>
       <div className={styles.signBody}>
         <GlassCard className={styles.signCard} style={{ textAlign: 'center' }}>

@@ -201,7 +201,7 @@ export async function runWorkflow(db: Db, runId: string): Promise<void> {
         const owner = await db.query<{ name: string; firm: string }>('SELECT name, firm FROM users WHERE id = $1', [ownerId]);
         await startApprovalFlow(
           db,
-          { id: ownerId, name: owner.rows[0]?.name ?? 'LexAI', firm: owner.rows[0]?.firm ?? '' },
+          { id: ownerId, name: owner.rows[0]?.name ?? 'Lexab', firm: owner.rows[0]?.firm ?? '' },
           { id: documentId, name: docName },
           step.approvers,
         );

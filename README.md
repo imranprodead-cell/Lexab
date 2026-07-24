@@ -1,6 +1,6 @@
-# LexAI — Contract Intelligence (Frontend)
+# Lexab — Contract Intelligence (Frontend)
 
-Production-ready frontend for **LexAI**, an AI contract-intelligence platform: a
+Production-ready frontend for **Lexab**, an AI contract-intelligence platform: a
 chat-first workspace where a lawyer uploads a contract, watches the AI stream
 its analysis, and reviews tracked-change redlines side-by-side with the
 document.
@@ -146,6 +146,6 @@ Run `npm test` for the Vitest unit suite (formatters, i18n dictionary, data).
 ## Design reference
 
 The original interactive HTML prototype lives at the repository root of the
-design project as `LexAI.dc.html`. This React app reproduces it faithfully; the
+design project as `Lexab.dc.html`. This React app reproduces it faithfully; the
 prototype remains the visual source of truth. See [`DESIGN.md`](./DESIGN.md) for
 the exact tokens.

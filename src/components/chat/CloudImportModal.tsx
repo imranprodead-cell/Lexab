@@ -21,7 +21,7 @@ interface CloudImportModalProps {
   onImported: (file: { name: string; size: string }) => void;
 }
 
-/** Browse a connected cloud drive and pull a contract into LexAI. */
+/** Browse a connected cloud drive and pull a contract into Lexab. */
 export function CloudImportModal({ open, onClose, onImported }: CloudImportModalProps) {
   const { t, lang } = useI18n();
   const navigate = useNavigate();

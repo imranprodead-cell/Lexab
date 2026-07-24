@@ -30,7 +30,7 @@ import type { DocBlock, Redline, TextRun as ModelRun } from '../types.ts';
 
 export type DocxMode = 'tracked' | 'clean';
 
-const REVISION_AUTHOR = 'LexAI';
+const REVISION_AUTHOR = 'Lexab';
 const NUMBERED_REF = 'lx-numbered';
 
 /** Numbering config referenced by numbered-list paragraphs — pass to Document. */

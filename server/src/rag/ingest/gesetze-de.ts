@@ -68,7 +68,7 @@ export async function fetchGesetzXml(abbr: string): Promise<{ xml: string; url: 
   let lastErr: Error | null = null;
   for (let attempt = 1; attempt <= 4; attempt++) {
     try {
-      const res = await fetch(zipUrl, { headers: { 'user-agent': 'LexAI-corpus-ingest/1.0' } });
+      const res = await fetch(zipUrl, { headers: { 'user-agent': 'Lexab-corpus-ingest/1.0' } });
       if (res.status === 429 || res.status >= 500) throw new Error(`HTTP ${res.status}`);
       if (!res.ok) throw new Error(`HTTP ${res.status} (permanent)`);
       const xml = unzipSingleXml(Buffer.from(await res.arrayBuffer()));

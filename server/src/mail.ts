@@ -95,7 +95,7 @@ export async function sendMail(input: MailInput): Promise<{ sent: boolean }> {
 }
 
 /**
- * Branded transactional-email shell matching the LexAI look: soft lavender
+ * Branded transactional-email shell matching the Lexab look: soft lavender
  * background, white rounded card, purple gradient accents. Table-based and
  * inline-styled so Gmail/Outlook/Apple Mail all render it correctly.
  */
@@ -110,14 +110,14 @@ export function mailLayout(title: string, bodyHtml: string, ctaLabel?: string, c
   return `<!doctype html>
 <html lang="ru">
 <body style="margin:0;padding:0;background:#f4f2fb;">
-  <span style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#f4f2fb;opacity:0;">${title} — LexAI</span>
+  <span style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#f4f2fb;opacity:0;">${title} — Lexab</span>
   <div style="padding:36px 16px 44px;font-family:'Instrument Sans',-apple-system,'Segoe UI',Roboto,Arial,sans-serif;">
     <div style="max-width:540px;margin:0 auto;">
 
       <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto 22px;"><tr>
         <td style="width:42px;height:42px;border-radius:13px;background:linear-gradient(135deg,#8b7cf6,#5f4fd4);text-align:center;vertical-align:middle;font-size:19px;line-height:42px;color:#ffffff;">&#9670;</td>
         <td style="padding-left:11px;">
-          <div style="font-size:18px;font-weight:700;letter-spacing:-0.01em;color:#221d35;line-height:1.1;">LexAI</div>
+          <div style="font-size:18px;font-weight:700;letter-spacing:-0.01em;color:#221d35;line-height:1.1;">Lexab</div>
           <div style="font-size:11px;color:#9b95b3;letter-spacing:0.03em;">AI contract intelligence</div>
         </td>
       </tr></table>
@@ -130,9 +130,9 @@ export function mailLayout(title: string, bodyHtml: string, ctaLabel?: string, c
 
       <div style="border-top:1px solid #e6e3f2;margin:28px 10px 0;font-size:0;line-height:0;">&nbsp;</div>
       <p style="text-align:center;font-size:12px;line-height:1.8;color:#9b95b3;margin:14px 0 0;">
-        LexAI — интеллектуальный анализ контрактов<br/>
+        Lexab — интеллектуальный анализ контрактов<br/>
         <a href="https://lexai.app/terms" style="color:#8b7cf6;text-decoration:none;">Условия использования</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://lexai.app/privacy" style="color:#8b7cf6;text-decoration:none;">Конфиденциальность</a><br/>
-        © 2026 LexAI
+        © 2026 Lexab
       </p>
     </div>
   </div>

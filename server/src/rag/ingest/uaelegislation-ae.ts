@@ -52,7 +52,7 @@ export async function fetchUaeHtml(): Promise<{ html: string; url: string; archi
     try {
       const { stdout } = await execFileP(
         'curl',
-        ['-sSL', '--compressed', '--fail', '--max-time', '120', '-A', 'LexAI-corpus-ingest/1.0', AE_ARCHIVE_URL],
+        ['-sSL', '--compressed', '--fail', '--max-time', '120', '-A', 'Lexab-corpus-ingest/1.0', AE_ARCHIVE_URL],
         { maxBuffer: 96 * 1024 * 1024, encoding: 'utf8' },
       );
       if (!/text_area/.test(stdout) || !/Article \(\d+\)/.test(stdout)) throw new Error('archived page has no article markup');

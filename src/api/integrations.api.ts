@@ -64,7 +64,7 @@ export const integrationsApi = {
     return http<CloudFile[]>(`/integrations/${provider}/files${qs}`, { signal });
   },
 
-  /** Pull the file to LexAI — it lands as a normal upload, ready for analysis. */
+  /** Pull the file to Lexab — it lands as a normal upload, ready for analysis. */
   importFile(provider: CloudProvider, fileId: string, name: string): Promise<CloudImportResult> {
     return http<CloudImportResult>(`/integrations/${provider}/import`, { method: 'POST', body: { fileId, name } });
   },

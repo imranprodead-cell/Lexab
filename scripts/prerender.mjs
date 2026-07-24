@@ -25,10 +25,10 @@ const PORT = 4183;
 
 // Per-route metadata baked into the snapshot (title + description + path).
 const ROUTES = [
-  { url: '/', file: 'index.html', wait: 'h1', title: 'LexAI — ИИ-анализ договоров', desc: 'ИИ-анализ договоров: риски, редлайны и вопросы по пунктам с проверяемыми ссылками на законы — за минуты.' },
-  { url: '/login', file: 'login/index.html', wait: 'h1', title: 'Вход в LexAI — ИИ-анализ договоров', desc: 'Войдите в LexAI: ИИ-анализ договоров с проверяемыми ссылками на законодательство.' },
-  { url: '/terms', file: 'terms/index.html', wait: 'main', title: 'Условия использования — LexAI', desc: 'Условия использования LexAI.' },
-  { url: '/privacy', file: 'privacy/index.html', wait: 'main', title: 'Политика конфиденциальности — LexAI', desc: 'Как LexAI обрабатывает и защищает ваши данные.' },
+  { url: '/', file: 'index.html', wait: 'h1', title: 'Lexab — ИИ-анализ договоров', desc: 'ИИ-анализ договоров: риски, редлайны и вопросы по пунктам с проверяемыми ссылками на законы — за минуты.' },
+  { url: '/login', file: 'login/index.html', wait: 'h1', title: 'Вход в Lexab — ИИ-анализ договоров', desc: 'Войдите в Lexab: ИИ-анализ договоров с проверяемыми ссылками на законодательство.' },
+  { url: '/terms', file: 'terms/index.html', wait: 'main', title: 'Условия использования — Lexab', desc: 'Условия использования Lexab.' },
+  { url: '/privacy', file: 'privacy/index.html', wait: 'main', title: 'Политика конфиденциальности — Lexab', desc: 'Как Lexab обрабатывает и защищает ваши данные.' },
 ];
 
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.woff2': 'font/woff2', '.ico': 'image/x-icon' };

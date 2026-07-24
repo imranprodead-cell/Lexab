@@ -641,7 +641,7 @@
     transform: none;
   }
 }
-/* «LexAI думает…» line next to the logo loader while the reply is pending. */
+/* «Lexab думает…» line next to the logo loader while the reply is pending. */
 .thinkingText {
   color: var(--dim);
   animation: lxSoftPulse 1.6s ease-in-out infinite;

@@ -275,7 +275,7 @@ export function securityRoutes(app: FastifyInstance, db: Db): void {
     const data = await buildExport(db, user.rows[0]);
     await audit(db, req, { type: 'user.data_exported', teamOwnerId: req.currentUser.id });
     reply.header('Content-Type', 'application/json; charset=utf-8');
-    reply.header('Content-Disposition', 'attachment; filename="lexai-data-export.json"');
+    reply.header('Content-Disposition', 'attachment; filename="lexab-data-export.json"');
     return data;
   });
 

@@ -1,6 +1,6 @@
-# LexAI Backend
+# Lexab Backend
 
-Production backend for the LexAI frontend in the repository root. Implements
+Production backend for the Lexab frontend in the repository root. Implements
 every endpoint in [`../BACKEND_HANDOFF.md`](../BACKEND_HANDOFF.md) with the
 exact request/response shapes defined by
 [`../src/types/domain.ts`](../src/types/domain.ts).
@@ -32,7 +32,7 @@ Log in with any well-formed credentials (the shipped frontend still uses its
 mock auth store) — with `AUTH_MODE=demo` (the default) the API attributes
 requests to the seeded demo account, so all pages load the seeded data:
 
-- **Demo account:** `a.rahman@freshfields.com` / `lexai-demo`
+- **Demo account:** `a.rahman@freshfields.com` / `lexab-demo`
   (change via `SEED_DEMO_PASSWORD`)
 - Real auth is fully implemented — `POST /api/auth/register` and
   `/api/auth/login` return `{ token, user }`, and `src/api/client.ts` already

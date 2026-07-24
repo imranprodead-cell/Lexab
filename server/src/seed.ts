@@ -7,7 +7,7 @@ await migrate(db);
 const seeded = await seedIfEmpty(db);
 console.log(
   seeded
-    ? 'Seeded demo data. Demo login: a.rahman@freshfields.com (password: SEED_DEMO_PASSWORD, default "lexai-demo").'
+    ? 'Seeded demo data. Demo login: a.rahman@freshfields.com (password: SEED_DEMO_PASSWORD, default "lexab-demo").'
     : 'Database already has users — nothing to do. To re-seed, point at a fresh database (or delete DATA_DIR/pg for PGlite).',
 );
 await db.close();

@@ -40,7 +40,7 @@ export const signaturesApi = {
     let blob: Blob;
     if (USE_MOCK) {
       await delay(300);
-      blob = new Blob([`LexAI signed contract: ${documentName}`], { type: 'text/plain' });
+      blob = new Blob([`Lexab signed contract: ${documentName}`], { type: 'text/plain' });
     } else {
       blob = await httpBlob(`/signatures/${id}/signed.pdf`);
     }

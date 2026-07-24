@@ -1,4 +1,4 @@
-# LexAI — Security controls (SOC 2 / ISO 27001 audit map)
+# Lexab — Security controls (SOC 2 / ISO 27001 audit map)
 
 This document maps the **technical** controls implemented in code to the
 criteria an auditor checks. The certificate itself is issued by an external

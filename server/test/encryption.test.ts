@@ -15,7 +15,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 process.env.DATABASE_URL = '';
-process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'lexai-enc-test-'));
+process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'lexab-enc-test-'));
 process.env.ANTHROPIC_API_KEY = '';
 process.env.DEEPSEEK_API_KEY = '';
 process.env.LLM_FALLBACK = 'dev';

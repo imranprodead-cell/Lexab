@@ -85,7 +85,7 @@ export const billingApi = {
     return http('/billing/cancel/revert', { method: 'POST', body: {} });
   },
 
-  /** Enterprise: send a contact-sales request to the LexAI team. */
+  /** Enterprise: send a contact-sales request to the Lexab team. */
   async contactSales(): Promise<void> {
     if (USE_MOCK) {
       await delay(300);

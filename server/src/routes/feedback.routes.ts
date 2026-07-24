@@ -128,7 +128,7 @@ export function feedbackRoutes(app: FastifyInstance, db: Db): void {
       const label = category ? CATEGORIES[category] : 'Без категории';
       const result = await sendMail({
         to: config.contactEmail,
-        subject: `Отзыв LexAI: ${label} — ${u.name}`,
+        subject: `Отзыв Lexab: ${label} — ${u.name}`,
         html: mailLayout(
           'Новый отзыв о продукте',
           `<p><strong>${escapeMailHtml(u.name)}</strong>${u.firm ? ` из ${escapeMailHtml(u.firm)}` : ''} · <a href="mailto:${escapeMailHtml(u.email)}">${escapeMailHtml(u.email)}</a></p>

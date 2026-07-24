@@ -74,7 +74,7 @@ async function flowSteps(db: Db, flowId: string): Promise<StepRow[]> {
   return res.rows;
 }
 
-/** In-app ping for approvers who have a LexAI account (mirrors the email). */
+/** In-app ping for approvers who have a Lexab account (mirrors the email). */
 async function notifyApprover(db: Db, ownerName: string, documentName: string, step: StepRow): Promise<void> {
   const user = await getUserByEmail(db, step.approver_email.toLowerCase());
   if (!user) return;

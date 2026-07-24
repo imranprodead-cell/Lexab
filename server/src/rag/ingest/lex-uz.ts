@@ -22,7 +22,7 @@ export async function fetchLexUzHtml(docId: string): Promise<{ html: string; url
   for (let attempt = 1; attempt <= 4; attempt++) {
     try {
       const res = await fetch(url, {
-        headers: { 'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) LexAI-corpus-ingest/1.0' },
+        headers: { 'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Lexab-corpus-ingest/1.0' },
       });
       if (res.status === 429 || res.status >= 500) throw new Error(`HTTP ${res.status}`);
       if (!res.ok) throw new Error(`HTTP ${res.status} (permanent)`);

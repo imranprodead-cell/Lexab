@@ -365,7 +365,7 @@ export function AuthPage() {
           <div className={styles.bannerBrand}>
             <Avatar size={30} />
             <span className={styles.bannerBrandText}>
-              <span className={styles.bannerBrandName}>LexAI</span>
+              <span className={styles.bannerBrandName}>Lexab</span>
               <span className={styles.bannerBrandSub}>{t('auth.tagline')}</span>
             </span>
           </div>
@@ -410,7 +410,7 @@ export function AuthPage() {
           <div className={styles.brand}>
             <Avatar size={34} />
             <div>
-              <div className={styles.brandName}>LexAI</div>
+              <div className={styles.brandName}>Lexab</div>
               <div className={styles.brandSub}>{t('auth.tagline')}</div>
             </div>
           </div>
@@ -650,7 +650,7 @@ export function AuthPage() {
               <Icon name="diamond" size={52} color="var(--on-accent)" strokeWidth={1.8} />
             </div>
             <div className={styles.rightCaption}>
-              LexAI <span>· {t('auth.tagline')}</span>
+              Lexab <span>· {t('auth.tagline')}</span>
             </div>
 
             {/* Verifiable trust signals — every line is true and checkable. */}

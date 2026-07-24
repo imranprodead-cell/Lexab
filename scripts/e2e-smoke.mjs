@@ -26,7 +26,7 @@ try {
   // 1. Лендинг: рендерится, есть заголовок и русская локаль по умолчанию.
   await page.goto(`${BASE}/`, { waitUntil: 'networkidle2', timeout: 30_000 });
   const title = await page.title();
-  ok('лендинг: title содержит LexAI', /lexai/i.test(title), title);
+  ok('лендинг: title содержит Lexab', /lexab/i.test(title), title);
   const bodyText = await page.evaluate(() => document.body.innerText);
   ok('лендинг: контент отрендерен (не белый экран)', bodyText.trim().length > 200, `${bodyText.trim().length} симв.`);
 

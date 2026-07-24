@@ -177,7 +177,7 @@ test('docx export: tracked mode emits real Word revisions; clean mode flattens',
   const trackedXml = docxDocumentXml(await Packer.toBuffer(tracked));
   assert.ok(trackedXml.includes('<w:ins'), 'tracked mode inserts a w:ins revision');
   assert.ok(trackedXml.includes('<w:del'), 'tracked mode inserts a w:del revision');
-  assert.ok(trackedXml.includes('LexAI'), 'revision author is LexAI');
+  assert.ok(trackedXml.includes('Lexab'), 'revision author is Lexab');
   assert.ok(trackedXml.includes('one week') && trackedXml.includes('one month'), 'both del + ins text present');
 
   // Clean mode: no revisions; accepted → insText, rejected → original.
@@ -264,7 +264,7 @@ test('storage: local deleteFile is idempotent and stays inside uploads/', async 
   const fs = await import('node:fs/promises');
   const os = await import('node:os');
   const path = await import('node:path');
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'lexai-storage-'));
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'lexab-storage-'));
   // Set DATA_DIR BEFORE the first import of storage.ts — config.ts reads the
   // env once at import time (no other test module pulls config in).
   process.env.DATA_DIR = dir;
@@ -380,7 +380,7 @@ test('totp: generated codes verify, drift tolerated, wrong codes rejected', asyn
   assert.ok(!verifyTotp(secret, totpCode(secret, now + 90_000), now), 'far code rejected');
   assert.ok(!verifyTotp(secret, '000000', now) || totpCode(secret, now) === '000000', 'wrong code rejected');
   // base32 round-trips
-  const bytes = Buffer.from('lexai-totp-secret-1');
+  const bytes = Buffer.from('lexab-totp-secret-1');
   assert.equal(base32Decode(base32Encode(bytes)).toString(), bytes.toString());
 });
 

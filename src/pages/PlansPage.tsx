@@ -39,7 +39,7 @@ const PLANS: Plan[] = [
     price: { ru: '$0', en: '$0' },
     monthly: 0,
     cta: { ru: 'Начало работы', en: 'Get started' },
-    tagline: { ru: 'Узнайте, что LexAI может сделать для вас', en: 'See what LexAI can do for you' },
+    tagline: { ru: 'Узнайте, что Lexab может сделать для вас', en: 'See what Lexab can do for you' },
     features: [
       { ru: '10 AI-запросов в месяц', en: '10 AI requests per month' },
       { ru: 'До 3 документов', en: 'Up to 3 documents' },

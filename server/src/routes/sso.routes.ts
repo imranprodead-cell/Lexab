@@ -368,7 +368,7 @@ async function jitProvision(db: Db, cfg: SsoConfigRow, email: string, name: stri
     const initials = name.trim().split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]?.toUpperCase() ?? '').join('') || '?';
     await db.query(
       `INSERT INTO users (id, email, password_hash, name, initials, firm, jurisdiction, email_verified)
-       VALUES ($1, $2, $3, $4, $5, 'LexAI', 'United Kingdom', true)`,
+       VALUES ($1, $2, $3, $4, $5, 'Lexab', 'United Kingdom', true)`,
       [userId, email, passwordHash, name, initials],
     );
     await db.query(`INSERT INTO subscriptions (user_id, plan, status) VALUES ($1, 'Free', 'active')`, [userId]);

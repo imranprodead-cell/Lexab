@@ -1,6 +1,6 @@
 {
-  "name": "LexAI",
-  "short_name": "LexAI",
+  "name": "Lexab",
+  "short_name": "Lexab",
   "description": "AI contract analysis with verifiable citations to legislation.",
   "start_url": "/",
   "display": "standalone",

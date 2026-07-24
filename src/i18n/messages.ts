@@ -124,7 +124,7 @@ export const MESSAGES: Dict = {
   'auth.termsOfUse': { ru: 'Условия использования', en: 'Terms of Use' },
   'auth.termsAnd': { ru: ' и ', en: ' and the ' },
   'auth.privacyPolicy': { ru: 'Политику конфиденциальности', en: 'Privacy Policy' },
-  'auth.termsB': { ru: ' LexAI.', en: ' of LexAI.' },
+  'auth.termsB': { ru: ' Lexab.', en: ' of Lexab.' },
 
   // Compare
   'cmp.uploadA': { ru: 'Версия A (старая)', en: 'Version A (older)' },
@@ -592,8 +592,8 @@ export const MESSAGES: Dict = {
   // Batch review
   'batch.title': { ru: 'Массовый разбор', en: 'Batch review' },
   'batch.sub': {
-    ru: 'Загрузите пачку договоров — LexAI проанализирует их вместе и покажет риск по каждому.',
-    en: 'Upload a pack of contracts — LexAI analyses them together and shows the risk of each.',
+    ru: 'Загрузите пачку договоров — Lexab проанализирует их вместе и покажет риск по каждому.',
+    en: 'Upload a pack of contracts — Lexab analyses them together and shows the risk of each.',
   },
   'batch.upsellTitle': { ru: 'Массовый разбор — на тарифе Pro', en: 'Batch review is a Pro feature' },
   'batch.upsellBody': {
@@ -644,7 +644,7 @@ export const MESSAGES: Dict = {
   'chat.sum.meta': { ru: 'Находок: {n} · проверено пунктов: {m}', en: 'Findings: {n} · Clauses reviewed: {m}' },
   'chat.sum.top': { ru: 'Топ-{n} находок', en: 'Top {n} findings' },
   'chat.sum.followUp': { ru: 'Задать вопрос', en: 'Ask a follow-up' },
-  'chat.thinking': { ru: 'LexAI думает…', en: 'LexAI is thinking…' },
+  'chat.thinking': { ru: 'Lexab думает…', en: 'Lexab is thinking…' },
 
   // Chat · message actions (below assistant replies)
   'chat.act.like': { ru: 'Хороший ответ', en: 'Good response' },
@@ -673,7 +673,7 @@ export const MESSAGES: Dict = {
   'ghost.noFiles': { ru: 'В режиме призрака файлы недоступны', en: 'Files are unavailable in ghost mode' },
 
   // Chat · Free-plan upgrade nudge above the composer
-  'chat.upsell.title': { ru: 'Больше возможностей с LexAI', en: 'Get more with LexAI' },
+  'chat.upsell.title': { ru: 'Больше возможностей с Lexab', en: 'Get more with Lexab' },
   'chat.upsell.cta': { ru: 'Улучшить', en: 'Upgrade' },
   'chat.limitReached': {
     ru: 'Лимит ИИ-запросов вашего тарифа на этот месяц исчерпан. Чтобы продолжить, обновите тариф в разделе «Тарифы».',
@@ -817,10 +817,10 @@ export const MESSAGES: Dict = {
   'chat.draft.generating': { ru: 'Составляю договор…', en: 'Drafting the contract…' },
   'chat.suggest.compare.title': { ru: 'Сравнить версии', en: 'Compare versions' },
   'chat.suggest.compare.body': { ru: 'Различия двух черновиков по пунктам', en: 'Diff two drafts clause by clause' },
-  'chat.input.placeholder': { ru: 'Спросите LexAI…', en: 'Ask LexAI…' },
+  'chat.input.placeholder': { ru: 'Спросите Lexab…', en: 'Ask Lexab…' },
   'chat.disclaimer': {
-    ru: 'LexAI может ошибаться. Проверяйте ссылки по первоисточникам.',
-    en: 'LexAI can make mistakes. Verify citations against primary sources.',
+    ru: 'Lexab может ошибаться. Проверяйте ссылки по первоисточникам.',
+    en: 'Lexab can make mistakes. Verify citations against primary sources.',
   },
   'chat.dropHere': { ru: 'Отпустите файл, чтобы загрузить', en: 'Drop the file to upload' },
 
@@ -872,7 +872,7 @@ export const MESSAGES: Dict = {
   'docs.count': { ru: 'Документов: {n}', en: 'Documents: {n}' },
 
   // Auth
-  'auth.signInTitle': { ru: 'Вход в LexAI', en: 'Sign in to LexAI' },
+  'auth.signInTitle': { ru: 'Вход в Lexab', en: 'Sign in to Lexab' },
   'auth.signUpTitle': { ru: 'Создать аккаунт', en: 'Create your account' },
   'auth.email': { ru: 'Email', en: 'Email' },
   'auth.password': { ru: 'Пароль', en: 'Password' },
@@ -900,8 +900,8 @@ export const MESSAGES: Dict = {
   'auth.heroLine1': { ru: 'Анализируй контракты', en: 'Review contracts' },
   'auth.heroLine2': { ru: 'быстрее', en: 'faster' },
   'auth.heroSub': {
-    ru: 'LexAI находит риски, готовит правки и отвечает на вопросы по документам — за минуты, а не часы.',
-    en: 'LexAI finds risks, drafts redlines and answers questions about your documents — in minutes, not hours.',
+    ru: 'Lexab находит риски, готовит правки и отвечает на вопросы по документам — за минуты, а не часы.',
+    en: 'Lexab finds risks, drafts redlines and answers questions about your documents — in minutes, not hours.',
   },
   'auth.google': { ru: 'Продолжить с Google', en: 'Continue with Google' },
   'auth.or': { ru: 'ИЛИ', en: 'OR' },
@@ -916,7 +916,7 @@ export const MESSAGES: Dict = {
   'auth.ssoRequired': { ru: 'Ваша организация требует вход через SSO.', en: 'Your organisation requires SSO sign-in.' },
   'auth.ssoTeamFull': { ru: 'В команде нет свободных мест — обратитесь к администратору.', en: 'No free team seats — contact your administrator.' },
   'auth.ssoDomainMismatch': { ru: 'Домен почты не совпадает с доменом организации.', en: 'Email domain does not match the organisation domain.' },
-  'auth.signingIn': { ru: 'Входим в LexAI…', en: 'Signing you in…' },
+  'auth.signingIn': { ru: 'Входим в Lexab…', en: 'Signing you in…' },
   // Honest, measured trust signals (RAG eval, golden set — see HANDOFF.md).
   'auth.metricWithoutLabel': {
     ru: 'точность ссылок на закон у ИИ без базы законов',
@@ -954,7 +954,7 @@ export const MESSAGES: Dict = {
 
   // Settings
   'settings.title': { ru: 'Настройки', en: 'Settings' },
-  'settings.sub': { ru: 'Управляйте профилем и внешним видом LexAI.', en: 'Manage your profile and how LexAI looks.' },
+  'settings.sub': { ru: 'Управляйте профилем и внешним видом Lexab.', en: 'Manage your profile and how Lexab looks.' },
   'settings.plan': { ru: 'Подписка и лимиты', en: 'Plan & limits' },
   'settings.planSub': { ru: 'Ваш тариф и использование за текущий месяц.', en: 'Your plan and this month’s usage.' },
   'settings.changePlan': { ru: 'Изменить план', en: 'Change plan' },
@@ -1064,7 +1064,7 @@ export const MESSAGES: Dict = {
   // Строки для скринридеров (незрячие пользователи слышат их на языке интерфейса).
   'a11y.closeDialog': { ru: 'Закрыть окно', en: 'Close dialog' },
   'a11y.loading': { ru: 'Загрузка', en: 'Loading' },
-  'a11y.messageInput': { ru: 'Сообщение для LexAI', en: 'Message LexAI' },
+  'a11y.messageInput': { ru: 'Сообщение для Lexab', en: 'Message Lexab' },
   'a11y.menu': { ru: 'Меню', en: 'Menu' },
   'a11y.primaryNav': { ru: 'Основная навигация', en: 'Primary navigation' },
   'a11y.documentViewer': { ru: 'Просмотр документа', en: 'Document viewer' },
@@ -1110,7 +1110,7 @@ export const MESSAGES: Dict = {
   'plans.consentLabel': { ru: 'Я прошу начать услугу сразу и отказываюсь от 14-дневного права возврата. Оплата за начатый период не возвращается; при отмене доступ сохранится до конца срока.', en: 'I request the service to begin immediately and waive the 14-day right of withdrawal. The started period is non-refundable; on cancellation access stays until the period ends.' },
   'plans.consentRequired': { ru: 'Отметьте согласие, чтобы продолжить.', en: 'Please tick the consent box to continue.' },
   'plans.confirmPurchase': { ru: 'Подтвердить покупку', en: 'Confirm purchase' },
-  'plans.freeActive': { ru: 'План Free уже доступен — просто пользуйтесь LexAI.', en: 'The Free plan is already active — just use LexAI.' },
+  'plans.freeActive': { ru: 'План Free уже доступен — просто пользуйтесь Lexab.', en: 'The Free plan is already active — just use Lexab.' },
 
   // Locked email + eye
   'settings.emailLocked': {
@@ -1308,8 +1308,8 @@ export const MESSAGES: Dict = {
   'verify.invalid': { ru: 'Ссылка недействительна или уже использована.', en: 'The link is invalid or already used.' },
   'verify.doneTitle': { ru: 'Почта подтверждена', en: 'Email verified' },
   'verify.doneBody': {
-    ru: 'Спасибо! Теперь вам доступны все возможности LexAI, включая команды.',
-    en: 'Thank you! All LexAI features are now available, including teams.',
+    ru: 'Спасибо! Теперь вам доступны все возможности Lexab, включая команды.',
+    en: 'Thank you! All Lexab features are now available, including teams.',
   },
   'verify.errorTitle': { ru: 'Не получилось', en: 'Something went wrong' },
   'verify.toApp': { ru: 'В приложение', en: 'Open the app' },

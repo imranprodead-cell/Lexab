@@ -22,7 +22,7 @@ interface SectionHead {
 const HEADS: Record<string, SectionHead> = {
   features: {
     eyebrow: { ru: 'Возможности', en: 'Features', de: 'Funktionen', ar: 'المزايا', kk: 'Мүмкіндіктер', uz: 'Imkoniyatlar' },
-    title: { ru: 'Что умеет LexAI', en: 'What LexAI does', de: 'Was LexAI kann', ar: 'ما الذي يقدّمه LexAI', kk: 'LexAI не істей алады', uz: 'LexAI nimalarga qodir' },
+    title: { ru: 'Что умеет Lexab', en: 'What Lexab does', de: 'Was Lexab kann', ar: 'ما الذي يقدّمه Lexab', kk: 'Lexab не істей алады', uz: 'Lexab nimalarga qodir' },
     sub: {
       ru: 'Анализ, правки, проверяемые цитаты и экспорт — полный цикл работы с договором.',
       en: 'Analysis, redlines, verifiable citations and export — the full contract workflow.', de: 'Analyse, Redlines, überprüfbare Zitate und Export – der komplette Workflow für Ihre Verträge.', ar: 'تحليل وتعديلات واستشهادات قابلة للتحقق وتصدير — دورة العمل الكاملة على العقد.', kk: 'Талдау, түзетулер, тексерілетін дәйексөздер және экспорт — шартпен жұмыстың толық циклі.', uz: 'Tahlil, tahrirlar, tekshiriladigan iqtiboslar va eksport — shartnoma bilan ishlashning toʻliq sikli.',
@@ -46,7 +46,7 @@ const HEADS: Record<string, SectionHead> = {
   },
   solutions: {
     eyebrow: { ru: 'Для кого', en: 'Who it’s for', de: 'Für wen', ar: 'الفئات المستفيدة', kk: 'Кімге арналған', uz: 'Kimlar uchun' },
-    title: { ru: 'Кому полезен LexAI', en: 'Who LexAI helps', de: 'Wem LexAI hilft', ar: 'من يستفيد من LexAI', kk: 'LexAI кімге пайдалы', uz: 'LexAI kimlarga foydali' },
+    title: { ru: 'Кому полезен Lexab', en: 'Who Lexab helps', de: 'Wem Lexab hilft', ar: 'من يستفيد من Lexab', kk: 'Lexab кімге пайдалы', uz: 'Lexab kimlarga foydali' },
     sub: {
       ru: 'От юрфирм до частных лиц — везде, где договоры отнимают время.',
       en: 'From law firms to individuals — wherever contracts eat time.', de: 'Von Kanzleien bis zu Privatpersonen – überall dort, wo Verträge Zeit kosten.', ar: 'من مكاتب المحاماة إلى الأفراد — أينما كانت العقود تستهلك الوقت.', kk: 'Заң фирмаларынан жеке тұлғаларға дейін — шарттар уақыт алатын барлық жерде.', uz: 'Yuridik firmalardan jismoniy shaxslargacha — shartnomalar vaqtni olayotgan har qanday joyda.',
@@ -56,8 +56,8 @@ const HEADS: Record<string, SectionHead> = {
     eyebrow: { ru: 'Безопасность', en: 'Security', de: 'Sicherheit', ar: 'الأمان', kk: 'Қауіпсіздік', uz: 'Xavfsizlik' },
     title: { ru: 'Ваши документы — под вашим контролем', en: 'Your documents, under your control', de: 'Ihre Dokumente – unter Ihrer Kontrolle', ar: 'مستنداتك تحت سيطرتك', kk: 'Құжаттарыңыз — өз бақылауыңызда', uz: 'Hujjatlaringiz — oʻz nazoratingizda' },
     sub: {
-      ru: 'Для юридического продукта это не опция. Вот как LexAI обращается с данными — честно и по делу.',
-      en: 'For a legal product this isn’t optional. Here is how LexAI handles your data — plainly and honestly.', de: 'Für ein juristisches Produkt ist das nicht optional. So geht LexAI mit Ihren Daten um – ehrlich und auf den Punkt.', ar: 'بالنسبة إلى منتج قانوني، هذا ليس خياراً إضافياً. إليك كيف يتعامل LexAI مع البيانات — بصراحة ووضوح.', kk: 'Заң өнімі үшін бұл — таңдау емес, міндет. Міне, LexAI деректеріңізбен қалай жұмыс істейді — адал әрі нақты.', uz: 'Yuridik mahsulot uchun bu qoʻshimcha imkoniyat emas, zarurat. Mana, LexAI maʼlumotlar bilan qanday ishlaydi — halol va ochiq.',
+      ru: 'Для юридического продукта это не опция. Вот как Lexab обращается с данными — честно и по делу.',
+      en: 'For a legal product this isn’t optional. Here is how Lexab handles your data — plainly and honestly.', de: 'Für ein juristisches Produkt ist das nicht optional. So geht Lexab mit Ihren Daten um – ehrlich und auf den Punkt.', ar: 'بالنسبة إلى منتج قانوني، هذا ليس خياراً إضافياً. إليك كيف يتعامل Lexab مع البيانات — بصراحة ووضوح.', kk: 'Заң өнімі үшін бұл — таңдау емес, міндет. Міне, Lexab деректеріңізбен қалай жұмыс істейді — адал әрі нақты.', uz: 'Yuridik mahsulot uchun bu qoʻshimcha imkoniyat emas, zarurat. Mana, Lexab maʼlumotlar bilan qanday ishlaydi — halol va ochiq.',
     },
   },
   plans: {
@@ -83,8 +83,8 @@ const FEATURES: { icon: IconName; title: Text2; text: Text2 }[] = [
     icon: 'alert',
     title: { ru: 'Анализ договоров', en: 'Contract analysis', de: 'Vertragsanalyse', ar: 'تحليل العقود', kk: 'Шарттарды талдау', uz: 'Shartnomalar tahlili' },
     text: {
-      ru: 'Загрузите договор — LexAI разберёт его по пунктам и отметит риски: высокий, средний, низкий.',
-      en: 'Upload a contract — LexAI reviews it clause by clause and flags risks as high, medium or low.', de: 'Laden Sie einen Vertrag hoch – LexAI prüft ihn Klausel für Klausel und markiert Risiken als hoch, mittel oder niedrig.', ar: 'ارفع العقد — يحلّله LexAI بنداً بنداً ويحدّد المخاطر: عالية أو متوسطة أو منخفضة.', kk: 'Шартты жүктеңіз — LexAI оны тармақтап талдап, тәуекелдерді белгілейді: жоғары, орташа, төмен.', uz: 'Shartnomani yuklang — LexAI uni band-band tahlil qilib, xavflarni belgilaydi: yuqori, oʻrta, past.',
+      ru: 'Загрузите договор — Lexab разберёт его по пунктам и отметит риски: высокий, средний, низкий.',
+      en: 'Upload a contract — Lexab reviews it clause by clause and flags risks as high, medium or low.', de: 'Laden Sie einen Vertrag hoch – Lexab prüft ihn Klausel für Klausel und markiert Risiken als hoch, mittel oder niedrig.', ar: 'ارفع العقد — يحلّله Lexab بنداً بنداً ويحدّد المخاطر: عالية أو متوسطة أو منخفضة.', kk: 'Шартты жүктеңіз — Lexab оны тармақтап талдап, тәуекелдерді белгілейді: жоғары, орташа, төмен.', uz: 'Shartnomani yuklang — Lexab uni band-band tahlil qilib, xavflarni belgilaydi: yuqori, oʻrta, past.',
     },
   },
   {
@@ -117,8 +117,8 @@ const STEPS: { title: Text2; text: Text2 }[] = [
   {
     title: { ru: 'Загрузите договор', en: 'Upload your contract', de: 'Laden Sie Ihren Vertrag hoch', ar: 'ارفع عقدك', kk: 'Шартты жүктеңіз', uz: 'Shartnomani yuklang' },
     text: {
-      ru: 'Или вставьте текст прямо в чат — LexAI работает с вашими документами.',
-      en: 'Or paste the text straight into the chat — LexAI works with your documents.', de: 'Oder fügen Sie den Text direkt in den Chat ein – LexAI arbeitet mit Ihren Dokumenten.', ar: 'أو الصق النص مباشرة في المحادثة — يعمل LexAI مع مستنداتك.', kk: 'Немесе мәтінді тікелей чатқа қойыңыз — LexAI сіздің құжаттарыңызбен жұмыс істейді.', uz: 'Yoki matnni toʻgʻridan-toʻgʻri chatga joylashtiring — LexAI sizning hujjatlaringiz bilan ishlaydi.',
+      ru: 'Или вставьте текст прямо в чат — Lexab работает с вашими документами.',
+      en: 'Or paste the text straight into the chat — Lexab works with your documents.', de: 'Oder fügen Sie den Text direkt in den Chat ein – Lexab arbeitet mit Ihren Dokumenten.', ar: 'أو الصق النص مباشرة في المحادثة — يعمل Lexab مع مستنداتك.', kk: 'Немесе мәтінді тікелей чатқа қойыңыз — Lexab сіздің құжаттарыңызбен жұмыс істейді.', uz: 'Yoki matnni toʻgʻridan-toʻgʻri chatga joylashtiring — Lexab sizning hujjatlaringiz bilan ishlaydi.',
     },
   },
   {
@@ -298,7 +298,7 @@ const PLANS: LandingPlan[] = [
     name: 'Free',
     dot: '#5F5F6A',
     monthly: 0,
-    tagline: { ru: 'Узнайте, что LexAI может сделать для вас', en: 'See what LexAI can do for you', de: 'Erfahren Sie, was LexAI für Sie tun kann', ar: 'اكتشف ما يمكن أن يقدّمه لك LexAI', kk: 'LexAI сіз үшін не істей алатынын біліңіз', uz: 'LexAI siz uchun nimalar qila olishini bilib oling' },
+    tagline: { ru: 'Узнайте, что Lexab может сделать для вас', en: 'See what Lexab can do for you', de: 'Erfahren Sie, was Lexab für Sie tun kann', ar: 'اكتشف ما يمكن أن يقدّمه لك Lexab', kk: 'Lexab сіз үшін не істей алатынын біліңіз', uz: 'Lexab siz uchun nimalar qila olishini bilib oling' },
     features: [
       { ru: '10 AI-запросов в месяц', en: '10 AI requests per month', de: '10 KI-Anfragen pro Monat', ar: '10 طلبات ذكاء اصطناعي شهرياً', kk: 'Айына 10 AI-сұрау', uz: 'Oyiga 10 ta AI soʻrov' },
       { ru: 'До 3 документов', en: 'Up to 3 documents', de: 'Bis zu 3 Dokumente', ar: 'حتى 3 مستندات', kk: '3 құжатқа дейін', uz: '3 tagacha hujjat' },
@@ -422,8 +422,8 @@ const FAQ_GROUPS: { title: Text2; items: FaqItem[] }[] = [
       {
         q: { ru: 'Можно ли доверять выводам ИИ? Он не ошибается?', en: 'Can I trust the AI’s conclusions? Doesn’t it make mistakes?', de: 'Kann ich den Ergebnissen der KI vertrauen? Macht sie keine Fehler?', ar: 'هل يمكن الوثوق باستنتاجات الذكاء الاصطناعي؟ ألا يخطئ؟', kk: 'ЖИ тұжырымдарына сенуге бола ма? Ол қателеспей ме?', uz: 'AI xulosalariga ishonsa boʻladimi? U xato qilmaydimi?' },
         a: {
-          ru: 'LexAI не даёт «мнение из воздуха»: каждый вывод сопровождается ссылкой на конкретную норму, которую можно открыть и проверить самостоятельно. Цитаты автоматически сверяются с базой официальных текстов; не прошедшие проверку помечаются как неподтверждённые. ИИ — ускоритель работы, финальное решение всегда за юристом.',
-          en: 'LexAI doesn’t give opinions out of thin air: every finding comes with a reference to a specific provision you can open and verify. Citations are automatically checked against a corpus of official texts; anything that fails the check is flagged as unverified. The AI speeds up the work — the final call is always the lawyer’s.', de: 'LexAI liefert keine Einschätzungen „aus dem Nichts“: Jedes Ergebnis wird von einem Verweis auf eine konkrete Rechtsnorm begleitet, die Sie öffnen und selbst überprüfen können. Die Zitate werden automatisch mit einer Datenbank offizieller Gesetzestexte abgeglichen; was die Prüfung nicht besteht, wird als unbestätigt gekennzeichnet. Die KI beschleunigt die Arbeit – die endgültige Entscheidung liegt immer beim Juristen.', ar: 'لا يُصدر LexAI آراءً من فراغ: فكل استنتاج مصحوب بإحالة إلى نص قانوني محدد يمكنك فتحه والتحقق منه بنفسك. وتُقارن الاستشهادات تلقائياً بقاعدة النصوص الرسمية، وما لا يجتاز التحقق يوسَم بأنه غير مؤكد. الذكاء الاصطناعي يسرّع العمل — أما القرار النهائي فيبقى دائماً للمحامي.', kk: 'LexAI ойдан пікір айтпайды: әр тұжырымға өзіңіз ашып тексере алатын нақты нормаға сілтеме қоса беріледі. Дәйексөздер ресми мәтіндер базасымен автоматты түрде салыстырылады; тексеруден өтпегендері расталмаған деп белгіленеді. ЖИ — жұмысты жеделдететін құрал, ал түпкілікті шешім әрқашан заңгердікі.', uz: 'LexAI «havodan olingan fikr» bermaydi: har bir xulosa aniq normaga havola bilan birga keladi — uni ochib, oʻzingiz tekshirishingiz mumkin. Iqtiboslar rasmiy matnlar bazasi bilan avtomatik solishtiriladi; tekshiruvdan oʻtmaganlari tasdiqlanmagan deb belgilanadi. AI — ishni tezlashtiruvchi vosita, yakuniy qaror esa har doim yuristda.',
+          ru: 'Lexab не даёт «мнение из воздуха»: каждый вывод сопровождается ссылкой на конкретную норму, которую можно открыть и проверить самостоятельно. Цитаты автоматически сверяются с базой официальных текстов; не прошедшие проверку помечаются как неподтверждённые. ИИ — ускоритель работы, финальное решение всегда за юристом.',
+          en: 'Lexab doesn’t give opinions out of thin air: every finding comes with a reference to a specific provision you can open and verify. Citations are automatically checked against a corpus of official texts; anything that fails the check is flagged as unverified. The AI speeds up the work — the final call is always the lawyer’s.', de: 'Lexab liefert keine Einschätzungen „aus dem Nichts“: Jedes Ergebnis wird von einem Verweis auf eine konkrete Rechtsnorm begleitet, die Sie öffnen und selbst überprüfen können. Die Zitate werden automatisch mit einer Datenbank offizieller Gesetzestexte abgeglichen; was die Prüfung nicht besteht, wird als unbestätigt gekennzeichnet. Die KI beschleunigt die Arbeit – die endgültige Entscheidung liegt immer beim Juristen.', ar: 'لا يُصدر Lexab آراءً من فراغ: فكل استنتاج مصحوب بإحالة إلى نص قانوني محدد يمكنك فتحه والتحقق منه بنفسك. وتُقارن الاستشهادات تلقائياً بقاعدة النصوص الرسمية، وما لا يجتاز التحقق يوسَم بأنه غير مؤكد. الذكاء الاصطناعي يسرّع العمل — أما القرار النهائي فيبقى دائماً للمحامي.', kk: 'Lexab ойдан пікір айтпайды: әр тұжырымға өзіңіз ашып тексере алатын нақты нормаға сілтеме қоса беріледі. Дәйексөздер ресми мәтіндер базасымен автоматты түрде салыстырылады; тексеруден өтпегендері расталмаған деп белгіленеді. ЖИ — жұмысты жеделдететін құрал, ал түпкілікті шешім әрқашан заңгердікі.', uz: 'Lexab «havodan olingan fikr» bermaydi: har bir xulosa aniq normaga havola bilan birga keladi — uni ochib, oʻzingiz tekshirishingiz mumkin. Iqtiboslar rasmiy matnlar bazasi bilan avtomatik solishtiriladi; tekshiruvdan oʻtmaganlari tasdiqlanmagan deb belgilanadi. AI — ishni tezlashtiruvchi vosita, yakuniy qaror esa har doim yuristda.',
         },
       },
       {
@@ -441,10 +441,10 @@ const FAQ_GROUPS: { title: Text2; items: FaqItem[] }[] = [
         },
       },
       {
-        q: { ru: 'LexAI заменяет юриста?', en: 'Does LexAI replace a lawyer?', de: 'Ersetzt LexAI den Juristen?', ar: 'هل يحل LexAI محل المحامي؟', kk: 'LexAI заңгерді алмастыра ма?', uz: 'LexAI yuristning oʻrnini bosadimi?' },
+        q: { ru: 'Lexab заменяет юриста?', en: 'Does Lexab replace a lawyer?', de: 'Ersetzt Lexab den Juristen?', ar: 'هل يحل Lexab محل المحامي؟', kk: 'Lexab заңгерді алмастыра ма?', uz: 'Lexab yuristning oʻrnini bosadimi?' },
         a: {
           ru: 'Нет. Он берёт на себя рутину — вычитку, поиск рисков, редлайнинг, — чтобы юрист тратил время на решения, а не на перечитывание типовых пунктов.',
-          en: 'No. It takes over the routine — proofreading, risk-spotting, redlining — so the lawyer spends time on decisions rather than re-reading boilerplate.', de: 'Nein. LexAI übernimmt die Routine – die Durchsicht, die Risikosuche, das Redlining –, damit Juristen ihre Zeit für Entscheidungen einsetzen statt für das erneute Lesen von Standardklauseln.', ar: 'لا. إنه يتولى الأعمال الروتينية — التدقيق واكتشاف المخاطر والتنقيح — ليصرف المحامي وقته في اتخاذ القرارات بدلاً من إعادة قراءة البنود النمطية.', kk: 'Жоқ. Ол күнделікті рутинаны — мәтінді түгендеуді, тәуекелдерді іздеуді, редлайнингті — өз мойнына алады, сөйтіп заңгер уақытын типтік тармақтарды қайта оқуға емес, шешімдерге жұмсайды.', uz: 'Yoʻq. U rutin ishlarni — sinchiklab oʻqish, xavflarni izlash, redlayningni — oʻz zimmasiga oladi; shunda yurist vaqtini tipik bandlarni qayta-qayta oʻqishga emas, qaror qabul qilishga sarflaydi.',
+          en: 'No. It takes over the routine — proofreading, risk-spotting, redlining — so the lawyer spends time on decisions rather than re-reading boilerplate.', de: 'Nein. Lexab übernimmt die Routine – die Durchsicht, die Risikosuche, das Redlining –, damit Juristen ihre Zeit für Entscheidungen einsetzen statt für das erneute Lesen von Standardklauseln.', ar: 'لا. إنه يتولى الأعمال الروتينية — التدقيق واكتشاف المخاطر والتنقيح — ليصرف المحامي وقته في اتخاذ القرارات بدلاً من إعادة قراءة البنود النمطية.', kk: 'Жоқ. Ол күнделікті рутинаны — мәтінді түгендеуді, тәуекелдерді іздеуді, редлайнингті — өз мойнына алады, сөйтіп заңгер уақытын типтік тармақтарды қайта оқуға емес, шешімдерге жұмсайды.', uz: 'Yoʻq. U rutin ishlarni — sinchiklab oʻqish, xavflarni izlash, redlayningni — oʻz zimmasiga oladi; shunda yurist vaqtini tipik bandlarni qayta-qayta oʻqishga emas, qaror qabul qilishga sarflaydi.',
         },
       },
     ],
@@ -846,7 +846,7 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
           <div className={styles.footerBrandCol}>
             <div className={styles.footerLogo}>
               <Avatar size={30} />
-              <span>LexAI</span>
+              <span>Lexab</span>
             </div>
             <p className={styles.footerTagline}>{t('auth.tagline')}</p>
             <p className={styles.footerJuris}>
@@ -891,7 +891,7 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
           ))}
         </div>
 
-        <div className={styles.footerBottom}>© {new Date().getFullYear()} LexAI · {t('auth.tagline')}</div>
+        <div className={styles.footerBottom}>© {new Date().getFullYear()} Lexab · {t('auth.tagline')}</div>
       </footer>
     </>
   );
