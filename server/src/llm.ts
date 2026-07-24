@@ -876,6 +876,7 @@ export async function generateHistorySummary(
 const IMPROVE_PROMPT_SYSTEM = `You rewrite a user's draft message into a clear, well-structured prompt for an AI legal assistant.
 Rules:
 - Preserve the user's intent, facts, names, figures and jurisdiction exactly; invent nothing the draft does not state or clearly imply.
+- If the draft names no jurisdiction or governing law, do NOT assume or add one — leave it unmentioned.
 - Make the request specific: state the task, the relevant context, and the expected output (e.g. "list the risks", "draft the clause", "explain in plain terms").
 - Write in the SAME language as the draft.
 - Do NOT answer the question. Do NOT add greetings, preamble, commentary or surrounding quotes.
