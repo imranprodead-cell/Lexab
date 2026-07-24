@@ -37,6 +37,7 @@ import { securityRoutes } from './routes/security.routes.ts';
 import { uploadRoutes } from './routes/uploads.routes.ts';
 import { userRoutes } from './routes/user.routes.ts';
 import { ttsRoutes } from './routes/tts.routes.ts';
+import { promptRoutes } from './routes/prompts.routes.ts';
 
 export async function buildApp(db: Db): Promise<FastifyInstance> {
   const app = Fastify({
@@ -187,6 +188,7 @@ export async function buildApp(db: Db): Promise<FastifyInstance> {
       integrationRoutes(api, db);
       feedbackRoutes(api, db);
       ttsRoutes(api);
+      promptRoutes(api);
     },
     { prefix: config.apiPrefix },
   );

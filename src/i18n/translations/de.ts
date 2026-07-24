@@ -543,6 +543,8 @@ const de: Record<string, string> = {
   "chat.micStart": "Spracheingabe",
   "chat.micStop": "Aufnahme stoppen",
   "chat.attach": "Vertrag anhängen",
+  "chat.improve": "Prompt verbessern",
+  "chat.improveError": "Der Prompt konnte nicht verbessert werden. Bitte erneut versuchen.",
   "chat.sendLabel": "Nachricht senden",
   "ws.review": "Prüfung",
   "ws.backToChat": "Zurück zum Chat",

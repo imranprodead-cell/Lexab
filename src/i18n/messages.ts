@@ -1011,6 +1011,11 @@ export const MESSAGES: Dict = {
   'chat.micStop': { ru: 'Остановить запись', en: 'Stop recording' },
   'chat.attach': { ru: 'Прикрепить договор', en: 'Attach contract' },
   'chat.sendLabel': { ru: 'Отправить сообщение', en: 'Send message' },
+  'chat.improve': { ru: 'Улучшить промпт', en: 'Improve prompt' },
+  'chat.improveError': {
+    ru: 'Не удалось улучшить запрос. Попробуйте ещё раз.',
+    en: 'Couldn’t improve the prompt. Please try again.',
+  },
 
   // Workspace
   'ws.review': { ru: 'Обзор', en: 'Review' },

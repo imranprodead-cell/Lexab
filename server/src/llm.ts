@@ -871,6 +871,57 @@ export async function generateHistorySummary(
   }
 }
 
+/* ── Prompt improver («улучшить промпт» в композере) ───────────────────────── */
+
+const IMPROVE_PROMPT_SYSTEM = `You rewrite a user's draft message into a clear, well-structured prompt for an AI legal assistant.
+Rules:
+- Preserve the user's intent, facts, names, figures and jurisdiction exactly; invent nothing the draft does not state or clearly imply.
+- Make the request specific: state the task, the relevant context, and the expected output (e.g. "list the risks", "draft the clause", "explain in plain terms").
+- Write in the SAME language as the draft.
+- Do NOT answer the question. Do NOT add greetings, preamble, commentary or surrounding quotes.
+- Output ONLY the rewritten prompt text. If the draft is already clear, return it with only light polish.`;
+
+/**
+ * Rewrite a draft into a clear prompt. Deliberately the cheapest possible
+ * call: DeepSeek when configured (thinking off — a micro-request), otherwise
+ * Anthropic Haiku. Does NOT charge the monthly AI quota (see route comment).
+ */
+export async function improvePrompt(draft: string): Promise<string> {
+  if (!hasAnyLlm()) {
+    if (!llmFallbackAllowed()) throw serviceUnavailable(LLM_UNAVAILABLE);
+    return `[dev] ${draft.trim()}`; // deterministic offline stub (LLM_FALLBACK=dev)
+  }
+  const primary = config.deepseekApiKey ? config.deepseekModel : config.anthropicModel;
+  const text = await withModelRetry(primary, async (model) => {
+    if (isDeepSeekModel(model)) {
+      return runDeepseek({
+        op: 'improve-prompt',
+        model,
+        maxTokens: 1000,
+        system: IMPROVE_PROMPT_SYSTEM,
+        messages: [{ role: 'user', content: draft }],
+        // Микрозапрос: без этого reasoning deepseek-v4-pro съедает весь бюджет
+        // и ответ приходит пустым (та же ловушка, что у history-summary).
+        thinkingDisabled: true,
+      });
+    }
+    // Anthropic path pins Haiku: a prompt rewrite must not run on the
+    // user's plan-tier model — it would cost more than the reply itself.
+    const api = getClient();
+    if (!api) throw serviceUnavailable(LLM_UNAVAILABLE);
+    const stream = api.beta.messages.stream({
+      model: 'claude-haiku-4-5',
+      max_tokens: 1000,
+      system: IMPROVE_PROMPT_SYSTEM,
+      messages: [{ role: 'user', content: draft }],
+    });
+    const message = await stream.finalMessage();
+    logUsage('improve-prompt', 'claude-haiku-4-5', message);
+    return textOf(message);
+  });
+  return text.trim() || draft;
+}
+
 /* ── Version comparison ─────────────────────────────────────────────────────── */
 
 export interface CompareChange {

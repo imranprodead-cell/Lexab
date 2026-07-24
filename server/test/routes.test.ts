@@ -308,6 +308,35 @@ describe('feedback validation', () => {
   });
 });
 
+describe('prompt improver', () => {
+  it('requires a real session (401 anonymous)', async () => {
+    const res = await app.inject({ method: 'POST', url: '/api/prompts/improve', payload: { text: 'помоги с договором' } });
+    assert.equal(res.statusCode, 401);
+  });
+
+  it('validates the text field', async () => {
+    const { token } = await makeUser();
+    const missing = await app.inject({ method: 'POST', url: '/api/prompts/improve', headers: auth(token), payload: {} });
+    assert.equal(missing.statusCode, 400);
+    const short = await app.inject({ method: 'POST', url: '/api/prompts/improve', headers: auth(token), payload: { text: 'ab' } });
+    assert.equal(short.statusCode, 400);
+    const long = await app.inject({ method: 'POST', url: '/api/prompts/improve', headers: auth(token), payload: { text: 'x'.repeat(4001) } });
+    assert.equal(long.statusCode, 400);
+  });
+
+  it('returns the rewritten prompt (deterministic dev fallback)', async () => {
+    const { token } = await makeUser();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/prompts/improve',
+      headers: auth(token),
+      payload: { text: 'проверь договор аренды' },
+    });
+    assert.equal(res.statusCode, 200, res.body);
+    assert.equal(JSON.parse(res.body).text, '[dev] проверь договор аренды');
+  });
+});
+
 describe('saved templates (personal library)', () => {
   it('saves, lists, isolates per user, and deletes', async () => {
     const a = await makeUser();

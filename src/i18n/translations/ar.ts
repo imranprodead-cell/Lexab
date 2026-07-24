@@ -543,6 +543,8 @@ const ar: Record<string, string> = {
   "chat.micStart": "الإدخال الصوتي",
   "chat.micStop": "إيقاف التسجيل",
   "chat.attach": "إرفاق عقد",
+  "chat.improve": "تحسين الطلب",
+  "chat.improveError": "تعذّر تحسين الطلب. حاول مرة أخرى.",
   "chat.sendLabel": "إرسال الرسالة",
   "ws.review": "مراجعة",
   "ws.backToChat": "العودة إلى المحادثة",

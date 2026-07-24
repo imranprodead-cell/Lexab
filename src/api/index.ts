@@ -19,5 +19,6 @@ export { workflowsApi } from './workflows.api';
 export { securityApi } from './security.api';
 export type { TwoFactorStatus, TwoFactorSetup, SessionInfo, AccessReviewRow } from './security.api';
 export { ttsApi } from './tts.api';
+export { promptsApi } from './prompts.api';
 export { ApiError } from './util';
 export { USE_MOCK } from './client';

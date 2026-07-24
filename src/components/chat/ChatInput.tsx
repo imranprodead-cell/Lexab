@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Icon } from '@/components/icons/Icon';
 import { GlassCard } from '@/components/ui/GlassCard';
+import { Spinner } from '@/components/ui/Spinner';
+import { promptsApi } from '@/api/prompts.api';
 import { useVoiceInput } from '@/hooks/useVoiceInput';
 import { useI18n } from '@/i18n/I18nProvider';
 import { useUIStore } from '@/store/useUIStore';
@@ -59,9 +61,14 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
   const [value, setValue] = useState(() => (ephemeral ? '' : loadDraft(draftKey)));
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashIndex, setSlashIndex] = useState(0);
+  const [improving, setImproving] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const micBaseRef = useRef('');
+  const improveAbortRef = useRef<AbortController | null>(null);
+
+  // Leaving the page mid-improve must not leak the request.
+  useEffect(() => () => improveAbortRef.current?.abort(), []);
 
   // A restored draft can be multi-line — size the textarea to it on mount.
   useEffect(() => {
@@ -101,6 +108,30 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
   const onMic = () => {
     if (!voice.listening) micBaseRef.current = value ? `${value.replace(/\s*$/, '')} ` : '';
     voice.toggle();
+  };
+
+  /** ✦: rewrite the draft into a clear prompt and put it back into the box. */
+  const onImprove = async () => {
+    const draft = value.trim();
+    if (!draft || improving) return;
+    improveAbortRef.current?.abort();
+    const controller = new AbortController();
+    improveAbortRef.current = controller;
+    setImproving(true);
+    try {
+      const better = await promptsApi.improve(draft, controller.signal);
+      if (!controller.signal.aborted && better.trim()) {
+        applyValue(better.trim());
+        textareaRef.current?.focus();
+      }
+    } catch (err) {
+      if (!(err instanceof DOMException && err.name === 'AbortError')) {
+        pushToast(t('chat.improveError'), 'error');
+      }
+    } finally {
+      if (improveAbortRef.current === controller) improveAbortRef.current = null;
+      setImproving(false);
+    }
   };
 
   const filtered = useMemo<Command[]>(() => {
@@ -236,9 +267,22 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
             onKeyDown={onKeyDown}
             aria-label={t('a11y.messageInput')}
             data-chat-input
+            readOnly={improving}
           />
 
           <div className={styles.inputControlsGroup}>
+            <button
+              type="button"
+              className={styles.micBtn}
+              aria-label={t('chat.improve')}
+              title={t('chat.improve')}
+              onClick={onImprove}
+              disabled={!hasText || improving}
+              style={{ color: improving ? 'var(--accent)' : 'var(--dim)', opacity: hasText || improving ? 1 : 0.45 }}
+            >
+              {improving ? <Spinner size={16} /> : <Icon name="sparkle" size={18} />}
+            </button>
+
             {voice.supported ? (
               <button
                 type="button"
