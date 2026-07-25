@@ -17,6 +17,7 @@ import { config } from '../config.ts';
 import { badRequest, HttpError, notFound, unauthorized } from '../lib/errors.ts';
 import { audit } from '../lib/audit.ts';
 import { decText } from '../lib/docCrypto.ts';
+import { renderExportHtml } from '../lib/exportHtml.ts';
 import { newId } from '../lib/ids.ts';
 import { assertFeature } from '../lib/limits.ts';
 import { verifyPassword } from '../lib/passwords.ts';
@@ -269,14 +270,21 @@ export function securityRoutes(app: FastifyInstance, db: Db): void {
     return { token: signToken(app, fresh.rows[0]), user: toProfile(fresh.rows[0]) };
   });
 
-  // DSAR — portable archive of everything this account holds (JSON download).
+  // DSAR — archive of everything this account holds. По умолчанию —
+  // человекочитаемый HTML (открывается в браузере); ?format=json оставляет
+  // машиночитаемый вариант для переноса данных.
   app.get('/me/export', { preHandler: [app.authenticate], config: RATE }, async (req, reply) => {
     const user = await db.query<UserRow>('SELECT id, email, name, initials, firm, jurisdiction, avatar_url, token_version, email_verified FROM users WHERE id = $1', [req.currentUser.id]);
     const data = await buildExport(db, user.rows[0]);
     await audit(db, req, { type: 'user.data_exported', teamOwnerId: req.currentUser.id });
-    reply.header('Content-Type', 'application/json; charset=utf-8');
-    reply.header('Content-Disposition', 'attachment; filename="lexab-data-export.json"');
-    return data;
+    if ((req.query as { format?: string }).format === 'json') {
+      reply.header('Content-Type', 'application/json; charset=utf-8');
+      reply.header('Content-Disposition', 'attachment; filename="lexab-data-export.json"');
+      return data;
+    }
+    reply.header('Content-Type', 'text/html; charset=utf-8');
+    reply.header('Content-Disposition', 'attachment; filename="lexab-data-export.html"');
+    return renderExportHtml(data);
   });
 
   // Access review: who is on the team and when they last acted (owner/admin).

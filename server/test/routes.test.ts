@@ -1654,10 +1654,20 @@ describe('sessions, DSAR export, retention, access review', () => {
     assert.equal(newWorks.statusCode, 200, 'fresh token works');
   });
 
-  it('DSAR export returns the account data as a JSON download', async () => {
+  it('DSAR export: readable HTML by default, machine JSON via ?format=json', async () => {
     const u = await makeUser();
     await app.inject({ method: 'POST', url: '/api/analysis', headers: auth(u.token), payload: { fileName: 'export-me.pdf', fileSize: '10 KB', jurisdiction: 'GB' } });
-    const res = await app.inject({ method: 'GET', url: '/api/me/export', headers: auth(u.token) });
+
+    const html = await app.inject({ method: 'GET', url: '/api/me/export', headers: auth(u.token) });
+    assert.equal(html.statusCode, 200, html.body);
+    assert.match(html.headers['content-type'] as string, /text\/html/);
+    assert.match(html.headers['content-disposition'] as string, /attachment; filename="lexab-data-export\.html"/);
+    assert.ok(html.body.includes('<!doctype html>'), 'full html document');
+    assert.ok(html.body.includes(u.email), 'account email present');
+    assert.ok(html.body.includes('export-me.pdf'), 'document name present');
+    assert.ok(!html.body.includes('<script'), 'no scripts in the export');
+
+    const res = await app.inject({ method: 'GET', url: '/api/me/export?format=json', headers: auth(u.token) });
     assert.equal(res.statusCode, 200, res.body);
     assert.match(res.headers['content-disposition'] as string, /attachment; filename="lexab-data-export\.json"/);
     const data = JSON.parse(res.body);
@@ -1665,6 +1675,20 @@ describe('sessions, DSAR export, retention, access review', () => {
     assert.ok(Array.isArray(data.documents) && data.documents.length >= 1, 'documents included');
     assert.ok(Array.isArray(data.analyses) && data.analyses.length >= 1, 'analyses included');
     assert.ok(typeof data.analyses[0].summary === 'string', 'analysis summary decrypted in export');
+  });
+
+  it('DSAR HTML export escapes user-controlled values (no XSS in the file)', async () => {
+    const u = await makeUser();
+    await app.inject({
+      method: 'POST',
+      url: '/api/analysis',
+      headers: auth(u.token),
+      payload: { fileName: '<img src=x onerror=alert(1)>.pdf', fileSize: '10 KB', jurisdiction: 'GB' },
+    });
+    const res = await app.inject({ method: 'GET', url: '/api/me/export', headers: auth(u.token) });
+    assert.equal(res.statusCode, 200);
+    assert.ok(!res.body.includes('<img src=x'), 'raw html from user data must not survive');
+    assert.ok(res.body.includes('&lt;img src=x'), 'user value present but escaped');
   });
 
   it('soft-deletes a document and the retention sweep crypto-shreds it', async () => {

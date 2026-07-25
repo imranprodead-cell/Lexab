@@ -406,8 +406,8 @@ export const MESSAGES: Dict = {
   'sec.sessions.revoked': { ru: 'Остальные сессии завершены.', en: 'Other sessions signed out.' },
   'sec.export.title': { ru: 'Экспорт данных', en: 'Data export' },
   'sec.export.sub': {
-    ru: 'По правилам GDPR вы можете скачать копию своих данных: профиль, документы и историю — в машиночитаемом формате.',
-    en: 'Under GDPR you can download a copy of your data — profile, documents and history — in a machine-readable format.',
+    ru: 'Скачайте копию своих данных — профиль, документы, анализы и историю чатов — одним понятным файлом, который открывается в браузере.',
+    en: 'Download a copy of your data — profile, documents, reviews and chat history — as one readable file that opens in your browser.',
   },
   'sec.export.button': { ru: 'Скачать мои данные', en: 'Download my data' },
   'sec.export.failed': { ru: 'Не удалось скачать данные.', en: 'Could not download your data.' },

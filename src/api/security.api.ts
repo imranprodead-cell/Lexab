@@ -128,15 +128,16 @@ export const securityApi = {
     },
   },
 
-  /** DSAR: download the full account export as a JSON file. */
+  /** DSAR: download the account export as a readable HTML file
+   *  (the machine-readable JSON stays available via ?format=json). */
   async exportData(): Promise<void> {
     if (USE_MOCK) {
       await delay(200);
-      downloadBlob(new Blob(['{"export":"demo"}'], { type: 'application/json' }), 'lexab-data-export.json');
+      downloadBlob(new Blob(['<!doctype html><html><body>demo export</body></html>'], { type: 'text/html' }), 'lexab-data-export.html');
       return;
     }
     const blob = await httpBlob('/me/export');
-    downloadBlob(blob, 'lexab-data-export.json');
+    downloadBlob(blob, 'lexab-data-export.html');
   },
 
   accessReview: {
