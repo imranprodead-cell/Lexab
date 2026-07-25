@@ -5,6 +5,7 @@ import { Icon } from '@/components/icons/Icon';
 import { Button } from '@/components/ui/Button';
 import { EmptyState, ErrorState, SkeletonRows } from '@/components/ui/States';
 import { useAsync } from '@/hooks/useAsync';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { chatsApi } from '@/api/chats.api';
 import { useChatHistoryStore } from '@/store/useChatHistoryStore';
@@ -19,6 +20,7 @@ export function ArchivePage() {
   const pushToast = useUIStore((s) => s.pushToast);
   const reloadSidebar = useChatHistoryStore((s) => s.load);
   const { data, loading, error, reload } = useAsync((signal) => chatsApi.list(true, signal), []);
+  const isMobile = useMediaQuery('(max-width: 700px)');
   usePageTitle(t('archive.title'));
 
   // Rows hidden during their 5-second undo window (same pattern as the sidebar).
@@ -78,6 +80,35 @@ export function ArchivePage() {
             <ErrorState message={error} onRetry={reload} />
           ) : !data || data.length === 0 ? (
             <EmptyState icon="archive" title={t('archive.emptyTitle')} body={t('archive.emptyBody')} />
+          ) : isMobile ? (
+            /* Телефон: карточки вместо таблицы — три кнопки действий не
+               заставляют скроллить строку вбок. */
+            <div className={styles.rowCards}>
+              {data.filter((s) => !pendingDelete.includes(s.id)).map((s) => (
+                <div key={s.id} className={styles.rowCard} style={{ cursor: 'default' }}>
+                  <div className={styles.rowCardHead}>
+                    <Icon name="chat" size={17} color="var(--dim)" />
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div className={styles.docCellName}>{s.title}</div>
+                    </div>
+                  </div>
+                  <div className={styles.rowCardMeta}>
+                    <span>{new Date(s.updatedAt).toLocaleDateString()}</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <Button size="sm" icon="chat" onClick={() => navigate(`/chat/${s.id}`)}>
+                      {t('archive.open')}
+                    </Button>
+                    <Button size="sm" icon="upload" onClick={() => void restore(s.id)}>
+                      {t('archive.restore')}
+                    </Button>
+                    <Button size="sm" icon="trash" onClick={() => void remove(s.id)}>
+                      {t('rail.delete')}
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
           ) : (
             <div className={styles.tableCard}>
               <table className={styles.table}>

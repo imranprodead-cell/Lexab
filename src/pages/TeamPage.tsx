@@ -11,6 +11,7 @@ import { RoleSelect, type RolePresetKey } from '@/components/ui/RoleSelect';
 import { SelectMenu } from '@/components/ui/SelectMenu';
 import { EmptyState, ErrorState, SkeletonRows } from '@/components/ui/States';
 import { useAsync, clearAsyncCache } from '@/hooks/useAsync';
+import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { ROLE_COLORS, securityApi, teamApi, userApi, type TeamRole } from '@/api';
 import type { AccessReviewRow } from '@/api';
@@ -39,6 +40,7 @@ const PRESET_ACCESS: Record<RolePresetKey, Exclude<TeamRole, 'owner'>> = {
 export function TeamPage() {
   const { t } = useI18n();
   const pushToast = useUIStore((s) => s.pushToast);
+  const isMobileCards = useMediaQuery('(max-width: 700px)');
   usePageTitle(t('nav.team'));
 
   const authUser = useAuthStore((s) => s.user);
@@ -246,6 +248,40 @@ export function TeamPage() {
             <ErrorState message={members.error} onRetry={members.reload} />
           ) : (members.data ?? []).length === 0 ? (
             <EmptyState title={t('team.title')} body={t('team.inviteHint')} />
+          ) : isMobileCards ? (
+            /* Телефон: карточки участников вместо таблицы с боковой прокруткой. */
+            <div className={styles.rowCards}>
+              {(members.data ?? []).map((m) => {
+                const pending = m.statusKey === 'team.status.invited';
+                return (
+                  <div key={m.id} className={styles.rowCard} style={{ cursor: 'default' }}>
+                    <div className={styles.rowCardHead}>
+                      <InitialsAvatar initials={initialsOf(m.name)} size={34} />
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div className={styles.docCellName}>{m.name}</div>
+                        <div className={styles.docCellSub}>{m.email}</div>
+                      </div>
+                    </div>
+                    <div className={styles.rowCardMeta}>
+                      <span>{m.title || t(m.roleKey)}</span>
+                      <span>{t(m.statusKey)}</span>
+                    </div>
+                    {m.manageable ? (
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        {pending && m.inviteToken ? (
+                          <Button size="sm" icon="docs" onClick={() => void copyInviteLink(m.inviteToken as string)}>
+                            {t('team.copyInvite')}
+                          </Button>
+                        ) : null}
+                        <Button size="sm" icon="trash" onClick={() => void removeMember(m.id, pending)}>
+                          {pending ? t('team.revoke') : t('team.remove')}
+                        </Button>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
           ) : (
             <div className={styles.tableCard}>
               <table className={styles.table}>

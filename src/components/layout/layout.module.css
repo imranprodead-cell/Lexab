@@ -2,7 +2,9 @@
 
 .shell {
   display: flex;
+  /* dvh-зеркало #root — см. комментарий в global.css. */
   height: 100vh;
+  height: 100dvh;
   width: 100vw;
   position: relative;
   overflow: hidden;
@@ -1137,6 +1139,7 @@
   top: calc(100% + 8px);
   inset-inline-end: 0;
   width: 320px;
+  max-width: calc(100vw - 24px); /* узкий телефон: панель не вылезает за экран */
   padding: 6px;
   border-radius: 14px;
   z-index: 80;

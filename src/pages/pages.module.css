@@ -1147,6 +1147,10 @@
   max-width: 430px;
   padding: 24px;
   border-radius: var(--r-xl);
+  /* Высокое содержимое (генератор шаблонов) на телефоне: карточка не выше
+     экрана, внутри — прокрутка (иначе верх/низ обрезались без скролла). */
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
 }
 .modalTitle {
   font-size: 17px;

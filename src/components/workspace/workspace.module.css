@@ -109,6 +109,21 @@
   gap: 8px;
   flex: none;
 }
+/* Телефон: 6 кнопок панели черновика не помещаются в одну строку 60px —
+   панель переносит строки, кнопки анализа/закрытия не уезжают за экран. */
+@media (max-width: 700px) {
+  .draftBar {
+    height: auto;
+    min-height: 60px;
+    flex-wrap: wrap;
+    padding: 8px 12px;
+    row-gap: 6px;
+  }
+  .draftActions {
+    margin-inline-start: 0;
+    flex-wrap: wrap;
+  }
+}
 
 /* Прогресс/ошибка анализа драфта в левой панели ---------------------------- */
 .draftProgress {
@@ -755,6 +770,13 @@
 }
 .etBtn:hover:not(:disabled) {
   background: var(--hover-2);
+}
+/* Тач-цели: на телефоне 32px слишком мелко для пальца. */
+@media (pointer: coarse) {
+  .etBtn {
+    height: 44px;
+    min-width: 44px;
+  }
 }
 .etBtn:disabled {
   opacity: 0.35;
