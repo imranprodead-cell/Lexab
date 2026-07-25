@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useNavigate } from 'react-router-dom';
 import { Icon, type IconName } from '@/components/icons/Icon';
 import { Avatar } from '@/components/ui/Avatar';
 import { UserMenu } from './UserMenu';
@@ -7,6 +7,7 @@ import { useAsync, useDismissable } from '@/hooks/useAsync';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { billingApi } from '@/api/billing.api';
 import { useChatHistoryStore } from '@/store/useChatHistoryStore';
+import { useChatStore } from '@/store/useChatStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { ChatSession } from '@/types/domain';
@@ -72,6 +73,7 @@ export function SideRail({ sessions, user, onNewReview }: SideRailProps) {
   const open = isMobile ? mobileNavOpen : railPinned;
   const toggleOpen = () => (isMobile ? setMobileNavOpen(!open) : toggleRail());
 
+  const navigate = useNavigate();
   const pinnedIds = useChatHistoryStore((s) => s.pinned);
   const togglePin = useChatHistoryStore((s) => s.togglePin);
   const renameSession = useChatHistoryStore((s) => s.renameSession);
@@ -200,7 +202,16 @@ export function SideRail({ sessions, user, onNewReview }: SideRailProps) {
               role="menuitem"
               className={`${styles.recentMenuItem} ${styles.recentMenuDanger}`}
               onClick={() => {
+                // Удаление ОТКРЫТОГО чата: сбрасываем канвас и уходим в новый
+                // чат — иначе сообщения удалённой беседы висят на экране до
+                // перезагрузки. Undo восстанавливает строку в списке (клик по
+                // ней откроет беседу заново — сервер удаляет её лишь через 5с).
+                const wasActive = useChatStore.getState().serverSessionId === s.id;
                 deleteSession(s.id); // shows the 5s undo toast itself
+                if (wasActive) {
+                  useChatStore.getState().reset();
+                  navigate('/chat');
+                }
                 setMenuFor(null);
               }}
             >
