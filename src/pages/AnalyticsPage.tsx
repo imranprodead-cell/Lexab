@@ -6,6 +6,7 @@ import { useAsync } from '@/hooks/useAsync';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { analyticsApi } from '@/api';
 import { useI18n } from '@/i18n/I18nProvider';
+import { localeFor } from '@/i18n/dates';
 import type { AnalyticsSummary, RiskLevel, Severity } from '@/types/domain';
 import styles from './pages.module.css';
 
@@ -48,7 +49,7 @@ function niceCeil(n: number): number {
 /** "2026-07" → localized short month label ("июл" / "Jul"). */
 function monthLabel(key: string, lang: string): string {
   const [y, m] = key.split('-').map(Number);
-  return new Date(Date.UTC(y, (m ?? 1) - 1, 1)).toLocaleDateString(lang === 'ru' ? 'ru' : lang, {
+  return new Date(Date.UTC(y, (m ?? 1) - 1, 1)).toLocaleDateString(localeFor(lang), {
     month: 'short',
     timeZone: 'UTC',
   });
@@ -245,7 +246,7 @@ export function AnalyticsPage() {
   usePageTitle(t('nav.analytics'));
 
   const dateFmt = (iso: string | null) =>
-    iso ? new Date(iso).toLocaleDateString(lang === 'ru' ? 'ru' : lang, { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
+    iso ? new Date(iso).toLocaleDateString(localeFor(lang), { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
 
   const citTotal = data ? data.compliance.verified + data.compliance.unverified : 0;
   // floor, not round: "100% verified" must never appear while unverified > 0.

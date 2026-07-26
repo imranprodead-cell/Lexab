@@ -261,7 +261,7 @@
 .msgMenu {
   position: absolute;
   bottom: calc(100% + 6px); /* opens upward — the row sits near the composer */
-  left: 0;
+  inset-inline-start: 0; /* RTL: физический left открывал меню за экраном */
   z-index: 40;
   min-width: 210px;
   display: flex;
@@ -756,7 +756,7 @@
 .askMenu {
   position: absolute;
   bottom: calc(100% + 8px);
-  left: 0;
+  inset-inline-start: 0; /* RTL: физический left открывал меню за экраном */
   z-index: 40;
   width: 360px;
   max-width: calc(100vw - 48px);

@@ -56,6 +56,9 @@ interface ChatState {
   serverSessionId: string | null;
   /** A saved session is being fetched (uncached open) — show a skeleton. */
   sessionLoading: boolean;
+  /** Загрузка сохранённого чата сорвалась по сети (НЕ 404): страница
+   *  показывает «повторить», а повторный клик перезапускает loadSession. */
+  sessionLoadFailed: boolean;
   /** Ghost (incognito) mode: the conversation lives only in this tab's memory. */
   ghost: boolean;
   /** Redline id to jump to when the workspace opens (set from the chat summary
@@ -116,9 +119,16 @@ interface ChatState {
 }
 
 interface DocSnapshot {
+  /** Чей это снимок: Undo из ЧУЖОГО анализа вставлял бы текст другого
+   *  договора и удалял его правки на сервере — снимки строго одноимённые. */
+  analysisId: string;
   document: DocBlock[];
   redlines: AnalysisResult['redlines'];
 }
+
+/** Последний прикреплённый файл (не переживает перезагрузку страницы) —
+ *  нужен «Повторить» после неудачного анализа, чтобы переслать ТЕ ЖЕ байты. */
+let lastRawFile: File | null = null;
 
 let stepTimers: ReturnType<typeof setTimeout>[] = [];
 function clearStepTimers() {
@@ -302,6 +312,7 @@ export const useChatStore = create<ChatState>((set, get) => {
   steps: ANALYSIS_STEPS,
   serverSessionId: null,
   sessionLoading: false,
+  sessionLoadFailed: false,
   ghost: false,
   pendingAnchor: null,
   showEdits: true,
@@ -382,6 +393,16 @@ export const useChatStore = create<ChatState>((set, get) => {
 
   startAnalysis: async (file, rawFile, opts) => {
     if (get().phase === 'analyzing' || get().ghost) return; // no files in ghost mode
+    // «Повторить» с карточки ошибки приходит БЕЗ файла — переиспользуем
+    // последний прикреплённый (тот же по имени). Без файла анализ запускать
+    // НЕЛЬЗЯ: сервер разрешал бы контент по имени и мог молча разобрать
+    // устаревшую версию или вообще ничего (выдуманный «анализ»).
+    if (rawFile) lastRawFile = rawFile;
+    const effectiveRaw = rawFile ?? (lastRawFile && lastRawFile.name === file.name ? lastRawFile : null);
+    if (!effectiveRaw && !USE_MOCK) {
+      useUIStore.getState().pushToast(tStandalone('chat.retryNeedsFile'), 'error');
+      return;
+    }
     const epoch = canvasEpoch;
     clearStepTimers();
 
@@ -408,9 +429,9 @@ export const useChatStore = create<ChatState>((set, get) => {
 
     try {
       // Ship the file itself first — the AI reads the actual contract text.
-      if (rawFile && !USE_MOCK) {
+      if (effectiveRaw && !USE_MOCK) {
         try {
-          await uploadsApi.upload(rawFile);
+          await uploadsApi.upload(effectiveRaw);
         } catch {
           // Upload failed (offline/over quota). Do NOT fall through to analysis:
           // the server resolves the contract by file NAME, so if an OLDER upload
@@ -444,6 +465,8 @@ export const useChatStore = create<ChatState>((set, get) => {
             draftSource: null,
             activeStep: ANALYSIS_STEPS.length,
             error: null,
+            docUndo: [],
+            docRedo: [],
             // loadSession мог стереть локальный пузырёк файла (сервер узнаёт
             // об анализе только из linkAnalysis, который ещё летит) — вернём
             // его, иначе карточке результата не к чему крепиться и чат
@@ -460,6 +483,8 @@ export const useChatStore = create<ChatState>((set, get) => {
         analysis: result,
         draftSource: null, // настоящий анализ заменил черновик шаблона
         activeStep: ANALYSIS_STEPS.length,
+        docUndo: [], // история правок принадлежала предыдущему анализу
+        docRedo: [],
       });
       tryLinkAnalysis();
     } catch (err) {
@@ -490,7 +515,7 @@ export const useChatStore = create<ChatState>((set, get) => {
     finishActiveStreams();
     canvasEpoch++;
     ghostStash = null;
-    set({ phase: 'idle', messages: [], analysis: null, draftSource: null, activeStep: -1, error: null, serverSessionId: null, ghost: false, sessionLoading: false });
+    set({ phase: 'idle', messages: [], analysis: null, draftSource: null, activeStep: -1, error: null, serverSessionId: null, ghost: false, sessionLoading: false, docUndo: [], docRedo: [] });
   },
 
   sendMessage: (text) => {
@@ -656,7 +681,8 @@ export const useChatStore = create<ChatState>((set, get) => {
       ghostStash = null;
       set({ ghost: false });
     }
-    if (get().serverSessionId === sessionId) return; // already showing this one
+    // already showing this one — но неудавшаяся загрузка обязана перезапускаться
+    if (get().serverSessionId === sessionId && !get().sessionLoadFailed) return;
     clearStepTimers();
     finishActiveStreams();
     // Snapshot the canvas we're leaving, so coming back paints instantly.
@@ -689,6 +715,9 @@ export const useChatStore = create<ChatState>((set, get) => {
       error: null,
       serverSessionId: sessionId,
       sessionLoading: !cached,
+      sessionLoadFailed: false,
+      docUndo: [], // история правок не переезжает между чатами/анализами
+      docRedo: [],
     });
 
     try {
@@ -726,11 +755,19 @@ export const useChatStore = create<ChatState>((set, get) => {
           activeStep: kept ? ANALYSIS_STEPS.length : -1,
         };
       });
-    } catch {
+    } catch (err) {
       if (epoch !== canvasEpoch) return;
-      // Session unknown to the server — show an empty canvas instead of
-      // someone else's demo contract.
-      set({ phase: 'idle', messages: [], analysis: null, activeStep: -1, error: null, serverSessionId: null, sessionLoading: false });
+      if (err instanceof ApiError && err.status === 404) {
+        // Session unknown to the server — show an empty canvas instead of
+        // someone else's demo contract.
+        set({ phase: 'idle', messages: [], analysis: null, activeStep: -1, error: null, serverSessionId: null, sessionLoading: false });
+        return;
+      }
+      // Сеть моргнула / сервер 5xx: это НЕ «чата нет». Сессию не отвязываем
+      // (иначе следующее сообщение молча создало бы НОВЫЙ чат-развилку) и не
+      // стираем уже нарисованный кэш. Флаг даёт странице показать «повторить».
+      useUIStore.getState().pushToast(tStandalone('chat.loadFailed'), 'error');
+      set({ sessionLoading: false, sessionLoadFailed: true });
     }
   },
 
@@ -811,8 +848,18 @@ export const useChatStore = create<ChatState>((set, get) => {
   reanalyze: async () => {
     const current = get().analysis;
     if (!current) throw new Error('Nothing to re-analyse');
+    // Эпоха как в startAnalysis/sendMessage: пока повторный анализ летел,
+    // пользователь мог открыть ДРУГОЙ чат — поздний результат не должен
+    // захватывать чужой канвас и намертво привязываться к чужой сессии.
+    const epoch = canvasEpoch;
+    const sessionAtCall = get().serverSessionId;
     const result = await analysisApi.reanalyze(current.id, defaultLaw());
-    set({ analysis: result, phase: 'analyzed', activeStep: ANALYSIS_STEPS.length, error: null });
+    if (epoch !== canvasEpoch) {
+      // Связку сессия↔анализ сохраняем для ТОЙ сессии, где анализ запускали.
+      if (sessionAtCall && !USE_MOCK) void chatsApi.linkAnalysis(sessionAtCall, result.id).catch(() => undefined);
+      return result;
+    }
+    set({ analysis: result, phase: 'analyzed', activeStep: ANALYSIS_STEPS.length, error: null, docUndo: [], docRedo: [] });
     tryLinkAnalysis();
     return result;
   },
@@ -918,7 +965,7 @@ export const useChatStore = create<ChatState>((set, get) => {
           if (isRedlineSlot(seg)) referenced.add(seg.redlineId);
         }
       }
-      const before: DocSnapshot = { document: s.analysis.document, redlines: s.analysis.redlines };
+      const before: DocSnapshot = { analysisId: s.analysis.id, document: s.analysis.document, redlines: s.analysis.redlines };
       return {
         analysis: {
           ...s.analysis,
@@ -937,7 +984,12 @@ export const useChatStore = create<ChatState>((set, get) => {
     const s = get();
     if (!s.analysis || s.docUndo.length === 0) return;
     const prev = s.docUndo[s.docUndo.length - 1];
-    const current: DocSnapshot = { document: s.analysis.document, redlines: s.analysis.redlines };
+    if (prev.analysisId !== s.analysis.id) {
+      // Осиротевшие снимки другого анализа — выбрасываем, не применяем.
+      set({ docUndo: [], docRedo: [] });
+      return;
+    }
+    const current: DocSnapshot = { analysisId: s.analysis.id, document: s.analysis.document, redlines: s.analysis.redlines };
     set({
       analysis: { ...s.analysis, document: prev.document, redlines: prev.redlines },
       docUndo: s.docUndo.slice(0, -1),
@@ -954,7 +1006,11 @@ export const useChatStore = create<ChatState>((set, get) => {
     const s = get();
     if (!s.analysis || s.docRedo.length === 0) return;
     const next = s.docRedo[s.docRedo.length - 1];
-    const current: DocSnapshot = { document: s.analysis.document, redlines: s.analysis.redlines };
+    if (next.analysisId !== s.analysis.id) {
+      set({ docUndo: [], docRedo: [] });
+      return;
+    }
+    const current: DocSnapshot = { analysisId: s.analysis.id, document: s.analysis.document, redlines: s.analysis.redlines };
     set({
       analysis: { ...s.analysis, document: next.document, redlines: next.redlines },
       docRedo: s.docRedo.slice(0, -1),

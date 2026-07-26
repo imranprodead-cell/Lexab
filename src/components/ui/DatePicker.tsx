@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon } from '@/components/icons/Icon';
 import { useI18n } from '@/i18n/I18nProvider';
+import { localeFor } from '@/i18n/dates';
 import styles from './ui.module.css';
 
 interface DatePickerProps {
@@ -27,7 +28,7 @@ const mondayIndex = (d: Date) => (d.getDay() + 6) % 7;
  */
 export function DatePicker({ value, onChange, placeholder, ariaLabel, minToday = true }: DatePickerProps) {
   const { lang } = useI18n();
-  const locale = lang === 'ru' ? 'ru-RU' : 'en-GB';
+  const locale = localeFor(lang);
   const btnRef = useRef<HTMLButtonElement>(null);
   const popRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);

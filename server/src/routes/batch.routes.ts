@@ -18,7 +18,7 @@ import { badRequest, HttpError, notFound } from '../lib/errors.ts';
 import { decTextStrict } from '../lib/docCrypto.ts';
 import { formatSize } from '../lib/format.ts';
 import { newId } from '../lib/ids.ts';
-import { assertFeature, withAiRequest } from '../lib/limits.ts';
+import { assertFeatureTeamAware, withAiRequest } from '../lib/limits.ts';
 import { asObject } from '../lib/validate.ts';
 import { readFileBytes } from '../storage.ts';
 import { analyzeSource, persistAnalysis, type AnalysisSource } from './analysis.routes.ts';
@@ -243,7 +243,7 @@ export async function resumeBatchJobs(db: Db): Promise<void> {
 export function batchRoutes(app: FastifyInstance, db: Db): void {
   // Start a batch from already-uploaded files.
   app.post('/batch', { preHandler: [app.authenticateReal], config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (req, reply): Promise<BatchJobWire> => {
-    await assertFeature(db, req.currentUser.id, 'batch');
+    await assertFeatureTeamAware(db, req.currentUser.id, 'batch');
     const body = asObject(req.body);
     const raw = body.uploadIds;
     if (!Array.isArray(raw) || raw.length === 0) throw badRequest('Поле "uploadIds" — непустой массив id загрузок');
@@ -296,7 +296,7 @@ export function batchRoutes(app: FastifyInstance, db: Db): void {
 
   // Job list (no items) — the /batch history table.
   app.get('/batch', { preHandler: [app.authenticate] }, async (req): Promise<BatchJobWire[]> => {
-    await assertFeature(db, req.currentUser.id, 'batch');
+    await assertFeatureTeamAware(db, req.currentUser.id, 'batch');
     const res = await db.query<JobRow>(
       'SELECT id, status, total, done, failed, created_at FROM batch_jobs WHERE user_id = $1 ORDER BY created_at DESC LIMIT 100',
       [req.currentUser.id],
@@ -306,7 +306,7 @@ export function batchRoutes(app: FastifyInstance, db: Db): void {
 
   // One job with its items — polled by the frontend for progress.
   app.get('/batch/:id', { preHandler: [app.authenticate] }, async (req): Promise<BatchJobWire> => {
-    await assertFeature(db, req.currentUser.id, 'batch');
+    await assertFeatureTeamAware(db, req.currentUser.id, 'batch');
     const { id } = req.params as { id: string };
     const jobRes = await db.query<JobRow & { user_id: string }>(
       'SELECT id, user_id, status, total, done, failed, created_at FROM batch_jobs WHERE id = $1',

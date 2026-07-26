@@ -359,10 +359,31 @@ export function WorkspacePage() {
                         : {})}
                     >
                       <span className={styles.findingCardDot} style={{ background: toneColor(f.severity) }} />
-                      <div style={{ minWidth: 0 }}>
+                      <div style={{ minWidth: 0, flex: 1 }}>
                         <div className={styles.findingCardTitle}>{f.title}</div>
                         <CitationLine finding={f} />
                       </div>
+                      {/* «Обсудить в чате»: вопрос по находке ложится в плашку
+                          (НЕ отправляется сам — пользователь правит и шлёт). */}
+                      <button
+                        type="button"
+                        className={styles.discussBtn}
+                        title={t('ws.discuss')}
+                        aria-label={t('ws.discuss')}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setChatOpen(true);
+                          setTimeout(() => {
+                            window.dispatchEvent(
+                              new CustomEvent('lexab:composer-prefill', {
+                                detail: { draftKey: 'workspace', text: t('ws.discussPrompt', { title: f.title, citation: f.citation }) },
+                              }),
+                            );
+                          }, 60); // панель чата могла быть закрыта — даём плашке смонтироваться
+                        }}
+                      >
+                        <Icon name="chat" size={14} />
+                      </button>
                       {clickable ? <Icon name="chevron" size={14} color="var(--dim)" /> : null}
                     </div>
                   );
@@ -390,7 +411,10 @@ export function WorkspacePage() {
           </div>
         </div>
 
-        <ChatInput compact draftKey="workspace" onAnalyze={isDraft ? analyzeDraft : runReanalysis} onSend={(text) => sendMessage(text)} />
+        {/* hideAttach: кнопка «+» подписана «Прикрепить», а onAnalyze здесь —
+            платный повторный анализ; молчаливая трата запроса по мисклику
+            недопустима. Переанализ остаётся явной кнопкой и /analyze. */}
+        <ChatInput compact hideAttach draftKey="workspace" onAnalyze={isDraft ? analyzeDraft : runReanalysis} onSend={(text) => sendMessage(text)} />
       </div>
       ) : null}
 

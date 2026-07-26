@@ -109,6 +109,14 @@ export function AuthPage() {
   const [invite, setInvite] = useState<{ inviterName: string; inviterFirm: string; email: string; role: string } | null>(null);
   useEffect(() => {
     if (!inviteToken) return;
+    // Новичок уходит с этой страницы в почту подтверждать адрес — приглашение
+    // переживает этот крюк в localStorage, чтобы /verify-email привёл в /team,
+    // а не бросил в пустой чат (приглашение тогда никто никогда не принимал).
+    try {
+      localStorage.setItem('lexai.pendingInvite', inviteToken);
+    } catch {
+      /* storage blocked — путь через колокольчик всё равно останется */
+    }
     teamApi
       .inviteInfo(inviteToken)
       .then(setInvite)
@@ -220,12 +228,17 @@ export function AuthPage() {
       setError(null);
       setResetBusy(true);
       try {
+        // «Существует ли адрес» сервер и так не раскрывает (всегда 204) —
+        // здесь ловим только ТРАНСПОРТНЫЕ сбои (нет сети, лимит запросов,
+        // 5xx). Показать «письмо отправлено» при реально не ушедшем запросе
+        // нельзя: это единственный путь вернуть аккаунт.
         await authApi.requestReset(email.trim());
-      } catch {
-        /* never reveal whether the address exists */
-      } finally {
+      } catch (err) {
         setResetBusy(false);
+        setError(err instanceof Error && err.message ? err.message : t('common.error'));
+        return;
       }
+      setResetBusy(false);
       pushToast(t('auth.resetSent'), 'success');
       setMode('signin');
       return;

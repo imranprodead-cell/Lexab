@@ -348,3 +348,50 @@ export function signatureRoutes(app: FastifyInstance, db: Db): void {
     return reply.send('Hello API Event Received');
   });
 }
+
+/** Подписант молчит 3+ дня: одно напоминание ему на почту (ссылка на подпись
+ *  ещё жива) + заметка владельцу в колокольчик. Дедуп — флаг reminded, как в
+ *  checkApprovalDeadlines. Внешний провайдер (Dropbox Sign) шлёт свои
+ *  напоминания сам — трогаем только заявки с нашим token-линком. */
+export async function checkSignatureReminders(db: Db): Promise<void> {
+  const res = await db.query<{
+    ord: number;
+    name: string;
+    email: string;
+    token: string;
+    request_id: string;
+    document_name: string;
+    owner_id: string;
+    owner_name: string;
+    owner_firm: string;
+  }>(
+    // У signature_recipients нет своего id — ключ строки (request_id, ord).
+    `SELECT r.request_id, r.ord, r.name, r.email, r.token,
+            q.document_name, u.id AS owner_id, u.name AS owner_name, u.firm AS owner_firm
+     FROM signature_recipients r
+     JOIN signature_requests q ON q.id = r.request_id AND q.status IN ('Sent', 'Viewed')
+     JOIN users u ON u.id = q.user_id
+     WHERE r.signed = false AND r.reminded = false AND r.token IS NOT NULL
+       AND r.provider_signature_id IS NULL
+       AND COALESCE(q.sent_at, q.created_at) < now() - interval '3 days'`,
+  );
+  for (const s of res.rows) {
+    await db.query('UPDATE signature_recipients SET reminded = true WHERE request_id = $1 AND ord = $2', [s.request_id, s.ord]);
+    void sendMail({
+      to: s.email,
+      subject: `Напоминание: документ ждёт вашей подписи — ${s.document_name}`,
+      html: mailLayout(
+        'Документ ждёт подписи',
+        `<p>Здравствуйте, <strong>${escapeMailHtml(s.name)}</strong>!</p>
+         <p><strong>${escapeMailHtml(s.owner_name)}</strong> (${escapeMailHtml(s.owner_firm)}) несколько дней назад отправил(а) вам на подпись документ <strong>${escapeMailHtml(s.document_name)}</strong> — он всё ещё ждёт вашего решения.</p>`,
+        'Открыть и подписать',
+        `${config.appBaseUrl}/sign/${s.token}`,
+      ),
+    });
+    await notify(db, s.owner_id, 'esign', 'Подпись задерживается', 'Signature is stalled', {
+      bodyRu: `${s.document_name} · ${s.name} — напоминание отправлено`,
+      bodyEn: `${s.document_name} · ${s.name} — reminder sent`,
+      action: { kind: 'open', data: '/signatures' },
+    });
+  }
+}

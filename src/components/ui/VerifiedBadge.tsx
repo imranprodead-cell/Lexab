@@ -1,4 +1,8 @@
+import { useState } from 'react';
 import { Icon } from '@/components/icons/Icon';
+import { Spinner } from '@/components/ui/Spinner';
+import { lawApi, type LawUnit } from '@/api/law.api';
+import { localeFor } from '@/i18n/dates';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { Finding } from '@/types/domain';
 import { CitationChip } from './CitationChip';
@@ -57,6 +61,70 @@ export function CitationLine({
       <CitationChip citation={finding.citation} />
       <VerifiedBadge finding={finding} />
       <PlaybookDeviationBadge finding={finding} />
+      {finding.unitId && !finding.unverified ? <LawTextToggle unitId={finding.unitId} /> : null}
     </span>
+  );
+}
+
+/**
+ * «Текст нормы» — раскрывает под находкой САМ текст статьи из официального
+ * корпуса (со ссылкой на первоисточник и датой снимка). Превращает бейдж
+ * «Проверено» из слова в доказательство. Текст берётся ТОЛЬКО из базы законов,
+ * никогда не генерируется.
+ */
+function LawTextToggle({ unitId }: { unitId: string }) {
+  const { t, lang } = useI18n();
+  const [open, setOpen] = useState(false);
+  const [unit, setUnit] = useState<LawUnit | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  const toggle = () => {
+    if (open) {
+      setOpen(false);
+      return;
+    }
+    setOpen(true);
+    if (unit || busy) return;
+    setBusy(true);
+    setFailed(false);
+    lawApi
+      .unit(unitId)
+      .then(setUnit)
+      .catch(() => setFailed(true))
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <>
+      <button type="button" className={styles.lawToggle} onClick={toggle} aria-expanded={open}>
+        <Icon name="chevron" size={12} style={{ transform: open ? 'rotate(-90deg)' : 'rotate(90deg)', transition: 'transform 0.15s ease' }} />
+        {t(open ? 'law.hide' : 'law.show')}
+      </button>
+      {open ? (
+        <span className={styles.lawBox} dir="auto">
+          {busy ? (
+            <Spinner size={14} />
+          ) : failed ? (
+            <span className={styles.lawMeta}>{t('law.failed')}</span>
+          ) : unit ? (
+            <>
+              <span className={styles.lawBreadcrumb}>{unit.breadcrumb}</span>
+              <span className={styles.lawText}>{unit.text}</span>
+              <span className={styles.lawMeta}>
+                {unit.sourceUrl ? (
+                  <a href={unit.sourceUrl} target="_blank" rel="noopener noreferrer">
+                    {t('law.source')}
+                  </a>
+                ) : null}
+                {unit.retrievedAt
+                  ? ` · ${t('law.retrieved')} ${new Date(unit.retrievedAt).toLocaleDateString(localeFor(lang))}`
+                  : null}
+              </span>
+            </>
+          ) : null}
+        </span>
+      ) : null}
+    </>
   );
 }

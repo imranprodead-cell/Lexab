@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { contractsApi } from '@/api';
 import { useUIStore } from '@/store/useUIStore';
 import { useI18n } from '@/i18n/I18nProvider';
+import { localeFor } from '@/i18n/dates';
 import type { ContractObligation } from '@/types/domain';
 import styles from './contracts.module.css';
 
@@ -23,7 +24,7 @@ export function ObligationList({ documentId, obligations }: { documentId: string
   const now = new Date();
   const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   const formatDate = (iso: string): string =>
-    new Date(iso).toLocaleDateString(lang === 'ru' ? 'ru-RU' : 'en-GB', {
+    new Date(iso).toLocaleDateString(localeFor(lang), {
       day: 'numeric',
       month: 'short',
       year: 'numeric',

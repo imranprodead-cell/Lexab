@@ -56,6 +56,9 @@ interface ChatInputProps {
   onCloudImport?: () => void;
   /** Storage slot for the unsent draft (chat and workspace keep separate drafts). */
   draftKey?: string;
+  /** Спрятать кнопку «Прикрепить»: в воркспейсе она проваливалась в onAnalyze
+   *  (= платный повторный анализ) — ловушка под видом скрепки. */
+  hideAttach?: boolean;
   /** Ghost mode: never touch localStorage — the draft dies with the canvas. */
   ephemeral?: boolean;
   /** Optional slot rendered above the input bar (e.g. the Free-plan upsell). */
@@ -66,7 +69,7 @@ interface ChatInputProps {
  * The chat composer: auto-growing textarea, attach button, and slash-command
  * autocomplete with full keyboard control (↑/↓ to move, ↵ to pick, Esc to close).
  */
-export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudImport, draftKey = 'chat', ephemeral = false, banner }: ChatInputProps) {
+export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudImport, draftKey = 'chat', hideAttach = false, ephemeral = false, banner }: ChatInputProps) {
   const { t } = useI18n();
   const [value, setValue] = useState(() => (ephemeral ? '' : loadDraft(draftKey)));
   const [slashOpen, setSlashOpen] = useState(false);
@@ -118,6 +121,20 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
     },
     [draftKey, ephemeral],
   );
+
+  // «Обсудить в чате» с карточки находки: вопрос кладётся прямо в плашку
+  // (событие, а не проп — карточки живут в другой ветке дерева). Черновик
+  // НЕ отправляется сам: пользователь дочитывает, правит и жмёт отправить.
+  useEffect(() => {
+    const onPrefill = (e: Event) => {
+      const detail = (e as CustomEvent<{ draftKey?: string; text?: string }>).detail;
+      if (!detail || detail.draftKey !== draftKey || !detail.text) return;
+      applyValue(detail.text);
+      textareaRef.current?.focus();
+    };
+    window.addEventListener('lexab:composer-prefill', onPrefill);
+    return () => window.removeEventListener('lexab:composer-prefill', onPrefill);
+  }, [draftKey, applyValue]);
 
   const pushToast = useUIStore((s) => s.pushToast);
   const voice = useVoiceInput(
@@ -282,15 +299,17 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
 
           <div className={styles.inputControlsRow}>
             <div className={styles.inputControlsGroup}>
-              <button
-                type="button"
-                title={t('chat.attach')}
-                aria-label={t('chat.attach')}
-                onClick={onAttach}
-                className={styles.attachBtn}
-              >
-                <Icon name="plus" size={20} />
-              </button>
+              {hideAttach ? null : (
+                <button
+                  type="button"
+                  title={t('chat.attach')}
+                  aria-label={t('chat.attach')}
+                  onClick={onAttach}
+                  className={styles.attachBtn}
+                >
+                  <Icon name="plus" size={20} />
+                </button>
+              )}
 
               {onCloudImport ? (
                 <button

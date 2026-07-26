@@ -6,6 +6,7 @@
  */
 import type { Db, Queryable } from '../db.ts';
 import { HttpError } from './errors.ts';
+import { activeTeamOwnerFor } from './teamAccess.ts';
 
 /** null = unlimited. Mirrors the Plans page. */
 export const PLAN_LIMITS: Record<string, { ai: number | null; docs: number | null; storageMb: number | null }> = {
@@ -128,6 +129,24 @@ export async function assertFeature(db: Db, userId: string, feature: PlanFeature
     402,
     `«${f.ru}» доступно на планах ${f.plans} (у вас ${plan}). ${upgradeHint}`,
   );
+}
+
+/**
+ * Как assertFeature, но активный участник команды наследует фичи ПЛАНА
+ * ВЛАДЕЛЬЦА команды (Business-сиденья): владелец купил Business — вся команда
+ * пользуется плейбуками/массовым разбором, а не упирается в личный Free.
+ * Личный платный план участника тоже засчитывается (сначала дешёвая проверка
+ * своего плана — без лишнего запроса про команду).
+ */
+export async function assertFeatureTeamAware(db: Db, userId: string, feature: PlanFeature): Promise<void> {
+  try {
+    await assertFeature(db, userId, feature);
+    return;
+  } catch (err) {
+    const ownerId = await activeTeamOwnerFor(db, userId);
+    if (!ownerId) throw err;
+    await assertFeature(db, ownerId, feature); // 402 владельца, если и у команды нет
+  }
 }
 
 /**

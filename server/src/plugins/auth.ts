@@ -98,7 +98,23 @@ export function registerAuth(app: FastifyInstance, db: Db): void {
     const token = header.startsWith('Bearer ') ? header.slice(7) : null;
     if (!token) return null;
     try {
-      const payload = app.jwt.verify<{ sub: string; tv: number }>(token);
+      const payload = app.jwt.verify<{ sub: string; tv: number; sid?: string }>(token);
+      if (payload.sid) {
+        // Токен привязан к сессии: «Выйти» на одном устройстве удаляет ТОЛЬКО
+        // его строку user_sessions — остальные устройства живут. Один запрос
+        // (JOIN), чтобы не добавлять сетевой круг до Supabase на каждый вызов.
+        const res = await db.query<UserRow & { session_alive: boolean }>(
+          `SELECT u.id, u.email, u.name, u.initials, u.firm, u.jurisdiction, u.avatar_url,
+                  u.token_version, u.email_verified, (s.id IS NOT NULL) AS session_alive
+           FROM users u LEFT JOIN user_sessions s ON s.id = $2 AND s.user_id = u.id
+           WHERE u.id = $1`,
+          [payload.sub, payload.sid],
+        );
+        const row = res.rows[0];
+        if (row && row.token_version === payload.tv && row.session_alive) return row;
+        return null;
+      }
+      // Легаси-токены без sid (выданы до этой версии): только token_version.
       const user = await getUserById(db, payload.sub);
       if (user && user.token_version === payload.tv) return user;
     } catch {
@@ -152,9 +168,11 @@ export function registerAuth(app: FastifyInstance, db: Db): void {
  * /auth/refresh carries it over unchanged, so a refresh chain can be capped at
  * an absolute age (config.sessionMaxDays) no matter how often it renews.
  */
-export function signToken(app: FastifyInstance, user: UserRow, authAt?: number): string {
+export function signToken(app: FastifyInstance, user: UserRow, authAt?: number, sid?: string | null): string {
   return app.jwt.sign(
-    { sub: user.id, tv: user.token_version, auth_at: authAt ?? Math.floor(Date.now() / 1000) },
+    // sid — id строки user_sessions этого входа: «Выйти» отзывает только её.
+    // Без sid (recordSession не удался) токен деградирует к легаси-поведению.
+    { sub: user.id, tv: user.token_version, auth_at: authAt ?? Math.floor(Date.now() / 1000), ...(sid ? { sid } : {}) },
     { expiresIn: config.jwtExpiresIn },
   );
 }

@@ -428,8 +428,8 @@ const ANALYSIS_SCHEMA = {
 } as const;
 
 const ANALYSIS_SYSTEM = `You are Lexab, a senior commercial contracts lawyer performing a risk review.
-Work from the supplied contract (or, when only a file name is available, infer the likely contract type from it and review a realistic model of such a contract).
-WRITE IN THE CONTRACT'S LANGUAGE: the summary, every finding title and every insText must be in the same language as the contract text (Russian contract → Russian output, English contract → English output). When only a file name is available, use the language suggested by the file name and jurisdiction. Citations always use the official citation format of the governing jurisdiction (e.g. «ст. 260 ГК» for UZ/KZ, "s.14 Sale of Goods Act 1979" for UK) regardless of output language.
+Work ONLY from the supplied contract — the text between <<< >>> or the attached PDF document. NEVER invent, assume or reconstruct contract content that is not in the supplied material: if the material is unreadable or empty, say so in the summary and return zero findings instead of imagining a typical contract.
+WRITE IN THE CONTRACT'S LANGUAGE: the summary, every finding title and every insText must be in the same language as the contract text (Russian contract → Russian output, English contract → English output). Citations always use the official citation format of the governing jurisdiction (e.g. «ст. 260 ГК» for UZ/KZ, "s.14 Sale of Goods Act 1979" for UK) regardless of output language.
 Identify the clauses with the most material legal exposure under the contract's governing jurisdiction. Cite real statutes and case law.
 CITATION CONSISTENCY: the citation text and the unitId MUST refer to the SAME provision — never cite one section (e.g. "s.11") while pointing unitId at a different section's id. If none of the LEGAL CONTEXT provisions is the provision your citation names, set unitId to "" rather than picking a near-miss.
 Produce tracked redlines: quote the exact problematic wording as delText, and provide precise replacement wording as insText.
@@ -462,7 +462,9 @@ function buildAnalysisPrompt(input: AnalysisInput, text: string | null): string 
   return (
     (text
       ? `File name: ${input.fileName}\n\nContract text:\n<<<\n${text}\n>>>`
-      : `File name: ${input.fileName}\n\nNo machine-readable text could be extracted from this file. Infer the contract type from the file name and produce a realistic, jurisdiction-appropriate risk review of a typical contract of that type.`) +
+      : // Достижимо только с приложенным PDF (guard в generateAnalysis):
+        // модель читает скан визуально, а не сочиняет по имени файла.
+        `File name: ${input.fileName}\n\nThe contract is attached above as a PDF document (no machine-readable text layer — read it visually). Review ONLY what the attached document actually contains.`) +
     jurisdictionNote +
     contextNote +
     playbookNote
@@ -477,6 +479,10 @@ export async function generateAnalysis(input: AnalysisInput): Promise<GeneratedA
 
   try {
     const text = input.text?.slice(0, 150_000) ?? null;
+    // Ни текста, ни PDF (старый .doc, битый файл) — анализировать НЕЧЕГО.
+    // Честный 422 для всех моделей: выдуманный «анализ» по имени файла в
+    // юридическом продукте — worst case failure (правило №1 CLAUDE.md).
+    if (!text?.trim() && !input.pdf) throw new HttpError(422, SCAN_NEEDS_TEXT);
     const prompt = buildAnalysisPrompt(input, text);
 
     return await withModelRetry(modelForPlan(input.plan), async (model) => {

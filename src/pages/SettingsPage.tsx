@@ -18,6 +18,7 @@ import { USE_MOCK } from '@/api/client';
 import { useUIStore } from '@/store/useUIStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useI18n } from '@/i18n/I18nProvider';
+import { localeFor } from '@/i18n/dates';
 import type { UserProfile } from '@/types/domain';
 import styles from './pages.module.css';
 
@@ -51,6 +52,23 @@ export function SettingsPage() {
   const limits = useAsync((signal) => billingApi.limits(signal), []);
   const sub = useAsync((signal) => billingApi.subscription(signal), []);
   const integrations = useAsync((signal) => integrationsApi.list(signal), []);
+  // Почта: тумблер понедельничной сводки + адрес приёма договоров.
+  const digest = useAsync((signal) => userApi.digest(signal), []);
+  const intake = useAsync((signal) => userApi.intake(signal), []);
+  const [digestBusy, setDigestBusy] = useState(false);
+  const toggleDigest = async () => {
+    if (!digest.data || digestBusy) return;
+    setDigestBusy(true);
+    try {
+      await userApi.setDigest(!digest.data.enabled);
+      digest.reload();
+      pushToast(t('settings.saved'), 'success');
+    } catch (err) {
+      pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
+    } finally {
+      setDigestBusy(false);
+    }
+  };
   const [integrationBusy, setIntegrationBusy] = useState<CloudProvider | null>(null);
   const [cancelConfirm, setCancelConfirm] = useState(false);
   const [cancelBusy, setCancelBusy] = useState(false);
@@ -135,8 +153,12 @@ export function SettingsPage() {
   const [deleteConfirm, setDeleteConfirm] = useState('');
   const [deleteBusy, setDeleteBusy] = useState(false);
 
+  // Тихая фоновая ревалидация useAsync приносит НОВЫЙ объект data после
+  // повторного захода — затирать ею форму, которую пользователь уже правит,
+  // нельзя. Обновляем форму только пока она нетронута.
+  const formDirty = useRef(false);
   useEffect(() => {
-    if (data) setForm(data);
+    if (data && !formDirty.current) setForm(data);
   }, [data]);
 
   if (loading || !form) {
@@ -150,7 +172,10 @@ export function SettingsPage() {
     );
   }
 
-  const update = (patch: Partial<UserProfile>) => setForm((f) => (f ? { ...f, ...patch } : f));
+  const update = (patch: Partial<UserProfile>) => {
+    formDirty.current = true;
+    setForm((f) => (f ? { ...f, ...patch } : f));
+  };
 
   const validate = (): boolean => {
     const next: Partial<Record<keyof UserProfile, string>> = {};
@@ -163,8 +188,15 @@ export function SettingsPage() {
     if (!validate()) return;
     setSaving(true);
     try {
-      const saved = await userApi.update(form);
+      // Аватар живёт своими операциями (onAvatarFile/removeAvatar) — из
+      // сохранения профиля его выкидываем, иначе устаревший снимок формы
+      // молча откатывал только что загруженное/удалённое фото.
+      const { avatarUrl: _managedSeparately, ...profileFields } = form;
+      void _managedSeparately;
+      const saved = await userApi.update(profileFields);
       updateProfile(saved); // keep the rail footer / auth session in sync
+      formDirty.current = false;
+      setForm(saved);
       pushToast(t('settings.saved'), 'success');
     } catch {
       pushToast(t('settings.saveFailed'), 'error');
@@ -185,6 +217,7 @@ export function SettingsPage() {
       try {
         await userApi.update({ avatarUrl: dataUrl }); // persist server-side
         updateProfile({ avatarUrl: dataUrl });
+        setForm((f) => (f ? { ...f, avatarUrl: dataUrl } : f)); // форма не должна помнить старое фото
         pushToast(t('common.save'), 'success');
       } catch {
         pushToast(t('settings.photoFailed'), 'error');
@@ -197,6 +230,7 @@ export function SettingsPage() {
     try {
       await userApi.update({ avatarUrl: '' }); // '' clears it server-side
       updateProfile({ avatarUrl: undefined });
+      setForm((f) => (f ? { ...f, avatarUrl: undefined } : f));
     } catch {
       pushToast(t('settings.photoRemoveFailed'), 'error');
     }
@@ -488,6 +522,50 @@ export function SettingsPage() {
               )}
             </section>
 
+            {/* Почта: дайджест + приём договоров по email --------------------- */}
+            <section className={styles.section}>
+              <h2 className={styles.sectionTitle}>{t('mail.title')}</h2>
+              <p className={styles.sectionSub}>{t('mail.sub')}</p>
+
+              <div className={styles.integrList}>
+                <div className={styles.integrRow}>
+                  <div className={styles.integrText}>
+                    <span className={styles.integrName}>{t('mail.digest')}</span>
+                    <span className={styles.integrStatus}>{t('mail.digestSub')}</span>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant={digest.data?.enabled ? 'secondary' : 'primary'}
+                    disabled={digestBusy || !digest.data}
+                    onClick={() => void toggleDigest()}
+                  >
+                    {digest.data?.enabled ? t('mail.digestOff') : t('mail.digestOn')}
+                  </Button>
+                </div>
+
+                {intake.data?.enabled && intake.data.address ? (
+                  <div className={styles.integrRow}>
+                    <div className={styles.integrText}>
+                      <span className={styles.integrName}>{t('mail.intake')}</span>
+                      <span className={styles.integrStatus}>{t('mail.intakeSub')}</span>
+                      <span className={styles.integrName} style={{ fontFamily: 'var(--font-mono, monospace)', fontSize: 13 }}>
+                        {intake.data.address}
+                      </span>
+                    </div>
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        void navigator.clipboard?.writeText(intake.data?.address ?? '');
+                        pushToast(t('mail.intakeCopied'), 'success');
+                      }}
+                    >
+                      {t('mail.intakeCopy')}
+                    </Button>
+                  </div>
+                ) : null}
+              </div>
+            </section>
+
             {/* Integrations -------------------------------------------------- */}
             <section className={styles.section}>
               <h2 className={styles.sectionTitle}>{t('integr.title')}</h2>
@@ -660,7 +738,7 @@ function relativeTime(iso: string | undefined, lang: string, fallback: string): 
   if (!iso) return fallback;
   const ms = new Date(iso).getTime();
   if (Number.isNaN(ms)) return fallback;
-  const rtf = new Intl.RelativeTimeFormat(lang === 'ru' ? 'ru' : 'en', { numeric: 'auto' });
+  const rtf = new Intl.RelativeTimeFormat(localeFor(lang), { numeric: 'auto' });
   const minutes = Math.round((Date.now() - ms) / 60_000);
   if (minutes < 60) return rtf.format(-Math.max(minutes, 0), 'minute');
   const hours = Math.round(minutes / 60);

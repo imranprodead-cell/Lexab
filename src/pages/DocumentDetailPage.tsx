@@ -23,6 +23,7 @@ import { SelectMenu } from '@/components/ui/SelectMenu';
 import { useChatStore } from '@/store/useChatStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useI18n } from '@/i18n/I18nProvider';
+import { localeFor } from '@/i18n/dates';
 import type { ContractRow, ContractStatus, Severity, WorkflowRun, WorkflowStepInput } from '@/types/domain';
 import styles from './pages.module.css';
 
@@ -141,7 +142,7 @@ function ContractTermsCard({ documentId, reloadKey = 0 }: { documentId: string; 
   if (!row) return null;
   const { terms } = row;
   const formatDate = (iso: string): string =>
-    new Date(iso).toLocaleDateString(lang === 'ru' ? 'ru-RU' : 'en-GB', {
+    new Date(iso).toLocaleDateString(localeFor(lang), {
       day: 'numeric',
       month: 'short',
       year: 'numeric',
@@ -204,7 +205,7 @@ export function DocumentDetailPage() {
   const { t, lang } = useI18n();
 
   const formatDate = (iso: string): string =>
-    new Date(iso).toLocaleDateString(lang === 'ru' ? 'ru-RU' : 'en-GB', {
+    new Date(iso).toLocaleDateString(localeFor(lang), {
       day: 'numeric',
       month: 'short',
       year: 'numeric',

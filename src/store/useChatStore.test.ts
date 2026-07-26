@@ -261,7 +261,8 @@ describe('chat store — template draft in the workspace', () => {
     (chatsApi.messages as ReturnType<typeof vi.fn>).mockResolvedValue([]);
 
     useChatStore.setState({ serverSessionId: 's1' });
-    void useChatStore.getState().startAnalysis({ name: 'contract.pdf', size: '2 KB' });
+    // rawFile обязателен вне мока: анализ без файла запрещён (фикс «Повторить»)
+    void useChatStore.getState().startAnalysis({ name: 'contract.pdf', size: '2 KB' }, new File(['x'], 'contract.pdf'));
     await new Promise((r) => setTimeout(r, 5));
     expect(useChatStore.getState().phase).toBe('analyzing');
 
@@ -289,7 +290,7 @@ describe('chat store — template draft in the workspace', () => {
       sid === 's1' ? new Promise((r) => { resolveS1 = r; }) : Promise.resolve([]));
 
     useChatStore.setState({ serverSessionId: 's1' });
-    void useChatStore.getState().startAnalysis({ name: 'contract.pdf', size: '2 KB' });
+    void useChatStore.getState().startAnalysis({ name: 'contract.pdf', size: '2 KB' }, new File(['x'], 'contract.pdf'));
     await new Promise((r) => setTimeout(r, 5));
     await useChatStore.getState().loadSession('s2'); // ушёл
     const returning = useChatStore.getState().loadSession('s1'); // вернулся; ответ сервера завис
@@ -359,7 +360,7 @@ describe('chat store — template draft in the workspace', () => {
     // Реальный анализ подменён вечным промисом — ловим состояние «в процессе».
     const { analysisApi: api } = (await vi.importMock('@/api')) as { analysisApi: Record<string, ReturnType<typeof vi.fn>> };
     api.analyze = vi.fn().mockReturnValue(new Promise(() => undefined));
-    void useChatStore.getState().startAnalysis({ name: 'NDA.txt', size: '1 KB' }, undefined, { keepCanvas: true });
+    void useChatStore.getState().startAnalysis({ name: 'NDA.txt', size: '1 KB' }, new File(['Текст соглашения.'], 'NDA.txt'), { keepCanvas: true });
     const s = useChatStore.getState();
     expect(s.phase).toBe('analyzing');
     expect(s.analysis).not.toBeNull(); // документ НЕ пропал с экрана

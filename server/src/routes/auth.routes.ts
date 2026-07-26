@@ -137,6 +137,23 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
       bodyEn: 'Upload your first contract for review',
     });
 
+    // Приглашение в команду отправили ДО регистрации? Продублируем его в
+    // колокольчик с кнопкой «Принять» — иначе новый сотрудник после
+    // подтверждения почты попадал в /chat и никогда не видел приглашения.
+    const pendingInvites = await db.query<{ invite_token: string | null; owner_name: string | null; owner_firm: string | null }>(
+      `SELECT tm.invite_token, u.name AS owner_name, u.firm AS owner_firm
+       FROM team_members tm JOIN users u ON u.id = tm.owner_user_id
+       WHERE lower(tm.email) = lower($1) AND tm.status = 'invited' AND tm.invite_token IS NOT NULL`,
+      [email],
+    );
+    for (const inv of pendingInvites.rows) {
+      await notify(db, id, 'docs', 'Приглашение в команду', 'Team invitation', {
+        bodyRu: `${inv.owner_name ?? ''}${inv.owner_firm ? ` (${inv.owner_firm})` : ''}`.trim() || 'Вас пригласили в команду',
+        bodyEn: `${inv.owner_name ?? ''}${inv.owner_firm ? ` (${inv.owner_firm})` : ''}`.trim() || 'You have been invited to a team',
+        action: { kind: 'team_invite', data: inv.invite_token as string },
+      });
+    }
+
     await sendVerificationMail(db, id, email, name);
     await audit(db, req, { type: 'auth.register', actorId: id, actorLabel: email, teamOwnerId: id });
 
@@ -167,7 +184,8 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
     );
     // Owning the mailbox proves the email → sign the user in right away.
     const user = (await getUserById(db, row.id)) as UserRow;
-    return { ok: true, token: signToken(app, user), user: toProfile(user) };
+    const sid = await recordSession(db, user.id, req.ip, req.headers['user-agent']);
+    return { ok: true, token: signToken(app, user, undefined, sid), user: toProfile(user) };
   });
 
   // Logged-in user asks for the letter again.
@@ -263,8 +281,8 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
     }
 
     await audit(db, req, { type: 'auth.login', actorId: user.id, actorLabel: user.email, teamOwnerId: user.id });
-    await recordSession(db, user.id, req.ip, req.headers['user-agent']);
-    return { token: signToken(app, user), user: toProfile(user) };
+    const sid = await recordSession(db, user.id, req.ip, req.headers['user-agent']);
+    return { token: signToken(app, user, undefined, sid), user: toProfile(user) };
   });
 
   // Sliding session: a live token is exchanged for a fresh full-lifetime one.
@@ -284,25 +302,36 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
       throw unauthorized(); // 401 (not 403): the client must drop the session and re-login via SSO
     }
     const raw = (req.headers.authorization ?? '').slice(7);
-    const payload = app.jwt.decode<{ iat?: number; auth_at?: number }>(raw);
+    const payload = app.jwt.decode<{ iat?: number; auth_at?: number; sid?: string }>(raw);
     const authAt = payload?.auth_at ?? payload?.iat ?? Math.floor(Date.now() / 1000);
     if (Date.now() / 1000 - authAt > config.sessionMaxDays * 86400) throw unauthorized();
     await audit(db, req, { type: 'auth.refresh', teamOwnerId: req.currentUser.id });
-    // Сессии — visibility-контроль без привязки токен↔строка: считаем живой ту,
-    // что была активна последней (лучшее приближение), и штампуем её.
+    // Штампуем СВОЮ сессию (sid из токена); легаси-токен без sid — как раньше,
+    // последнюю активную (лучшее приближение).
     void db
       .query(
-        `UPDATE user_sessions SET last_seen_at = now()
-         WHERE id = (SELECT id FROM user_sessions WHERE user_id = $1 ORDER BY last_seen_at DESC LIMIT 1)`,
-        [req.currentUser.id],
+        payload?.sid
+          ? `UPDATE user_sessions SET last_seen_at = now() WHERE id = $1`
+          : `UPDATE user_sessions SET last_seen_at = now()
+             WHERE id = (SELECT id FROM user_sessions WHERE user_id = $1 ORDER BY last_seen_at DESC LIMIT 1)`,
+        [payload?.sid ?? req.currentUser.id],
       )
       .catch(() => undefined);
-    return { token: signToken(app, req.currentUser, authAt), user: toProfile(req.currentUser) };
+    // sid переезжает в новый токен: цепочка refresh остаётся одной сессией.
+    return { token: signToken(app, req.currentUser, authAt, payload?.sid ?? null), user: toProfile(req.currentUser) };
   });
 
   app.post('/auth/logout', { preHandler: [app.authenticate], config: RATE_LIMIT }, async (req, reply) => {
-    // Bump token_version → all previously issued tokens become invalid.
-    await db.query('UPDATE users SET token_version = token_version + 1 WHERE id = $1', [req.currentUser.id]);
+    // «Выйти» = закрыть ТОЛЬКО эту сессию (sid из токена): другие устройства
+    // остаются в аккаунте — для «выйти везде» есть /me/sessions/revoke-others.
+    // Легаси-токен без sid отзывается по-старому (token_version — все разом).
+    const raw = (req.headers.authorization ?? '').slice(7);
+    const payload = app.jwt.decode<{ sid?: string }>(raw);
+    if (payload?.sid) {
+      await db.query('DELETE FROM user_sessions WHERE id = $1 AND user_id = $2', [payload.sid, req.currentUser.id]);
+    } else {
+      await db.query('UPDATE users SET token_version = token_version + 1 WHERE id = $1', [req.currentUser.id]);
+    }
     invalidateTtsAuthCache(req.currentUser.id);
     await audit(db, req, { type: 'auth.logout', teamOwnerId: req.currentUser.id });
     reply.code(204);
@@ -382,7 +411,8 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
     // Owning the mailbox proves the email → auto-login with a fresh session.
     const fresh = (await getUserById(db, row.id)) as UserRow;
     await audit(db, req, { type: 'auth.password_reset', actorId: fresh.id, actorLabel: fresh.email, teamOwnerId: fresh.id });
-    return { token: signToken(app, fresh), user: toProfile(fresh) };
+    const sid = await recordSession(db, fresh.id, req.ip, req.headers['user-agent']);
+    return { token: signToken(app, fresh, undefined, sid), user: toProfile(fresh) };
   });
 
   // Change password. Verifies the current one, then invalidates all previously
@@ -405,7 +435,8 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
     ]);
     const fresh = (await getUserById(db, user.id)) as UserRow;
     await audit(db, req, { type: 'auth.password_changed', teamOwnerId: user.id });
-    return { token: signToken(app, fresh), user: toProfile(fresh) };
+    const sid = await recordSession(db, fresh.id, req.ip, req.headers['user-agent']);
+    return { token: signToken(app, fresh, undefined, sid), user: toProfile(fresh) };
   });
 
   // Delete the account and every piece of data it owns (FK cascades).

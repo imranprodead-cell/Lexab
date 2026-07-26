@@ -31,6 +31,16 @@ export interface DocumentAccess {
   ownerName?: string;
 }
 
+/** Владелец команды, в которой пользователь состоит АКТИВНЫМ участником,
+ *  или null (сам себе команда). Единая точка для «чьи плейбуки/фичи применяются». */
+export async function activeTeamOwnerFor(db: Db, userId: string): Promise<string | null> {
+  const res = await db.query<{ owner_user_id: string }>(
+    "SELECT owner_user_id FROM team_members WHERE member_user_id = $1 AND status = 'active' AND owner_user_id <> $1 LIMIT 1",
+    [userId],
+  );
+  return res.rows[0]?.owner_user_id ?? null;
+}
+
 /** The viewer's active role in the owner's team, or null. */
 export async function teamRoleFor(db: Db, viewerId: string, ownerId: string): Promise<TeamRole | null> {
   if (viewerId === ownerId) return null;

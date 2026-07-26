@@ -3,6 +3,7 @@ import { ErrorState, SkeletonRows } from '@/components/ui/States';
 import { useAsync } from '@/hooks/useAsync';
 import { versionsApi } from '@/api';
 import { useI18n } from '@/i18n/I18nProvider';
+import { localeFor } from '@/i18n/dates';
 import styles from './workspace.module.css';
 
 interface VersionHistoryModalProps {
@@ -18,7 +19,7 @@ function formatDate(iso: string, locale: string): string {
 /** Read-only version timeline for the active document. */
 export function VersionHistoryModal({ open, documentId, onClose }: VersionHistoryModalProps) {
   const { t, lang } = useI18n();
-  const locale = lang === 'ru' ? 'ru-RU' : 'en-GB';
+  const locale = localeFor(lang);
   const { data, loading, error, reload } = useAsync(
     (signal) => versionsApi.list(documentId, signal),
     [documentId, open],

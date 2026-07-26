@@ -11,6 +11,7 @@ import { integrationsApi, type CloudFile, type CloudProvider } from '@/api/integ
 import { GDOC_MIME, openDrivePicker } from '@/lib/googlePicker';
 import { useUIStore } from '@/store/useUIStore';
 import { useI18n } from '@/i18n/I18nProvider';
+import { localeFor } from '@/i18n/dates';
 import { formatFileSize } from '@/lib/format';
 import styles from '@/pages/pages.module.css';
 
@@ -129,7 +130,7 @@ export function CloudImportModal({ open, onClose, onImported }: CloudImportModal
   };
 
   const dateOf = (iso: string | null) =>
-    iso ? new Date(iso).toLocaleDateString(lang === 'ru' ? 'ru-RU' : 'en-GB', { day: 'numeric', month: 'short' }) : '';
+    iso ? new Date(iso).toLocaleDateString(localeFor(lang), { day: 'numeric', month: 'short' }) : '';
 
   return (
     <Modal open={open} title={t('cloud.title')} onClose={onClose} maxWidth={520}>

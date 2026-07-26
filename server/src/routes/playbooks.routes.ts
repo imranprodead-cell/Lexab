@@ -41,10 +41,25 @@ async function playbookOwner(db: Db, userId: string): Promise<string> {
   return res.rows[0]?.owner_user_id ?? userId;
 }
 
-/** Feature-гейт и владелец команды параллельно: оба ходят в БД, а каждый
- *  лишний последовательный запрос — это сетевой круг до Supabase (~100 мс). */
+/** Гейт фичи считается по плану ВЛАДЕЛЬЦА команды (Business купил владелец —
+ *  плейбуки доступны всей команде), поэтому сначала находим владельца, потом
+ *  проверяем план. Личный платный план участника тоже засчитывается. */
 async function resolveOwner(db: Db, userId: string): Promise<string> {
-  const [, ownerId] = await Promise.all([assertFeature(db, userId, 'playbooks'), playbookOwner(db, userId)]);
+  const ownerId = await playbookOwner(db, userId);
+  if (ownerId === userId) {
+    await assertFeature(db, userId, 'playbooks');
+    return ownerId;
+  }
+  try {
+    await assertFeature(db, ownerId, 'playbooks');
+  } catch (err) {
+    // Владелец без фичи, но у участника свой платный план — не запираем.
+    try {
+      await assertFeature(db, userId, 'playbooks');
+    } catch {
+      throw err; // 402 с планом команды — понятнее для участника
+    }
+  }
   return ownerId;
 }
 
@@ -172,6 +187,10 @@ export function playbookRoutes(app: FastifyInstance, db: Db): void {
     const name = requireString(body, 'name', { min: 1, max: 200 });
     const jurisdiction = parseJurisdiction(body);
     const rules = parseRules(body);
+    // Выключатель «Активен» уважается прямо при создании — двухшаговое
+    // «создать активным, потом выключить» оставляло плейбук активным при
+    // сбое второго запроса, а повтор плодил дубликаты.
+    const active = body.active === undefined ? true : body.active === true;
     const id = newId('pb');
     // Encrypt BEFORE the transaction — see writeRules (avoids a PGlite deadlock).
     const encRules = await Promise.all(rules.map((r) => encText(db, ownerId, r)));
@@ -180,14 +199,14 @@ export function playbookRoutes(app: FastifyInstance, db: Db): void {
     let stamps!: { created_at: Date | string; updated_at: Date | string };
     await db.withTx(async (tx) => {
       const ins = await tx.query<{ created_at: Date | string; updated_at: Date | string }>(
-        'INSERT INTO playbooks (id, owner_user_id, name, jurisdiction, active) VALUES ($1, $2, $3, $4, true) RETURNING created_at, updated_at',
-        [id, ownerId, name, jurisdiction],
+        'INSERT INTO playbooks (id, owner_user_id, name, jurisdiction, active) VALUES ($1, $2, $3, $4, $5) RETURNING created_at, updated_at',
+        [id, ownerId, name, jurisdiction, active],
       );
       stamps = ins.rows[0];
       await writeRules(tx, id, encRules);
     });
     reply.code(201);
-    return { id, name, jurisdiction, active: true, rules, createdAt: toIso(stamps.created_at), updatedAt: toIso(stamps.updated_at) };
+    return { id, name, jurisdiction, active, rules, createdAt: toIso(stamps.created_at), updatedAt: toIso(stamps.updated_at) };
   });
 
   app.patch('/playbooks/:id', { preHandler: [app.authenticateReal] }, async (req): Promise<Playbook> => {

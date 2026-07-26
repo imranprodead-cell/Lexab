@@ -7,6 +7,7 @@ import { teamApi } from '@/api';
 import { useNotificationsStore, type AppNotification } from '@/store/useNotificationsStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useI18n } from '@/i18n/I18nProvider';
+import { localeFor } from '@/i18n/dates';
 import styles from './layout.module.css';
 
 /** Notification bell + dropdown feed of real server events. */
@@ -16,7 +17,7 @@ function relativeTime(iso: string | undefined, lang: string, fallback: string): 
   const ms = new Date(iso).getTime();
   if (Number.isNaN(ms)) return fallback;
   const diffMs = Date.now() - ms;
-  const rtf = new Intl.RelativeTimeFormat(lang === 'ru' ? 'ru' : 'en', { numeric: 'auto' });
+  const rtf = new Intl.RelativeTimeFormat(localeFor(lang), { numeric: 'auto' });
   const minutes = Math.round(diffMs / 60_000);
   if (minutes < 60) return rtf.format(-Math.max(minutes, 0), 'minute');
   const hours = Math.round(minutes / 60);

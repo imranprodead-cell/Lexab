@@ -76,6 +76,7 @@ export function ChatPage() {
   const exitGhost = useChatStore((s) => s.exitGhost);
   const setFeedback = useChatStore((s) => s.setFeedback);
   const sessionLoading = useChatStore((s) => s.sessionLoading);
+  const sessionLoadFailed = useChatStore((s) => s.sessionLoadFailed);
   const adoptAnalysis = useChatStore((s) => s.adoptAnalysis);
   const addSession = useChatHistoryStore((s) => s.addSession);
 
@@ -92,6 +93,11 @@ export function ChatPage() {
   // The Free-plan upsell above the composer (hidden on every paid plan).
   const { data: limits } = useAsync((signal) => billingApi.limits(signal), []);
   const isFree = limits?.plan === 'Free';
+  // ≥80% месячного лимита ИИ-запросов (на планах с потолком) — конкретный
+  // счётчик вместо общих слов, на любом тарифе.
+  const nearLimit = Boolean(
+    limits?.aiRequests?.limit && limits.aiRequests.used / limits.aiRequests.limit >= 0.8,
+  );
 
   // Opening a previous session from the sidebar restores its conversation
   // (from the server in real mode; the demo state in mock mode).
@@ -293,6 +299,14 @@ export function ChatPage() {
             <SkeletonRows rows={4} height={52} />
           </div>
         </div>
+      ) : sessionLoadFailed && messages.length === 0 ? (
+        // Сеть моргнула при открытии сохранённого чата: честная ошибка с
+        // «повторить» вместо пустого приветствия, маскирующего живой чат.
+        <div className={`${chat.thread} scroll`}>
+          <div className={chat.threadInner} style={{ paddingTop: 18 }}>
+            <ErrorState message={t('chat.loadFailed')} onRetry={() => sessionId && void loadSession(sessionId)} />
+          </div>
+        </div>
       ) : messages.length === 0 && (phase === 'idle' || phase === 'analyzed') ? (
         // «analyzed» без сообщений — канвас живёт в воркспейсе (черновик шаблона
         // через adoptDraft): в чате показываем приветствие, а не пустой экран.
@@ -367,7 +381,19 @@ export function ChatPage() {
           return sendMessage(text);
         }}
         banner={
-          isFree ? (
+          nearLimit && limits?.aiRequests?.limit ? (
+            // ≥80% месячного лимита: конкретная шкала вместо общего апселла —
+            // человек должен узнать о потолке ДО обидного отказа 402.
+            <div className={chat.upsellBar}>
+              <span className={chat.upsellText}>
+                <Icon name="alert" size={14} color="var(--accent)" />
+                {t('chat.usage.nearLimit', { used: limits.aiRequests.used, limit: limits.aiRequests.limit })}
+              </span>
+              <button type="button" className={chat.upsellBtn} onClick={() => navigate('/plans')}>
+                {t('chat.upsell.cta')}
+              </button>
+            </div>
+          ) : isFree ? (
             <div className={chat.upsellBar}>
               <span className={chat.upsellText}>
                 <Icon name="diamond" size={14} color="var(--accent)" />

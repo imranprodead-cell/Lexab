@@ -210,6 +210,31 @@
   margin-top: 6px;
   flex-shrink: 0;
 }
+/* «Обсудить в чате» на карточке находки */
+.discussBtn {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  color: var(--dim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+.discussBtn:hover {
+  background: var(--hover-2);
+  color: var(--accent);
+}
+@media (pointer: coarse) {
+  .discussBtn {
+    width: 40px;
+    height: 40px;
+  }
+}
 .findingCardTitle {
   font-size: 14px;
   font-weight: 600;

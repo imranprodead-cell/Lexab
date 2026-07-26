@@ -67,7 +67,7 @@ export function CountrySelector() {
         tabIndex={0}
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-label={`Jurisdiction: ${countryName(current, lang)}`}
+        aria-label={t('country.selectorAria', { name: countryName(current, lang) })}
         onClick={() => {
           setOpen((v) => !v);
           setQuery('');

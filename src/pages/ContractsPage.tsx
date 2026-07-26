@@ -13,6 +13,7 @@ import { useAsync } from '@/hooks/useAsync';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { useI18n } from '@/i18n/I18nProvider';
+import { localeFor } from '@/i18n/dates';
 import type { ContractRow } from '@/types/domain';
 import styles from './pages.module.css';
 
@@ -59,7 +60,7 @@ export function ContractsPage() {
   const locked = data?.locked === true;
 
   const formatDate = (iso: string): string =>
-    new Date(iso).toLocaleDateString(lang === 'ru' ? 'ru-RU' : 'en-GB', {
+    new Date(iso).toLocaleDateString(localeFor(lang), {
       day: 'numeric',
       month: 'short',
       year: 'numeric',

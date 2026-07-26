@@ -360,7 +360,9 @@
    edge — same rounded panel styling as the parent menu. */
 .userMenuSub {
   position: absolute;
-  left: calc(100% + 10px);
+  /* Логическое свойство: в арабском RTL «в сторону контента» — влево,
+     физический left уводил флайаут ЗА экран. */
+  inset-inline-start: calc(100% + 10px);
   bottom: -6px;
   z-index: 91;
   width: 272px;
@@ -377,8 +379,8 @@
 /* Phones: no room to the right of the drawer — the flyout opens above. */
 @media (max-width: 700px) {
   .userMenuSub {
-    left: 0;
-    right: auto;
+    inset-inline-start: 0;
+    inset-inline-end: auto;
     width: 100%;
     bottom: calc(100% + 6px);
   }
@@ -464,7 +466,7 @@
 .brandMenu {
   position: absolute;
   top: calc(100% + 8px);
-  left: 0;
+  inset-inline-start: 0; /* RTL: раскрываться в сторону контента, не за экран */
   z-index: 40;
   width: 340px;
   max-width: calc(100vw - 40px);
@@ -634,7 +636,12 @@
     display: none;
   }
   .topBar {
-    padding: 0 16px;
+    /* Сокращаем только боковые поля, НЕ трогая место под фикс-гамбургер:
+       шорт-хенд padding: 0 16px перебивал 64px из блока ≤700px, и кнопка
+       ложилась ПОВЕРХ заголовка/меню бренда на всех телефонах. */
+    padding-block: 0;
+    padding-inline-end: 16px;
+    padding-inline-start: 64px;
   }
 }
 
@@ -1380,6 +1387,21 @@
 .recentMore:focus-visible,
 .recentMoreOpen {
   opacity: 1;
+}
+/* Тач-экран: hover не существует — кнопка «⋯» видна всегда и с зоной 40px
+   (визуально те же 24, кликабельная область растёт за счёт прозрачных полей). */
+@media (hover: none) {
+  .recentMore {
+    opacity: 1;
+    width: 40px;
+    height: 40px;
+    inset-inline-end: 0;
+    background-clip: content-box;
+    padding: 8px;
+  }
+  .recentRow .recentItem {
+    padding-inline-end: 40px;
+  }
 }
 .recentMore:hover,
 .recentMoreOpen {

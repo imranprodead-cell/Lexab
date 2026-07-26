@@ -28,7 +28,15 @@ interface Picked {
   key: string;
   file: File;
   status: 'idle' | 'uploading' | 'done' | 'error';
+  /** Причина сбоя загрузки (текст сервера: квота, тип, размер) — показывается
+   *  прямо в строке файла, а не глотается молча. */
+  error?: string;
 }
+
+/** Типы и размер как в одиночной загрузке чата — чтобы негодный файл падал
+ *  сразу с понятной причиной, а не тихо выпадал из задания на старте. */
+const BATCH_ACCEPTED = /\.(pdf|docx?|txt)$/i;
+const BATCH_MAX_BYTES = 10 * 1024 * 1024;
 
 const ITEM_TONE: Record<BatchItem['status'], string> = {
   queued: 'var(--mut)',
@@ -117,7 +125,18 @@ export function BatchReviewPage() {
     level === 'Low' || level === 'Elevated' || level === 'High' ? t(`risk.${level}`) : level;
 
   const addFiles = (list: FileList | File[]) => {
-    const incoming = Array.from(list);
+    const all = Array.from(list);
+    const incoming = all.filter((file) => {
+      if (!BATCH_ACCEPTED.test(file.name)) {
+        pushToast(`${file.name}: ${t('chat.fileTypes')}`, 'error');
+        return false;
+      }
+      if (file.size > BATCH_MAX_BYTES) {
+        pushToast(`${file.name}: ${t('chat.fileTooBig')}`, 'error');
+        return false;
+      }
+      return true;
+    });
     setFiles((cur) => {
       const room = MAX_FILES - cur.length;
       if (room <= 0) {
@@ -152,26 +171,36 @@ export function BatchReviewPage() {
     const ids: string[] = [];
     // Upload sequentially so each row shows its own progress; a failed file is
     // marked and skipped, the rest continue.
+    let failed = 0;
+    let firstError = '';
     for (const pf of files) {
       setFileStatus(pf.key, 'uploading');
       try {
         const up = await uploadsApi.upload(pf.file);
         ids.push(up.id);
         setFileStatus(pf.key, 'done');
-      } catch {
-        setFileStatus(pf.key, 'error');
+      } catch (err) {
+        // Настоящая причина (квота хранилища 402, тип, размер) остаётся В
+        // СТРОКЕ файла — молча выброшенный из задания файл выглядел как баг.
+        failed += 1;
+        const msg = err instanceof Error && err.message ? err.message : t('common.error');
+        if (!firstError) firstError = msg;
+        setFiles((cur) => cur.map((f) => (f.key === pf.key ? { ...f, status: 'error', error: msg } : f)));
       }
     }
     if (ids.length === 0) {
-      pushToast(t('batch.noneUploaded'), 'error');
+      pushToast(firstError || t('batch.noneUploaded'), 'error');
       setBusy(false);
       return;
     }
+    if (failed > 0) pushToast(t('batch.someFailed', { n: failed }), 'error');
     try {
       const law = COUNTRIES.find((c) => c.code === jurisdiction)?.law;
       const created = await batchApi.start(ids, law);
       setJob(created);
-      setFiles([]);
+      // Ошибочные строки остаются на экране с причиной — их можно поправить
+      // (освободить место, заменить файл) и дослать отдельным заданием.
+      setFiles((cur) => cur.filter((f) => f.status === 'error'));
       // Мгновенно добавить задачу в историю; reload тихо сверит с сервером.
       mutateHistory((v) => (v && !v.locked ? { locked: false, rows: [created, ...v.rows.filter((r) => r.id !== created.id)] } : v));
       void refreshHistory(); // silent — don't flash the page skeleton over the job view
@@ -350,13 +379,13 @@ export function BatchReviewPage() {
             <div key={f.key} className={styles.batchFileRow}>
               <Icon name="docs" size={16} color="var(--accent)" />
               <span className={styles.batchFileName}>{f.file.name}</span>
-              <span className={styles.batchFileMeta}>
+              <span className={styles.batchFileMeta} title={f.error} style={f.status === 'error' ? { color: 'var(--danger)' } : undefined}>
                 {f.status === 'uploading'
                   ? t('batch.uploading')
                   : f.status === 'done'
                     ? t('batch.status.done')
                     : f.status === 'error'
-                      ? t('batch.status.error')
+                      ? f.error || t('batch.status.error')
                       : formatSize(f.file.size)}
               </span>
               {!busy ? (

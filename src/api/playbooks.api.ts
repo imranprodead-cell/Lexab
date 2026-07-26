@@ -12,6 +12,8 @@ export interface CreatePlaybookInput {
   name: string;
   jurisdiction?: string | null;
   rules: string[];
+  /** Создать сразу выключенным (по умолчанию true — активный). */
+  active?: boolean;
 }
 
 /** Partial edit of an existing playbook (PATCH). */
@@ -78,7 +80,7 @@ export const playbooksApi = {
         id: `pb_${Date.now()}`,
         name: input.name,
         jurisdiction: input.jurisdiction ?? null,
-        active: true,
+        active: input.active ?? true,
         rules: input.rules,
         createdAt: now(),
         updatedAt: now(),

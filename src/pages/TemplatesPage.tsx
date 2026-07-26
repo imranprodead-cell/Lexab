@@ -124,7 +124,18 @@ export function TemplatesPage() {
     setImproving(true);
     try {
       const better = await promptsApi.improve(draftText, controller.signal);
-      if (!controller.signal.aborted && better.trim()) setDetails(better.trim());
+      if (!controller.signal.aborted && better.trim()) {
+        // Переписчик может выдать больше серверного лимита генератора (4000):
+        // maxLength textarea программную запись НЕ ограничивает, и «Создать»
+        // тогда всегда падал бы с сырой английской 400. Режем по границе слова.
+        let next = better.trim();
+        if (next.length > 4000) {
+          const cut = next.slice(0, 4000);
+          const lastSpace = cut.lastIndexOf(' ');
+          next = (lastSpace > 3000 ? cut.slice(0, lastSpace) : cut).trim();
+        }
+        setDetails(next);
+      }
     } catch (err) {
       if (!(err instanceof DOMException && err.name === 'AbortError')) {
         pushToast(t('chat.improveError'), 'error');

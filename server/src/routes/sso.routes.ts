@@ -375,14 +375,29 @@ async function jitProvision(db: Db, cfg: SsoConfigRow, email: string, name: stri
     await db.query(`INSERT INTO user_stats (user_id) VALUES ($1)`, [userId]);
   }
 
-  // Already a member? Done. Otherwise add — respecting the Business 5-seat cap.
-  const member = await db.query('SELECT id FROM team_members WHERE owner_user_id = $1 AND member_user_id = $2', [cfg.owner_user_id, userId]);
-  if (member.rows.length === 0 && userId !== cfg.owner_user_id) {
+  // Уже участник? Готово. Висящее email-приглашение (member_user_id NULL) надо
+  // ПРИНЯТЬ, а не дублировать: уникальный индекс (owner, email) отверг бы
+  // INSERT, и SSO-вход для этого человека ломался бы навсегда.
+  const member = await db.query<{ id: string; member_user_id: string | null }>(
+    'SELECT id, member_user_id FROM team_members WHERE owner_user_id = $1 AND (member_user_id = $2 OR lower(email) = lower($3))',
+    [cfg.owner_user_id, userId, email],
+  );
+  const existingRow = member.rows[0];
+  if (existingRow && existingRow.member_user_id === null && userId !== cfg.owner_user_id) {
+    // SSO-вход по приглашённой почте = принятие приглашения (та же логика, что
+    // acceptInvitation в team.routes) — роль, выбранная пригласившим, сохраняется.
+    await db.query(`UPDATE team_members SET status = 'active', member_user_id = $2, name = $3 WHERE id = $1`, [
+      existingRow.id,
+      userId,
+      name,
+    ]);
+  } else if (!existingRow && userId !== cfg.owner_user_id) {
     const count = await db.query<{ n: string | number }>("SELECT count(*) AS n FROM team_members WHERE owner_user_id = $1 AND status = 'active'", [cfg.owner_user_id]);
     if (Number(count.rows[0]?.n ?? 0) >= 5) return 'team_full';
     await db.query(
       `INSERT INTO team_members (id, owner_user_id, member_user_id, name, email, role, status)
-       VALUES ($1, $2, $3, $4, $5, $6, 'active')`,
+       VALUES ($1, $2, $3, $4, $5, $6, 'active')
+       ON CONFLICT (owner_user_id, email) DO UPDATE SET member_user_id = EXCLUDED.member_user_id, name = EXCLUDED.name, status = 'active'`,
       [newId('tm'), cfg.owner_user_id, userId, name, email, cfg.default_role],
     );
   }

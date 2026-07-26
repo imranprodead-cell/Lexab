@@ -45,4 +45,30 @@ export const userApi = {
     }
     return http<UserProfile>('/me', { method: 'PATCH', body: patch });
   },
+
+  /** Понедельничная сводка на почту: текущее состояние тумблера. */
+  async digest(signal?: AbortSignal): Promise<{ enabled: boolean }> {
+    if (USE_MOCK) {
+      await delay(30);
+      return { enabled: true };
+    }
+    return http<{ enabled: boolean }>('/me/digest', { signal });
+  },
+
+  async setDigest(enabled: boolean): Promise<{ enabled: boolean }> {
+    if (USE_MOCK) {
+      await delay(120);
+      return { enabled };
+    }
+    return http<{ enabled: boolean }>('/me/digest', { method: 'POST', body: { enabled } });
+  },
+
+  /** Приём договоров по email: адрес-витрина (null = не настроен, карточка скрыта). */
+  async intake(signal?: AbortSignal): Promise<{ enabled: boolean; address: string | null }> {
+    if (USE_MOCK) {
+      await delay(30);
+      return { enabled: true, address: 'intake@lexab.app' };
+    }
+    return http<{ enabled: boolean; address: string | null }>('/me/intake', { signal });
+  },
 };

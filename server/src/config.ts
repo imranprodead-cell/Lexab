@@ -214,6 +214,10 @@ export const config = {
    *  request must carry a valid `X-Inbound-Signature` over `timestamp.from`, so a
    *  leaked static token alone can't inject documents under a spoofed sender. */
   inboundEmailSigningSecret: env('INBOUND_EMAIL_SIGNING_SECRET'),
+  /** Публичный адрес приёма договоров («пришлите файл — получите анализ»),
+   *  показывается в Настройках. Только витрина: маршрутизация всё равно идёт
+   *  по отправителю. Пусто = карточка в Настройках скрыта. */
+  inboundEmailAddress: env('INBOUND_EMAIL_ADDRESS'),
   /** When 'true', reject inbound messages whose provider-asserted SPF/DKIM/DMARC
    *  result is not a pass — the `from` field is only trusted after authentication. */
   // Fail-closed по умолчанию: `from` доверяем только после проверки подлинности

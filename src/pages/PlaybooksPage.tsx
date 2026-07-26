@@ -129,9 +129,10 @@ export function PlaybooksPage() {
         mutate((v) => (v && !v.locked ? { locked: false, rows: v.rows.map((r) => (r.id === updated.id ? updated : r)) } : v));
         pushToast(t('playbooks.savedToast'), 'success');
       } else {
-        let created = await playbooksApi.create({ name, jurisdiction, rules });
-        // POST always creates an active playbook; honour an "off" toggle after.
-        if (!form.active) created = await playbooksApi.update(created.id, { active: false });
+        // Один POST с выключателем: двухшаговое «создать активным → выключить»
+        // при сбое второго запроса оставляло плейбук активным, а повтор
+        // после ошибки создавал дубликаты.
+        const created = await playbooksApi.create({ name, jurisdiction, rules, active: form.active });
         mutate((v) => (v && !v.locked ? { locked: false, rows: [created, ...v.rows.filter((r) => r.id !== created.id)] } : v));
         pushToast(t('playbooks.createdToast'), 'success');
       }

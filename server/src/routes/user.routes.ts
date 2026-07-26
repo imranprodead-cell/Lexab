@@ -1,5 +1,6 @@
-/** GET /me | PATCH /me */
+/** GET /me | PATCH /me | GET|POST /me/digest | GET /me/intake */
 import type { FastifyInstance } from 'fastify';
+import { config } from '../config.ts';
 import type { Db } from '../db.ts';
 import { badRequest, HttpError } from '../lib/errors.ts';
 import { asObject, optionalString } from '../lib/validate.ts';
@@ -11,6 +12,29 @@ export function userRoutes(app: FastifyInstance, db: Db): void {
   app.get('/me', { preHandler: [app.authenticate] }, async (req) => ({
     ...toProfile(req.currentUser),
     teamName: await resolveTeamName(db, req.currentUser.id),
+  }));
+
+  // Понедельничная сводка: отдельная пара ручек, а не поле профиля — профиль
+  // собирается из UserRow, и лишняя колонка тянула бы правку всех SELECT'ов
+  // горячего пути аутентификации.
+  app.get('/me/digest', { preHandler: [app.authenticate] }, async (req) => {
+    const res = await db.query<{ weekly_digest: boolean }>('SELECT weekly_digest FROM users WHERE id = $1', [req.currentUser.id]);
+    return { enabled: res.rows[0]?.weekly_digest ?? true };
+  });
+
+  app.post('/me/digest', { preHandler: [app.authenticate] }, async (req) => {
+    const body = asObject(req.body);
+    if (typeof body.enabled !== 'boolean') throw badRequest('Поле "enabled" — true или false');
+    await db.query('UPDATE users SET weekly_digest = $2 WHERE id = $1', [req.currentUser.id, body.enabled]);
+    return { enabled: body.enabled };
+  });
+
+  // Приём договоров по email: адрес-витрина для карточки в Настройках.
+  // Маршрутизация всё равно по ОТПРАВИТЕЛЮ (inbound.routes), поэтому письмо
+  // должно уходить с почты аккаунта — фронт объясняет это рядом с адресом.
+  app.get('/me/intake', { preHandler: [app.authenticate] }, async () => ({
+    enabled: Boolean(config.inboundEmailToken && config.inboundEmailAddress),
+    address: config.inboundEmailAddress || null,
   }));
 
   app.patch('/me', { preHandler: [app.authenticate] }, async (req) => {

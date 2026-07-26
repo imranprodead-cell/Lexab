@@ -21,6 +21,7 @@ import { ApiError } from '@/api/util';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useI18n } from '@/i18n/I18nProvider';
+import { localeFor } from '@/i18n/dates';
 import { initialsOf } from '@/lib/format';
 import styles from './pages.module.css';
 
@@ -583,7 +584,7 @@ function relativeTime(iso: string | null, lang: string): string {
   if (!iso) return '—';
   const ms = new Date(iso).getTime();
   if (Number.isNaN(ms)) return '—';
-  const rtf = new Intl.RelativeTimeFormat(lang === 'ru' ? 'ru' : 'en', { numeric: 'auto' });
+  const rtf = new Intl.RelativeTimeFormat(localeFor(lang), { numeric: 'auto' });
   const minutes = Math.round((Date.now() - ms) / 60_000);
   if (minutes < 60) return rtf.format(-Math.max(minutes, 0), 'minute');
   const hours = Math.round(minutes / 60);

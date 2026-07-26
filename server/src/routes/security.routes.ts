@@ -29,19 +29,24 @@ import { invalidateTtsAuthCache, getUserByEmail, signToken, toProfile, type User
 // ─── Helpers shared with the login path ──────────────────────────────────────
 
 /** Record a login session for the "active sessions" view + refresh the member's
- *  last-active stamp for access review (both best-effort). */
-export async function recordSession(db: Db, userId: string, ip: string | undefined, userAgent: string | undefined): Promise<void> {
+ *  last-active stamp for access review (both best-effort). Возвращает id
+ *  созданной сессии — он вшивается в JWT (sid), чтобы «Выйти» отзывал только
+ *  эту сессию, а не все устройства; null — токен станет легаси-безсессионным. */
+export async function recordSession(db: Db, userId: string, ip: string | undefined, userAgent: string | undefined): Promise<string | null> {
   try {
+    const id = newId('sess');
     await db.query('INSERT INTO user_sessions (id, user_id, ip, user_agent) VALUES ($1, $2, $3, $4)', [
-      newId('sess'),
+      id,
       userId,
       ip ?? null,
       (userAgent ?? '').slice(0, 400) || null,
     ]);
     // Access review: this member was just active in every team they belong to.
     await db.query("UPDATE team_members SET last_active_at = now() WHERE member_user_id = $1 AND status = 'active'", [userId]);
+    return id;
   } catch {
     /* visibility control only — never block a login on it */
+    return null;
   }
 }
 
@@ -264,10 +269,10 @@ export function securityRoutes(app: FastifyInstance, db: Db): void {
     await db.query('UPDATE users SET token_version = token_version + 1 WHERE id = $1', [req.currentUser.id]);
     invalidateTtsAuthCache(req.currentUser.id);
     await db.query('DELETE FROM user_sessions WHERE user_id = $1', [req.currentUser.id]);
-    await recordSession(db, req.currentUser.id, req.ip, req.headers['user-agent']);
+    const sid = await recordSession(db, req.currentUser.id, req.ip, req.headers['user-agent']);
     const fresh = await db.query<UserRow>('SELECT id, email, name, initials, firm, jurisdiction, avatar_url, token_version, email_verified FROM users WHERE id = $1', [req.currentUser.id]);
     await audit(db, req, { type: 'auth.sessions_revoked', teamOwnerId: req.currentUser.id });
-    return { token: signToken(app, fresh.rows[0]), user: toProfile(fresh.rows[0]) };
+    return { token: signToken(app, fresh.rows[0], undefined, sid), user: toProfile(fresh.rows[0]) };
   });
 
   // DSAR — archive of everything this account holds. По умолчанию —
@@ -321,20 +326,30 @@ interface AccessRow {
 
 /** The owner + every member of their team, with roles + last-active. */
 async function accessReviewRows(db: Db, userId: string): Promise<AccessRow[]> {
-  // The team owner is `userId` unless they are themselves a member of another
-  // owner's team — mirror the pattern used elsewhere (a "team" = owner + members).
-  const ownerRes = await db.query<{ owner_user_id: string }>(
-    "SELECT owner_user_id FROM team_members WHERE member_user_id = $1 AND status = 'active' AND owner_user_id <> $1 LIMIT 1",
+  // Приоритет как в GET /team/members: СНАЧАЛА своя команда (у меня есть
+  // участники → я владелец), и только потом членство в чужой. Обратный порядок
+  // показывал владельцу, состоящему ещё и в чужой команде, ЧУЖОЙ состав.
+  const ownRes = await db.query<{ n: string | number }>(
+    'SELECT count(*) AS n FROM team_members WHERE owner_user_id = $1',
     [userId],
   );
-  const ownerId = ownerRes.rows[0]?.owner_user_id ?? userId;
+  let ownerId = userId;
+  if (Number(ownRes.rows[0]?.n ?? 0) === 0) {
+    const ownerRes = await db.query<{ owner_user_id: string }>(
+      "SELECT owner_user_id FROM team_members WHERE member_user_id = $1 AND status = 'active' AND owner_user_id <> $1 LIMIT 1",
+      [userId],
+    );
+    ownerId = ownerRes.rows[0]?.owner_user_id ?? userId;
+  }
 
   const owner = await db.query<{ name: string; email: string }>('SELECT name, email FROM users WHERE id = $1', [ownerId]);
+  // IS DISTINCT FROM, а не <>: у приглашённого member_user_id ещё NULL, и
+  // `x <> NULL` = NULL молча выкидывал всех pending из ревью и CSV.
   const members = await db.query<{ name: string; email: string; role: string; status: string; last_active_at: Date | string | null }>(
     `SELECT COALESCE(u.name, tm.email) AS name, tm.email, tm.role, tm.status,
             tm.last_active_at
      FROM team_members tm LEFT JOIN users u ON u.id = tm.member_user_id
-     WHERE tm.owner_user_id = $1 AND tm.owner_user_id <> tm.member_user_id
+     WHERE tm.owner_user_id = $1 AND tm.owner_user_id IS DISTINCT FROM tm.member_user_id
      ORDER BY tm.created_at`,
     [ownerId],
   );

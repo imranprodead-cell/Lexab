@@ -68,7 +68,7 @@ export function SideRail({ sessions, user, onNewReview }: SideRailProps) {
   const toggleRail = useUIStore((s) => s.toggleRailPinned);
   const setMobileNavOpen = useUIStore((s) => s.setMobileNavOpen);
   const pushToast = useUIStore((s) => s.pushToast);
-  const { t, lang } = useI18n();
+  const { t } = useI18n();
 
   const open = isMobile ? mobileNavOpen : railPinned;
   const toggleOpen = () => (isMobile ? setMobileNavOpen(!open) : toggleRail());
@@ -103,12 +103,12 @@ export function SideRail({ sessions, user, onNewReview }: SideRailProps) {
     const pinned = sessions.filter((s) => pinnedSet.has(s.id));
     const rest = sessions.filter((s) => !pinnedSet.has(s.id));
     const dated = groupSessions(rest, {
-      today: lang === 'ru' ? 'Сегодня' : 'Today',
-      yesterday: lang === 'ru' ? 'Вчера' : 'Yesterday',
-      prev: lang === 'ru' ? 'Последние 7 дней' : 'Previous 7 days',
+      today: t('rail.today'),
+      yesterday: t('rail.yesterday'),
+      prev: t('rail.prev7'),
     });
     return pinned.length ? [{ label: t('rail.pinnedGroup'), items: pinned }, ...dated] : dated;
-  }, [sessions, pinnedIds, lang, t]);
+  }, [sessions, pinnedIds, t]);
 
   const commitRename = (id: string) => {
     if (renameCancelled.current) {
@@ -149,7 +149,8 @@ export function SideRail({ sessions, user, onNewReview }: SideRailProps) {
         <button
           type="button"
           className={`${styles.recentMore} ${menuFor === s.id ? styles.recentMoreOpen : ''}`}
-          aria-label="⋯"
+          aria-label={t('rail.chatMenu')}
+          title={t('rail.chatMenu')}
           aria-haspopup="menu"
           onClick={() => setMenuFor(menuFor === s.id ? null : s.id)}
         >

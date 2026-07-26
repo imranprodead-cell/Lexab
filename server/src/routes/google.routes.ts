@@ -24,6 +24,7 @@ import { asObject, requireString } from '../lib/validate.ts';
 import { invalidateTtsAuthCache, getUserById, signToken, toProfile, type UserRow } from '../plugins/auth.ts';
 import { audit } from '../lib/audit.ts';
 import { assertSsoNotRequired } from './sso.routes.ts';
+import { recordSession } from './security.routes.ts';
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -259,6 +260,7 @@ export function googleRoutes(app: FastifyInstance, db: Db): void {
     if (!row) throw badRequest('Ссылка входа устарела — войдите ещё раз / Login link expired — sign in again');
     const user = await getUserById(db, row.user_id);
     if (!user) throw badRequest('Login link expired');
-    return { token: signToken(app, user), user: toProfile(user) };
+    const sid = await recordSession(db, user.id, req.ip, req.headers['user-agent']);
+    return { token: signToken(app, user, undefined, sid), user: toProfile(user) };
   });
 }

@@ -8,7 +8,9 @@ import { checkRetention } from './routes/documents.routes.ts';
 import { resumeBatchJobs } from './routes/batch.routes.ts';
 import { failInterruptedWorkflows } from './routes/workflows.routes.ts';
 import { pruneStaleSessions } from './routes/security.routes.ts';
+import { checkSignatureReminders } from './routes/signatures.routes.ts';
 import { checkBillingLifecycle } from './lib/billing.ts';
+import { sendWeeklyDigests } from './lib/weeklyDigest.ts';
 import { googleAccessToken } from './lib/googleAuth.ts';
 import { TTS_OAUTH_SCOPE, ttsAuthMode } from './routes/tts.routes.ts';
 import { getDb, migrate } from './db.ts';
@@ -41,6 +43,8 @@ const JOB_KEYS = {
   sessions: 71006,
   batchResume: 71007,
   workflowsFail: 71008,
+  signReminders: 71009,
+  weeklyDigest: 71010,
 } as const;
 // Задачи выполняются ПО ОДНОЙ через внутрипроцессную очередь: параллельные
 // tryJobLock-клиенты + их собственные запросы через пул при PG_POOL_MAX<=8
@@ -79,6 +83,14 @@ setInterval(() => runExclusive(JOB_KEYS.auditRetention, () => checkAuditRetentio
 // CLM: сроки договоров и обязательств — напоминания раз в сутки (и при старте).
 runExclusive(JOB_KEYS.contracts, () => checkContractDeadlines(db));
 setInterval(() => runExclusive(JOB_KEYS.contracts, () => checkContractDeadlines(db)), 24 * 60 * 60 * 1000);
+
+// Э-подписи: подписант молчит 3+ дня → напоминание ему + заметка владельцу.
+runExclusive(JOB_KEYS.signReminders, () => checkSignatureReminders(db));
+setInterval(() => runExclusive(JOB_KEYS.signReminders, () => checkSignatureReminders(db)), 24 * 60 * 60 * 1000);
+
+// Понедельничная сводка (сама проверяет день недели и дедуп по digest_sent_at).
+runExclusive(JOB_KEYS.weeklyDigest, () => sendWeeklyDigests(db));
+setInterval(() => runExclusive(JOB_KEYS.weeklyDigest, () => sendWeeklyDigests(db)), 24 * 60 * 60 * 1000);
 
 // Retention: crypto-shred documents soft-deleted past the retention window, daily.
 runExclusive(JOB_KEYS.retention, () => checkRetention(db));

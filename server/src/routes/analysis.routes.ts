@@ -11,7 +11,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Db } from '../db.ts';
 import { ALLOWED_EXTENSIONS, assertValidFileContent, extractText, fileExtension, MAX_UPLOAD_BYTES } from '../extract.ts';
 import { badRequest, HttpError, notFound } from '../lib/errors.ts';
-import { assertDocumentAllowance, assertFeature, assertStorageAllowance, bumpUsage, planHasFeature, releaseAiRequest, reserveAiRequest, reserveDocument, withStorageReservation, withAiRequest } from '../lib/limits.ts';
+import { assertDocumentAllowance, assertFeature, assertStorageAllowance, bumpUsage, planFor, planHasFeature, releaseAiRequest, reserveAiRequest, reserveDocument, withStorageReservation, withAiRequest } from '../lib/limits.ts';
 import { notify } from '../lib/notify.ts';
 import { assertCanEdit, resolveAnalysisAccess, resolveDocumentAccess } from '../lib/teamAccess.ts';
 import { attachmentDisposition, formatSize, looksRussian, looksUzbekLatin } from '../lib/format.ts';
@@ -648,8 +648,13 @@ export async function analyzeSource(
         return [];
       })
     : [];
-  const playbook = planHasFeature(plan, 'playbooks')
-    ? await loadActivePlaybook(db, await resolvePlaybookOwner(db, requesterId), corpus).catch(() => null)
+  // Право на плейбуки даёт план ВЛАДЕЛЬЦА команды (или свой): Free-участник
+  // Business-команды обязан получать проверку по правилам команды, иначе его
+  // анализы молча идут без стандартных позиций клиента.
+  const pbOwnerId = await resolvePlaybookOwner(db, requesterId);
+  const pbPlan = pbOwnerId === requesterId ? plan : await planFor(db, pbOwnerId).catch(() => plan);
+  const playbook = planHasFeature(pbPlan, 'playbooks') || planHasFeature(plan, 'playbooks')
+    ? await loadActivePlaybook(db, pbOwnerId, corpus).catch(() => null)
     : null;
   const gen = await generateAnalysis({
     fileName: source.fileName,

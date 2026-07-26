@@ -82,6 +82,10 @@ export const MESSAGES: Dict = {
   'umenu.privacy': { ru: 'Политика конфиденциальности', en: 'Privacy policy' },
   'umenu.reportBug': { ru: 'Сообщить об ошибке', en: 'Report a bug' },
   'rail.pinnedGroup': { ru: 'Закреплено', en: 'Pinned' },
+  'rail.today': { ru: 'Сегодня', en: 'Today' },
+  'rail.yesterday': { ru: 'Вчера', en: 'Yesterday' },
+  'rail.prev7': { ru: 'Последние 7 дней', en: 'Previous 7 days' },
+  'rail.chatMenu': { ru: 'Меню чата', en: 'Chat menu' },
   'rail.pin': { ru: 'Закрепить', en: 'Pin' },
   'rail.unpin': { ru: 'Открепить', en: 'Unpin' },
   'rail.rename': { ru: 'Переименовать', en: 'Rename' },
@@ -212,6 +216,7 @@ export const MESSAGES: Dict = {
     ru: 'Юрисдикция по умолчанию: {law}. ИИ учтёт её в анализах и ответах.',
     en: 'Default jurisdiction: {law}. The AI will use it for reviews and answers.',
   },
+  'country.selectorAria': { ru: 'Юрисдикция: {name}', en: 'Jurisdiction: {name}' },
 
   // Templates
   'tpl.title': { ru: 'Шаблоны', en: 'Templates' },
@@ -611,6 +616,10 @@ export const MESSAGES: Dict = {
   'batch.start': { ru: 'Начать разбор', en: 'Start review' },
   'batch.newBatch': { ru: 'Новый разбор', en: 'New review' },
   'batch.noneUploaded': { ru: 'Не удалось загрузить ни один файл.', en: 'No files could be uploaded.' },
+  'batch.someFailed': {
+    ru: 'Файлов не загрузилось: {n}. Они остались в списке с причиной',
+    en: '{n} file(s) failed to upload. They stay in the list with the reason.',
+  },
   'batch.jurisdiction': { ru: 'Юрисдикция', en: 'Jurisdiction' },
   'batch.progress': { ru: 'Обработано {done} из {total}', en: '{done} of {total} processed' },
   'batch.failedCount': { ru: 'ошибок: {n}', en: '{n} failed' },
@@ -645,6 +654,14 @@ export const MESSAGES: Dict = {
   'chat.sum.top': { ru: 'Топ-{n} находок', en: 'Top {n} findings' },
   'chat.sum.followUp': { ru: 'Задать вопрос', en: 'Ask a follow-up' },
   'chat.thinking': { ru: 'Lexab думает…', en: 'Lexab is thinking…' },
+  'chat.retryNeedsFile': {
+    ru: 'Файл недоступен после перезагрузки — прикрепите его заново',
+    en: 'The file is no longer available — please attach it again.',
+  },
+  'chat.loadFailed': {
+    ru: 'Не удалось загрузить чат. Проверьте соединение и попробуйте ещё раз',
+    en: "Couldn't load this chat. Check your connection and try again.",
+  },
 
   // Chat · message actions (below assistant replies)
   'chat.act.like': { ru: 'Хороший ответ', en: 'Good response' },
@@ -1321,6 +1338,7 @@ export const MESSAGES: Dict = {
   },
   'verify.errorTitle': { ru: 'Не получилось', en: 'Something went wrong' },
   'verify.toApp': { ru: 'В приложение', en: 'Open the app' },
+  'verify.toTeam': { ru: 'Перейти к приглашению в команду', en: 'Go to your team invitation' },
   'verify.toLogin': { ru: 'Войти', en: 'Sign in' },
 
   // Password reset page
@@ -1338,6 +1356,26 @@ export const MESSAGES: Dict = {
   'rail.deleteCancelled': { ru: 'Удаление отменено.', en: 'Deletion cancelled.' },
   'common.undo': { ru: 'Отменить', en: 'Undo' },
 
+  // Onboarding tour (first run)
+  'onboard.step1Title': { ru: 'Анализируйте контракты', en: 'Analyze contracts' },
+  'onboard.step1Body': {
+    ru: 'Перетащите документ в чат — Lexab разберёт риски и предложит правки со ссылками на закон.',
+    en: 'Drop a document into the chat — Lexab surfaces risks and suggests redlines with citations.',
+  },
+  'onboard.step2Title': { ru: 'Рабочая область правок', en: 'Redline workspace' },
+  'onboard.step2Body': {
+    ru: 'Принимайте или отклоняйте изменения по одному, экспортируйте DOCX и отправляйте на подпись.',
+    en: 'Accept or reject changes one by one, export DOCX, and send for signature.',
+  },
+  'onboard.step3Title': { ru: 'Быстрые команды', en: 'Quick commands' },
+  'onboard.step3Body': {
+    ru: 'Нажмите ⌘K для перехода куда угодно, или / в чате для команд /draft, /compare, /translate.',
+    en: 'Press ⌘K to jump anywhere, or / in chat for /draft, /compare, /translate.',
+  },
+  'onboard.skip': { ru: 'Пропустить', en: 'Skip' },
+  'onboard.next': { ru: 'Далее', en: 'Next' },
+  'onboard.start': { ru: 'Начать', en: 'Get started' },
+
   // Error boundary
   'error.title': { ru: 'Что-то пошло не так', en: 'Something went wrong' },
   'error.body': {
@@ -1354,6 +1392,44 @@ export const MESSAGES: Dict = {
     en: "We couldn't find that page — it may have been moved.",
   },
   'nf.cta': { ru: 'Вернуться в чат', en: 'Back to chat' },
+
+  // «Обсудить в чате» на карточке находки
+  'ws.discuss': { ru: 'Обсудить в чате', en: 'Discuss in chat' },
+  'ws.discussPrompt': {
+    ru: 'Объясни находку «{title}» ({citation}): чем это грозит для меня и как безопаснее переформулировать пункт?',
+    en: 'Explain the finding “{title}” ({citation}): what is the risk for me and how should the clause be reworded more safely?',
+  },
+
+  // Шкала лимита в чате (≥80% месячного потолка ИИ-запросов)
+  'chat.usage.nearLimit': {
+    ru: 'Использовано {used} из {limit} ИИ-запросов в этом месяце',
+    en: "You've used {used} of {limit} AI requests this month",
+  },
+
+  // Текст нормы под находкой (официальный корпус)
+  'law.show': { ru: 'Текст нормы', en: 'Law text' },
+  'law.hide': { ru: 'Скрыть текст', en: 'Hide text' },
+  'law.failed': { ru: 'Не удалось загрузить текст нормы', en: 'Couldn’t load the provision text' },
+  'law.source': { ru: 'Официальный источник', en: 'Official source' },
+  'law.retrieved': { ru: 'снимок от', en: 'retrieved' },
+
+  // Настройки → Почта (дайджест + приём договоров)
+  'mail.title': { ru: 'Почта', en: 'Email' },
+  'mail.sub': { ru: 'Сводки и приём договоров по email', en: 'Digests and email contract intake' },
+  'mail.digest': { ru: 'Еженедельная сводка', en: 'Weekly digest' },
+  'mail.digestSub': {
+    ru: 'Каждый понедельник: что ждёт согласования и подписи, какие договоры истекают',
+    en: 'Every Monday: pending approvals and signatures, contracts about to expire',
+  },
+  'mail.digestOn': { ru: 'Включить', en: 'Turn on' },
+  'mail.digestOff': { ru: 'Отключить', en: 'Turn off' },
+  'mail.intake': { ru: 'Приём договоров по email', en: 'Email a contract' },
+  'mail.intakeSub': {
+    ru: 'Отправьте договор с почты аккаунта на этот адрес — анализ появится в приложении',
+    en: 'Send a contract from your account email to this address — the analysis appears in the app',
+  },
+  'mail.intakeCopy': { ru: 'Копировать', en: 'Copy' },
+  'mail.intakeCopied': { ru: 'Адрес скопирован', en: 'Address copied' },
 };
 
 /**

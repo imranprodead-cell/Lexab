@@ -1,5 +1,10 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+
+/** Тикающие таймеры «удалить через 5 с» — МОДУЛЬНЫЕ, а не в стейте компонента:
+ *  уход со страницы и возврат не должен ни воскрешать строку (таймер-то жив),
+ *  ни давать «Восстановить» молча проиграть отложенному удалению. */
+const pendingArchiveDeletes = new Map<string, ReturnType<typeof setTimeout>>();
 import { TopBar } from '@/components/layout/TopBar';
 import { Icon } from '@/components/icons/Icon';
 import { Button } from '@/components/ui/Button';
@@ -23,12 +28,21 @@ export function ArchivePage() {
   const isMobile = useMediaQuery('(max-width: 700px)');
   usePageTitle(t('archive.title'));
 
-  // Rows hidden during their 5-second undo window (same pattern as the sidebar).
-  const [pendingDelete, setPendingDelete] = useState<string[]>([]);
+  // Rows hidden during their undo window — seeded from the module map, so a
+  // remount keeps hiding rows whose delete timer is still ticking.
+  const [pendingDelete, setPendingDelete] = useState<string[]>(() => [...pendingArchiveDeletes.keys()]);
 
   // A failed restore/delete must say so (like the other pages do) — a silently
   // swallowed error looks like the button simply didn't work.
   const restore = async (id: string) => {
+    // «Восстановить» отменяет и отложенное удаление этого чата, если оно
+    // тикает — иначе чат восстановился бы и молча исчез через пару секунд.
+    const timer = pendingArchiveDeletes.get(id);
+    if (timer) {
+      clearTimeout(timer);
+      pendingArchiveDeletes.delete(id);
+      setPendingDelete((ids) => ids.filter((x) => x !== id));
+    }
     try {
       await chatsApi.update(id, { archived: false });
       reload();
@@ -44,6 +58,7 @@ export function ArchivePage() {
   const remove = (id: string) => {
     setPendingDelete((ids) => [...ids, id]);
     const finalize = () => {
+      pendingArchiveDeletes.delete(id);
       chatsApi
         .remove(id)
         .then(() => reload())
@@ -53,11 +68,13 @@ export function ArchivePage() {
         });
     };
     const timer = setTimeout(finalize, 5000);
+    pendingArchiveDeletes.set(id, timer);
     pushToast(t('rail.deleting'), 'default', {
       duration: 5000,
       actionLabel: t('common.undo'),
       onAction: () => {
         clearTimeout(timer);
+        pendingArchiveDeletes.delete(id);
         setPendingDelete((ids) => ids.filter((x) => x !== id));
         pushToast(t('rail.deleteCancelled'), 'success');
       },

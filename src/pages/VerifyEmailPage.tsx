@@ -18,6 +18,17 @@ export function VerifyEmailPage() {
 
   const [state, setState] = useState<'working' | 'done' | 'error'>('working');
   const [message, setMessage] = useState('');
+  // Регистрация начиналась со ссылки-приглашения в команду? Тогда после
+  // подтверждения почты ведём в /team, где приглашение ждёт кнопки «Принять».
+  const [hadInvite] = useState(() => {
+    try {
+      const tok = localStorage.getItem('lexai.pendingInvite');
+      if (tok) localStorage.removeItem('lexai.pendingInvite');
+      return Boolean(tok);
+    } catch {
+      return false;
+    }
+  });
 
   useEffect(() => {
     if (!token) {
@@ -56,8 +67,8 @@ export function VerifyEmailPage() {
               </div>
               <h1 className={styles.signTitle}>{t('verify.doneTitle')}</h1>
               <p className={styles.signSub}>{t('verify.doneBody')}</p>
-              <Link to={authToken ? '/chat' : '/login'} className={styles.verifyCta}>
-                {authToken ? t('verify.toApp') : t('verify.toLogin')}
+              <Link to={authToken ? (hadInvite ? '/team' : '/chat') : '/login'} className={styles.verifyCta}>
+                {authToken ? (hadInvite ? t('verify.toTeam') : t('verify.toApp')) : t('verify.toLogin')}
               </Link>
             </>
           ) : (

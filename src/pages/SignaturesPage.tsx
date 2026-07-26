@@ -12,6 +12,7 @@ import { signaturesApi } from '@/api';
 import type { SignatureRequest, SignatureStatus } from '@/types/domain';
 import { useUIStore } from '@/store/useUIStore';
 import { useI18n } from '@/i18n/I18nProvider';
+import { localeFor } from '@/i18n/dates';
 import styles from './pages.module.css';
 
 const STATUS_TONE: Record<SignatureStatus, string> = {
@@ -35,7 +36,7 @@ function formatDateFull(iso: string | null, locale: string): string {
 /** E-signature request tracker. */
 export function SignaturesPage() {
   const { t, lang } = useI18n();
-  const locale = lang === 'ru' ? 'ru-RU' : 'en-GB';
+  const locale = localeFor(lang);
   const pushToast = useUIStore((s) => s.pushToast);
   usePageTitle(t('nav.signatures'));
 

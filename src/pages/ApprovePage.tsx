@@ -6,6 +6,7 @@ import { GlassCard } from '@/components/ui/GlassCard';
 import { Icon } from '@/components/icons/Icon';
 import { http } from '@/api/client';
 import { useI18n } from '@/i18n/I18nProvider';
+import { localeFor } from '@/i18n/dates';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import styles from './pages.module.css';
 
@@ -104,7 +105,7 @@ export function ApprovePage() {
               {t('appr.requestedBy', { name: info.ownerName, firm: info.ownerFirm })}
               {info.me.role ? ` · ${t('appr.yourStep')}: ${info.me.role}` : ''}
               {info.me.dueAt
-                ? ` · ${t('appr.due')} ${new Date(info.me.dueAt).toLocaleDateString(lang === 'ru' ? 'ru-RU' : 'en-GB')}`
+                ? ` · ${t('appr.due')} ${new Date(info.me.dueAt).toLocaleDateString(localeFor(lang))}`
                 : ''}
             </p>
 

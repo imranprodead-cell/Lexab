@@ -86,6 +86,10 @@ interface ChatHistoryState {
   deleteSession: (id: string) => void;
 }
 
+/** id чатов, у которых тикает окно «отменить удаление» (модульный, а не в
+ *  стейте: refresh обязан видеть его синхронно из любого места). */
+const pendingDeletes = new Set<string>();
+
 export const useChatHistoryStore = create<ChatHistoryState>((set, get) => {
   const applyMockMeta = (mutate: (meta: HistoryMeta) => void) => {
     const meta = loadMeta();
@@ -95,7 +99,10 @@ export const useChatHistoryStore = create<ChatHistoryState>((set, get) => {
   };
 
   const refresh = async () => {
-    const sessions = await chatsApi.list(false);
+    // Чаты в 5-секундном окне отмены удаления сервер ещё отдаёт — выкидываем,
+    // иначе любой фоновый refresh (отправка сообщения, пин соседнего чата)
+    // «воскрешает» строку, а клик по ней кончается 404 и потерянным сообщением.
+    const sessions = (await chatsApi.list(false)).filter((s) => !pendingDeletes.has(s.id));
     set({ sessions, pinned: sessions.filter((s) => s.pinned).map((s) => s.id) });
   };
 
@@ -177,22 +184,33 @@ export const useChatHistoryStore = create<ChatHistoryState>((set, get) => {
     deleteSession: (id) => {
       // Hide the chat immediately, but give the user a 5-second undo window
       // before it is actually deleted (toast with an "Undo" button).
-      const prevSessions = get().sessions;
-      const prevPinned = get().pinned;
-      set({
-        sessions: prevSessions.filter((s) => s.id !== id),
-        pinned: prevPinned.filter((p) => p !== id),
-      });
+      const prevRow = get().sessions.find((s) => s.id === id) ?? null;
+      const wasPinned = get().pinned.includes(id);
+      pendingDeletes.add(id);
+      set((s) => ({
+        sessions: s.sessions.filter((x) => x.id !== id),
+        pinned: s.pinned.filter((p) => p !== id),
+      }));
 
       const finalize = () => {
         if (USE_MOCK) {
+          pendingDeletes.delete(id);
           applyMockMeta((meta) => {
             if (!meta.deleted.includes(id)) meta.deleted.push(id);
             meta.pinned = meta.pinned.filter((p) => p !== id);
           });
           return;
         }
-        mutate(() => chatsApi.remove(id));
+        // pendingDeletes снимаем ПОСЛЕ серверного удаления — до него refresh
+        // ещё получает строку от сервера и обязан её прятать.
+        void chatsApi
+          .remove(id)
+          .catch(() => undefined)
+          .then(() => {
+            pendingDeletes.delete(id);
+            return refresh();
+          })
+          .catch(() => undefined);
       };
       const timer = setTimeout(finalize, UNDO_DELETE_MS);
 
@@ -201,7 +219,14 @@ export const useChatHistoryStore = create<ChatHistoryState>((set, get) => {
         actionLabel: tStandalone('common.undo'),
         onAction: () => {
           clearTimeout(timer);
-          set({ sessions: prevSessions, pinned: prevPinned });
+          pendingDeletes.delete(id);
+          // Возвращаем ТОЛЬКО удалённую строку, не затирая снапшотом изменения,
+          // случившиеся за эти 5 секунд (переименования, пины соседей).
+          set((s) => ({
+            sessions: prevRow && !s.sessions.some((x) => x.id === id) ? [prevRow, ...s.sessions] : s.sessions,
+            pinned: wasPinned && !s.pinned.includes(id) ? [id, ...s.pinned] : s.pinned,
+          }));
+          if (!USE_MOCK) void refresh().catch(() => undefined);
           useUIStore.getState().pushToast(tStandalone('rail.deleteCancelled'), 'success');
         },
       });
