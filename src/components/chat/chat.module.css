@@ -28,6 +28,10 @@
   justify-content: center;
   padding: 0 28px;
   position: relative;
+  /* Выросшая плашка ввода должна отжимать приветствие, а не выталкивать
+     собственные кнопки за низ экрана: разрешаем сжатие + свою прокрутку. */
+  min-height: 0;
+  overflow-y: auto;
 }
 .welcomeGlow {
   position: absolute;
@@ -386,6 +390,9 @@
   padding: 24px;
   text-align: center;
   animation: lxfade 0.3s ease both;
+  /* Как .welcome: длинный черновик в плашке не должен прятать её кнопки. */
+  min-height: 0;
+  overflow-y: auto;
 }
 .ghostEmptyIcon {
   width: 56px;
@@ -870,7 +877,10 @@
   animation: lxpulse 1.2s ease-in-out infinite;
 }
 .textarea {
-  flex: 1;
+  /* НЕ flex: 1 — в колоночном .inputBar это задало бы flex-basis: 0 по
+     вертикали, и браузер игнорировал бы height из JS: плашка навсегда
+     оставалась бы в одну строку. Высотой управляет measureHeight. */
+  flex: 0 0 auto;
   resize: none;
   border: none;
   outline: none;
