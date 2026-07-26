@@ -672,7 +672,7 @@ export const MESSAGES: Dict = {
   'chat.act.speak': { ru: 'Прочитать вслух', en: 'Read aloud' },
   'chat.act.speakStop': { ru: 'Остановить чтение', en: 'Stop reading' },
   'chat.act.speakError': { ru: 'Не удалось озвучить. Попробуйте позже.', en: 'Could not play the audio. Try again later.' },
-  'chat.act.downloadTxt': { ru: 'Скачать как .txt', en: 'Download as .txt' },
+  'chat.act.download': { ru: 'Скачать с оформлением', en: 'Download formatted' },
   'chat.act.thanks': { ru: 'Спасибо за отзыв', en: 'Thanks for the feedback' },
 
   // Chat · ghost (incognito) mode
@@ -1442,8 +1442,6 @@ export const MESSAGES: Dict = {
   'playbooks.packInstalledBadge': { ru: 'Установлен', en: 'Installed' },
 
   // Онбординг: образец анализа
-  'chat.suggest.sample.title': { ru: 'Посмотреть на примере', en: 'See an example' },
-  'chat.suggest.sample.body': { ru: 'Готовый разбор образца NDA — мгновенно и без лимитов', en: 'A ready NDA review — instant, no limits spent' },
 
   // Публичная ссылка на отчёт
   'ws.share': { ru: 'Поделиться', en: 'Share' },

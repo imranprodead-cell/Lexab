@@ -61,9 +61,10 @@ export function PlaybooksPage() {
   const locked = view?.locked === true;
   const data = view && !view.locked ? view.rows : null;
 
-  // Готовые экспертные наборы: витрина видна всем (в т.ч. на пустом экране —
-  // это и есть лекарство от «холодного старта»), установка — один клик.
+  // Готовые экспертные наборы: живут в модалке за кнопкой «Готовые наборы»
+  // (в шапке и на пустом экране), установка — один клик.
   const { data: packs } = useAsync((signal) => playbooksApi.packs(signal), []);
+  const [packsOpen, setPacksOpen] = useState(false);
   const [installing, setInstalling] = useState<string | null>(null);
   const installedNames = new Set((data ?? []).map((p) => p.name));
   const install = async (packId: string) => {
@@ -195,50 +196,21 @@ export function PlaybooksPage() {
               <h1 className={styles.pageTitle}>{t('playbooks.title')}</h1>
               <p className={styles.pageSub}>{t('playbooks.sub')}</p>
             </div>
-            {/* Кнопка в шапке — только при непустом списке: на пустом экране
-                своя кнопка в центре, две одинаковые рядом не нужны. */}
+            {/* Кнопки в шапке — только при непустом списке: на пустом экране
+                свои кнопки в центре, две одинаковые рядом не нужны. */}
             {!locked && !loading && !error && (data ?? []).length > 0 ? (
-              <Button variant="primary" icon="plus" onClick={openCreate}>
-                {t('playbooks.new')}
-              </Button>
+              <div style={{ display: 'inline-flex', gap: 10, flexWrap: 'wrap' }}>
+                {(packs ?? []).length > 0 ? (
+                  <Button variant="secondary" icon="layout" onClick={() => setPacksOpen(true)}>
+                    {t('playbooks.packsTitle')}
+                  </Button>
+                ) : null}
+                <Button variant="primary" icon="plus" onClick={openCreate}>
+                  {t('playbooks.new')}
+                </Button>
+              </div>
             ) : null}
           </div>
-
-          {/* Готовые экспертные наборы — лекарство от пустого старта. */}
-          {(packs ?? []).length > 0 ? (
-            <div style={{ marginBottom: 28 }}>
-              <h2 className={styles.sectionTitle} style={{ marginBottom: 4 }}>{t('playbooks.packsTitle')}</h2>
-              <p className={styles.pageSub} style={{ marginBottom: 14 }}>{t('playbooks.packsSub')}</p>
-              <div className={styles.grid}>
-                {(packs ?? []).map((pack) => {
-                  const name = lang === 'en' ? pack.nameEn : pack.nameRu;
-                  const installed = installedNames.has(name);
-                  return (
-                    <div key={pack.id} className={styles.card} style={{ cursor: 'default' }}>
-                      <div className={styles.cardIcon}>
-                        <Icon name="layout" size={20} />
-                      </div>
-                      <div className={styles.cardTitle}>{name}</div>
-                      <p className={styles.pageSub} style={{ margin: '4px 0 10px', fontSize: 13 }}>
-                        {lang === 'en' ? pack.descEn : pack.descRu}
-                      </p>
-                      <div className={styles.cardFoot}>
-                        <span>{jurisdictionLabel(pack.jurisdiction)} · {t('playbooks.rulesCount', { n: pack.rulesCount })}</span>
-                        <Button
-                          size="sm"
-                          variant={installed ? 'secondary' : 'primary'}
-                          disabled={installed || installing === pack.id}
-                          onClick={() => void install(pack.id)}
-                        >
-                          {installed ? t('playbooks.packInstalledBadge') : installing === pack.id ? t('common.loading') : t('playbooks.packInstall')}
-                        </Button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ) : null}
 
           {loading ? (
             <SkeletonRows rows={3} height={110} />
@@ -261,9 +233,16 @@ export function PlaybooksPage() {
               title={t('playbooks.empty')}
               body={t('playbooks.emptyBody')}
               action={
-                <Button variant="primary" icon="plus" onClick={openCreate}>
-                  {t('playbooks.new')}
-                </Button>
+                <div style={{ display: 'inline-flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
+                  {(packs ?? []).length > 0 ? (
+                    <Button variant="secondary" icon="layout" onClick={() => setPacksOpen(true)}>
+                      {t('playbooks.packsTitle')}
+                    </Button>
+                  ) : null}
+                  <Button variant="primary" icon="plus" onClick={openCreate}>
+                    {t('playbooks.new')}
+                  </Button>
+                </div>
               }
             />
           ) : (
@@ -299,6 +278,40 @@ export function PlaybooksPage() {
           )}
         </div>
       </div>
+
+      {/* Витрина готовых наборов: не закрывается после установки — часто
+          ставят несколько; карточка сама переключается на «установлено». */}
+      <Modal open={packsOpen} title={t('playbooks.packsTitle')} onClose={() => setPacksOpen(false)} maxWidth={640}>
+        <p className={styles.pageSub} style={{ margin: '0 0 14px' }}>{t('playbooks.packsSub')}</p>
+        <div className={styles.grid}>
+          {(packs ?? []).map((pack) => {
+            const name = lang === 'en' ? pack.nameEn : pack.nameRu;
+            const installed = installedNames.has(name);
+            return (
+              <div key={pack.id} className={styles.card} style={{ cursor: 'default' }}>
+                <div className={styles.cardIcon}>
+                  <Icon name="layout" size={20} />
+                </div>
+                <div className={styles.cardTitle}>{name}</div>
+                <p className={styles.pageSub} style={{ margin: '4px 0 10px', fontSize: 13 }}>
+                  {lang === 'en' ? pack.descEn : pack.descRu}
+                </p>
+                <div className={styles.cardFoot}>
+                  <span>{jurisdictionLabel(pack.jurisdiction)} · {t('playbooks.rulesCount', { n: pack.rulesCount })}</span>
+                  <Button
+                    size="sm"
+                    variant={installed ? 'secondary' : 'primary'}
+                    disabled={installed || installing === pack.id}
+                    onClick={() => void install(pack.id)}
+                  >
+                    {installed ? t('playbooks.packInstalledBadge') : installing === pack.id ? t('common.loading') : t('playbooks.packInstall')}
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Modal>
 
       <Modal
         open={editorOpen}

@@ -657,7 +657,7 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
           <Head id="security" />
           <div className={styles.securityGrid}>
             {SECURITY.map((s, i) => (
-              <div key={s.icon} className={styles.securityCard} data-reveal style={revealAt(i)}>
+              <div key={s.title.en} className={styles.securityCard} data-reveal style={revealAt(i)}>
                 <span className={styles.securityIcon}>
                   <Icon name={s.icon} size={17} />
                 </span>

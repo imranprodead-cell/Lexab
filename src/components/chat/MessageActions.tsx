@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { ttsApi } from '@/api';
 import { Icon } from '@/components/icons/Icon';
+import { Spinner } from '@/components/ui/Spinner';
 import { useDismissable } from '@/hooks/useAsync';
 import { downloadBlob } from '@/lib/download';
 import { useI18n } from '@/i18n/I18nProvider';
@@ -19,11 +20,12 @@ interface MessageActionsProps {
 let activeNarration: { stop: () => void } | null = null;
 
 /**
- * Action row under a finished assistant reply: thumbs up/down, copy and a
- * small overflow menu (read aloud, download as .txt). Icon-only buttons carry
- * aria-labels and tooltips; touch targets expand to 44px on coarse pointers.
- * Narration is server-synthesized MP3 (POST /tts); the menu item toggles
- * play/stop and the fetched audio is cached per message for replays.
+ * Action row under a finished assistant reply: thumbs up/down, copy, a
+ * one-click read-aloud toggle (spinner while the audio is being synthesized,
+ * stop glyph while playing) and a small overflow menu (formatted download).
+ * Icon-only buttons carry aria-labels and tooltips; touch targets expand to
+ * 44px on coarse pointers. Narration is server-synthesized MP3 (POST /tts);
+ * the fetched audio is cached per message for replays.
  */
 export function MessageActions({ message, onFeedback }: MessageActionsProps) {
   const { t } = useI18n();
@@ -69,8 +71,8 @@ export function MessageActions({ message, onFeedback }: MessageActionsProps) {
     first?.focus();
   }, [menuOpen, menuRef]);
 
-  // Copy/download intentionally keep the RAW markdown source (not the rendered
-  // look) — pasting into an editor preserves the structure, as in ChatGPT.
+  // Copy intentionally keeps the RAW markdown source (not the rendered look) —
+  // pasting into an editor preserves the structure, as in ChatGPT.
   const text = message.text ?? '';
 
   const copy = async () => {
@@ -293,10 +295,18 @@ export function MessageActions({ message, onFeedback }: MessageActionsProps) {
     }
   };
 
-  const downloadTxt = () => {
+  // Скачивание «как в чате»: тот же markdown-конвейер рендерится в
+  // самодостаточный HTML-файл (таблицы, жирный, заголовки). Модуль ленивый —
+  // react-dom/server не попадает в основной бандл.
+  const downloadHtml = async () => {
     setMenuOpen(false);
-    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-    downloadBlob(blob, 'Lexab_reply.txt');
+    try {
+      const { renderMessageHtml } = await import('@/lib/exportMessageHtml');
+      const blob = new Blob([renderMessageHtml(text)], { type: 'text/html;charset=utf-8' });
+      downloadBlob(blob, 'Lexab_reply.html');
+    } catch {
+      pushToast(t('common.error'), 'error');
+    }
   };
 
   const onMenuKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -345,6 +355,20 @@ export function MessageActions({ message, onFeedback }: MessageActionsProps) {
       >
         <Icon name={copied ? 'check' : 'copy'} size={15} />
       </button>
+      <button
+        type="button"
+        className={`${styles.msgActionBtn} ${speech === 'playing' ? styles.msgActionOn : ''}`}
+        aria-label={speech === 'idle' ? t('chat.act.speak') : t('chat.act.speakStop')}
+        aria-pressed={speech !== 'idle'}
+        title={speech === 'idle' ? t('chat.act.speak') : t('chat.act.speakStop')}
+        onClick={() => void speak()}
+      >
+        {speech === 'loading' ? (
+          <Spinner size={14} />
+        ) : (
+          <Icon name={speech === 'playing' ? 'stop' : 'volume'} size={15} />
+        )}
+      </button>
 
       <div className={styles.msgMenuWrap} ref={menuRef} onKeyDown={onMenuKeyDown}>
         <button
@@ -361,13 +385,9 @@ export function MessageActions({ message, onFeedback }: MessageActionsProps) {
         </button>
         {menuOpen ? (
           <div className={styles.msgMenu} role="menu" data-popover-layer>
-            <button type="button" role="menuitem" className={styles.msgMenuItem} onClick={() => void speak()}>
-              <Icon name="volume" size={15} />
-              {speech === 'idle' ? t('chat.act.speak') : t('chat.act.speakStop')}
-            </button>
-            <button type="button" role="menuitem" className={styles.msgMenuItem} onClick={downloadTxt}>
+            <button type="button" role="menuitem" className={styles.msgMenuItem} onClick={() => void downloadHtml()}>
               <Icon name="download" size={15} />
-              {t('chat.act.downloadTxt')}
+              {t('chat.act.download')}
             </button>
           </div>
         ) : null}

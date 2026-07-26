@@ -268,6 +268,7 @@ const GEOMETRY: Record<string, ReactNode> = {
       <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
     </>
   ),
+  stop: <rect x="7" y="7" width="10" height="10" rx="1.5" />,
   filter: (
     <>
       <path d="M22 3H2l8 9.46V19l4 2v-8.54z" />

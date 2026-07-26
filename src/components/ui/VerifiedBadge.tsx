@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type MouseEvent } from 'react';
 import { Icon } from '@/components/icons/Icon';
 import { Spinner } from '@/components/ui/Spinner';
 import { lawApi, type LawUnit } from '@/api/law.api';
@@ -79,7 +79,10 @@ function LawTextToggle({ unitId }: { unitId: string }) {
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
 
-  const toggle = () => {
+  const toggle = (e: MouseEvent) => {
+    // Карточка находки сама кликабельна (открывает рабочую область / якорит
+    // документ) — клик по переключателю не должен до неё всплывать.
+    e.stopPropagation();
     if (open) {
       setOpen(false);
       return;
@@ -102,7 +105,7 @@ function LawTextToggle({ unitId }: { unitId: string }) {
         {t(open ? 'law.hide' : 'law.show')}
       </button>
       {open ? (
-        <span className={styles.lawBox} dir="auto">
+        <span className={styles.lawBox} dir="auto" onClick={(e) => e.stopPropagation()}>
           {busy ? (
             <Spinner size={14} />
           ) : failed ? (

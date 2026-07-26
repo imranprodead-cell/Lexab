@@ -18,7 +18,6 @@ import { ScalesMascot } from '@/components/ui/ScalesMascot';
 import { Modal } from '@/components/ui/Modal';
 import { ErrorState, SkeletonRows } from '@/components/ui/States';
 import { billingApi } from '@/api/billing.api';
-import { onboardingApi } from '@/api/growth.api';
 import { analysisApi } from '@/api/analysis.api';
 import { useAsync } from '@/hooks/useAsync';
 import { useChatStore } from '@/store/useChatStore';
@@ -32,6 +31,11 @@ import type { ChatMessage } from '@/types/domain';
 import chat from '@/components/chat/chat.module.css';
 
 const ACCEPTED = /\.(pdf|docx?|txt)$/i;
+
+// Позиция прокрутки по сессиям: возврат из рабочей области (размонтирование →
+// монтирование ChatPage) возвращает ленту туда, где читали, а не в самый низ.
+// Сигнатура ids инвалидирует запись, как только переписка изменилась.
+const savedScroll = new Map<string, { top: number; ids: string }>();
 
 /** User message bubble; long texts collapse with an inline "Expand ⌄" link. */
 function UserBubble({ text }: { text: string }) {
@@ -78,6 +82,7 @@ export function ChatPage() {
   const setFeedback = useChatStore((s) => s.setFeedback);
   const sessionLoading = useChatStore((s) => s.sessionLoading);
   const sessionLoadFailed = useChatStore((s) => s.sessionLoadFailed);
+  const serverSessionId = useChatStore((s) => s.serverSessionId);
   const adoptAnalysis = useChatStore((s) => s.adoptAnalysis);
   const addSession = useChatHistoryStore((s) => s.addSession);
 
@@ -100,24 +105,6 @@ export function ChatPage() {
     limits?.aiRequests?.limit && limits.aiRequests.used / limits.aiRequests.limit >= 0.8,
   );
 
-  // «Посмотреть на примере»: сервер мгновенно отдаёт готовый демо-разбор
-  // (без загрузки, без ИИ, без лимитов) — усыновляем в канвас и открываем
-  // воркспейс, как настоящий анализ.
-  const [sampleBusy, setSampleBusy] = useState(false);
-  const openSample = async () => {
-    if (sampleBusy) return;
-    setSampleBusy(true);
-    try {
-      const analysis = await onboardingApi.sample();
-      adoptAnalysis(analysis);
-      navigate('/workspace');
-    } catch (err) {
-      pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
-    } finally {
-      setSampleBusy(false);
-    }
-  };
-
   // Opening a previous session from the sidebar restores its conversation
   // (from the server in real mode; the demo state in mock mode).
   useEffect(() => {
@@ -134,11 +121,17 @@ export function ChatPage() {
   const prevIdsRef = useRef('');
   const anchorRef = useRef<string | null>(null);
   const [tailPad, setTailPad] = useState(0);
+  // Ключ сохранённой позиции — через ref, чтобы не добавлять deps эффекту.
+  const scrollKey = serverSessionId ?? sessionId ?? 'local';
+  const scrollKeyRef = useRef(scrollKey);
+  scrollKeyRef.current = scrollKey;
 
   const onThreadScroll = () => {
     const el = threadRef.current;
     if (!el) return;
     stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    // Сохраняем в слушателе, не в cleanup: при размонтировании threadRef уже null.
+    savedScroll.set(scrollKeyRef.current, { top: el.scrollTop, ids: prevIdsRef.current });
   };
 
   useEffect(() => {
@@ -146,6 +139,18 @@ export function ChatPage() {
     if (!el) return;
     const ids = messages.map((m) => m.id).join(',');
     const prevIds = prevIdsRef.current;
+    // Свежий маунт с той же перепиской (возврат из рабочей области):
+    // восстанавливаем позицию и обходим и прыжок в низ, и прижатие к верху.
+    if (prevIds === '' && messages.length > 0) {
+      const saved = savedScroll.get(scrollKeyRef.current);
+      if (saved && saved.ids === ids) {
+        prevIdsRef.current = ids;
+        anchorRef.current = [...messages].reverse().find((m) => m.role === 'user')?.id ?? null;
+        el.scrollTop = saved.top;
+        stickRef.current = el.scrollHeight - saved.top - el.clientHeight < 80;
+        return;
+      }
+    }
     const appended = ids !== prevIds && ids.startsWith(prevIds) && (prevIds !== '' || messages.length <= 3);
     prevIdsRef.current = ids;
     const lastUser = [...messages].reverse().find((m) => m.role === 'user');
@@ -342,7 +347,6 @@ export function ChatPage() {
             onAnalyze={() => pushToast(t('chat.attachFirst'), 'default')}
             onDraft={() => void runDraft('')}
             onCompare={() => navigate('/compare')}
-            onSample={() => void openSample()}
           />
         )
       ) : (
