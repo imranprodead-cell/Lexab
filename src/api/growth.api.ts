@@ -1,24 +1,10 @@
 /**
- * API «фич роста»: демо-образец онбординга, публичная ссылка на отчёт,
- * вебхуки Slack/Teams. Небольшие и родственные — один модуль.
+ * API «фич роста»: публичная ссылка на отчёт, вебхуки Slack/Teams.
+ * Небольшие и родственные — один модуль.
  */
-import type { AnalysisResult, Severity } from '@/types/domain';
+import type { Severity } from '@/types/domain';
 import { USE_MOCK, http } from './client';
 import { delay } from './util';
-
-/* ── Онбординг: образец анализа ─────────────────────────────────────────── */
-
-export const onboardingApi = {
-  /** Создать (или вернуть готовый) демо-разбор образца NDA — мгновенно, без лимитов. */
-  async sample(): Promise<AnalysisResult> {
-    if (USE_MOCK) {
-      await delay(300);
-      const { DEMO_ANALYSIS } = await import('@/data/seed');
-      return { ...DEMO_ANALYSIS, id: 'an_sample', fileName: 'Образец NDA (демо).txt' };
-    }
-    return http<AnalysisResult>('/onboarding/sample', { method: 'POST' });
-  },
-};
 
 /* ── Публичная ссылка на отчёт ──────────────────────────────────────────── */
 
