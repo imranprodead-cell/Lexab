@@ -354,8 +354,8 @@ const ANALYSIS_SCHEMA = {
         required: ['id', 'delText', 'insText', 'severity'],
         properties: {
           id: { type: 'string', description: 'Sequential id: r1, r2, r3, …' },
-          delText: { type: 'string', description: 'Exact contract wording to strike.' },
-          insText: { type: 'string', description: 'Replacement wording.' },
+          delText: { type: 'string', description: "Exact contract wording to strike, copied verbatim in the contract's language." },
+          insText: { type: 'string', description: "Replacement wording, in the contract's language." },
           severity: { type: 'string', enum: SEVERITY },
         },
       },
@@ -398,14 +398,14 @@ const ANALYSIS_SCHEMA = {
     document: {
       type: 'array',
       description:
-        'Excerpt of the contract as blocks. Paragraph segments interleave plain strings with {redlineId} slots; each redline id must appear in exactly one slot.',
+        "Excerpt of the contract as blocks, reproducing the contract verbatim in the contract's language (never translated). Paragraph segments interleave plain strings with {redlineId} slots; each redline id must appear in exactly one slot.",
       items: {
         type: 'object',
         additionalProperties: false,
         required: ['type'],
         properties: {
           type: { type: 'string', enum: ['heading', 'paragraph'] },
-          text: { type: 'string', description: 'Heading text (headings only).' },
+          text: { type: 'string', description: "Heading text (headings only), in the contract's language." },
           segments: {
             type: 'array',
             description: 'Paragraph content (paragraphs only).',
@@ -429,7 +429,7 @@ const ANALYSIS_SCHEMA = {
 
 const ANALYSIS_SYSTEM = `You are Lexab, a senior commercial contracts lawyer performing a risk review.
 Work ONLY from the supplied contract — the text between <<< >>> or the attached PDF document. NEVER invent, assume or reconstruct contract content that is not in the supplied material: if the material is unreadable or empty, say so in the summary and return zero findings instead of imagining a typical contract.
-WRITE IN THE CONTRACT'S LANGUAGE: the summary, every finding title and every insText must be in the same language as the contract text (Russian contract → Russian output, English contract → English output). Citations always use the official citation format of the governing jurisdiction (e.g. «ст. 260 ГК» for UZ/KZ, "s.14 Sale of Goods Act 1979" for UK) regardless of output language.
+WRITE IN THE CONTRACT'S LANGUAGE: the summary, every finding title, every insText and every document block (heading text and paragraph segments, including delText) must be in the same language as the contract text (Russian contract → Russian output, English contract → English output). The document array quotes the contract VERBATIM — never translate the quoted clauses. Citations always use the official citation format of the governing jurisdiction (e.g. «ст. 260 ГК» for UZ/KZ, "s.14 Sale of Goods Act 1979" for UK) regardless of output language.
 Identify the clauses with the most material legal exposure under the contract's governing jurisdiction. Cite real statutes and case law.
 CITATION CONSISTENCY: the citation text and the unitId MUST refer to the SAME provision — never cite one section (e.g. "s.11") while pointing unitId at a different section's id. If none of the LEGAL CONTEXT provisions is the provision your citation names, set unitId to "" rather than picking a near-miss.
 Produce tracked redlines: quote the exact problematic wording as delText, and provide precise replacement wording as insText.
@@ -497,6 +497,10 @@ export async function generateAnalysis(input: AnalysisInput): Promise<GeneratedA
           system: ANALYSIS_SYSTEM,
           schema: ANALYSIS_SCHEMA as unknown as Record<string, unknown>,
           messages: [{ role: 'user', content: prompt }],
+          // v4-pro рассуждает в счёт max_tokens: на русском договоре reasoning +
+          // многословный JSON выжигают все 8000 и JSON обрывается на полуслове
+          // (видено живьём). Без размышлений весь бюджет уходит в сам ответ.
+          thinkingDisabled: true,
         });
         const parsed = extractJsonObject(raw) as GeneratedAnalysis;
         assertAnalysisShape(parsed); // malformed JSON → throw → retry on Anthropic

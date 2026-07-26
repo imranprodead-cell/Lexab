@@ -1,0 +1,28 @@
+{
+  "at": "2026-07-26T15:38:16.905Z",
+  "model": "deepseek-v4-pro",
+  "golden": "uk-contract-law.jsonl",
+  "questions": 12,
+  "retrieval": {
+    "hit@5": 1,
+    "hit@10": 1,
+    "recall@10": 0.958
+  },
+  "corpus": {
+    "jurisdiction": "UK",
+    "documents": 8,
+    "chunks": 417,
+    "contextCoverage": 1,
+    "embeddingCoverage": 1
+  },
+  "baseline": {
+    "findings": 20,
+    "citationPrecision": 0.85,
+    "unverifiedShare": 0.15
+  },
+  "rag": {
+    "findings": 22,
+    "citationPrecision": 1,
+    "unverifiedShare": 0
+  }
+}
