@@ -22,6 +22,8 @@ import { assertFeatureTeamAware, withAiRequest } from '../lib/limits.ts';
 import { asObject } from '../lib/validate.ts';
 import { readFileBytes } from '../storage.ts';
 import { analyzeSource, persistAnalysis, type AnalysisSource } from './analysis.routes.ts';
+import { renderBatchReportHtml } from '../lib/batchReport.ts';
+import { audit } from '../lib/audit.ts';
 
 const MAX_BATCH_FILES = 20;
 
@@ -292,6 +294,63 @@ export function batchRoutes(app: FastifyInstance, db: Db): void {
     reply.code(201);
     const created = await db.query<JobRow>('SELECT id, status, total, done, failed, created_at FROM batch_jobs WHERE id = $1', [jobId]);
     return jobToWire(created.rows[0]);
+  });
+
+  // Сводный отчёт по заданию: один HTML со всеми договорами, отсортированными
+  // по риску, и топ-находками каждого — дельиверабл для дью-дилидженс.
+  app.get('/batch/:id/report', { preHandler: [app.authenticate], config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (req, reply) => {
+    await assertFeatureTeamAware(db, req.currentUser.id, 'batch');
+    const { id } = req.params as { id: string };
+    const jobRes = await db.query<{ id: string; user_id: string; jurisdiction: string | null; created_at: Date | string }>(
+      'SELECT id, user_id, jurisdiction, created_at FROM batch_jobs WHERE id = $1',
+      [id],
+    );
+    const job = jobRes.rows[0];
+    if (!job || job.user_id !== req.currentUser.id) throw notFound('Задание не найдено');
+
+    const items = await db.query<{ file_name: string; status: string; analysis_id: string | null; risk_score: number | null; risk_level: string | null; findings_count: number | null; error: string | null }>(
+      'SELECT file_name, status, analysis_id, risk_score, risk_level, findings_count, error FROM batch_items WHERE batch_id = $1 ORDER BY ord',
+      [id],
+    );
+    const analysisIds = items.rows.map((i) => i.analysis_id).filter((x): x is string => Boolean(x));
+    // Топ-3 находки на договор одним запросом (High прежде Medium прежде Low).
+    const topByAnalysis = new Map<string, { severity: string; title: string; citation: string; verified: boolean }[]>();
+    if (analysisIds.length) {
+      const f = await db.query<{ analysis_id: string; severity: string; title: string; citation: string; unit_id: string | null; unverified: boolean }>(
+        `SELECT analysis_id, severity, title, citation, unit_id, unverified
+         FROM findings WHERE analysis_id = ANY($1::text[])
+         ORDER BY analysis_id, CASE severity WHEN 'High' THEN 0 WHEN 'Medium' THEN 1 ELSE 2 END, ord`,
+        [analysisIds],
+      );
+      for (const row of f.rows) {
+        const list = topByAnalysis.get(row.analysis_id) ?? [];
+        if (list.length < 3) {
+          list.push({ severity: row.severity, title: row.title, citation: row.citation, verified: Boolean(row.unit_id) && !row.unverified });
+          topByAnalysis.set(row.analysis_id, list);
+        }
+      }
+    }
+
+    const html = renderBatchReportHtml({
+      jobId: job.id,
+      createdAt: new Date(job.created_at as string).toISOString(),
+      jurisdiction: job.jurisdiction,
+      ownerName: req.currentUser.name,
+      ownerFirm: req.currentUser.firm,
+      items: items.rows.map((i) => ({
+        fileName: i.file_name,
+        status: i.status,
+        riskScore: i.risk_score,
+        riskLevel: i.risk_level,
+        findingsCount: i.findings_count,
+        error: i.error,
+        topFindings: i.analysis_id ? (topByAnalysis.get(i.analysis_id) ?? []) : [],
+      })),
+    });
+    reply.header('Content-Type', 'text/html; charset=utf-8');
+    reply.header('Content-Disposition', `attachment; filename="lexab-batch-report-${id}.html"`);
+    await audit(db, req, { type: 'document.exported', teamOwnerId: req.currentUser.id, target: { type: 'batch', id } });
+    return html;
   });
 
   // Job list (no items) — the /batch history table.

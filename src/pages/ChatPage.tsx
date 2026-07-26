@@ -18,6 +18,7 @@ import { ScalesMascot } from '@/components/ui/ScalesMascot';
 import { Modal } from '@/components/ui/Modal';
 import { ErrorState, SkeletonRows } from '@/components/ui/States';
 import { billingApi } from '@/api/billing.api';
+import { onboardingApi } from '@/api/growth.api';
 import { analysisApi } from '@/api/analysis.api';
 import { useAsync } from '@/hooks/useAsync';
 import { useChatStore } from '@/store/useChatStore';
@@ -98,6 +99,24 @@ export function ChatPage() {
   const nearLimit = Boolean(
     limits?.aiRequests?.limit && limits.aiRequests.used / limits.aiRequests.limit >= 0.8,
   );
+
+  // «Посмотреть на примере»: сервер мгновенно отдаёт готовый демо-разбор
+  // (без загрузки, без ИИ, без лимитов) — усыновляем в канвас и открываем
+  // воркспейс, как настоящий анализ.
+  const [sampleBusy, setSampleBusy] = useState(false);
+  const openSample = async () => {
+    if (sampleBusy) return;
+    setSampleBusy(true);
+    try {
+      const analysis = await onboardingApi.sample();
+      adoptAnalysis(analysis);
+      navigate('/workspace');
+    } catch (err) {
+      pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
+    } finally {
+      setSampleBusy(false);
+    }
+  };
 
   // Opening a previous session from the sidebar restores its conversation
   // (from the server in real mode; the demo state in mock mode).
@@ -323,6 +342,7 @@ export function ChatPage() {
             onAnalyze={() => pushToast(t('chat.attachFirst'), 'default')}
             onDraft={() => void runDraft('')}
             onCompare={() => navigate('/compare')}
+            onSample={() => void openSample()}
           />
         )
       ) : (

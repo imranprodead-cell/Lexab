@@ -15,6 +15,8 @@ import { FloatingToolbar } from '@/components/workspace/FloatingToolbar';
 import { SendForSignatureModal } from '@/components/workspace/SendForSignatureModal';
 import { VersionHistoryModal } from '@/components/workspace/VersionHistoryModal';
 import { analysisApi, documentsApi, templatesApi, versionsApi } from '@/api';
+import { shareApi } from '@/api/growth.api';
+import { Modal } from '@/components/ui/Modal';
 import { downloadBlob } from '@/lib/download';
 import { formatFileSize } from '@/lib/format';
 import { draftBlocksToText, useChatStore } from '@/store/useChatStore';
@@ -74,6 +76,10 @@ export function WorkspacePage() {
 
   const analysisReadOnly = () => useChatStore.getState().analysis?.canEdit === false;
   const [signOpen, setSignOpen] = useState(false);
+  // Публичная ссылка на отчёт: модалка с URL + копирование + отзыв.
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareUrl, setShareUrl] = useState<string | null>(null);
+  const [shareBusy, setShareBusy] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [reanalyzing, setReanalyzing] = useState(false);
   const [anchor, setAnchor] = useState<{ redlineId: string; nonce: number } | null>(null);
@@ -279,6 +285,36 @@ export function WorkspacePage() {
 
   // Server-rendered DOCX: 'tracked' = real Word tracked changes (accept/reject
   // in Word), 'clean' = final text. Needs the owning document id.
+  const openShare = async () => {
+    if (!analysis || shareBusy) return;
+    setShareOpen(true);
+    setShareBusy(true);
+    try {
+      const link = await shareApi.create(analysis.id);
+      setShareUrl(link.url);
+    } catch (err) {
+      setShareOpen(false);
+      pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
+    } finally {
+      setShareBusy(false);
+    }
+  };
+
+  const revokeShare = async () => {
+    if (!analysis || shareBusy) return;
+    setShareBusy(true);
+    try {
+      await shareApi.revoke(analysis.id);
+      setShareUrl(null);
+      setShareOpen(false);
+      pushToast(t('ws.shareRevoked'), 'default');
+    } catch (err) {
+      pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
+    } finally {
+      setShareBusy(false);
+    }
+  };
+
   const downloadDocx = async (mode: 'tracked' | 'clean') => {
     if (!analysis.documentId) {
       pushToast(t('common.error'), 'error');
@@ -516,9 +552,44 @@ export function WorkspacePage() {
           }}
           onSendForSignature={() => setSignOpen(true)}
           onVersionHistory={() => setHistoryOpen(true)}
+          onShare={() => void openShare()}
         />
         ) : null}
       </DocumentViewer>
+
+      {/* Публичная ссылка на отчёт для контрагента */}
+      <Modal
+        open={shareOpen}
+        title={t('ws.shareTitle')}
+        onClose={() => setShareOpen(false)}
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => void revokeShare()} disabled={shareBusy}>
+              {t('ws.shareRevoke')}
+            </Button>
+            <Button
+              variant="primary"
+              icon="link"
+              onClick={() => {
+                void navigator.clipboard?.writeText(shareUrl ?? '');
+                pushToast(t('ws.shareCopied'), 'success');
+              }}
+              disabled={!shareUrl}
+            >
+              {t('ws.shareCopy')}
+            </Button>
+          </>
+        }
+      >
+        <p style={{ marginBottom: 10 }}>{t('ws.shareBody')}</p>
+        {shareUrl ? (
+          <code style={{ display: 'block', padding: '10px 12px', borderRadius: 10, background: 'var(--hover-2)', fontSize: 12.5, wordBreak: 'break-all', userSelect: 'all' }}>
+            {shareUrl}
+          </code>
+        ) : (
+          <Spinner size={16} />
+        )}
+      </Modal>
 
       <SendForSignatureModal
         open={signOpen}

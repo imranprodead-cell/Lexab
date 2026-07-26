@@ -38,7 +38,7 @@ const emptyForm: EditorForm = { name: '', jurisdiction: ALL, active: true, rules
  * — the API answers 402 on lower plans, surfaced here as an upsell.
  */
 export function PlaybooksPage() {
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   const navigate = useNavigate();
   const pushToast = useUIStore((s) => s.pushToast);
   usePageTitle(t('playbooks.title'));
@@ -60,6 +60,26 @@ export function PlaybooksPage() {
   );
   const locked = view?.locked === true;
   const data = view && !view.locked ? view.rows : null;
+
+  // Готовые экспертные наборы: витрина видна всем (в т.ч. на пустом экране —
+  // это и есть лекарство от «холодного старта»), установка — один клик.
+  const { data: packs } = useAsync((signal) => playbooksApi.packs(signal), []);
+  const [installing, setInstalling] = useState<string | null>(null);
+  const installedNames = new Set((data ?? []).map((p) => p.name));
+  const install = async (packId: string) => {
+    if (installing) return;
+    setInstalling(packId);
+    try {
+      const pb = await playbooksApi.installPack(packId, lang);
+      mutate((v) => (v && !v.locked ? { locked: false, rows: [pb, ...v.rows.filter((r) => r.id !== pb.id)] } : v));
+      pushToast(t('playbooks.packInstalled'), 'success');
+      reload();
+    } catch (err) {
+      pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
+    } finally {
+      setInstalling(null);
+    }
+  };
 
   // Editor modal state — `editing` is the playbook being edited, or null on create.
   const [editorOpen, setEditorOpen] = useState(false);
@@ -183,6 +203,42 @@ export function PlaybooksPage() {
               </Button>
             ) : null}
           </div>
+
+          {/* Готовые экспертные наборы — лекарство от пустого старта. */}
+          {(packs ?? []).length > 0 ? (
+            <div style={{ marginBottom: 28 }}>
+              <h2 className={styles.sectionTitle} style={{ marginBottom: 4 }}>{t('playbooks.packsTitle')}</h2>
+              <p className={styles.pageSub} style={{ marginBottom: 14 }}>{t('playbooks.packsSub')}</p>
+              <div className={styles.grid}>
+                {(packs ?? []).map((pack) => {
+                  const name = lang === 'en' ? pack.nameEn : pack.nameRu;
+                  const installed = installedNames.has(name);
+                  return (
+                    <div key={pack.id} className={styles.card} style={{ cursor: 'default' }}>
+                      <div className={styles.cardIcon}>
+                        <Icon name="layout" size={20} />
+                      </div>
+                      <div className={styles.cardTitle}>{name}</div>
+                      <p className={styles.pageSub} style={{ margin: '4px 0 10px', fontSize: 13 }}>
+                        {lang === 'en' ? pack.descEn : pack.descRu}
+                      </p>
+                      <div className={styles.cardFoot}>
+                        <span>{jurisdictionLabel(pack.jurisdiction)} · {t('playbooks.rulesCount', { n: pack.rulesCount })}</span>
+                        <Button
+                          size="sm"
+                          variant={installed ? 'secondary' : 'primary'}
+                          disabled={installed || installing === pack.id}
+                          onClick={() => void install(pack.id)}
+                        >
+                          {installed ? t('playbooks.packInstalledBadge') : installing === pack.id ? t('common.loading') : t('playbooks.packInstall')}
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
 
           {loading ? (
             <SkeletonRows rows={3} height={110} />

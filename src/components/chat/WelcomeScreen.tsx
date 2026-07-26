@@ -11,9 +11,11 @@ interface WelcomeScreenProps {
   onAnalyze: () => void;
   onDraft: () => void;
   onCompare: () => void;
+  /** «Посмотреть на примере»: мгновенный демо-разбор образца NDA без лимитов. */
+  onSample: () => void;
 }
 
-export function WelcomeScreen({ onAnalyze, onDraft, onCompare }: WelcomeScreenProps) {
+export function WelcomeScreen({ onAnalyze, onDraft, onCompare, onSample }: WelcomeScreenProps) {
   const { t, lang } = useI18n();
   const user = useAuthStore((s) => s.user);
   // The NDA card follows the top-bar country selector — the same jurisdiction
@@ -25,6 +27,7 @@ export function WelcomeScreen({ onAnalyze, onDraft, onCompare }: WelcomeScreenPr
   const countryInLaw = lang === 'ru' ? country.nameGen : t(`country.${country.code}`);
 
   const suggestions = [
+    { key: 'sample', icon: 'play' as const, onSelect: onSample },
     { key: 'analyze', icon: 'search' as const, onSelect: onAnalyze },
     { key: 'draft', icon: 'pen' as const, onSelect: onDraft },
     { key: 'compare', icon: 'layout' as const, onSelect: onCompare },

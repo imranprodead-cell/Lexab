@@ -1430,6 +1430,75 @@ export const MESSAGES: Dict = {
   },
   'mail.intakeCopy': { ru: 'Копировать', en: 'Copy' },
   'mail.intakeCopied': { ru: 'Адрес скопирован', en: 'Address copied' },
+
+  // Готовые экспертные наборы плейбуков
+  'playbooks.packsTitle': { ru: 'Готовые наборы', en: 'Ready-made packs' },
+  'playbooks.packsSub': {
+    ru: 'Экспертные позиции под юрисдикцию — установите в один клик и правьте под себя',
+    en: 'Expert positions per jurisdiction — install in one click and tailor to your needs',
+  },
+  'playbooks.packInstall': { ru: 'Установить', en: 'Install' },
+  'playbooks.packInstalled': { ru: 'Набор установлен — правила уже применяются к анализам', en: 'Pack installed — the rules now apply to analyses' },
+  'playbooks.packInstalledBadge': { ru: 'Установлен', en: 'Installed' },
+
+  // Онбординг: образец анализа
+  'chat.suggest.sample.title': { ru: 'Посмотреть на примере', en: 'See an example' },
+  'chat.suggest.sample.body': { ru: 'Готовый разбор образца NDA — мгновенно и без лимитов', en: 'A ready NDA review — instant, no limits spent' },
+
+  // Публичная ссылка на отчёт
+  'ws.share': { ru: 'Поделиться', en: 'Share' },
+  'ws.shareTitle': { ru: 'Ссылка на отчёт', en: 'Report link' },
+  'ws.shareBody': {
+    ru: 'Любой, у кого есть эта ссылка, увидит краткий отчёт: балл риска, резюме и находки с цитатами норм. Текст договора и правки не показываются.',
+    en: 'Anyone with this link sees a brief report: risk score, summary and findings with law citations. The contract text and edits are not shown.',
+  },
+  'ws.shareCopy': { ru: 'Копировать ссылку', en: 'Copy link' },
+  'ws.shareCopied': { ru: 'Ссылка скопирована', en: 'Link copied' },
+  'ws.shareRevoke': { ru: 'Отозвать ссылку', en: 'Revoke link' },
+  'ws.shareRevoked': { ru: 'Ссылка отозвана — отчёт больше не открывается', en: 'Link revoked — the report is no longer accessible' },
+  'share.invalidTitle': { ru: 'Ссылка недействительна', en: 'Link is invalid' },
+  'share.invalidBody': { ru: 'Отчёт отозван владельцем или ссылка устарела.', en: 'The report was revoked by its owner or the link is stale.' },
+  'share.preparedBy': { ru: 'Отчёт подготовлен: {firm}', en: 'Prepared by {firm}' },
+  'share.riskScore': { ru: 'Балл риска', en: 'Risk score' },
+  'share.clauses': { ru: 'Пунктов проверено', en: 'Clauses reviewed' },
+  'share.findings': { ru: 'Находок', en: 'Findings' },
+  'share.disclaimer': {
+    ru: 'Отчёт сформирован в Lexab и носит информационный характер — это не юридическое заключение. Отметка «Проверено» означает подтверждение цитаты по базе официальных источников законодательства.',
+    en: 'This report was generated in Lexab for information purposes — it is not legal advice. “Verified” marks citations confirmed against official statute sources.',
+  },
+  'share.cta': { ru: 'Проверить свой договор бесплатно', en: 'Check your own contract for free' },
+
+  // Сводный отчёт массового разбора
+  'batch.report': { ru: 'Сводный отчёт', en: 'Portfolio report' },
+
+  // Slack / Teams вебхуки
+  'hooks.sub': { ru: 'Дублировать уведомления в канал команды', en: 'Mirror notifications to your team channel' },
+  'hooks.connected': { ru: 'Подключено', en: 'Connected' },
+  'hooks.connect': { ru: 'Подключить', en: 'Connect' },
+  'hooks.disconnect': { ru: 'Отключить', en: 'Disconnect' },
+  'hooks.test': { ru: 'Тест', en: 'Test' },
+  'hooks.testOk': { ru: 'Тестовое сообщение отправлено — проверьте канал', en: 'Test message sent — check the channel' },
+  'hooks.testFail': { ru: 'Сообщение не дошло — проверьте адрес вебхука', en: 'The message did not arrive — check the webhook URL' },
+  'hooks.saved': { ru: 'Вебхук сохранён — уведомления будут дублироваться в канал', en: 'Webhook saved — notifications will be mirrored to the channel' },
+  'hooks.removed': { ru: 'Вебхук отключён', en: 'Webhook disconnected' },
+  'hooks.urlLabel': { ru: 'Адрес вебхука', en: 'Webhook URL' },
+
+  // Аналитика: деньги под риском
+  'an.var': { ru: 'Деньги под риском', en: 'Value at risk' },
+  'an.varSub': {
+    ru: 'Стоимость договоров (из условий CLM) по уровню риска документа',
+    en: 'Contract value (from CLM terms) grouped by document risk level',
+  },
+  'an.varHigh': { ru: 'Высокий риск', en: 'High risk' },
+  'an.varElevated': { ru: 'Повышенный', en: 'Elevated' },
+  'an.varLow': { ru: 'Низкий', en: 'Low' },
+  'an.varTotal': { ru: 'Всего', en: 'Total' },
+  'an.varExpiring': { ru: 'Истекают в этом квартале', en: 'Expiring this quarter' },
+  'an.varExpiringSub': {
+    ru: 'Высокорисковые договоры со сроком окончания в ближайшие 3 месяца',
+    en: 'High-risk contracts expiring within the next 3 months',
+  },
+  'an.varNoCurrency': { ru: 'Без валюты', en: 'No currency' },
 };
 
 /**

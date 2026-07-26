@@ -241,5 +241,12 @@ export const ANALYTICS: AnalyticsSummary = {
       { jurisdiction: 'DE', documents: 1, updatedAt: days(25) },
     ],
   },
+  valueAtRisk: {
+    currencies: [
+      { currency: 'USD', high: 420_000, elevated: 260_000, low: 640_000, total: 1_320_000 },
+      { currency: 'UZS', high: 1_800_000_000, elevated: 0, low: 3_100_000_000, total: 4_900_000_000 },
+    ],
+    highRiskExpiringSoon: 3,
+  },
   team: null,
 };

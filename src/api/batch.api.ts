@@ -2,8 +2,9 @@
  *  uploaded first (uploadsApi.upload) and their ids handed to POST /batch. Pro+
  *  feature: the real endpoints answer 402 on Free/Standard (the page surfaces an
  *  upsell). */
-import { USE_MOCK, http } from './client';
+import { USE_MOCK, http, httpBlob } from './client';
 import { ApiError, clone, delay } from './util';
+import { downloadBlob } from '@/lib/download';
 import type { BatchItem, BatchJob } from '@/types/domain';
 
 export type { BatchItem, BatchJob } from '@/types/domain';
@@ -89,6 +90,17 @@ function advanceMockJob(job: BatchJob) {
 }
 
 export const batchApi = {
+  /** Сводный отчёт задания: один HTML со всеми договорами по риску. */
+  async downloadReport(jobId: string): Promise<void> {
+    if (USE_MOCK) {
+      await delay(200);
+      downloadBlob(new Blob(['<!doctype html><html><body>demo batch report</body></html>'], { type: 'text/html' }), `lexab-batch-report-${jobId}.html`);
+      return;
+    }
+    const blob = await httpBlob(`/batch/${jobId}/report`);
+    downloadBlob(blob, `lexab-batch-report-${jobId}.html`);
+  },
+
   /** Queue a new job from already-uploaded file ids (1..20). */
   async start(uploadIds: string[], jurisdiction?: string): Promise<BatchJob> {
     if (USE_MOCK) {

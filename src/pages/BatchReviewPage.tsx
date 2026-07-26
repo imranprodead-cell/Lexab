@@ -258,9 +258,19 @@ export function BatchReviewPage() {
             {t(`batch.status.${j.status}`)}
           </span>
         ) : (
-          <Badge color="var(--sev-low)" plain>
-            {t('batch.jobDone')}
-          </Badge>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+            <Badge color="var(--sev-low)" plain>
+              {t('batch.jobDone')}
+            </Badge>
+            {/* Сводный отчёт: один HTML со всеми договорами по риску. */}
+            <Button
+              size="sm"
+              icon="download"
+              onClick={() => void batchApi.downloadReport(j.id).catch(() => pushToast(t('common.error'), 'error'))}
+            >
+              {t('batch.report')}
+            </Button>
+          </span>
         )}
       </div>
 

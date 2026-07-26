@@ -176,6 +176,12 @@ export interface AnalyticsSummary {
     unverified: number;
     corpus: { jurisdiction: string; documents: number; updatedAt: string | null }[];
   };
+  /** «Деньги под риском»: стоимость договоров по уровням риска (из CLM-условий,
+   *  по валютам) + сколько высокорисковых истекает в ближайшие ~3 месяца. */
+  valueAtRisk: {
+    currencies: { currency: string; high: number; elevated: number; low: number; total: number }[];
+    highRiskExpiringSoon: number;
+  };
   /** Per-member workload — null unless the viewer owns an active team.
    *  Counts come from THIS team's audit trail only (ai.analysis events under
    *  the owner's scope) — a member's outside work never shows up here. */

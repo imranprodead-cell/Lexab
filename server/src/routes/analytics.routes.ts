@@ -7,6 +7,7 @@
  */
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../db.ts';
+import { decText } from '../lib/docCrypto.ts';
 import type { AnalyticsSummary, RiskLevel } from '../types.ts';
 
 const WEEKS = 6;
@@ -154,6 +155,45 @@ export function analyticsRoutes(app: FastifyInstance, db: Db): void {
           AND member_user_id IS NOT NULL AND member_user_id <> $1`,
       [userId],
     );
+    // «Деньги под риском»: суммы договоров (CLM) по уровням риска документа.
+    // Стоимость зашифрована ключом владельца — расшифровываем построчно;
+    // валюты не смешиваем (по группе на валюту). Число вытаскиваем из строки
+    // («420 000», «USD 1,200,000» → 420000 / 1200000).
+    const varRows = await db.query<{ value_enc: string; currency: string | null; risk: string; expiry_date: string | null }>(
+      `SELECT ct.contract_value_enc AS value_enc, ct.currency, d.risk,
+              to_char(ct.expiry_date, 'YYYY-MM-DD') AS expiry_date
+       FROM contract_terms ct
+       JOIN documents d ON d.id = ct.document_id AND d.deleted_at IS NULL
+       WHERE d.user_id = $1 AND ct.contract_value_enc IS NOT NULL`,
+      [userId],
+    );
+    const byCurrency = new Map<string, { high: number; elevated: number; low: number; total: number }>();
+    let highRiskExpiringSoon = 0;
+    const soon = Date.now() + 92 * 86_400_000;
+    for (const r of varRows.rows) {
+      const raw = await decText(db, userId, r.value_enc);
+      if (!raw) continue;
+      const num = Number(raw.replace(/[^\d.,]/g, '').replace(/,(?=\d{3}\b)/g, '').replace(',', '.'));
+      if (!Number.isFinite(num) || num <= 0) continue;
+      const cur = (r.currency ?? '').trim().toUpperCase() || '—';
+      const slot = byCurrency.get(cur) ?? { high: 0, elevated: 0, low: 0, total: 0 };
+      if (r.risk === 'High') slot.high += num;
+      else if (r.risk === 'Elevated') slot.elevated += num;
+      else slot.low += num;
+      slot.total += num;
+      byCurrency.set(cur, slot);
+      if (r.risk === 'High' && r.expiry_date && new Date(r.expiry_date).getTime() <= soon && new Date(r.expiry_date).getTime() >= Date.now() - 86_400_000) {
+        highRiskExpiringSoon += 1;
+      }
+    }
+    const valueAtRisk: AnalyticsSummary['valueAtRisk'] = {
+      currencies: [...byCurrency.entries()]
+        .map(([currency, v]) => ({ currency, ...v }))
+        .sort((a, b) => b.total - a.total)
+        .slice(0, 4),
+      highRiskExpiringSoon,
+    };
+
     let team: AnalyticsSummary['team'] = null;
     if (members.rows.length > 0) {
       const ids = [userId, ...members.rows.map((m) => m.member_user_id)];
@@ -229,6 +269,7 @@ export function analyticsRoutes(app: FastifyInstance, db: Db): void {
           updatedAt: r.updated_at ? new Date(r.updated_at as string).toISOString() : null,
         })),
       },
+      valueAtRisk,
       team,
     };
   });

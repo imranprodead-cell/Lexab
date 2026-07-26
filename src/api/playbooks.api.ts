@@ -64,7 +64,52 @@ const mockPlaybooks: Playbook[] = [
   },
 ];
 
+/** Витрина готового экспертного набора (контент живёт на сервере). */
+export interface PlaybookPackInfo {
+  id: string;
+  jurisdiction: string;
+  nameRu: string;
+  nameEn: string;
+  descRu: string;
+  descEn: string;
+  rulesCount: number;
+}
+
+const MOCK_PACKS: PlaybookPackInfo[] = [
+  { id: 'uk-nda', jurisdiction: 'UK', nameRu: 'NDA по праву Англии', nameEn: 'NDA under English law', descRu: 'Соглашения о неразглашении', descEn: 'Non-disclosure agreements', rulesCount: 11 },
+  { id: 'uz-supply', jurisdiction: 'UZ', nameRu: 'Поставка (Узбекистан)', nameEn: 'Supply (Uzbekistan)', descRu: 'Договоры поставки, позиция покупателя', descEn: 'Supply agreements, buyer-side', rulesCount: 12 },
+];
+
 export const playbooksApi = {
+  /** Готовые экспертные наборы (витрина — просмотр без гейта). */
+  async packs(signal?: AbortSignal): Promise<PlaybookPackInfo[]> {
+    if (USE_MOCK) {
+      await delay(40);
+      return clone(MOCK_PACKS);
+    }
+    return http<PlaybookPackInfo[]>('/playbooks/packs', { signal });
+  },
+
+  /** Установить набор одним кликом (идемпотентно; язык правил = язык UI). */
+  async installPack(packId: string, lang: string): Promise<Playbook> {
+    if (USE_MOCK) {
+      await delay(300);
+      const pack = MOCK_PACKS.find((p) => p.id === packId);
+      const pb: Playbook = {
+        id: `pb_${packId}`,
+        name: pack ? (lang === 'en' ? pack.nameEn : pack.nameRu) : packId,
+        jurisdiction: pack?.jurisdiction ?? null,
+        active: true,
+        rules: ['Ответственность ограничена 100% годовой платы', 'Уведомление о расторжении — 30 дней письменно'],
+        createdAt: now(),
+        updatedAt: now(),
+      };
+      mockPlaybooks.unshift(pb);
+      return clone(pb);
+    }
+    return http<Playbook>(`/playbooks/packs/${packId}/install`, { method: 'POST', body: { lang: lang === 'en' ? 'en' : 'ru' } });
+  },
+
   async list(signal?: AbortSignal): Promise<Playbook[]> {
     if (USE_MOCK) {
       await delay(60);

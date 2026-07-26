@@ -360,6 +360,54 @@ export function AnalyticsPage() {
                 </div>
               </div>
 
+              {/* «Деньги под риском»: стоимость договоров (CLM) по уровням риска. */}
+              {data.valueAtRisk && data.valueAtRisk.currencies.length > 0 ? (
+                <>
+                  <div className={styles.sectionHead}>
+                    <h2 className={styles.sectionTitle}>{t('an.var')}</h2>
+                    <p className={styles.sectionSub}>{t('an.varSub')}</p>
+                  </div>
+                  <div className={styles.panels}>
+                    {data.valueAtRisk.currencies.map((c) => {
+                      const fmt = (n: number) =>
+                        `${new Intl.NumberFormat(localeFor(lang), { notation: n >= 1_000_000 ? 'compact' : 'standard', maximumFractionDigits: 1 }).format(n)} ${c.currency === '—' ? '' : c.currency}`.trim();
+                      return (
+                        <div key={c.currency} className={styles.panel}>
+                          <h2 className={styles.panelTitle}>{c.currency === '—' ? t('an.varNoCurrency') : c.currency}</h2>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14 }}>
+                              <span style={{ color: 'var(--danger)', fontWeight: 600 }}>{t('an.varHigh')}</span>
+                              <strong>{fmt(c.high)}</strong>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14 }}>
+                              <span style={{ color: 'var(--sev-med)' }}>{t('an.varElevated')}</span>
+                              <span>{fmt(c.elevated)}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14 }}>
+                              <span style={{ color: 'var(--sev-low)' }}>{t('an.varLow')}</span>
+                              <span>{fmt(c.low)}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
+                              <span style={{ color: 'var(--mut)' }}>{t('an.varTotal')}</span>
+                              <strong>{fmt(c.total)}</strong>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    {data.valueAtRisk.highRiskExpiringSoon > 0 ? (
+                      <div className={styles.panel}>
+                        <h2 className={styles.panelTitle}>{t('an.varExpiring')}</h2>
+                        <div style={{ fontSize: 34, fontWeight: 700, color: 'var(--danger)', marginTop: 8 }}>
+                          {data.valueAtRisk.highRiskExpiringSoon}
+                        </div>
+                        <p className={styles.sectionSub} style={{ marginTop: 4 }}>{t('an.varExpiringSub')}</p>
+                      </div>
+                    ) : null}
+                  </div>
+                </>
+              ) : null}
+
               <div className={styles.sectionHead}>
                 <h2 className={styles.sectionTitle}>{t('an.compliance')}</h2>
                 <p className={styles.sectionSub}>{t('an.complianceSub')}</p>

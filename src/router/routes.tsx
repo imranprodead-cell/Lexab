@@ -17,6 +17,7 @@ import { useAuthStore } from '@/store/useAuthStore';
 const loaders = {
   AuthPage: () => import('@/pages/AuthPage'),
   SignPage: () => import('@/pages/SignPage'),
+  SharePage: () => import('@/pages/SharePage'),
   VerifyEmailPage: () => import('@/pages/VerifyEmailPage'),
   ApprovePage: () => import('@/pages/ApprovePage'),
   ResetPasswordPage: () => import('@/pages/ResetPasswordPage'),
@@ -75,6 +76,11 @@ const appRoutes: RouteObject[] = [
   {
     path: '/sign/:token',
     lazy: async () => ({ Component: (await loaders.SignPage()).SignPage }),
+  },
+  {
+    // ПУБЛИЧНЫЙ отчёт анализа по токен-ссылке (без авторизации).
+    path: '/share/:token',
+    lazy: async () => ({ Component: (await loaders.SharePage()).SharePage }),
   },
   {
     path: '/approve/:token',

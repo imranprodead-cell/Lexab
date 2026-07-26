@@ -49,7 +49,7 @@ interface AnalysisRow {
   document_blocks: DocBlock[] | string;
 }
 
-async function loadAnalysis(db: Db, userId: string, id: string): Promise<AnalysisResult> {
+export async function loadAnalysis(db: Db, userId: string, id: string): Promise<AnalysisResult> {
   // Owner, or an active team member when the linked document is shared.
   const access = await resolveAnalysisAccess(db, userId, id);
   const canEdit = access.access === 'owner' || access.access === 'admin' || access.access === 'editor';

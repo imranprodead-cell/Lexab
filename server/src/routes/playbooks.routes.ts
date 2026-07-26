@@ -17,6 +17,7 @@ import { newId } from '../lib/ids.ts';
 import { assertFeature } from '../lib/limits.ts';
 import { teamRoleFor } from '../lib/teamAccess.ts';
 import { asObject, optionalString, requireString } from '../lib/validate.ts';
+import { PLAYBOOK_PACKS } from '../data/playbookPacks.ts';
 
 /** Jurisdiction codes a playbook may target (matches jurisdictionCode()); null = all. */
 const CORPORA = new Set(['UK', 'UZ', 'KZ', 'DE', 'US', 'CA', 'AE']);
@@ -127,6 +128,56 @@ async function writeRules(tx: Queryable, playbookId: string, encRules: string[])
 }
 
 export function playbookRoutes(app: FastifyInstance, db: Db): void {
+  // Готовые экспертные наборы: смотреть можно всем (витрина), установка — под
+  // гейтом плейбуков (resolveOwner). Контент — server/src/data/playbookPacks.ts.
+  app.get('/playbooks/packs', { preHandler: [app.authenticate] }, async () =>
+    PLAYBOOK_PACKS.map((p) => ({
+      id: p.id,
+      jurisdiction: p.jurisdiction,
+      nameRu: p.nameRu,
+      nameEn: p.nameEn,
+      descRu: p.descRu,
+      descEn: p.descEn,
+      rulesCount: p.rulesRu.length,
+    })));
+
+  app.post('/playbooks/packs/:packId/install', { preHandler: [app.authenticateReal] }, async (req, reply): Promise<Playbook> => {
+    const { packId } = req.params as { packId: string };
+    const pack = PLAYBOOK_PACKS.find((p) => p.id === packId);
+    if (!pack) throw notFound('Набор не найден / Pack not found');
+    const ownerId = await resolveOwner(db, req.currentUser.id);
+    await assertCanWrite(db, req.currentUser.id, ownerId);
+    const lang = asObject(req.body ?? {}).lang === 'en' ? 'en' : 'ru';
+    const name = lang === 'en' ? pack.nameEn : pack.nameRu;
+    const rules = lang === 'en' ? pack.rulesEn : pack.rulesRu;
+
+    // Идемпотентность: повторная установка возвращает уже стоящий набор,
+    // а не плодит дубликаты (loadActivePlaybook берёт новейший — дубль
+    // молча перекрывал бы правки пользователя в первом экземпляре).
+    const existing = await db.query<{ id: string }>(
+      'SELECT id FROM playbooks WHERE owner_user_id = $1 AND name = $2 LIMIT 1',
+      [ownerId, name],
+    );
+    if (existing.rows[0]) {
+      const pb = await loadOne(db, ownerId, existing.rows[0].id);
+      if (pb) return pb;
+    }
+
+    const id = newId('pb');
+    const encRules = await Promise.all(rules.map((r) => encText(db, ownerId, r)));
+    let stamps!: { created_at: Date | string; updated_at: Date | string };
+    await db.withTx(async (tx) => {
+      const ins = await tx.query<{ created_at: Date | string; updated_at: Date | string }>(
+        'INSERT INTO playbooks (id, owner_user_id, name, jurisdiction, active) VALUES ($1, $2, $3, $4, true) RETURNING created_at, updated_at',
+        [id, ownerId, name, pack.jurisdiction],
+      );
+      stamps = ins.rows[0];
+      await writeRules(tx, id, encRules);
+    });
+    reply.code(201);
+    return { id, name, jurisdiction: pack.jurisdiction, active: true, rules, createdAt: toIso(stamps.created_at), updatedAt: toIso(stamps.updated_at) };
+  });
+
   app.get('/playbooks', { preHandler: [app.authenticate] }, async (req): Promise<Playbook[]> => {
     const ownerId = await resolveOwner(db, req.currentUser.id);
     // Один JOIN вместо 1+2N запросов (loadOne на каждую строку): на облачной

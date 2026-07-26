@@ -14,6 +14,8 @@ interface FloatingToolbarProps {
   onReport: () => void;
   onSendForSignature: () => void;
   onVersionHistory: () => void;
+  /** Публичная ссылка на отчёт для контрагента (скрыто у read-only зрителей). */
+  onShare?: () => void;
 }
 
 /** Persistent action bar floating over the document viewer. */
@@ -25,6 +27,7 @@ export function FloatingToolbar({
   onReport,
   onSendForSignature,
   onVersionHistory,
+  onShare,
 }: FloatingToolbarProps) {
   const { t } = useI18n();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -93,6 +96,7 @@ export function FloatingToolbar({
           ) : null}
         </div>
         {action('docs', t('ws.report'), onReport)}
+        {!readOnly && onShare ? action('link', t('ws.share'), onShare) : null}
         {!readOnly ? action('esign', t('ws.sendSign'), onSendForSignature) : null}
         {action('history', t('ws.versionsTitle'), onVersionHistory)}
       </GlassCard>

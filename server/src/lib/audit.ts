@@ -57,6 +57,12 @@ export type AuditEventType =
   | 'ai.chat'
   | 'ai.draft'
   | 'ai.compare'
+  // публичные ссылки на отчёт, демо-образец, вебхуки
+  | 'analysis.share_created'
+  | 'analysis.share_revoked'
+  | 'analysis.sample_created'
+  | 'settings.webhook_set'
+  | 'settings.webhook_removed'
   // redlines (метаданные — только id правки, НИКОГДА не текст изменений)
   | 'redline.accepted'
   | 'redline.rejected'

@@ -14,6 +14,7 @@ import type { TwoFactorSetup } from '@/api';
 import { authApi } from '@/api/auth.api';
 import { ApiError } from '@/api/util';
 import { integrationsApi, type CloudProvider } from '@/api/integrations.api';
+import { webhooksApi, type WebhookProvider } from '@/api/growth.api';
 import { USE_MOCK } from '@/api/client';
 import { useUIStore } from '@/store/useUIStore';
 import { useAuthStore } from '@/store/useAuthStore';
@@ -70,6 +71,51 @@ export function SettingsPage() {
     }
   };
   const [integrationBusy, setIntegrationBusy] = useState<CloudProvider | null>(null);
+  // Slack/Teams вебхуки: дубли уведомлений в мессенджер.
+  const hooks = useAsync((signal) => webhooksApi.list(signal), []);
+  const [hookEditing, setHookEditing] = useState<WebhookProvider | null>(null);
+  const [hookUrl, setHookUrl] = useState('');
+  const [hookBusy, setHookBusy] = useState(false);
+  const saveHook = async (provider: WebhookProvider) => {
+    if (hookBusy) return;
+    setHookBusy(true);
+    try {
+      await webhooksApi.save(provider, hookUrl.trim());
+      setHookEditing(null);
+      setHookUrl('');
+      hooks.reload();
+      pushToast(t('hooks.saved'), 'success');
+    } catch (err) {
+      pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
+    } finally {
+      setHookBusy(false);
+    }
+  };
+  const removeHook = async (provider: WebhookProvider) => {
+    if (hookBusy) return;
+    setHookBusy(true);
+    try {
+      await webhooksApi.remove(provider);
+      hooks.reload();
+      pushToast(t('hooks.removed'), 'default');
+    } catch (err) {
+      pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
+    } finally {
+      setHookBusy(false);
+    }
+  };
+  const testHook = async (provider: WebhookProvider) => {
+    if (hookBusy) return;
+    setHookBusy(true);
+    try {
+      const { ok } = await webhooksApi.test(provider);
+      pushToast(ok ? t('hooks.testOk') : t('hooks.testFail'), ok ? 'success' : 'error');
+    } catch (err) {
+      pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
+    } finally {
+      setHookBusy(false);
+    }
+  };
   const [cancelConfirm, setCancelConfirm] = useState(false);
   const [cancelBusy, setCancelBusy] = useState(false);
   const [searchParams, setSearchParams] = useSearchParams();
@@ -542,6 +588,53 @@ export function SettingsPage() {
                     {digest.data?.enabled ? t('mail.digestOff') : t('mail.digestOn')}
                   </Button>
                 </div>
+
+                {/* Slack / Teams: дубли уведомлений в мессенджер команды. */}
+                {(['slack', 'teams'] as const).map((provider) => {
+                  const connected = (hooks.data ?? []).find((w) => w.provider === provider);
+                  return (
+                    <div key={provider} className={styles.integrRow}>
+                      <div className={styles.integrText}>
+                        <span className={styles.integrName}>{provider === 'slack' ? 'Slack' : 'Microsoft Teams'}</span>
+                        <span className={styles.integrStatus}>
+                          {connected ? `${t('hooks.connected')} · ${connected.maskedUrl}` : t('hooks.sub')}
+                        </span>
+                        {hookEditing === provider ? (
+                          <span style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                            <span style={{ flex: 1, minWidth: 220 }}>
+                              <TextField
+                                aria-label={t('hooks.urlLabel')}
+                                placeholder={provider === 'slack' ? 'https://hooks.slack.com/services/…' : 'https://….webhook.office.com/…'}
+                                value={hookUrl}
+                                onChange={(e) => setHookUrl(e.target.value)}
+                              />
+                            </span>
+                            <Button size="sm" variant="primary" disabled={hookBusy || hookUrl.trim().length < 20} onClick={() => void saveHook(provider)}>
+                              {t('common.save')}
+                            </Button>
+                            <Button size="sm" onClick={() => setHookEditing(null)}>
+                              {t('common.cancel')}
+                            </Button>
+                          </span>
+                        ) : null}
+                      </div>
+                      {hookEditing === provider ? null : connected ? (
+                        <span style={{ display: 'inline-flex', gap: 8 }}>
+                          <Button size="sm" disabled={hookBusy} onClick={() => void testHook(provider)}>
+                            {t('hooks.test')}
+                          </Button>
+                          <Button size="sm" variant="secondary" disabled={hookBusy} onClick={() => void removeHook(provider)}>
+                            {t('hooks.disconnect')}
+                          </Button>
+                        </span>
+                      ) : (
+                        <Button size="sm" variant="primary" onClick={() => { setHookEditing(provider); setHookUrl(''); }}>
+                          {t('hooks.connect')}
+                        </Button>
+                      )}
+                    </div>
+                  );
+                })}
 
                 {intake.data?.enabled && intake.data.address ? (
                   <div className={styles.integrRow}>

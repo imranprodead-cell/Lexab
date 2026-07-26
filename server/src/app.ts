@@ -39,6 +39,9 @@ import { userRoutes } from './routes/user.routes.ts';
 import { ttsRoutes } from './routes/tts.routes.ts';
 import { promptRoutes } from './routes/prompts.routes.ts';
 import { lawRoutes } from './routes/law.routes.ts';
+import { onboardingRoutes } from './routes/onboarding.routes.ts';
+import { shareRoutes } from './routes/share.routes.ts';
+import { webhookSettingsRoutes } from './routes/webhooks.routes.ts';
 
 export async function buildApp(db: Db): Promise<FastifyInstance> {
   const app = Fastify({
@@ -191,6 +194,9 @@ export async function buildApp(db: Db): Promise<FastifyInstance> {
       ttsRoutes(api);
       promptRoutes(api);
       lawRoutes(api, db);
+      onboardingRoutes(api, db);
+      shareRoutes(api, db);
+      webhookSettingsRoutes(api, db);
     },
     { prefix: config.apiPrefix },
   );

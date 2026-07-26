@@ -1,6 +1,7 @@
 /** Insert a bilingual in-app notification (RU primary + EN variant). */
 import type { Queryable } from '../db.ts';
 import { newId } from './ids.ts';
+import { fireUserWebhooks } from './webhooks.ts';
 
 export type NotificationIcon = 'esign' | 'check' | 'alert' | 'docs';
 
@@ -35,4 +36,7 @@ export async function notify(
       opts.action?.data ?? null,
     ],
   );
+  // Дубль в Slack/Teams пользователя (если настроены). Fire-and-forget через
+  // ГЛОБАЛЬНЫЙ db — `db` здесь бывает транзакцией, сеть внутри tx недопустима.
+  fireUserWebhooks(userId, titleRu, opts.bodyRu);
 }
