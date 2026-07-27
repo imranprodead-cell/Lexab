@@ -429,7 +429,7 @@ const ANALYSIS_SCHEMA = {
 
 const ANALYSIS_SYSTEM = `You are Lexab, a senior commercial contracts lawyer performing a risk review.
 Work ONLY from the supplied contract — the text between <<< >>> or the attached PDF document. NEVER invent, assume or reconstruct contract content that is not in the supplied material: if the material is unreadable or empty, say so in the summary and return zero findings instead of imagining a typical contract.
-WRITE IN THE CONTRACT'S LANGUAGE: the summary, every finding title, every insText and every document block (heading text and paragraph segments, including delText) must be in the same language as the contract text (Russian contract → Russian output, English contract → English output). The document array quotes the contract VERBATIM — never translate the quoted clauses. Citations always use the official citation format of the governing jurisdiction (e.g. «ст. 260 ГК» for UZ/KZ, "s.14 Sale of Goods Act 1979" for UK) regardless of output language.
+WRITE IN THE CONTRACT'S LANGUAGE: the summary, every finding title, every insText and every document block (heading text and paragraph segments, including delText) must be in the same language as the contract text (Russian contract → Russian output, English contract → English output). The document array quotes the contract VERBATIM — never translate the quoted clauses. Citations always use the official citation format of the governing jurisdiction (e.g. «ст. 260 ГК» for UZ/KZ, "s.14 Sale of Goods Act 1979" for UK) regardless of output language — for Uzbek/Kazakh contracts this means the RUSSIAN citation form («ст. 260 ГК», «ст. 14 Закона «О защите прав потребителей»»), NOT «260-модда»/«260-бап»: the statute corpus is indexed by the Russian official forms.
 Identify the clauses with the most material legal exposure under the contract's governing jurisdiction. Cite real statutes and case law.
 CITATION CONSISTENCY: the citation text and the unitId MUST refer to the SAME provision — never cite one section (e.g. "s.11") while pointing unitId at a different section's id. If none of the LEGAL CONTEXT provisions is the provision your citation names, set unitId to "" rather than picking a near-miss.
 Produce tracked redlines: quote the exact problematic wording as delText, and provide precise replacement wording as insText.
@@ -962,7 +962,7 @@ const COMPARE_SCHEMA = {
   additionalProperties: false,
   required: ['summary', 'changes'],
   properties: {
-    summary: { type: 'string', description: '2–3 sentences: what changed between the versions and how the risk shifted.' },
+    summary: { type: 'string', description: "2–3 sentences: what changed between the versions and how the risk shifted, in the contract's language." },
     changes: {
       type: 'array',
       items: {
@@ -970,7 +970,7 @@ const COMPARE_SCHEMA = {
         additionalProperties: false,
         required: ['heading', 'kind', 'before', 'after', 'severity', 'comment'],
         properties: {
-          heading: { type: 'string', description: 'Clause heading, e.g. "5. Termination".' },
+          heading: { type: 'string', description: "Clause heading as written in the contract (contract's language), e.g. \"5. Termination\"." },
           kind: { type: 'string', enum: ['added', 'removed', 'modified'] },
           before: { type: 'string', description: 'Clause text in version A ("" when added).' },
           after: { type: 'string', description: 'Clause text in version B ("" when removed).' },
@@ -983,7 +983,7 @@ const COMPARE_SCHEMA = {
 } as const;
 
 const COMPARE_SYSTEM =
-  'You are Lexab, a senior contracts lawyer comparing two versions of the same contract. Identify every clause that was added, removed, or materially modified. Quote the clause text (trim to the relevant part, ≤ 60 words each side). Assess how each change shifts legal risk. Report 3–10 changes, most material first.';
+  "You are Lexab, a senior contracts lawyer comparing two versions of the same contract. Identify every clause that was added, removed, or materially modified. Quote the clause text (trim to the relevant part, ≤ 60 words each side). Assess how each change shifts legal risk. Report 3–10 changes, most material first. WRITE IN THE CONTRACT'S LANGUAGE: the summary, headings and comments must be in the same language as the contract texts (Russian contract → Russian output, English contract → English output); quoted clause text stays verbatim.";
 
 export async function generateCompare(
   textA: string,
@@ -1008,6 +1008,9 @@ export async function generateCompare(
           system: COMPARE_SYSTEM,
           schema: COMPARE_SCHEMA as unknown as Record<string, unknown>,
           messages: [{ role: 'user', content: userContent }],
+          // Как в анализе: v4-pro рассуждает в счёт max_tokens — длинный
+          // русский JSON обрывается на полуслове. Весь бюджет — в ответ.
+          thinkingDisabled: true,
         });
         const parsed = extractJsonObject(raw) as CompareResult;
         if (typeof parsed.summary !== 'string' || !Array.isArray(parsed.changes)) {
@@ -1101,6 +1104,9 @@ Contract brief from the user (what the deal is about + key terms — reflect ALL
           system: TEMPLATE_SYSTEM,
           messages: [{ role: 'user', content: userContent }],
           failOnLength: true, // обрезанный посреди клаузы договор → ретрай на Anthropic
+          // Размышления v4-pro горят в счёт max_tokens — на длинных русских
+          // шаблонах это гарантированный failOnLength. Весь бюджет — в текст.
+          thinkingDisabled: true,
         });
         return raw.trim();
       }
@@ -1217,6 +1223,9 @@ export async function generateContractDraft(
           schema: DRAFT_SCHEMA as unknown as Record<string, unknown>,
           messages: [{ role: 'user', content: userContent }],
           failOnLength: true, // обрезанный JSON-драфт → ретрай на Anthropic
+          // Размышления v4-pro горят в счёт max_tokens — длинный русский JSON
+          // упирался бы в failOnLength. Весь бюджет — в сам драфт.
+          thinkingDisabled: true,
         });
         const draft = normalizeDraft(extractJsonObject(raw));
         if (!draft.document.length) throw new Error('draft had no usable blocks');
