@@ -12,7 +12,7 @@
  */
 import type { Db } from '../db.ts';
 import { config } from '../config.ts';
-import { escapeMailHtml, mailLayout, sendMail } from '../mail.ts';
+import { biBody, biLine, biSubject, escapeMailHtml, mailLayout, sendMail } from '../mail.ts';
 import { monthlyUsage, PLAN_LIMITS, planFor } from './limits.ts';
 
 /** Собрать по агрегату «uid → count» одним запросом (без N+1 по пользователям). */
@@ -64,10 +64,21 @@ export async function sendWeeklyDigests(db: Db, opts: { force?: boolean } = {}):
     const nExp = expiring.get(u.id) ?? 0;
     if (nAppr === 0 && nSign === 0 && nExp === 0) continue;
 
+    // Русский и английский блоки строятся из ОДНИХ и тех же цифр.
     const items: string[] = [];
-    if (nAppr > 0) items.push(`<li>Ждут согласования: <strong>${nAppr}</strong></li>`);
-    if (nSign > 0) items.push(`<li>Не подписано контрагентами: <strong>${nSign}</strong></li>`);
-    if (nExp > 0) items.push(`<li>Договоры истекают в ближайшие 30 дней: <strong>${nExp}</strong></li>`);
+    const itemsEn: string[] = [];
+    if (nAppr > 0) {
+      items.push(`<li>Ждут согласования: <strong>${nAppr}</strong></li>`);
+      itemsEn.push(`<li>Awaiting approval: <strong>${nAppr}</strong></li>`);
+    }
+    if (nSign > 0) {
+      items.push(`<li>Не подписано контрагентами: <strong>${nSign}</strong></li>`);
+      itemsEn.push(`<li>Not signed by counterparties: <strong>${nSign}</strong></li>`);
+    }
+    if (nExp > 0) {
+      items.push(`<li>Договоры истекают в ближайшие 30 дней: <strong>${nExp}</strong></li>`);
+      itemsEn.push(`<li>Contracts expiring in the next 30 days: <strong>${nExp}</strong></li>`);
+    }
 
     // Строка про лимит — только когда план вообще ограничен.
     try {
@@ -76,6 +87,7 @@ export async function sendWeeklyDigests(db: Db, opts: { force?: boolean } = {}):
       if (limit !== null) {
         const usage = await monthlyUsage(db, u.id);
         items.push(`<li>ИИ-анализы в этом месяце: <strong>${usage.aiRequests} из ${limit}</strong></li>`);
+        itemsEn.push(`<li>AI analyses this month: <strong>${usage.aiRequests} of ${limit}</strong></li>`);
       }
     } catch {
       /* сводка важнее строки про лимит */
@@ -83,14 +95,20 @@ export async function sendWeeklyDigests(db: Db, opts: { force?: boolean } = {}):
 
     void sendMail({
       to: u.email,
-      subject: 'Lexab: ваша сводка недели',
+      subject: biSubject('Lexab: ваша сводка недели', 'Lexab: your weekly digest'),
       html: mailLayout(
-        'Сводка недели',
-        `<p>Здравствуйте, <strong>${escapeMailHtml(u.name)}</strong>!</p>
+        biLine('Сводка недели', 'Weekly digest'),
+        biBody(
+          `<p>Здравствуйте, <strong>${escapeMailHtml(u.name)}</strong>!</p>
          <p>Вот что накопилось к понедельнику:</p>
          <ul>${items.join('')}</ul>
          <p style="color:#8a8f98;font-size:13px">Отключить сводку можно в Настройках → Профиль.</p>`,
-        'Открыть Lexab',
+          `<p>Hello <strong>${escapeMailHtml(u.name)}</strong>,</p>
+         <p>Here is what has piled up by Monday:</p>
+         <ul>${itemsEn.join('')}</ul>
+         <p style="color:#8a8f98;font-size:13px">You can turn the digest off in Settings → Profile.</p>`,
+        ),
+        biLine('Открыть Lexab', 'Open Lexab'),
         `${config.appBaseUrl}/chat`,
       ),
     });

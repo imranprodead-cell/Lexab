@@ -3,7 +3,7 @@ import crypto from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import { config } from '../config.ts';
 import type { Db } from '../db.ts';
-import { escapeMailHtml, mailLayout, sendMail } from '../mail.ts';
+import { biBody, biLine, biSubject, escapeMailHtml, mailLayout, sendMail } from '../mail.ts';
 import { badRequest, notFound } from '../lib/errors.ts';
 import { audit } from '../lib/audit.ts';
 import { encText } from '../lib/docCrypto.ts';
@@ -140,8 +140,8 @@ export function signatureRoutes(app: FastifyInstance, db: Db): void {
       const fileBuffer = await readFileBytes(up.rows[0].storage, up.rows[0].storage_key);
       const sent = await sendSignatureRequest({
         title: documentName,
-        subject: `Подпишите документ: ${documentName}`,
-        message: `${req.currentUser.name} (${req.currentUser.firm}) отправляет вам документ на подпись.`,
+        subject: biSubject('Подпишите документ', 'Please sign the document', documentName),
+        message: `${req.currentUser.name} (${req.currentUser.firm}) отправляет вам документ на подпись. / ${req.currentUser.name} (${req.currentUser.firm}) is sending you a document to sign.`,
         signers: recipients.map((r) => ({ name: r.name, email: r.email })),
         file: { name: documentName, buffer: fileBuffer, contentType: up.rows[0].mime ?? 'application/pdf' },
       });
@@ -202,12 +202,16 @@ export function signatureRoutes(app: FastifyInstance, db: Db): void {
       const signUrl = `${config.appBaseUrl}/sign/${r.token}`;
       void sendMail({
         to: r.email,
-        subject: `Подпишите документ: ${documentName}`,
+        subject: biSubject('Подпишите документ', 'Please sign the document', documentName),
         html: mailLayout(
-          'Вас просят подписать документ',
-          `<p><strong>${escapeMailHtml(req.currentUser.name)}</strong> (${escapeMailHtml(req.currentUser.firm)}) отправляет вам на подпись документ <strong>${escapeMailHtml(documentName)}</strong>.</p>
-           <p>Откройте ссылку, просмотрите документ и подпишите — регистрация не нужна.</p>`,
-          'Открыть и подписать',
+          biLine('Вас просят подписать документ', 'You are asked to sign a document'),
+          biBody(
+            `<p><strong>${escapeMailHtml(req.currentUser.name)}</strong> (${escapeMailHtml(req.currentUser.firm)}) отправляет вам на подпись документ <strong>${escapeMailHtml(documentName)}</strong>.</p>
+             <p>Откройте ссылку, просмотрите документ и подпишите — регистрация не нужна.</p>`,
+            `<p><strong>${escapeMailHtml(req.currentUser.name)}</strong> (${escapeMailHtml(req.currentUser.firm)}) is sending you the document <strong>${escapeMailHtml(documentName)}</strong> for signature.</p>
+             <p>Open the link, review the document and sign — no account needed.</p>`,
+          ),
+          biLine('Открыть и подписать', 'Open & sign'),
           signUrl,
         ),
       });
@@ -379,12 +383,16 @@ export async function checkSignatureReminders(db: Db): Promise<void> {
     await db.query('UPDATE signature_recipients SET reminded = true WHERE request_id = $1 AND ord = $2', [s.request_id, s.ord]);
     void sendMail({
       to: s.email,
-      subject: `Напоминание: документ ждёт вашей подписи — ${s.document_name}`,
+      subject: biSubject('Напоминание: документ ждёт вашей подписи', 'Reminder: a document is awaiting your signature', s.document_name),
       html: mailLayout(
-        'Документ ждёт подписи',
-        `<p>Здравствуйте, <strong>${escapeMailHtml(s.name)}</strong>!</p>
-         <p><strong>${escapeMailHtml(s.owner_name)}</strong> (${escapeMailHtml(s.owner_firm)}) несколько дней назад отправил(а) вам на подпись документ <strong>${escapeMailHtml(s.document_name)}</strong> — он всё ещё ждёт вашего решения.</p>`,
-        'Открыть и подписать',
+        biLine('Документ ждёт подписи', 'A document is awaiting your signature'),
+        biBody(
+          `<p>Здравствуйте, <strong>${escapeMailHtml(s.name)}</strong>!</p>
+           <p><strong>${escapeMailHtml(s.owner_name)}</strong> (${escapeMailHtml(s.owner_firm)}) несколько дней назад отправил(а) вам на подпись документ <strong>${escapeMailHtml(s.document_name)}</strong> — он всё ещё ждёт вашего решения.</p>`,
+          `<p>Hello <strong>${escapeMailHtml(s.name)}</strong>,</p>
+           <p><strong>${escapeMailHtml(s.owner_name)}</strong> (${escapeMailHtml(s.owner_firm)}) sent you the document <strong>${escapeMailHtml(s.document_name)}</strong> for signature a few days ago — it is still waiting for you.</p>`,
+        ),
+        biLine('Открыть и подписать', 'Open & sign'),
         `${config.appBaseUrl}/sign/${s.token}`,
       ),
     });

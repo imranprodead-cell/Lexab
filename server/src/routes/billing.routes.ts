@@ -11,7 +11,7 @@ import { notify } from '../lib/notify.ts';
 import { asObject, requireString } from '../lib/validate.ts';
 import { monthlyUsage, PLAN_LIMITS, planFor, storageUsedBytes } from '../lib/limits.ts';
 import { config } from '../config.ts';
-import { escapeMailHtml, mailLayout, sendMail } from '../mail.ts';
+import { biBody, biLine, biSubject, escapeMailHtml, mailLayout, sendMail } from '../mail.ts';
 import { getUserByEmail } from '../plugins/auth.ts';
 import {
   activatePlan,
@@ -150,13 +150,18 @@ export function billingRoutes(app: FastifyInstance, db: Db): void {
     // Durable-medium confirmation restating the waiver + no-refund rule.
     void sendMail({
       to: req.currentUser.email,
-      subject: `Lexab: подписка ${normalized} активирована`,
+      subject: biSubject(`Lexab: подписка ${normalized} активирована`, `Lexab: your ${normalized} plan is active`),
       html: mailLayout(
-        'Подписка активирована',
-        `<p>Здравствуйте, <strong>${escapeMailHtml(req.currentUser.name)}</strong>!</p>
+        biLine('Подписка активирована', 'Plan activated'),
+        biBody(
+          `<p>Здравствуйте, <strong>${escapeMailHtml(req.currentUser.name)}</strong>!</p>
          <p>Тариф <strong>${escapeMailHtml(normalized)}</strong> (${period === 'yearly' ? 'годовой' : 'месячный'}) активирован.</p>
          <p>Вы подтвердили немедленное начало услуги и отказались от 14-дневного права возврата. Оплата за начатый период не возвращается; при отмене доступ сохраняется до конца оплаченного срока. Ваши законные права потребителя это не затрагивает.</p>`,
-        'Управление подпиской',
+          `<p>Hello <strong>${escapeMailHtml(req.currentUser.name)}</strong>,</p>
+         <p>Your <strong>${escapeMailHtml(normalized)}</strong> plan (${period === 'yearly' ? 'yearly' : 'monthly'}) is now active.</p>
+         <p>You confirmed that the service starts immediately and waived the 14-day right of withdrawal. Payment for a started period is non-refundable; if you cancel, access remains until the end of the paid term. Your statutory consumer rights are not affected.</p>`,
+        ),
+        biLine('Управление подпиской', 'Manage subscription'),
         `${config.appBaseUrl}/settings`,
       ),
     });

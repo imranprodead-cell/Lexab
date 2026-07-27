@@ -18,7 +18,7 @@ import { assertFeature, planFor, planHasFeature } from '../lib/limits.ts';
 import { notify } from '../lib/notify.ts';
 import { canEdit, resolveDocumentAccess } from '../lib/teamAccess.ts';
 import { asObject } from '../lib/validate.ts';
-import { escapeMailHtml, mailLayout, sendMail } from '../mail.ts';
+import { biBody, biLine, biSubject, escapeMailHtml, mailLayout, sendMail } from '../mail.ts';
 
 interface ContractTermsWire {
   effectiveDate: string | null;
@@ -254,12 +254,16 @@ export async function checkContractDeadlines(db: Db): Promise<void> {
     });
     void sendMail({
       to: row.owner_email,
-      subject: `Срок договора истекает ${when} — ${row.name}`,
+      subject: biSubject(`Срок договора истекает ${when}`, `Contract expires on ${when}`, row.name),
       html: mailLayout(
-        'Срок договора подходит к концу',
-        `<p>Здравствуйте, <strong>${escapeMailHtml(row.owner_name)}</strong>!</p>
+        biLine('Срок договора подходит к концу', 'The contract term is ending'),
+        biBody(
+          `<p>Здравствуйте, <strong>${escapeMailHtml(row.owner_name)}</strong>!</p>
          <p>Договор <strong>${escapeMailHtml(row.name)}</strong> действует до <strong>${when}</strong> — осталось ${daysLeft} дн. Проверьте, нужно ли продление или перезаключение.</p>`,
-        'Открыть контракты',
+          `<p>Hello <strong>${escapeMailHtml(row.owner_name)}</strong>,</p>
+         <p>The contract <strong>${escapeMailHtml(row.name)}</strong> is in force until <strong>${when}</strong> — ${daysLeft} day(s) left. Check whether it needs to be renewed or renegotiated.</p>`,
+        ),
+        biLine('Открыть контракты', 'Open contracts'),
         `${config.appBaseUrl}/contracts`,
       ),
     });
@@ -302,12 +306,16 @@ export async function checkContractDeadlines(db: Db): Promise<void> {
     });
     void sendMail({
       to: row.owner_email,
-      subject: `Автопродление договора — уведомить до ${when}: ${row.name}`,
+      subject: biSubject(`Автопродление договора — уведомить до ${when}`, `Contract auto-renewal — give notice by ${when}`, row.name),
       html: mailLayout(
-        'Приближается срок уведомления о непродлении',
-        `<p>Здравствуйте, <strong>${escapeMailHtml(row.owner_name)}</strong>!</p>
+        biLine('Приближается срок уведомления о непродлении', 'The non-renewal notice deadline is approaching'),
+        biBody(
+          `<p>Здравствуйте, <strong>${escapeMailHtml(row.owner_name)}</strong>!</p>
          <p>Договор <strong>${escapeMailHtml(row.name)}</strong> продлевается автоматически. Если продление не нужно, направьте уведомление до <strong>${when}</strong> (осталось ${daysLeft} дн.).</p>`,
-        'Открыть контракты',
+          `<p>Hello <strong>${escapeMailHtml(row.owner_name)}</strong>,</p>
+         <p>The contract <strong>${escapeMailHtml(row.name)}</strong> renews automatically. If you do not want it renewed, send the non-renewal notice by <strong>${when}</strong> (${daysLeft} day(s) left).</p>`,
+        ),
+        biLine('Открыть контракты', 'Open contracts'),
         `${config.appBaseUrl}/contracts`,
       ),
     });

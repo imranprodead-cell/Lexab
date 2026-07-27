@@ -13,7 +13,7 @@ import { hashPassword, verifyPassword } from '../lib/passwords.ts';
 import { isPasswordBreached } from '../lib/hibp.ts';
 import { consumeBackupCode, recordSession, verifyUserTotp } from './security.routes.ts';
 import { asObject, requireEmail, requireString } from '../lib/validate.ts';
-import { escapeMailHtml, mailLayout, sendMail } from '../mail.ts';
+import { biBody, biLine, biSubject, escapeMailHtml, mailLayout, sendMail } from '../mail.ts';
 import { notify } from '../lib/notify.ts';
 import { recordBillingEvent, TERMS_VERSION } from '../lib/billing.ts';
 import { audit, countRecent } from '../lib/audit.ts';
@@ -63,12 +63,16 @@ export async function sendVerificationMail(db: Db, userId: string, email: string
   const url = `${config.appBaseUrl}/verify-email?token=${token}`;
   void sendMail({
     to: email,
-    subject: 'Подтвердите почту в Lexab',
+    subject: biSubject('Подтвердите почту в Lexab', 'Confirm your email for Lexab'),
     html: mailLayout(
-      'Подтвердите вашу почту',
-      `<p>Здравствуйте, <strong>${escapeMailHtml(name)}</strong>!</p>
+      biLine('Подтвердите вашу почту', 'Confirm your email'),
+      biBody(
+        `<p>Здравствуйте, <strong>${escapeMailHtml(name)}</strong>!</p>
        <p>Нажмите кнопку, чтобы подтвердить адрес <strong>${escapeMailHtml(email)}</strong> и открыть все возможности Lexab — включая приглашения в команды. Ссылка действует <strong>24 часа</strong>.</p>`,
-      'Подтвердить почту',
+        `<p>Hello <strong>${escapeMailHtml(name)}</strong>,</p>
+       <p>Click the button to confirm the address <strong>${escapeMailHtml(email)}</strong> and unlock everything Lexab offers — including team invitations. The link is valid for <strong>24 hours</strong>.</p>`,
+      ),
+      biLine('Подтвердить почту', 'Confirm email'),
       url,
     ),
   });
@@ -94,16 +98,24 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
       await hashPassword(password);
       void sendMail({
         to: existing.email,
-        subject: 'Попытка регистрации в Lexab',
+        subject: biSubject('Попытка регистрации в Lexab', 'Sign-up attempt on Lexab'),
         html: mailLayout(
-          'У вас уже есть аккаунт Lexab',
-          `<p>Кто-то попытался зарегистрироваться с вашим адресом <strong>${escapeMailHtml(existing.email)}</strong>.</p>
+          biLine('У вас уже есть аккаунт Lexab', 'You already have a Lexab account'),
+          biBody(
+            `<p>Кто-то попытался зарегистрироваться с вашим адресом <strong>${escapeMailHtml(existing.email)}</strong>.</p>
            <p>${
              existing.google_sub
                ? 'Ваш аккаунт привязан ко входу через Google — используйте кнопку «Продолжить с Google».'
                : 'Если это были вы — просто войдите. Забыли пароль? Воспользуйтесь восстановлением пароля.'
            }</p>`,
-          'Войти в Lexab',
+            `<p>Someone tried to sign up with your address <strong>${escapeMailHtml(existing.email)}</strong>.</p>
+           <p>${
+             existing.google_sub
+               ? 'Your account is linked to Google sign-in — use the “Continue with Google” button.'
+               : 'If this was you — just log in. Forgot your password? Use password recovery.'
+           }</p>`,
+          ),
+          biLine('Войти в Lexab', 'Log in to Lexab'),
           `${config.appBaseUrl}/login`,
         ),
       });
@@ -222,11 +234,14 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
             });
             void sendMail({
               to: target.email,
-              subject: 'Lexab: подозрительная активность входа',
+              subject: biSubject('Lexab: подозрительная активность входа', 'Lexab: suspicious login activity'),
               html: mailLayout(
-                'Замечены подозрительные попытки входа',
-                `<p>За последние 5 минут в ваш аккаунт было <strong>${recent}</strong> неудачных попыток входа. Если это были не вы — смените пароль.</p>`,
-                'Сменить пароль',
+                biLine('Замечены подозрительные попытки входа', 'Suspicious login attempts detected'),
+                biBody(
+                  `<p>За последние 5 минут в ваш аккаунт было <strong>${recent}</strong> неудачных попыток входа. Если это были не вы — смените пароль.</p>`,
+                  `<p>There have been <strong>${recent}</strong> failed attempts to log in to your account in the last 5 minutes. If this wasn't you — change your password.</p>`,
+                ),
+                biLine('Сменить пароль', 'Change password'),
                 `${config.appBaseUrl}/settings`,
               ),
             });
@@ -355,13 +370,18 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
       const url = `${config.appBaseUrl}/reset-password?token=${token}`;
       void sendMail({
         to: user.email,
-        subject: 'Сброс пароля Lexab',
+        subject: biSubject('Сброс пароля Lexab', 'Lexab password reset'),
         html: mailLayout(
-          'Сброс пароля',
-          `<p>Здравствуйте, <strong>${escapeMailHtml(user.name)}</strong>!</p>
+          biLine('Сброс пароля', 'Password reset'),
+          biBody(
+            `<p>Здравствуйте, <strong>${escapeMailHtml(user.name)}</strong>!</p>
            <p>Вы (или кто-то другой) запросили сброс пароля для этого аккаунта. Ссылка действует <strong>1 час</strong>.</p>
            <p>Если это были не вы — просто проигнорируйте письмо, пароль не изменится.</p>`,
-          'Задать новый пароль',
+            `<p>Hello <strong>${escapeMailHtml(user.name)}</strong>,</p>
+           <p>You (or someone else) requested a password reset for this account. The link is valid for <strong>1 hour</strong>.</p>
+           <p>If this wasn't you — simply ignore this email; your password will not change.</p>`,
+          ),
+          biLine('Задать новый пароль', 'Set a new password'),
           url,
         ),
       });

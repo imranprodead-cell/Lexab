@@ -21,7 +21,7 @@ import { newId } from '../lib/ids.ts';
 import { assertFeature } from '../lib/limits.ts';
 import { notify } from '../lib/notify.ts';
 import { asObject, optionalString, requireEmail, requireString } from '../lib/validate.ts';
-import { escapeMailHtml, mailLayout, sendMail } from '../mail.ts';
+import { biBody, biLine, biSubject, escapeMailHtml, mailLayout, sendMail } from '../mail.ts';
 import { getUserByEmail } from '../plugins/auth.ts';
 import { audit } from '../lib/audit.ts';
 import type { Member } from '../types.ts';
@@ -255,12 +255,19 @@ export function teamRoutes(app: FastifyInstance, db: Db): void {
     const safeFirm = escapeMailHtml(req.currentUser.firm);
     void sendMail({
       to: email,
-      subject: `${req.currentUser.name} приглашает вас в команду Lexab`,
+      subject: biSubject(
+        `${req.currentUser.name} приглашает вас в команду Lexab`,
+        `${req.currentUser.name} invites you to their Lexab team`,
+      ),
       html: mailLayout(
-        'Приглашение в команду Lexab',
-        `<p><strong>${safeName}</strong> (${safeFirm}) приглашает вас в свою команду в Lexab${title ? ` — должность «<strong>${escapeMailHtml(title)}</strong>»` : ''}.</p>
+        biLine('Приглашение в команду Lexab', 'Invitation to a Lexab team'),
+        biBody(
+          `<p><strong>${safeName}</strong> (${safeFirm}) приглашает вас в свою команду в Lexab${title ? ` — должность «<strong>${escapeMailHtml(title)}</strong>»` : ''}.</p>
          <p>Откройте ссылку и войдите (или зарегистрируйтесь) с почтой <strong>${escapeMailHtml(email)}</strong> — приглашение будет ждать вас в разделе «Команда».</p>`,
-        'Принять приглашение',
+          `<p><strong>${safeName}</strong> (${safeFirm}) invites you to join their team on Lexab${title ? ` — as “<strong>${escapeMailHtml(title)}</strong>”` : ''}.</p>
+         <p>Open the link and log in (or sign up) with the email <strong>${escapeMailHtml(email)}</strong> — the invitation will be waiting for you in the “Team” section.</p>`,
+        ),
+        biLine('Принять приглашение', 'Accept the invitation'),
         inviteUrl,
       ),
     });

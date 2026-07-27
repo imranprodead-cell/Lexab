@@ -28,6 +28,30 @@ export function escapeMailHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+/**
+ * Двуязычные письма: у получателя нет настройки языка (внешние подписанты,
+ * согласанты, свежие регистрации), поэтому КАЖДОЕ письмо несёт русский блок
+ * и английский дубль — чисто русское письмо в Лондоне или Берлине выглядит
+ * фишингом и умирает во «входящих», не дойдя до локализованных страниц.
+ */
+
+/** Тема письма «RU / EN» (+ опциональный хвост, общий для обоих языков). */
+export function biSubject(ru: string, en: string, tail?: string): string {
+  return `${ru} / ${en}${tail ? `: ${tail}` : ''}`;
+}
+
+/** Короткая двуязычная строка «RU / EN» (кнопки, заголовки). */
+export function biLine(ru: string, en: string): string {
+  return `${ru} / ${en}`;
+}
+
+/** Тело письма: русские абзацы, тонкий разделитель, английский дубль. */
+export function biBody(ruHtml: string, enHtml: string): string {
+  return `${ruHtml}
+<div style="border-top:1px solid #eeecf7;margin:18px 0;font-size:0;line-height:0;">&nbsp;</div>
+<div lang="en">${enHtml}</div>`;
+}
+
 /** Mask an address for logs — keep just enough to debug without recording PII
  *  (recipient addresses) verbatim in log streams that outlive the request. */
 function maskEmail(addr: string): string {
@@ -59,7 +83,7 @@ export async function sendMail(input: MailInput): Promise<{ sent: boolean }> {
     to = redirect;
     subject = `[для ${input.to}] ${input.subject}`;
     const banner = `<div style="max-width:540px;margin:0 auto 14px;padding:10px 16px;border-radius:12px;background:#fdf6e3;border:1px solid #f0e2b6;font-family:-apple-system,'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;line-height:1.5;color:#8a6d1a;">
-      Тестовый режим (домен ещё не подключён): это письмо предназначалось <strong>${escapeMailHtml(input.to)}</strong>. После подключения домена письма пойдут получателям напрямую.
+      Тестовый режим (домен ещё не подключён): это письмо предназначалось <strong>${escapeMailHtml(input.to)}</strong>. После подключения домена письма пойдут получателям напрямую.<br/>Test mode (domain not connected yet): this email was intended for the address above.
     </div>`;
     html = html.replace(/<body[^>]*>/, (m) => `${m}\n<div style="padding-top:24px;">${banner}</div>`);
   }
@@ -105,7 +129,7 @@ export function mailLayout(title: string, bodyHtml: string, ctaLabel?: string, c
       ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:26px 0 4px;"><tr><td style="border-radius:12px;background:linear-gradient(135deg,#8b7cf6,#6a5ae0);box-shadow:0 6px 16px rgba(107,90,224,0.25);">
            <a href="${ctaUrl}" style="display:inline-block;padding:13px 28px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:12px;">${ctaLabel}</a>
          </td></tr></table>
-         <p style="font-size:12px;line-height:1.5;color:#9a9aa6;margin:12px 0 0;word-break:break-all;">Если кнопка не работает, откройте ссылку: <a href="${ctaUrl}" style="color:#8b7cf6;text-decoration:none;">${ctaUrl}</a></p>`
+         <p style="font-size:12px;line-height:1.5;color:#9a9aa6;margin:12px 0 0;word-break:break-all;">Если кнопка не работает, откройте ссылку / If the button doesn't work, open this link: <a href="${ctaUrl}" style="color:#8b7cf6;text-decoration:none;">${ctaUrl}</a></p>`
       : '';
   return `<!doctype html>
 <html lang="ru">
@@ -130,8 +154,8 @@ export function mailLayout(title: string, bodyHtml: string, ctaLabel?: string, c
 
       <div style="border-top:1px solid #e6e3f2;margin:28px 10px 0;font-size:0;line-height:0;">&nbsp;</div>
       <p style="text-align:center;font-size:12px;line-height:1.8;color:#9b95b3;margin:14px 0 0;">
-        Lexab — интеллектуальный анализ контрактов<br/>
-        <a href="https://lexai.app/terms" style="color:#8b7cf6;text-decoration:none;">Условия использования</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://lexai.app/privacy" style="color:#8b7cf6;text-decoration:none;">Конфиденциальность</a><br/>
+        Lexab — интеллектуальный анализ контрактов · AI contract intelligence<br/>
+        <a href="https://lexai.app/terms" style="color:#8b7cf6;text-decoration:none;">Условия / Terms</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://lexai.app/privacy" style="color:#8b7cf6;text-decoration:none;">Конфиденциальность / Privacy</a><br/>
         © 2026 Lexab
       </p>
     </div>

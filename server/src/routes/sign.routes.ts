@@ -11,7 +11,7 @@ import { audit } from '../lib/audit.ts';
 import { decJsonFromJsonb, decText, decTextStrict } from '../lib/docCrypto.ts';
 import { toIso } from '../lib/format.ts';
 import { notify } from '../lib/notify.ts';
-import { escapeMailHtml, mailLayout, sendMail } from '../mail.ts';
+import { biBody, biLine, biSubject, escapeMailHtml, mailLayout, sendMail } from '../mail.ts';
 import { asObject, requireString } from '../lib/validate.ts';
 import { getUserByEmail } from '../plugins/auth.ts';
 import { buildSimplePdf } from '../lib/pdf.ts';
@@ -251,12 +251,16 @@ export function signRoutes(app: FastifyInstance, db: Db): void {
         // Email the owner that the document is fully signed.
         void sendMail({
           to: row.owner_email,
-          subject: `Документ подписан: ${row.document_name}`,
+          subject: biSubject('Документ подписан', 'Document signed', row.document_name),
           html: mailLayout(
-            'Все подписи получены',
-            `<p>Документ <strong>${escapeMailHtml(row.document_name)}</strong> подписан всеми получателями.</p>
-             <p>Последняя подпись: <strong>${escapeMailHtml(name)}</strong>. Статус запроса в Lexab — «Completed».</p>`,
-            'Открыть раздел «Подписи»',
+            biLine('Все подписи получены', 'All signatures collected'),
+            biBody(
+              `<p>Документ <strong>${escapeMailHtml(row.document_name)}</strong> подписан всеми получателями.</p>
+               <p>Последняя подпись: <strong>${escapeMailHtml(name)}</strong>. Статус запроса в Lexab — «Completed».</p>`,
+              `<p>The document <strong>${escapeMailHtml(row.document_name)}</strong> has been signed by all recipients.</p>
+               <p>Last signature: <strong>${escapeMailHtml(name)}</strong>. The request status in Lexab is “Completed”.</p>`,
+            ),
+            biLine('Открыть раздел «Подписи»', 'Open Signatures'),
             `${config.appBaseUrl}/signatures`,
           ),
         });
@@ -276,11 +280,15 @@ export function signRoutes(app: FastifyInstance, db: Db): void {
       : '';
     void sendMail({
       to: row.email,
-      subject: `Ваша подпись зафиксирована: ${row.document_name}`,
+      subject: biSubject('Ваша подпись зафиксирована', 'Your signature is recorded', row.document_name),
       html: mailLayout(
-        'Вы подписали документ',
-        `<p>Подтверждаем: <strong>${escapeMailHtml(name)}</strong>, вы подписали документ <strong>${escapeMailHtml(row.document_name)}</strong>, отправленный ${escapeMailHtml(row.owner_name)} (${escapeMailHtml(row.owner_firm)}).</p>
-         <p>Дата и время подписи зафиксированы. Копия текста на момент подписания — ниже.</p>${docHtml}`,
+        biLine('Вы подписали документ', 'You signed the document'),
+        biBody(
+          `<p>Подтверждаем: <strong>${escapeMailHtml(name)}</strong>, вы подписали документ <strong>${escapeMailHtml(row.document_name)}</strong>, отправленный ${escapeMailHtml(row.owner_name)} (${escapeMailHtml(row.owner_firm)}).</p>
+           <p>Дата и время подписи зафиксированы. Копия текста на момент подписания — ниже.</p>`,
+          `<p>This confirms that <strong>${escapeMailHtml(name)}</strong> signed the document <strong>${escapeMailHtml(row.document_name)}</strong> sent by ${escapeMailHtml(row.owner_name)} (${escapeMailHtml(row.owner_firm)}).</p>
+           <p>The date and time of your signature are recorded. A copy of the text as of signing is below.</p>`,
+        ) + docHtml,
       ),
     });
 

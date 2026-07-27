@@ -12,7 +12,7 @@
  */
 import type { Db, Queryable } from '../db.ts';
 import { newId } from './ids.ts';
-import { escapeMailHtml, mailLayout, sendMail } from '../mail.ts';
+import { biBody, biLine, biSubject, escapeMailHtml, mailLayout, sendMail } from '../mail.ts';
 import { config } from '../config.ts';
 
 /** Bump this when the Terms of Service change; every acceptance records it. */
@@ -147,12 +147,16 @@ export async function checkBillingLifecycle(db: Db): Promise<void> {
     await markPastDue(db, row.user_id, row.email, row.plan);
     void sendMail({
       to: row.email,
-      subject: 'Lexab: не удалось продлить подписку',
+      subject: biSubject('Lexab: не удалось продлить подписку', 'Lexab: subscription renewal failed'),
       html: mailLayout(
-        'Продление не прошло',
-        `<p>Здравствуйте, <strong>${escapeMailHtml(row.name)}</strong>!</p>
+        biLine('Продление не прошло', 'Renewal failed'),
+        biBody(
+          `<p>Здравствуйте, <strong>${escapeMailHtml(row.name)}</strong>!</p>
          <p>Мы не смогли продлить ваш тариф <strong>${escapeMailHtml(row.plan)}</strong>. Доступ сохраняется ещё <strong>${GRACE_DAYS} дней</strong> — обновите способ оплаты, чтобы не потерять его.</p>`,
-        'Проверить подписку',
+          `<p>Hello <strong>${escapeMailHtml(row.name)}</strong>,</p>
+         <p>We could not renew your <strong>${escapeMailHtml(row.plan)}</strong> plan. Your access remains for another <strong>${GRACE_DAYS} days</strong> — update your payment method so you do not lose it.</p>`,
+        ),
+        biLine('Проверить подписку', 'Check subscription'),
         `${config.appBaseUrl}/settings`,
       ),
     });
@@ -170,12 +174,16 @@ export async function checkBillingLifecycle(db: Db): Promise<void> {
     await downgradeToFree(db, row.user_id, row.email, 'past_due');
     void sendMail({
       to: row.email,
-      subject: 'Lexab: тариф переведён на Free',
+      subject: biSubject('Lexab: тариф переведён на Free', 'Lexab: your plan was switched to Free'),
       html: mailLayout(
-        'Подписка завершена',
-        `<p>Здравствуйте, <strong>${escapeMailHtml(row.name)}</strong>!</p>
+        biLine('Подписка завершена', 'Subscription ended'),
+        biBody(
+          `<p>Здравствуйте, <strong>${escapeMailHtml(row.name)}</strong>!</p>
          <p>Оплата так и не поступила, поэтому аккаунт переведён на бесплатный тариф. Вы можете оформить подписку снова в любой момент.</p>`,
-        'Выбрать тариф',
+          `<p>Hello <strong>${escapeMailHtml(row.name)}</strong>,</p>
+         <p>The payment never arrived, so your account has been moved to the Free plan. You can subscribe again at any time.</p>`,
+        ),
+        biLine('Выбрать тариф', 'Choose a plan'),
         `${config.appBaseUrl}/plans`,
       ),
     });

@@ -23,7 +23,7 @@ import { assertFeature } from '../lib/limits.ts';
 import { notify } from '../lib/notify.ts';
 import { resolveDocumentAccess } from '../lib/teamAccess.ts';
 import { asObject, requireString } from '../lib/validate.ts';
-import { escapeMailHtml, mailLayout, sendMail } from '../mail.ts';
+import { biBody, biLine, biSubject, escapeMailHtml, mailLayout, sendMail } from '../mail.ts';
 import { getUserByEmail } from '../plugins/auth.ts';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -88,20 +88,27 @@ async function notifyApprover(db: Db, ownerName: string, documentName: string, s
 /** Email the approver whose step just became pending. */
 async function mailApprover(ownerName: string, ownerFirm: string, documentName: string, step: StepRow): Promise<void> {
   const url = `${config.appBaseUrl}/approve/${step.token}`;
-  const due = step.due_at
-    ? `<p>Срок решения: <strong>${new Date(step.due_at as string).toLocaleDateString('ru-RU')}</strong>.</p>`
-    : '';
+  const dueDate = step.due_at ? new Date(step.due_at as string).toLocaleDateString('ru-RU') : null;
+  const due = dueDate ? `<p>Срок решения: <strong>${dueDate}</strong>.</p>` : '';
+  const dueEn = dueDate ? `<p>Decision due by: <strong>${dueDate}</strong>.</p>` : '';
   void sendMail({
     to: step.approver_email,
-    subject: `Требуется ваше согласование: ${documentName}`,
+    subject: biSubject('Требуется ваше согласование', 'Your approval is requested', documentName),
     html: mailLayout(
-      'Документ ждёт вашего решения',
-      `<p>Здравствуйте, <strong>${escapeMailHtml(step.approver_name)}</strong>!</p>
+      biLine('Документ ждёт вашего решения', 'A document is awaiting your decision'),
+      biBody(
+        `<p>Здравствуйте, <strong>${escapeMailHtml(step.approver_name)}</strong>!</p>
        <p><strong>${escapeMailHtml(ownerName)}</strong> (${escapeMailHtml(ownerFirm)}) отправляет вам документ
        <strong>${escapeMailHtml(documentName)}</strong> на согласование. Ваш шаг: <strong>${escapeMailHtml(step.role_label ?? 'согласующий')}</strong>.</p>
        ${due}
        <p>Откройте ссылку, просмотрите документ и примите решение — регистрация не нужна.</p>`,
-      'Открыть и решить',
+        `<p>Hello <strong>${escapeMailHtml(step.approver_name)}</strong>,</p>
+       <p><strong>${escapeMailHtml(ownerName)}</strong> (${escapeMailHtml(ownerFirm)}) is sending you the document
+       <strong>${escapeMailHtml(documentName)}</strong> for approval. Your step: <strong>${escapeMailHtml(step.role_label ?? 'approver')}</strong>.</p>
+       ${dueEn}
+       <p>Open the link, review the document and make your decision — no account needed.</p>`,
+      ),
+      biLine('Открыть и решить', 'Open & decide'),
       url,
     ),
   });
@@ -401,12 +408,16 @@ export function approvalRoutes(app: FastifyInstance, db: Db): void {
       });
       void sendMail({
         to: row.owner_email,
-        subject: `Согласование отклонено: ${row.document_name}`,
+        subject: biSubject('Согласование отклонено', 'Approval rejected', row.document_name),
         html: mailLayout(
-          'Согласование отклонено',
-          `<p>Документ <strong>${escapeMailHtml(row.document_name)}</strong> отклонён. Решение: <strong>${escapeMailHtml(row.approver_name)}</strong> (${escapeMailHtml(row.role_label ?? 'согласующий')}).</p>
+          biLine('Согласование отклонено', 'Approval rejected'),
+          biBody(
+            `<p>Документ <strong>${escapeMailHtml(row.document_name)}</strong> отклонён. Решение: <strong>${escapeMailHtml(row.approver_name)}</strong> (${escapeMailHtml(row.role_label ?? 'согласующий')}).</p>
            ${comment ? `<p>Комментарий: «${escapeMailHtml(comment)}»</p>` : ''}`,
-          'Открыть документ',
+            `<p>The document <strong>${escapeMailHtml(row.document_name)}</strong> was rejected. Decided by: <strong>${escapeMailHtml(row.approver_name)}</strong> (${escapeMailHtml(row.role_label ?? 'approver')}).</p>
+           ${comment ? `<p>Comment: “${escapeMailHtml(comment)}”</p>` : ''}`,
+          ),
+          biLine('Открыть документ', 'Open the document'),
           `${config.appBaseUrl}/documents/${row.document_id}`,
         ),
       });
@@ -437,11 +448,14 @@ export function approvalRoutes(app: FastifyInstance, db: Db): void {
     });
     void sendMail({
       to: row.owner_email,
-      subject: `Согласование завершено: ${row.document_name}`,
+      subject: biSubject('Согласование завершено', 'Approval completed', row.document_name),
       html: mailLayout(
-        'Все шаги согласованы',
-        `<p>Документ <strong>${escapeMailHtml(row.document_name)}</strong> прошёл весь маршрут согласования — последний шаг: <strong>${escapeMailHtml(row.approver_name)}</strong>.</p>`,
-        'Открыть документ',
+        biLine('Все шаги согласованы', 'All steps approved'),
+        biBody(
+          `<p>Документ <strong>${escapeMailHtml(row.document_name)}</strong> прошёл весь маршрут согласования — последний шаг: <strong>${escapeMailHtml(row.approver_name)}</strong>.</p>`,
+          `<p>The document <strong>${escapeMailHtml(row.document_name)}</strong> has passed the entire approval workflow — last step: <strong>${escapeMailHtml(row.approver_name)}</strong>.</p>`,
+        ),
+        biLine('Открыть документ', 'Open the document'),
         `${config.appBaseUrl}/documents/${row.document_id}`,
       ),
     });
@@ -476,12 +490,16 @@ export async function checkApprovalDeadlines(db: Db): Promise<void> {
     await db.query('UPDATE approval_steps SET reminded = true WHERE id = $1', [s.id]);
     void sendMail({
       to: s.approver_email,
-      subject: `Напоминание: согласование просрочено — ${s.document_name}`,
+      subject: biSubject('Напоминание: согласование просрочено', 'Reminder: approval overdue', s.document_name),
       html: mailLayout(
-        'Срок согласования истёк',
-        `<p>Здравствуйте, <strong>${escapeMailHtml(s.approver_name)}</strong>!</p>
+        biLine('Срок согласования истёк', 'The approval deadline has passed'),
+        biBody(
+          `<p>Здравствуйте, <strong>${escapeMailHtml(s.approver_name)}</strong>!</p>
          <p>Документ <strong>${escapeMailHtml(s.document_name)}</strong> от ${escapeMailHtml(s.owner_name)} (${escapeMailHtml(s.owner_firm)}) всё ещё ждёт вашего решения — срок истёк ${new Date(s.due_at as string).toLocaleDateString('ru-RU')}.</p>`,
-        'Открыть и решить',
+          `<p>Hello <strong>${escapeMailHtml(s.approver_name)}</strong>,</p>
+         <p>The document <strong>${escapeMailHtml(s.document_name)}</strong> from ${escapeMailHtml(s.owner_name)} (${escapeMailHtml(s.owner_firm)}) is still awaiting your decision — the deadline passed on ${new Date(s.due_at as string).toLocaleDateString('ru-RU')}.</p>`,
+        ),
+        biLine('Открыть и решить', 'Open & decide'),
         `${config.appBaseUrl}/approve/${s.token}`,
       ),
     });
