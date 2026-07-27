@@ -2401,6 +2401,22 @@ describe('tts (озвучка ответов)', () => {
     assert.equal(stripMarkdownForSpeech('\\*важно\\*'), 'важно');
   });
 
+  it('ensureSentenceBounds: строки получают точки, простыни режутся (Gemini 400 «sentences too long»)', async () => {
+    const { ensureSentenceBounds } = await import('../src/lib/ttsStream.ts');
+    // Строки таблицы/списка без точек — каждая становится предложением.
+    const table = ensureSentenceBounds('Пеня 2% в день без ограничения\nОтветственность полностью исключена\nСрок до 31 декабря 2026 года');
+    assert.equal(table, 'Пеня 2% в день без ограничения.\nОтветственность полностью исключена.\nСрок до 31 декабря 2026 года.');
+    // Уже пунктуированный текст не трогается; «висящие» : и , не получают точку.
+    assert.equal(ensureSentenceBounds('Первое. Второе!\nСтороны:\nодна, вторая,'), 'Первое. Второе!\nСтороны:\nодна, вторая,');
+    // Прогон в 500 символов без точек режется: не остаётся кусков длиннее лимита.
+    const run = ensureSentenceBounds(`${'слово '.repeat(40)}, ${'дело '.repeat(40)}`.trim(), 220);
+    for (const part of run.split(/[.!?]/)) {
+      assert.ok(part.trim().length <= 220, `кусок ≤220: ${part.trim().length}`);
+    }
+    // Короткий текст с точкой — байт в байт без изменений.
+    assert.equal(ensureSentenceBounds('Проверка озвучки.'), 'Проверка озвучки.');
+  });
+
   it('находки финального аудита: нег-кэш только языковых 400, Заглавные сокращения, резчик и стрип', async () => {
     const { isLanguageArgumentError, TtsUpstreamError, normalizeLegalAbbrRu, splitTtsChunks, stripMarkdownForSpeech, hardSplitByBytes } = await import('../src/lib/ttsStream.ts');
     // H1: не-языковой 400 (текст-зависимый) НЕ должен отравлять кэш на сутки

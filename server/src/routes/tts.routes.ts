@@ -22,6 +22,7 @@ import {
   runChunkPipeline,
   splitTtsChunks,
   stripMarkdownForSpeech,
+  ensureSentenceBounds,
   normalizeLegalAbbrRu,
   normalizeDottedNumbersRu,
   isLangNegCached,
@@ -224,7 +225,11 @@ export function ttsRoutes(app: FastifyInstance): void {
       if (!raw) throw new HttpError(400, 'Пустой текст. / Empty text.');
       const lang = detectTtsLanguage(raw);
       // «ст. 1142» → «статья 1142», «6.2» → «6 точка 2»: иначе Gemini угадывает.
-      const text = clipTtsText(lang === 'ru' ? normalizeDottedNumbersRu(normalizeLegalAbbrRu(raw)) : raw, TTS_MAX_TEXT_BYTES);
+      // ensureSentenceBounds — иначе Gemini 400 «sentences too long» на таблицах.
+      const text = clipTtsText(
+        ensureSentenceBounds(lang === 'ru' ? normalizeDottedNumbersRu(normalizeLegalAbbrRu(raw)) : raw),
+        TTS_MAX_TEXT_BYTES,
+      );
       // Обрыв клиента: слушаем reply.raw — req.raw эмитит 'close' уже при
       // дочитывании ТЕЛА запроса и фикс на нём был мёртв (доказано живым
       // сокетом в финальном аудите).
@@ -285,7 +290,11 @@ export function ttsRoutes(app: FastifyInstance): void {
       if (!raw) throw new HttpError(400, 'Пустой текст. / Empty text.');
       const lang = detectTtsLanguage(raw);
       // «ст. 1142» → «статья 1142», «6.2» → «6 точка 2»: иначе Gemini угадывает.
-      const text = clipTtsText(lang === 'ru' ? normalizeDottedNumbersRu(normalizeLegalAbbrRu(raw)) : raw, TTS_MAX_TOTAL_BYTES);
+      // ensureSentenceBounds — иначе Gemini 400 «sentences too long» на таблицах.
+      const text = clipTtsText(
+        ensureSentenceBounds(lang === 'ru' ? normalizeDottedNumbersRu(normalizeLegalAbbrRu(raw)) : raw),
+        TTS_MAX_TOTAL_BYTES,
+      );
       // ВАЖНО (приватность): сам текст в логи НЕ пишем — дисциплина проекта
       // «метаданные без текста договора» (находка финального аудита).
       const userId = req.currentUser.id;

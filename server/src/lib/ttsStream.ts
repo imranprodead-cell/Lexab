@@ -70,6 +70,38 @@ export function isTimeoutError(err: unknown): boolean {
   return err instanceof Error && err.name === 'TimeoutError';
 }
 
+/** Gemini-TTS отклоняет запросы «sentences that are too long» (живой 400:
+ *  строки таблиц/списков после стрипа разметки не кончаются точкой и
+ *  склеиваются в одно бесконечное «предложение» — весь ролик уезжал в
+ *  Chirp-фолбэк). Две меры: (1) строка без завершающей пунктуации получает
+ *  точку (кроме «висящих» на : и , — там точка звучала бы неуместно);
+ *  (2) любой прогон без .!?؟ длиннее maxRun режется точкой по ближайшей
+ *  запятой/пробелу. Прозодия: короткая пауза на месте вставленной точки —
+ *  дешёвая плата за то, что читает Gemini, а не резервный Chirp. */
+export function ensureSentenceBounds(s: string, maxRun = 220): string {
+  const lines = s
+    .split('\n')
+    .map((line) => {
+      const t = line.trimEnd();
+      if (!t) return t;
+      return /[.!?؟:;,…]$/.test(t) ? t : `${t}.`;
+    })
+    .join('\n');
+  return lines.replace(new RegExp(`[^.!?؟\\n]{${maxRun},}`, 'gu'), (run) => {
+    let out = '';
+    let rest = run;
+    while (rest.length > maxRun) {
+      let cut = rest.lastIndexOf(', ', maxRun);
+      if (cut < maxRun * 0.4) cut = rest.lastIndexOf(' ', maxRun);
+      if (cut < maxRun * 0.4) cut = maxRun;
+      if (/[\uD800-\uDBFF]$/.test(rest.slice(0, cut))) cut -= 1; // не рвём эмодзи
+      out += `${rest.slice(0, cut).replace(/[,\s]+$/, '')}. `;
+      rest = rest.slice(cut).replace(/^[,\s]+/, '');
+    }
+    return out + rest;
+  });
+}
+
 /** 400 именно ПРО ЯЗЫК/ГОЛОС (несуществующий languageCode и т.п.) — только
  *  такие можно класть в суточный негативный кэш. Google отдаёт 400 и по
  *  причинам, зависящим от текста запроса; кэшировать их означало бы выключить
