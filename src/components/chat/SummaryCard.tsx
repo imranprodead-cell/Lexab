@@ -78,6 +78,10 @@ export function SummaryCard({ analysis, onOpenWorkspace, onOpenFinding, onAsk, o
                       title: t('ws.jumpToClause'),
                       onClick: () => onOpenFinding(f.redlineId as string),
                       onKeyDown: (e: KeyboardEvent) => {
+                        // Только Enter/Space на САМОЙ карточке: клавиатурная активация
+                        // вложенных кнопок («Текст нормы», ссылка на источник)
+                        // всплывает сюда и не должна открывать рабочую область.
+                        if (e.target !== e.currentTarget) return;
                         if (e.key === 'Enter' || e.key === ' ') {
                           e.preventDefault();
                           onOpenFinding(f.redlineId as string);

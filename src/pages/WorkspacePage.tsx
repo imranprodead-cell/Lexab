@@ -386,6 +386,9 @@ export function WorkspacePage() {
                             title: t('ws.jumpToClause'),
                             onClick: () => setAnchor({ redlineId: f.redlineId as string, nonce: Date.now() }),
                             onKeyDown: (e: KeyboardEvent) => {
+                              // Enter/Space вложенных кнопок (текст нормы, «Обсудить»)
+                              // всплывают сюда — реагируем только на саму карточку.
+                              if (e.target !== e.currentTarget) return;
                               if (e.key === 'Enter' || e.key === ' ') {
                                 e.preventDefault();
                                 setAnchor({ redlineId: f.redlineId as string, nonce: Date.now() });

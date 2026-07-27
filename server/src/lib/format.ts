@@ -58,3 +58,11 @@ export function looksUzbekLatin(s: string): boolean {
   if (looksRussian(s)) return false;
   return /o['ʻ’]|g['ʻ’]/.test(s) || /\b(?:va|yoki|uchun|bilan|shartnoma|tomonlar|xizmat|majburiyat|bo['ʻ’]yicha|qonun)\b/i.test(s);
 }
+
+/** Узбекская КИРИЛЛИЦА: буквы ў/қ/ғ/ҳ в русском алфавите не существуют, а в
+ *  узбекском кириллическом тексте встречаются десятками — 4 и больше на
+ *  выборке означают узбекский текст, не русский. Проверять ДО looksRussian
+ *  (для looksRussian узбекская кириллица неотличима от русской). */
+export function looksUzbekCyrillic(s: string): boolean {
+  return (s.match(/[ўқғҳ]/gi) ?? []).length >= 4;
+}

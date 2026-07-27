@@ -14,7 +14,7 @@ import { badRequest, HttpError, notFound } from '../lib/errors.ts';
 import { assertDocumentAllowance, assertFeature, assertStorageAllowance, bumpUsage, planFor, planHasFeature, releaseAiRequest, reserveAiRequest, reserveDocument, withStorageReservation, withAiRequest } from '../lib/limits.ts';
 import { notify } from '../lib/notify.ts';
 import { assertCanEdit, resolveAnalysisAccess, resolveDocumentAccess } from '../lib/teamAccess.ts';
-import { attachmentDisposition, formatSize, looksRussian, looksUzbekLatin } from '../lib/format.ts';
+import { attachmentDisposition, formatSize, looksRussian, looksUzbekCyrillic, looksUzbekLatin } from '../lib/format.ts';
 import { buildSimplePdf } from '../lib/pdf.ts';
 import { newId } from '../lib/ids.ts';
 import { recalibrateRisk } from '../lib/riskScore.ts';
@@ -896,14 +896,17 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
 
     // Рамка отчёта — на языке КОНТЕНТА анализа (русский разбор → русские
     // подписи), не UI: файл живёт дольше сессии и уходит третьим лицам.
-    // Узбекоязычный контент получает узбекскую рамку (латиница) — отчёт для
-    // контрагентов в Ташкенте не должен выглядеть полурусским.
+    // Узбекоязычный контент получает узбекскую рамку (латиница или кириллица
+    // по письму контента) — отчёт для контрагентов в Ташкенте не должен
+    // выглядеть полурусским. Узбекскую кириллицу проверяем ДО looksRussian.
     const contentSample = `${a.summary} ${a.findings.map((f) => f.title).join(' ')}`;
-    const frameLang: 'ru' | 'uz' | 'en' = looksUzbekLatin(contentSample)
+    const frameLang: 'ru' | 'uz' | 'uzc' | 'en' = looksUzbekLatin(contentSample)
       ? 'uz'
-      : looksRussian(contentSample)
-        ? 'ru'
-        : 'en';
+      : looksUzbekCyrillic(contentSample)
+        ? 'uzc'
+        : looksRussian(contentSample)
+          ? 'ru'
+          : 'en';
     const FRAMES = {
       ru: {
         sev: { High: 'Высокий', Medium: 'Средний', Low: 'Низкий' } as Record<string, string>,
@@ -932,6 +935,20 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
         about: 'Ushbu hisobot haqida',
         aboutText: "Lexab tomonidan shakllantirilgan. Hisobot AI yordamida tayyorlangan va yuridik maslahat hisoblanmaydi.",
         title: 'Lexab — Shartnoma tekshiruvi hisoboti',
+      },
+      uzc: {
+        sev: { High: 'Юқори', Medium: 'Ўрта', Low: 'Паст' } as Record<string, string>,
+        level: { High: 'Юқори', Elevated: 'Кўтарилган', Low: 'Паст' } as Record<string, string>,
+        status: { pending: 'кўриб чиқилмоқда', accepted: 'қабул қилинган', rejected: 'рад этилган' } as Record<string, string>,
+        meta: (f: string, s: string, score: number, level: string, n: number) =>
+          `Файл: ${f} (${s}) · Хавф баҳоси: ${score}/100 (${level}) · Текширилган бандлар: ${n}`,
+        summary: 'Хулоса',
+        findings: (n: number) => `Топилмалар (${n})`,
+        redlines: (n: number) => `Таклиф этилган таҳрирлар (${n})`,
+        replace: (del: string, ins: string, st: string) => `«${del}» ўрнига «${ins}» — ҳолати: ${st}.`,
+        about: 'Ушбу ҳисобот ҳақида',
+        aboutText: 'Lexab томонидан шакллантирилган. Ҳисобот AI ёрдамида тайёрланган ва юридик маслаҳат ҳисобланмайди.',
+        title: 'Lexab — Шартнома текшируви ҳисоботи',
       },
       en: {
         sev: {} as Record<string, string>,
