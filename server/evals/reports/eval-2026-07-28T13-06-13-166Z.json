@@ -1,0 +1,28 @@
+{
+  "at": "2026-07-28T12:57:27.753Z",
+  "model": "deepseek-v4-pro",
+  "golden": "uz-contract-law.jsonl",
+  "questions": 12,
+  "retrieval": {
+    "hit@5": 1,
+    "hit@10": 1,
+    "recall@10": 1
+  },
+  "corpus": {
+    "jurisdiction": "UZ",
+    "documents": 30,
+    "chunks": 4656,
+    "contextCoverage": 1,
+    "embeddingCoverage": 1
+  },
+  "baseline": {
+    "findings": 22,
+    "citationPrecision": 0.455,
+    "unverifiedShare": 0.545
+  },
+  "rag": {
+    "findings": 21,
+    "citationPrecision": 1,
+    "unverifiedShare": 0
+  }
+}
