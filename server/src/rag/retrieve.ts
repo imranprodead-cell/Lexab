@@ -397,8 +397,12 @@ export async function resolveCitationText(
     number = parsed.number;
   }
 
-  // Article numbering in the УЗ ГК is continuous across the two parts, so a
-  // single (title-pattern, number) lookup is unambiguous.
+  // Deterministic pick when a title pattern matches more than one act (real at
+  // scale: broad aliases like «%О залоге%» can hit several documents that both
+  // carry article N). Prefer an exact title match, then the shortest (most
+  // specific) title, then a stable id tiebreak — never an arbitrary LIMIT 1.
+  // With a single matching act (the ГК's two continuously-numbered parts still
+  // resolve by u.number) the ORDER BY is a no-op, so retrieval is unchanged.
   const unit = await db.query<{ id: string }>(
     `SELECT u.id
      FROM legal_units u
@@ -406,6 +410,7 @@ export async function resolveCitationText(
      WHERE u.unit_type = 'section' AND u.number = $4
        AND (u.valid_from IS NULL OR u.valid_from <= $3::date)
        AND (u.valid_to   IS NULL OR u.valid_to   >= $3::date)
+     ORDER BY (lower(d.title) = lower(btrim($1, '%'))) DESC, length(d.title) ASC, d.id ASC
      LIMIT 1`,
     [titlePattern, jurisdiction, asOfDate, number],
   );
