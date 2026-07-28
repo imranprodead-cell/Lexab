@@ -10,7 +10,9 @@ export interface ParsedDocument {
   docId: string; // deterministic: ld_uk_ukpga-1979-54 / ld_uz_111181 / ld_de_bgb
   jurisdiction: 'UK' | 'UZ' | 'KZ' | 'DE' | 'US' | 'CA' | 'AE';
   officialSourceId: string;
-  docType: 'act' | 'code' | 'regulation';
+  docType: 'act' | 'code' | 'regulation' | 'decree' | 'resolution';
+  /** Канонический номер подзаконного акта («УП-6079»); у законов отсутствует. */
+  docNumber?: string | null;
   title: string;
   sourceUrl: string;
   retrievedAt: string;
@@ -34,11 +36,11 @@ export async function upsertParsedDocument(
 
   // 1. Document row (checksum intentionally NOT updated yet).
   await db.query(
-    `INSERT INTO legal_documents (id, jurisdiction, official_source_id, doc_type, title, status, source_url, retrieved_at, sha256_checksum, modified_on_source)
-     VALUES ($1, $2, $3, $4, $5, 'in_force', $6, $7, coalesce((SELECT sha256_checksum FROM legal_documents WHERE id = $1), 'pending'), $8)
+    `INSERT INTO legal_documents (id, jurisdiction, official_source_id, doc_type, doc_number, title, status, source_url, retrieved_at, sha256_checksum, modified_on_source)
+     VALUES ($1, $2, $3, $4, $5, $6, 'in_force', $7, $8, coalesce((SELECT sha256_checksum FROM legal_documents WHERE id = $1), 'pending'), $9)
      ON CONFLICT (jurisdiction, official_source_id)
-     DO UPDATE SET title = $5, source_url = $6, retrieved_at = $7, modified_on_source = $8, updated_at = now()`,
-    [doc.docId, doc.jurisdiction, doc.officialSourceId, doc.docType, doc.title, doc.sourceUrl, doc.retrievedAt, doc.modifiedOnSource],
+     DO UPDATE SET doc_number = $5, title = $6, source_url = $7, retrieved_at = $8, modified_on_source = $9, updated_at = now()`,
+    [doc.docId, doc.jurisdiction, doc.officialSourceId, doc.docType, doc.docNumber ?? null, doc.title, doc.sourceUrl, doc.retrievedAt, doc.modifiedOnSource],
   );
 
   // 2. Units: upsert by deterministic id, then drop the ones that disappeared.

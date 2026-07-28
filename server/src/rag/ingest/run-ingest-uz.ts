@@ -11,15 +11,22 @@
  */
 import { getDb, migrate } from '../../db.ts';
 import { newId } from '../../lib/ids.ts';
-import { fetchLexUzHtml, parseLexUzHtml } from './lex-uz.ts';
+import { fetchLexUzHtml, parseLexUzHtml, parseLexUzDecreeHtml } from './lex-uz.ts';
 import { upsertParsedDocument } from './upsert.ts';
 
 interface UzDoc {
   id: string;
   note: string;
   /** Parse-coverage floor: fail loud when the parser finds fewer articles —
-   *  markup drift on lex.uz must never silently truncate a code. */
+   *  markup drift on lex.uz must never silently truncate a code.
+   *  Для kind='decree' это порог по ПУНКТАМ. */
   minArticles: number;
+  /** 'decree' → parseLexUzDecreeHtml (УП/ПП из пунктов). Default 'law' —
+   *  существующие записи не меняются. */
+  kind?: 'law' | 'decree';
+  /** Ожидаемый канонический номер акта («УП-6079») — ОБЯЗАТЕЛЕН для decree.
+   *  Несовпадение с номером из шапки страницы = не тот акт → отказ. */
+  docNumber?: string;
 }
 
 /** Корпус договорного права РУз (волна 1 = пилот + 5 приоритетных актов). */
@@ -77,6 +84,10 @@ export const UZ_DOCS: UzDoc[] = [
   { id: '5972413', note: 'О небанковских кредитных организациях и микрофинансовой деятельности (ЗРУ-765, 20.04.2022)', minArticles: 40 },
   { id: '85248', note: 'О лизинге (756-I, 14.04.1999)', minArticles: 22 },
   { id: '67128', note: 'О внешнеэкономической деятельности (285-XII, ред. 77-II 2000)', minArticles: 17 },
+  // ── Указы/постановления Президента — пилот (ID проверены по страницам lex.uz 2026-07-28) ─
+  { id: '7231783', note: 'УП-184 О мерах по надёжной защите прав и законных интересов предпринимателей (14.11.2024)', minArticles: 85, kind: 'decree', docNumber: 'УП-184' },
+  { id: '3744601', note: 'ПП-3724 О мерах по ускоренному развитию электронной коммерции (14.05.2018)', minArticles: 11, kind: 'decree', docNumber: 'ПП-3724' },
+  { id: '5031048', note: 'УП-6079 Об утверждении стратегии «Цифровой Узбекистан-2030» (05.10.2020)', minArticles: 18, kind: 'decree', docNumber: 'УП-6079' },
 ];
 
 /** Обратная совместимость: прежнее имя экспорта (список голых id). */
@@ -129,18 +140,29 @@ async function main(): Promise<void> {
     try {
       const { html, url } = await fetchLexUzHtml(doc.id);
       fetched++;
-      const parsed = parseLexUzHtml(doc.id, html, url);
+      const parsed = doc.kind === 'decree' ? parseLexUzDecreeHtml(doc.id, html, url) : parseLexUzHtml(doc.id, html, url);
+      if (doc.kind === 'decree') {
+        // Сверка ожидания: опечатка в lex.uz-ID должна падать громко, а не
+        // тихо ингестить чужой акт.
+        if (!doc.docNumber) throw new Error(`запись ${doc.id} kind=decree без ожидаемого docNumber — заполни UZ_DOCS`);
+        if (parsed.docNumber !== doc.docNumber) {
+          throw new Error(
+            `номер акта не совпал для lex.uz/${doc.id}: ожидали ${doc.docNumber}, распарсили ${parsed.docNumber ?? 'null'} («${parsed.title}») — не та страница? refusing`,
+          );
+        }
+      }
       const secs = parsed.units.filter((u) => u.unitType === 'section');
+      const leaf = doc.kind === 'decree' ? 'пунктов' : 'статей';
       // Parse-coverage floor BEFORE any write.
       if (secs.length < doc.minArticles) {
         throw new Error(
-          `parsed only ${secs.length} articles for «${parsed.title}» (expected ≥ ${doc.minArticles}) — markup drift? refusing`,
+          `parsed only ${secs.length} ${leaf} for «${parsed.title}» (expected ≥ ${doc.minArticles}) — markup drift? refusing`,
         );
       }
       if (dryRun) {
         detail[doc.id] = { title: parsed.title, units: parsed.units.length, articles: secs.length };
-        console.log(`[dry-run] ${doc.id} «${parsed.title}»`);
-        console.log(`          units=${parsed.units.length} articles=${secs.length}  (${gapReport(secs.map((s) => s.number ?? ''))})`);
+        console.log(`[dry-run] ${doc.id} «${parsed.title}»${parsed.docNumber ? ` [${parsed.docNumber}]` : ''}`);
+        console.log(`          units=${parsed.units.length} ${leaf}=${secs.length}  (${gapReport(secs.map((s) => s.number ?? ''))})`);
         if (secs.length) {
           console.log(`          first:  ${secs[0].breadcrumb}`);
           console.log(`          middle: ${secs[Math.floor(secs.length / 2)].breadcrumb}`);
@@ -150,7 +172,7 @@ async function main(): Promise<void> {
         const res = await upsertParsedDocument(db!, parsed, force);
         if (res.changed) changed++; else unchanged++;
         detail[doc.id] = { title: parsed.title, units: parsed.units.length, articles: secs.length, changed: res.changed };
-        console.log(`[ingest:uz] ${parsed.title}: ${res.changed ? `${parsed.units.length} units (${secs.length} статей, ${gapReport(secs.map((s) => s.number ?? ''))})` : 'unchanged — skipped'}`);
+        console.log(`[ingest:uz] ${parsed.title}: ${res.changed ? `${parsed.units.length} units (${secs.length} ${leaf}, ${gapReport(secs.map((s) => s.number ?? ''))})` : 'unchanged — skipped'}`);
         if (res.changed && secs.length) console.log(`            e.g. ${secs[Math.floor(secs.length / 2)].breadcrumb}`);
       }
     } catch (err) {

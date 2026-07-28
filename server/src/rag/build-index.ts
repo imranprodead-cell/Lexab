@@ -44,6 +44,7 @@ interface SectionRow {
   retrieved_at: string;
   sha256_checksum: string;
   jurisdiction: string;
+  doc_type: string;
 }
 
 /* ── Annotation model routing ────────────────────────────────────────────────
@@ -73,12 +74,15 @@ function makeAnnotApi(model: string): AnnotApi | null {
 
 async function generateContext(
   annot: AnnotApi,
-  row: Pick<SectionRow, 'language' | 'breadcrumb' | 'heading' | 'text'>,
+  row: Pick<SectionRow, 'language' | 'breadcrumb' | 'heading' | 'text' | 'doc_type'>,
 ): Promise<string> {
   try {
+    const decree = row.doc_type === 'decree' || row.doc_type === 'resolution';
     const system =
       row.language === 'ru'
-        ? 'Ты аннотируешь статьи законов для юридического поискового индекса. По статье напиши 1-2 коротких предложения: из какого закона, что регулирует норма, какими терминами её будет искать юрист. По-русски, без преамбулы.'
+        ? decree
+          ? 'Ты аннотируешь пункты указов и постановлений Президента для юридического поискового индекса. По пункту напиши 1-2 коротких предложения: из какого акта (укажи его вид и номер, если видны в Path), что устанавливает пункт, какими терминами его будет искать юрист. Не называй акт «законом». По-русски, без преамбулы.'
+          : 'Ты аннотируешь статьи законов для юридического поискового индекса. По статье напиши 1-2 коротких предложения: из какого закона, что регулирует норма, какими терминами её будет искать юрист. По-русски, без преамбулы.'
         : row.language === 'de'
           ? 'Du annotierst Gesetzesparagraphen für einen juristischen Suchindex. Schreibe zu dem Paragraphen 1-2 kurze Sätze: aus welchem Gesetz, was die Norm regelt, mit welchen Begriffen ein Jurist danach sucht. Auf Deutsch, ohne Vorwort.'
           : 'You annotate statute sections for a legal search index. Given a section, write 1-2 short sentences situating it: which act, what the provision does, key terms a lawyer would search for. Plain English, no preamble.';
@@ -130,7 +134,7 @@ async function buildChunks(db: Db, docsFilter: string[] | null, maxAnnotate: num
   const stale = await db.query<SectionRow>(
     `SELECT u.id, u.document_id, u.heading, u.breadcrumb, u.text, u.language,
             u.valid_from, u.valid_to, u.source_url, u.retrieved_at, u.sha256_checksum,
-            d.jurisdiction
+            d.jurisdiction, d.doc_type
      FROM legal_units u
      JOIN legal_documents d ON d.id = u.document_id
      LEFT JOIN chunks c ON c.unit_id = u.id
@@ -183,9 +187,11 @@ async function buildChunks(db: Db, docsFilter: string[] | null, maxAnnotate: num
 async function enrichChunks(db: Db, docsFilter: string[] | null, maxAnnotate: number, annotModel: string): Promise<{ enriched: number }> {
   const api = makeAnnotApi(annotModel);
   if (!api || maxAnnotate <= 0) return { enriched: 0 };
-  const rows = await db.query<{ id: string; breadcrumb: string; text: string; language: string; heading: string | null }>(
-    `SELECT c.id, c.breadcrumb, c.body AS text, c.language, u.heading
-     FROM chunks c JOIN legal_units u ON u.id = c.unit_id
+  const rows = await db.query<{ id: string; breadcrumb: string; text: string; language: string; heading: string | null; doc_type: string }>(
+    `SELECT c.id, c.breadcrumb, c.body AS text, c.language, u.heading, d.doc_type
+     FROM chunks c
+     JOIN legal_units u ON u.id = c.unit_id
+     JOIN legal_documents d ON d.id = c.document_id
      WHERE c.context_summary = '' AND ($1::text[] IS NULL OR c.document_id = ANY($1))
      ORDER BY c.document_id LIMIT $2`,
     [docsFilter, maxAnnotate],

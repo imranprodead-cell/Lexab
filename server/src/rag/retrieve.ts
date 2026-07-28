@@ -8,10 +8,12 @@
  * with full provenance.
  */
 import Anthropic from '@anthropic-ai/sdk';
+import OpenAI from 'openai';
 import { config } from '../config.ts';
 import type { Db } from '../db.ts';
 import { embeddingsEnabled, embedTexts, rerankTexts, toVectorLiteral } from './embeddings.ts';
 import type { RetrieveParams, RetrievedChunk } from './types.ts';
+import { normalizeUzDocNumber } from './uz-doc-number.ts';
 
 const REWRITE_SCHEMA = {
   type: 'object',
@@ -28,7 +30,7 @@ const REWRITE_SCHEMA = {
 
 const REWRITE_SYSTEM: Record<string, string> = {
   UK: 'Rewrite the user question as 2-3 short search queries against UK statute text: use the legal terms of art a drafter would use (e.g. "implied term satisfactory quality" for "can I return faulty goods"). When you know the exact act and section, include one query naming them (e.g. "Arbitration Act 1996 section 9"). English only. No preamble.',
-  UZ: 'Перепиши вопрос пользователя как 2-3 коротких поисковых запроса по русскоязычным текстам законов Узбекистана: используй термины законодателя («неустойка», «расторжение договора», «ненадлежащее исполнение обязательства»). Вопрос может быть задан на узбекском или английском — запросы всё равно пиши ТОЛЬКО по-русски, переводя понятия в русские термины законодателя (neustoyka/penya → «неустойка», shartnomani bekor qilish → «расторжение договора», elektron imzo → «электронная цифровая подпись»). Если уверен в конкретной статье — включи один запрос вида «ст. 260 ГК». Только по-русски. Без преамбулы.',
+  UZ: 'Перепиши вопрос пользователя как 2-3 коротких поисковых запроса по русскоязычным текстам законов Узбекистана: используй термины законодателя («неустойка», «расторжение договора», «ненадлежащее исполнение обязательства»). Вопрос может быть задан на узбекском или английском — запросы всё равно пиши ТОЛЬКО по-русски, переводя понятия в русские термины законодателя (neustoyka/penya → «неустойка», shartnomani bekor qilish → «расторжение договора», elektron imzo → «электронная цифровая подпись»). Запрос вида «ст. 260 ГК» включай ТОЛЬКО если абсолютно уверен в номере статьи; никогда не угадывай номер — неверный номер хуже, чем запрос без номера. Только по-русски. Без преамбулы.',
   KZ: 'Перепиши вопрос пользователя как 2-3 коротких поисковых запроса по русскоязычным текстам законов Казахстана: используй термины законодателя. Только по-русски. Без преамбулы.',
   DE: 'Formuliere die Nutzerfrage als 2-3 kurze Suchanfragen gegen den deutschen Gesetzestext um: benutze die juristischen Fachbegriffe des Gesetzgebers (z. B. „Sachmangel Nacherfüllung“ für „fehlerhafte Ware zurückgeben“). Wenn der Paragraph bekannt ist, füge eine Anfrage wie „§ 433 BGB“ hinzu. Nur auf Deutsch. Kein Vorwort.',
   US: 'Rewrite the user question as 2-3 short search queries against U.S. federal statute text (United States Code): use the drafter\'s terms of art (e.g. "agreement to arbitrate valid irrevocable enforceable", "electronic signature legal effect"). When you know the citation, include one query naming it (e.g. "9 U.S.C. 2", "15 U.S.C. 7001"). English only. No preamble.',
@@ -41,28 +43,59 @@ const REWRITE_SYSTEM: Record<string, string> = {
  *  default (UK/US/CA). */
 const FTS_CONFIG: Record<string, string> = { UK: 'english', UZ: 'russian', KZ: 'russian', DE: 'german', US: 'english', CA: 'english', AE: 'english' };
 
-/** User question → 2-3 statute-flavoured search queries. Falls back to the raw query. */
+/** User question → 2-3 statute-flavoured search queries. Falls back to the raw query.
+ *  Порядок: Haiku (быстрый), при отсутствии ключа/сбое — DeepSeek (Free-тариф
+ *  живёт на нём; без фолбэка узбекские вопросы теряют uz→ru переписывание и
+ *  проваливают retrieval — подтверждено на golden-107 при нулевом Anthropic). */
 export async function rewriteQuery(query: string, jurisdiction: string = 'UK'): Promise<string[]> {
-  if (!config.anthropicApiKey) return [query];
-  try {
-    // Live request path (analysis/chat): a hung rewrite must degrade to the raw
-    // query fast, not block the reply (the SDK default timeout is 10 minutes).
-    const api = new Anthropic({ apiKey: config.anthropicApiKey, timeout: 5_000, maxRetries: 0 });
-    const msg = await api.beta.messages.create({
-      model: 'claude-haiku-4-5',
-      max_tokens: 300,
-      temperature: 0, // deterministic rewrites — retrieval quality must be reproducible for eval
-      system: REWRITE_SYSTEM[jurisdiction] ?? REWRITE_SYSTEM.UK,
-      output_config: { format: { type: 'json_schema', schema: REWRITE_SCHEMA as unknown as Record<string, unknown> } },
-      messages: [{ role: 'user', content: query.slice(0, 2000) }],
-    });
-    const text = msg.content.find((b) => b.type === 'text');
-    const parsed = text && text.type === 'text' ? (JSON.parse(text.text) as { queries: string[] }) : null;
-    const queries = (parsed?.queries ?? []).filter((q) => q.trim()).slice(0, 3);
-    return queries.length ? queries : [query];
-  } catch {
-    return [query];
+  const system = REWRITE_SYSTEM[jurisdiction] ?? REWRITE_SYSTEM.UK;
+  if (config.anthropicApiKey) {
+    try {
+      // Live request path (analysis/chat): a hung rewrite must degrade to the raw
+      // query fast, not block the reply (the SDK default timeout is 10 minutes).
+      const api = new Anthropic({ apiKey: config.anthropicApiKey, timeout: 5_000, maxRetries: 0 });
+      const msg = await api.beta.messages.create({
+        model: 'claude-haiku-4-5',
+        max_tokens: 300,
+        temperature: 0, // deterministic rewrites — retrieval quality must be reproducible for eval
+        system,
+        output_config: { format: { type: 'json_schema', schema: REWRITE_SCHEMA as unknown as Record<string, unknown> } },
+        messages: [{ role: 'user', content: query.slice(0, 2000) }],
+      });
+      const text = msg.content.find((b) => b.type === 'text');
+      const parsed = text && text.type === 'text' ? (JSON.parse(text.text) as { queries: string[] }) : null;
+      const queries = (parsed?.queries ?? []).filter((q) => q.trim()).slice(0, 3);
+      if (queries.length) return queries;
+    } catch {
+      /* fall through to DeepSeek */
+    }
   }
+  if (config.deepseekApiKey) {
+    try {
+      const api = new OpenAI({ apiKey: config.deepseekApiKey, baseURL: config.deepseekBaseUrl, timeout: 8_000, maxRetries: 0 });
+      const res = await api.chat.completions.create({
+        model: config.deepseekModel,
+        max_tokens: 300,
+        temperature: 0,
+        // DeepSeek v4 рассуждает по умолчанию — на микрозапросе весь max_tokens
+        // уйдёт в размышления и content будет пуст (паттерн llm.ts/build-index).
+        ...({ thinking: { type: 'disabled' } } as Record<string, unknown>),
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: `${system}\n\nReturn ONLY one valid JSON object matching this JSON Schema — no markdown fences, no commentary:\n${JSON.stringify(REWRITE_SCHEMA)}` },
+          { role: 'user', content: query.slice(0, 2000) },
+        ],
+      });
+      const raw = res.choices[0]?.message?.content ?? '';
+      const json = raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1);
+      const parsed = JSON.parse(json) as { queries?: string[] };
+      const queries = (parsed.queries ?? []).filter((q) => typeof q === 'string' && q.trim()).slice(0, 3);
+      if (queries.length) return queries;
+    } catch {
+      /* raw query fallback below */
+    }
+  }
+  return [query];
 }
 
 interface ChunkRow {
@@ -372,6 +405,27 @@ export function parseRuCitation(citation: string, jurisdiction: string): RuCitat
   return null;
 }
 
+/** Разбор цитаты на УКАЗ/ПОСТАНОВЛЕНИЕ Президента РУз: «п. 5 УП-6079»,
+ *  «пунктом 3 Постановления Президента № ПП-3724», латиница «п. 1 PF-184».
+ *  Пробуется ТОЛЬКО когда parseRuCitation вернул null (есть «ст./модда/бап» —
+ *  цитата статейная, «п.» там — подпункт внутри статьи, старый путь).
+ *  Пункты ПРИЛОЖЕНИЙ не резолвим (guard) — иначе «п. 5 приложения № 1» ложно
+ *  попал бы в п. 5 основного текста; демоция честнее. Чистая функция — покрыта
+ *  юнит-тестами (server/test/citations.test.ts). */
+export function parseUzDecreeCitation(citation: string): { number: string; docNumber: string } | null {
+  if (/прилож|ilova|илова/iu.test(citation)) return null;
+  // «п. 5» / «пункт 5» / «пунктом 5». Кириллическая левая граница руками —
+  // JS \b кириллицу не видит; «пп.» (подпункт) и «подпункт» не матчатся.
+  const point = citation.match(/(?<![А-Яа-яЁёA-Za-z])(?:п\.|пункт[а-яё]*)\s*№?\s*(\d{1,3}(?:[.-]\d{1,2})?)/iu);
+  if (!point) return null;
+  // Номер акта: разделитель «-» или «№» обязателен — иначе «пп. 3» стал бы
+  // «ПП-3». ПКМ-… не матчится (после ПК идёт М, не цифра).
+  const act = citation.match(/(?<![А-Яа-яЁёA-Za-z0-9])(?:УП|UP|ПФ|PF|ПП|PP|ПҚ|ПК|PQ)\s*(?:[-–—−]|№)\s*\d{1,5}(?!\d)/iu);
+  const docNumber = normalizeUzDocNumber(act?.[0] ?? null);
+  if (!docNumber) return null;
+  return { number: point[1], docNumber };
+}
+
 /** Resolve a textual citation to a unit in force.
  *  UK: "Late Payment …Act 1998, s.8"; UZ/KZ: «ст. 260 ГК», «ст. 14 Закона "О защите прав потребителей"». */
 export async function resolveCitationText(
@@ -428,7 +482,29 @@ export async function resolveCitationText(
     else return null;
   } else {
     const parsed = parseRuCitation(citation, jurisdiction);
-    if (!parsed) return null;
+    if (!parsed) {
+      // УП/ПП Узбекистана: «п. 5 УП-6079» → ТОЧНОЕ равенство doc_number (не
+      // ILIKE), только пункты основного текста (parent_id IS NULL — пункты
+      // приложений не резолвим), без fallback: нет совпадения → null.
+      if (jurisdiction === 'UZ') {
+        const dec = parseUzDecreeCitation(citation);
+        if (dec) {
+          const unit = await db.query<{ id: string }>(
+            `SELECT u.id
+             FROM legal_units u
+             JOIN legal_documents d ON d.id = u.document_id AND d.jurisdiction = $2 AND d.doc_number = $1
+             WHERE u.unit_type = 'section' AND u.number = $4 AND u.parent_id IS NULL
+               AND (u.valid_from IS NULL OR u.valid_from <= $3::date)
+               AND (u.valid_to   IS NULL OR u.valid_to   >= $3::date)
+             ORDER BY u.ord ASC, u.id ASC
+             LIMIT 1`,
+            [dec.docNumber, jurisdiction, asOfDate, dec.number],
+          );
+          return unit.rows[0]?.id ?? null;
+        }
+      }
+      return null;
+    }
     titlePattern = parsed.titlePattern;
     number = parsed.number;
   }
@@ -439,11 +515,16 @@ export async function resolveCitationText(
   // specific) title, then a stable id tiebreak — never an arbitrary LIMIT 1.
   // With a single matching act (the ГК's two continuously-numbered parts still
   // resolve by u.number) the ORDER BY is a no-op, so retrieval is unchanged.
+  // doc_type-фильтр: титульная ветка НИКОГДА не отдаёт пункты УП/ПП — названия
+  // указов часто содержат имя закона как подстроку («О мерах по реализации
+  // Закона "О персональных данных"»), и «ст. 5 Закона …» иначе могла бы
+  // зарезолвиться в «п. 5» указа. Декретные цитаты идут по doc_number выше.
   const unit = await db.query<{ id: string }>(
     `SELECT u.id
      FROM legal_units u
      JOIN legal_documents d ON d.id = u.document_id AND d.jurisdiction = $2 AND d.title ILIKE $1
      WHERE u.unit_type = 'section' AND u.number = $4
+       AND d.doc_type NOT IN ('decree', 'resolution')
        AND (u.valid_from IS NULL OR u.valid_from <= $3::date)
        AND (u.valid_to   IS NULL OR u.valid_to   >= $3::date)
      ORDER BY (lower(d.title) = lower(btrim($1, '%'))) DESC, length(d.title) ASC, d.id ASC

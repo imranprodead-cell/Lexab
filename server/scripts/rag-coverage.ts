@@ -12,7 +12,7 @@
  * Exit code 1 when coverage < 100% or the golden lint fails — a standing
  * policy: no eval report is quotable unless this gate exits 0 (CLAUDE.md).
  */
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getDb, migrate } from '../src/db.ts';
@@ -80,11 +80,13 @@ async function main(): Promise<void> {
     totNoChunk += nc;
     totNoContext += nx;
     totNoEmbedding += noEmbedding;
-    const bad = nc > 0 || nx > 0 || noEmbedding > 0;
+    // s === 0 — раньше слепое пятно: документ вовсе без секций проходил гейт
+    // «молча» (все счётчики нули). Пустой документ = провал ингеста → FAIL.
+    const bad = s === 0 || nc > 0 || nx > 0 || noEmbedding > 0;
     if (bad) failed = true;
     console.log(
       `${bad ? '✗' : '✓'} ${doc.id}  «${doc.title.slice(0, 60)}»\n` +
-        `   sections=${s} chunks=${c} missing-chunk=${nc} empty-context=${nx} null-embedding=${embeddingColumn ? noEmbedding : 'n/a'}`,
+        `   sections=${s}${s === 0 ? ' ⚠ EMPTY' : ''} chunks=${c} missing-chunk=${nc} empty-context=${nx} null-embedding=${embeddingColumn ? noEmbedding : 'n/a'}`,
     );
   }
 
@@ -97,10 +99,18 @@ async function main(): Promise<void> {
     failed = true;
   }
 
-  /* ── Golden lint: every expected_unit_id must exist ─────────────────────── */
-  const goldenFile = path.join(HERE, '..', 'evals', 'golden', `${jurisdiction.toLowerCase()}-contract-law.jsonl`);
-  if (existsSync(goldenFile)) {
-    const rows = readFileSync(goldenFile, 'utf8')
+  /* ── Golden lint: every expected_unit_id must exist ───────────────────────
+     Все файлы юрисдикции (`uz-*.jsonl`), не только -contract-law: golden
+     указов живёт отдельным файлом uz-decrees.jsonl, и его тоже линтим. */
+  const goldenDir = path.join(HERE, '..', 'evals', 'golden');
+  const goldenFiles = existsSync(goldenDir)
+    ? readdirSync(goldenDir)
+        .filter((f) => f.startsWith(`${jurisdiction.toLowerCase()}-`) && f.endsWith('.jsonl'))
+        .sort()
+    : [];
+  if (!goldenFiles.length) console.log(`\n(no golden files for ${jurisdiction} — lint skipped)`);
+  for (const file of goldenFiles) {
+    const rows = readFileSync(path.join(goldenDir, file), 'utf8')
       .split('\n')
       .filter(Boolean)
       .map((l, i) => ({ line: i + 1, row: JSON.parse(l) as { question: string; expected_unit_ids: string[] } }));
@@ -112,13 +122,11 @@ async function main(): Promise<void> {
     );
     if (missing.length) {
       failed = true;
-      console.error(`\n✗ GOLDEN LINT (${path.basename(goldenFile)}): ${missing.length} expected_unit_ids do not exist:`);
+      console.error(`\n✗ GOLDEN LINT (${file}): ${missing.length} expected_unit_ids do not exist:`);
       for (const m of missing) console.error(`   line ${m.line}: ${m.id}  («${m.q.slice(0, 60)}…»)`);
     } else {
-      console.log(`\n✓ GOLDEN LINT: all ${allIds.length} expected_unit_ids exist (${rows.length} questions)`);
+      console.log(`\n✓ GOLDEN LINT (${file}): all ${allIds.length} expected_unit_ids exist (${rows.length} questions)`);
     }
-  } else {
-    console.log(`\n(no golden file for ${jurisdiction} — lint skipped)`);
   }
 
   await db.close();

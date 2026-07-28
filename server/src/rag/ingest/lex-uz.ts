@@ -13,6 +13,7 @@
 import { createHash } from 'node:crypto';
 import type { LegalUnit } from '../types.ts';
 import type { ParsedDocument } from './upsert.ts';
+import { normalizeUzDocNumber } from '../uz-doc-number.ts';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -184,6 +185,171 @@ export function parseLexUzHtml(docId: string, html: string, url: string): Parsed
     jurisdiction: 'UZ',
     officialSourceId: docId,
     docType: /кодекс/i.test(title) ? 'code' : 'act',
+    title,
+    sourceUrl: url,
+    retrievedAt,
+    sha256,
+    modifiedOnSource: null,
+    units,
+  };
+}
+
+/* ── Указы (УП) и Постановления (ПП) Президента ──────────────────────────────
+ * Отдельный режим (kind:'decree' в UZ_DOCS): такие акты состоят из нумерованных
+ * ПУНКТОВ («1.», «2.» в блоках ACT_TEXT), не статей, поэтому parseLexUzHtml
+ * выше для них неприменим — и НЕ меняется ни на символ (47 живых законов).
+ *
+ * Конвенции (разметка сверена вживую на УП-6079/ПП-3724/УП-184, 2026-07-28):
+ *  - пункт → unit_type='section' (конвенция индексируемого листа конвейера,
+ *    как art. N в legisquebec-ca.ts), родная форма в number и breadcrumb «п. N»;
+ *  - id: lu_uz_<docid>_p-N, вставные пункты p-4-1; пункты приложений в своём
+ *    неймспейсе prilK-p-N (иначе «п. 5» акта и «п. 5» положения столкнулись бы);
+ *  - пункты-заглушки «(утратил силу)» юнитов не создают: нет юнита → цитата
+ *    на него честно демотируется (fail-closed);
+ *  - вложенные перечни «1., 2.» ВНУТРИ пункта не создают ложных пунктов —
+ *    новый пункт принимается только при монотонном росте номера;
+ *  - номер акта из шапки id="lx_lact_num_top" («от 05.10.2020 г. № УП-6079»)
+ *    канонизируется normalizeUzDocNumber и уходит в legal_documents.doc_number.
+ */
+const DECREE_BLOCK_RE =
+  /<div class="(CLAUSE_DEFAULT|TEXT_HEADER_DEFAULT|ACT_TEXT|BY_DEFAULT|ACT_TITLE_APPL|APPL_BANNER_LANDSCAPE_TITLE)((?:\s+[\w-]+)*)"[\s\S]*?<div name="(\d+)" id="\3">([\s\S]*?)<\/div><\/div>/g;
+
+/** Заглушка целиком утратившего силу пункта (не содержательный текст). */
+const REPEALED_STUB_RE = /^\(?\s*(?:пункт\s+[\d\s-]*)?утратил[аи]?\s+силу/iu;
+
+export function parseLexUzDecreeHtml(docId: string, html: string, url: string): ParsedDocument {
+  const { title, adopted: titleAdopted } = titleOf(html);
+  const retrievedAt = new Date().toISOString();
+  const sha256 = createHash('sha256').update(html).digest('hex');
+
+  // Шапка: дата и номер акта. Fallback на ACT_ESSENTIAL_ELEMENTS_NUM (стиль ПП).
+  const headText = strip(html.match(/id="lx_lact_num_top"[^>]*>([\s\S]{0,400}?)<\/div>/)?.[1] ?? '');
+  const numText =
+    headText || strip(html.match(/class="ACT_ESSENTIAL_ELEMENTS_NUM[^"]*"[^>]*>([\s\S]{0,200}?)<\/div>/)?.[1] ?? '');
+  const headDate = headText.match(/(\d{2})\.(\d{2})\.(\d{4})/);
+  const adopted = headDate ? `${headDate[3]}-${headDate[2]}-${headDate[1]}` : titleAdopted;
+  const docNumber = normalizeUzDocNumber(numText.match(/№?\s*([А-ЯЁҚA-Z]{2,3}\s*[-–—−]\s*\d{1,5})/iu)?.[1] ?? null);
+
+  const paras: { anchor: string; cls: string; text: string }[] = [];
+  for (let m = DECREE_BLOCK_RE.exec(html); m; m = DECREE_BLOCK_RE.exec(html)) {
+    const text = strip(m[4]);
+    if (text) paras.push({ anchor: m[3], cls: m[1], text });
+  }
+  DECREE_BLOCK_RE.lastIndex = 0;
+  if (!paras.length) throw new Error(`parsed 0 paragraphs for lex.uz/${docId} — refusing partial save`);
+
+  const unitId = (suffix: string) => `lu_uz_${docId}_${suffix}`;
+  const base = { language: 'ru', validFrom: adopted, validTo: null as string | null, sourceUrl: url, retrievedAt };
+  const units: Omit<LegalUnit, 'documentId'>[] = [];
+  const seenIds = new Set<string>();
+  let ord = 0;
+  const push = (u: Omit<LegalUnit, 'documentId' | 'ord' | 'sha256Checksum' | 'retrievedAt' | 'sourceUrl' | 'language' | 'validTo' | 'validFrom'>) => {
+    // Инвариант: id внутри документа уникальны — иначе upsert молча перезаписал
+    // бы один пункт другим (ON CONFLICT (id) DO UPDATE).
+    if (seenIds.has(u.id)) throw new Error(`duplicate unit id ${u.id} for lex.uz/${docId} — refusing partial save`);
+    seenIds.add(u.id);
+    units.push({
+      ...u,
+      ...base,
+      ord: ord++,
+      sha256Checksum: createHash('sha256').update(`${u.breadcrumb}|${u.heading ?? ''}|${u.text}`).digest('hex'),
+    });
+  };
+
+  const crumbRoot = `UZ / ${title}`;
+  // Приложение материализуется лениво — контейнер создаётся при первом пункте,
+  // когда его заголовок уже собран из подряд идущих шапочных блоков.
+  let annex: { k: number; id: string; label: string; titleParts: string[]; materialized: boolean; anchor: string } | null = null;
+  let annexCount = 0;
+  let point: { id: string; num: string; anchor: string; body: string[] } | null = null;
+  let lastBase = 0;
+  let points = 0;
+
+  const annexLabel = (a: NonNullable<typeof annex>): string => {
+    const t = a.titleParts.join(' ').replace(/\s+/g, ' ').trim();
+    return `прил. ${a.k}${t ? ` «${t.slice(0, 90)}»` : ''}`;
+  };
+  const flushPoint = () => {
+    if (!point) return;
+    const text = point.body.join('\n');
+    if (text && !REPEALED_STUB_RE.test(text)) {
+      push({
+        id: point.id,
+        parentId: annex?.materialized ? annex.id : null,
+        unitType: 'section',
+        number: point.num,
+        heading: null,
+        breadcrumb: `${annex ? `${crumbRoot} / ${annex.label}` : crumbRoot} / п. ${point.num}`,
+        text,
+        officialUnitUri: `${url}#${point.anchor}`,
+      });
+      points++;
+    }
+    point = null;
+  };
+
+  const isAnnexHeader = (p: { cls: string; text: string }): boolean =>
+    p.cls === 'ACT_TITLE_APPL' ||
+    p.cls === 'APPL_BANNER_LANDSCAPE_TITLE' ||
+    /^ПРИЛОЖЕНИЕ(\s|№|$)/iu.test(p.text) ||
+    (/^УТВЕРЖДЕН[АОЫ]?\b/iu.test(p.text) && /(указ|постановлен)/iu.test(p.text));
+
+  for (const p of paras) {
+    if (isAnnexHeader(p)) {
+      flushPoint();
+      lastBase = 0;
+      if (annex && !annex.materialized) {
+        // Несколько шапочных блоков подряд («УТВЕРЖДЕНА Указом…» + название) —
+        // это заголовок ОДНОГО приложения, не новые приложения.
+        annex.titleParts.push(p.text);
+        annex.label = annexLabel(annex);
+      } else {
+        annexCount++;
+        annex = { k: annexCount, id: unitId(`pril-${annexCount}`), label: '', titleParts: [p.text], materialized: false, anchor: p.anchor };
+        annex.label = annexLabel(annex);
+      }
+      continue;
+    }
+    if (p.cls === 'TEXT_HEADER_DEFAULT') continue; // главы/разделы положений — не тело пунктов
+
+    const cand = p.text.match(/^(\d{1,3}(?:[.-]\d{1,2})?)\.\s+([\s\S]*)/);
+    if (cand) {
+      const num = cand[1];
+      const b = Number(num.split(/[.-]/)[0]);
+      const suffixed = /[.-]/.test(num);
+      // Монотонный гейт: принимаем только рост номера (разрывы от утративших
+      // силу пунктов проходят, но не дальше +20 — защита от «2021. год…»),
+      // либо вставной пункт «4-1» при том же базовом номере.
+      const accept = (b > lastBase && b - lastBase <= 20) || (suffixed && b === lastBase);
+      if (accept) {
+        flushPoint();
+        if (annex && !annex.materialized) {
+          push({ id: annex.id, parentId: null, unitType: 'part', number: String(annex.k), heading: null, breadcrumb: `${crumbRoot} / ${annex.label}`, text: '', officialUnitUri: `${url}#${annex.anchor}` });
+          annex.materialized = true;
+        }
+        point = {
+          id: annex ? unitId(`pril${annex.k}-p-${num}`) : unitId(`p-${num}`),
+          num,
+          anchor: p.anchor,
+          body: cand[2].trim() ? [cand[2].trim()] : [],
+        };
+        lastBase = b;
+        continue;
+      }
+    }
+    // Преамбула (до первого пункта) отбрасывается, как у законов; всё прочее —
+    // тело текущего пункта (подпункты «а)», абзацы, вложенные перечни).
+    if (point) point.body.push(p.text);
+  }
+  flushPoint();
+  if (points === 0) throw new Error(`parsed 0 points for lex.uz/${docId} (kind=decree) — refusing partial save`);
+
+  return {
+    docId: `ld_uz_${docId}`,
+    jurisdiction: 'UZ',
+    officialSourceId: docId,
+    docType: docNumber?.startsWith('ПП-') ? 'resolution' : 'decree',
+    docNumber,
     title,
     sourceUrl: url,
     retrievedAt,

@@ -43,6 +43,33 @@ async function seedAct(docId: string, title: string, articleNumber: string): Pro
   return unitId;
 }
 
+/** Insert a UZ presidential decree/resolution with doc_number + one unit. */
+async function seedDecree(docId: string, title: string, docNumber: string): Promise<void> {
+  await db.query(
+    `INSERT INTO legal_documents (id, jurisdiction, official_source_id, doc_type, doc_number, title, source_url, retrieved_at, sha256_checksum)
+     VALUES ($1, 'UZ', $1, $2, $3, $4, 'https://lex.uz/ru/docs/test', now(), $1)
+     ON CONFLICT (id) DO NOTHING`,
+    [docId, docNumber.startsWith('ПП-') ? 'resolution' : 'decree', docNumber, title],
+  );
+}
+async function seedPoint(
+  docId: string,
+  suffix: string,
+  number: string,
+  ord: number,
+  parentId: string | null,
+): Promise<string> {
+  const unitId = `${docId}_${suffix}`;
+  await db.query(
+    `INSERT INTO legal_units (id, document_id, parent_id, unit_type, number, breadcrumb, text, language, ord, source_url, retrieved_at, sha256_checksum, valid_from, valid_to)
+     VALUES ($1, $2, $3, 'section', $4, $5, 'тестовый текст пункта', 'ru', $6, 'https://lex.uz/ru/docs/test', now(), $1, '2020-10-05', NULL)
+     ON CONFLICT (id) DO NOTHING`,
+    [unitId, docId, parentId, number, `UZ / ${title(docId)} / п.${number}`, ord],
+  );
+  return unitId;
+}
+const title = (docId: string) => docId.replace(/^ld_uz_/, 'акт ');
+
 describe('resolveCitationText — детерминизм на многоактовом корпусе', () => {
   let specificUnit: string;
 
@@ -75,6 +102,55 @@ describe('resolveCitationText — детерминизм на многоакто
   it('несуществующая статья → null (fail-closed)', async () => {
     const id = await resolveCitationText(db, 'ст. 999 Закона о залоге', 'UZ');
     assert.equal(id, null);
+  });
+});
+
+describe('resolveCitationText — указы/постановления по doc_number', () => {
+  let mainP5: string;
+  let lawSt5: string;
+
+  before(async () => {
+    // Указ с п.5 в основном тексте И п.5 в приложении (annex: parent_id = контейнер).
+    await seedDecree('ld_uz_test_up9901', 'О мерах по тестовой цифровизации', 'УП-9901');
+    mainP5 = await seedPoint('ld_uz_test_up9901', 'p-5', '5', 4, null);
+    await db.query(
+      `INSERT INTO legal_units (id, document_id, unit_type, number, breadcrumb, text, language, ord, source_url, retrieved_at, sha256_checksum, valid_from)
+       VALUES ('ld_uz_test_up9901_pril-1', 'ld_uz_test_up9901', 'part', '1', 'UZ / акт / прил. 1', '', 'ru', 30, 'https://lex.uz/ru/docs/test', now(), 'x', '2020-10-05')
+       ON CONFLICT (id) DO NOTHING`,
+    );
+    await seedPoint('ld_uz_test_up9901', 'pril1-p-5', '5', 40, 'ld_uz_test_up9901_pril-1');
+
+    // Пара «закон + одноимённый указ»: указ содержит имя закона как подстроку.
+    lawSt5 = await seedAct('ld_uz_test_persdata', 'О персональных данных', '5');
+    await seedDecree('ld_uz_test_up9902', 'О мерах по реализации Закона «О персональных данных»', 'УП-9902');
+    await seedPoint('ld_uz_test_up9902', 'p-5', '5', 1, null);
+  });
+
+  it('«п. 5 УП-9901» → пункт ОСНОВНОГО текста, не приложения', async () => {
+    const id = await resolveCitationText(db, 'п. 5 УП-9901', 'UZ');
+    assert.equal(id, mainP5);
+  });
+
+  it('детерминизм: 5 одинаковых запросов — один результат', async () => {
+    const runs = await Promise.all(Array.from({ length: 5 }, () => resolveCitationText(db, 'пункт 5 Указа Президента № УП-9901', 'UZ')));
+    assert.deepEqual(new Set(runs), new Set([mainP5]));
+  });
+
+  it('несуществующий пункт / несуществующий номер акта → null (fail-closed)', async () => {
+    assert.equal(await resolveCitationText(db, 'п. 99 УП-9901', 'UZ'), null);
+    assert.equal(await resolveCitationText(db, 'п. 5 УП-8888', 'UZ'), null);
+  });
+
+  it('кросс-захват исключён: «ст. 5 Закона…» → ЗАКОН, «п. 5 УП-…» → УКАЗ', async () => {
+    // Название указа содержит «О персональных данных» — кавычный ILIKE матчит
+    // оба документа; фильтр doc_type обязан отдать закон.
+    assert.equal(await resolveCitationText(db, 'ст. 5 Закона «О персональных данных»', 'UZ'), lawSt5);
+    assert.equal(await resolveCitationText(db, 'п. 5 УП-9902', 'UZ'), 'ld_uz_test_up9902_p-5');
+  });
+
+  it('старые статейные кейсы не задеты: «п. 2 ст. 5 Закона о залоге» → статья', async () => {
+    const id = await resolveCitationText(db, 'п. 2 ст. 5 Закона о залоге', 'UZ');
+    assert.equal(id, 'ld_uz_test_zalog_st-5');
   });
 });
 

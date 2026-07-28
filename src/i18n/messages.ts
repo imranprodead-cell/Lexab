@@ -261,7 +261,7 @@ export const MESSAGES: Dict = {
   'an.compliance': { ru: 'Контроль соответствия', en: 'Compliance monitoring' },
   'an.complianceSub': { ru: 'Насколько выводы ИИ подтверждены официальной базой законов.', en: 'How much of the AI output is backed by the official statute base.' },
   'an.citations': { ru: 'Цитаты законов в находках', en: 'Statute citations in findings' },
-  'an.citationsVerifiedShare': { ru: 'подтверждено по базе законов', en: 'verified against the statute base' },
+  'an.citationsVerifiedShare': { ru: 'подтверждено по базе законодательства', en: 'verified against the legislation base' },
   'an.citationsVerified': { ru: 'Подтверждённые цитаты', en: 'Verified citations' },
   'an.citationsUnverified': { ru: 'Непроверенные цитаты', en: 'Unverified citations' },
   'an.corpus': { ru: 'База законов: свежесть', en: 'Statute base freshness' },
@@ -495,7 +495,7 @@ export const MESSAGES: Dict = {
   'sev.Low': { ru: 'Низкая', en: 'Low' },
 
   // Citation verification badge (statute corpus)
-  'finding.verified': { ru: 'Проверено по базе законов', en: 'Verified against law database' },
+  'finding.verified': { ru: 'Проверено по базе законодательства', en: 'Verified against legislation database' },
   'finding.unverified': { ru: 'Источник не подтверждён', en: 'Source not confirmed' },
 
   // Playbooks — team standard positions the AI checks contracts against
