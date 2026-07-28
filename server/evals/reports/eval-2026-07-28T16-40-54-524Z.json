@@ -1,0 +1,28 @@
+{
+  "at": "2026-07-28T16:33:41.470Z",
+  "model": "deepseek-v4-pro",
+  "golden": "uz-decrees.jsonl",
+  "questions": 8,
+  "retrieval": {
+    "hit@5": 1,
+    "hit@10": 1,
+    "recall@10": 0.938
+  },
+  "corpus": {
+    "jurisdiction": "UZ",
+    "documents": 50,
+    "chunks": 5854,
+    "contextCoverage": 1,
+    "embeddingCoverage": 1
+  },
+  "baseline": {
+    "findings": 3,
+    "citationPrecision": 0,
+    "unverifiedShare": 1
+  },
+  "rag": {
+    "findings": 12,
+    "citationPrecision": 1,
+    "unverifiedShare": 0
+  }
+}
