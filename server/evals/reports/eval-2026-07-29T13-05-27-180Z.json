@@ -1,0 +1,18 @@
+{
+  "at": "2026-07-29T12:56:26.552Z",
+  "model": "claude-sonnet-5",
+  "golden": "uz-contract-law.jsonl",
+  "questions": 120,
+  "retrieval": {
+    "hit@5": 0.983,
+    "hit@10": 1,
+    "recall@10": 0.997
+  },
+  "corpus": {
+    "jurisdiction": "UZ",
+    "documents": 83,
+    "chunks": 7343,
+    "contextCoverage": 1,
+    "embeddingCoverage": 1
+  }
+}
