@@ -1,0 +1,18 @@
+{
+  "at": "2026-07-29T12:19:29.498Z",
+  "model": "claude-sonnet-5",
+  "golden": "uz-decrees.jsonl",
+  "questions": 36,
+  "retrieval": {
+    "hit@5": 1,
+    "hit@10": 1,
+    "recall@10": 0.986
+  },
+  "corpus": {
+    "jurisdiction": "UZ",
+    "documents": 73,
+    "chunks": 6516,
+    "contextCoverage": 1,
+    "embeddingCoverage": 1
+  }
+}
