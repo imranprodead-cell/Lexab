@@ -17,7 +17,7 @@ export function RiskGauge({ score }: RiskGaugeProps) {
         <svg width={132} height={132} viewBox="0 0 132 132" style={{ transform: 'rotate(-90deg)' }}>
           <defs>
             <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stopColor="var(--accent)" />
+              <stop offset="0%" stopColor="var(--chart-accent)" />
               <stop offset="100%" stopColor="var(--sev-med)" />
             </linearGradient>
           </defs>

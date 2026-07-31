@@ -29,9 +29,11 @@ export function Button({
 }: ButtonProps) {
   const iconColor = variant === 'primary' ? 'var(--on-accent)' : 'currentColor';
   const iconSize = size === 'sm' ? 15 : 17;
+  // Тёмная (акцентная) кнопка получает shimmer-полосу эталона на hover.
+  const shimmer = variant === 'primary' ? ' btn-shimmer' : '';
   return (
     <button
-      className={`${styles.btn} ${VARIANT_CLASS[variant]} ${size === 'sm' ? styles.btnSm : ''} ${className}`}
+      className={`${styles.btn} ${VARIANT_CLASS[variant]} ${size === 'sm' ? styles.btnSm : ''}${shimmer} ${className}`}
       {...rest}
     >
       {icon ? <Icon name={icon} size={iconSize} color={iconColor} strokeWidth={1.9} /> : null}

@@ -18,7 +18,7 @@ import styles from './pages.module.css';
 const STATUS_TONE: Record<SignatureStatus, string> = {
   Draft: 'var(--mut)',
   Sent: 'var(--sev-med)',
-  Viewed: 'var(--accent)',
+  Viewed: 'var(--chart-accent)',
   Completed: 'var(--sev-low)',
   Declined: 'var(--sev-high)',
 };

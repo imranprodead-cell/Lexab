@@ -1,13 +1,30 @@
 /* Shared UI primitives — feature-scoped module. */
 
-/* GlassCard --------------------------------------------------------------- */
+/* GlassCard — рецепт glass-card эталона: светлая верхняя кромка, внутренняя
+   подсветка, мягкая внешняя тень; непрозрачный фолбэк без backdrop-filter. */
 .glass {
-  background: var(--glass-bg);
-  backdrop-filter: blur(20px) saturate(1.3);
-  -webkit-backdrop-filter: blur(20px) saturate(1.3);
-  border: 1px solid var(--glass-border);
+  position: relative;
+  background: var(--glass-bg-solid);
+  border: 1px solid var(--glass-edge);
+  border-top-color: var(--glass-edge-top);
   border-radius: var(--r-xl);
-  box-shadow: var(--shadow-card);
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    inset 0 0 48px rgba(255, 255, 255, 0.04),
+    0 16px 48px rgba(0, 0, 0, 0.07);
+}
+:global(html.dark) .glass {
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    inset 0 0 48px rgba(255, 255, 255, 0.02),
+    0 16px 48px rgba(0, 0, 0, 0.45);
+}
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass {
+    background: var(--glass-bg);
+    -webkit-backdrop-filter: blur(20px) saturate(1.2);
+    backdrop-filter: blur(20px) saturate(1.2);
+  }
 }
 
 /* Button ------------------------------------------------------------------ */
@@ -35,18 +52,19 @@
   color: var(--on-accent);
   background: var(--accent);
   font-weight: 600;
-  box-shadow: 0 0 22px -4px color-mix(in srgb, var(--accent) 80%, transparent);
+  border-radius: var(--r-lg);
 }
 .btnPrimary:not(:disabled):hover {
   transform: translateY(-1px);
 }
 .btnSecondary {
   color: var(--text);
-  background: var(--hover-2);
+  background: var(--panel);
   border-color: var(--border);
+  border-radius: var(--r-lg);
 }
 .btnSecondary:not(:disabled):hover {
-  background: var(--hover-3);
+  background: var(--hover);
 }
 .btnGhost {
   color: var(--dim);
@@ -237,12 +255,21 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(
-    150deg,
-    var(--accent),
-    color-mix(in srgb, var(--accent) 55%, transparent)
-  );
-  box-shadow: 0 0 18px -4px color-mix(in srgb, var(--accent) 70%, transparent);
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+/* Знак бренда на плашке (LogoMark эталона) */
+.logoMark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text);
 }
 
 /* Logo loader — brand mark inside an infinite progress ring ---------------- */

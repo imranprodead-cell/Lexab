@@ -1,11 +1,12 @@
-import { Icon } from '@/components/icons/Icon';
+import { LogoMarkGlyph } from './LogoMark';
 import styles from './ui.module.css';
 
-/** AI brand mark — gradient diamond used as the assistant avatar. */
+/** AI brand mark — LogoMark эталона (буква «L» + строки документа + галочка)
+ *  на плашке; используется как аватар ассистента и знак бренда. */
 export function Avatar({ size = 30 }: { size?: number }) {
   return (
     <div className={styles.avatar} style={{ width: size, height: size }}>
-      <Icon name="diamond" size={size * 0.5} color="var(--on-accent)" strokeWidth={2.2} />
+      <LogoMarkGlyph size={Math.round(size * 0.72)} />
     </div>
   );
 }

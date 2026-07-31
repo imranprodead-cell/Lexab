@@ -69,7 +69,7 @@ function MonthlyChart({ data }: { data: AnalyticsSummary['monthly'] }) {
         <h2 className={styles.panelTitle}>{t('an.monthly')}</h2>
         <div className={styles.chartLegend}>
           <span className={styles.chartLegendItem}>
-            <i className={styles.chartDot} style={{ background: 'var(--accent)' }} />
+            <i className={styles.chartDot} style={{ background: 'var(--chart-accent)' }} />
             {t('an.series.reviews')}
           </span>
           <span className={styles.chartLegendItem}>
@@ -98,7 +98,7 @@ function MonthlyChart({ data }: { data: AnalyticsSummary['monthly'] }) {
                     className={styles.chartBar}
                     style={{
                       height: `${(m.reviews / max) * 100}%`,
-                      background: 'var(--accent)',
+                      background: 'var(--chart-accent)',
                       animationDelay: `${i * 45}ms`,
                     }}
                   >

@@ -30,7 +30,7 @@ import styles from './pages.module.css';
 const STATUS_TONE: Record<ContractStatus, string> = {
   Draft: 'var(--mut)',
   'In review': 'var(--sev-med)',
-  Reviewed: 'var(--accent)',
+  Reviewed: 'var(--chart-accent)',
   Signed: 'var(--sev-low)',
 };
 
@@ -594,7 +594,7 @@ export function DocumentDetailPage() {
                             ? 'var(--sev-low)'
                             : run.status === 'failed'
                               ? 'var(--sev-high)'
-                              : 'var(--accent)'
+                              : 'var(--chart-accent)'
                         }
                         plain
                       >
@@ -665,7 +665,7 @@ export function DocumentDetailPage() {
                               ? 'var(--sev-high)'
                               : flow.status === 'cancelled'
                                 ? 'var(--mut)'
-                                : 'var(--accent)'
+                                : 'var(--chart-accent)'
                         }
                         plain
                       >

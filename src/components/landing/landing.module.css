@@ -456,11 +456,11 @@
 
 /* Severity tokens are theme-invariant and too light for small text on the
    light background — darken the demo chips there to pass WCAG AA. */
-:global(html[data-theme='light']) .demoSeverity {
+:global(html:not(.dark)) .demoSeverity {
   color: color-mix(in srgb, var(--sev-high, #e5484d) 72%, #000);
 }
 
-:global(html[data-theme='light']) .demoVerified {
+:global(html:not(.dark)) .demoVerified {
   color: color-mix(in srgb, var(--ok, #2f9e63) 62%, #000);
 }
 
@@ -685,43 +685,43 @@
 
 /* Dark theme inverts the popular card: the others are dark surfaces, so Pro
    becomes a white card to stand out (mirror of the light-theme black card). */
-html[data-theme='dark'] .planPopular {
+:global(html.dark) .planPopular {
   background: linear-gradient(165deg, #ffffff 0%, #f1f1f6 100%);
   border-color: color-mix(in srgb, var(--accent) 50%, #d6d6e0);
   box-shadow: 0 22px 58px color-mix(in srgb, var(--accent) 32%, transparent);
   color: #17171c;
 }
 
-html[data-theme='dark'] .planPopular .planName,
-html[data-theme='dark'] .planPopular .planPrice {
+:global(html.dark) .planPopular .planName,
+:global(html.dark) .planPopular .planPrice {
   color: #17171c;
 }
 
-html[data-theme='dark'] .planPopular .planPer,
-html[data-theme='dark'] .planPopular .planTagline,
-html[data-theme='dark'] .planPopular .planPriceNote {
+:global(html.dark) .planPopular .planPer,
+:global(html.dark) .planPopular .planTagline,
+:global(html.dark) .planPopular .planPriceNote {
   color: #5a5a66;
 }
 
-html[data-theme='dark'] .planPopular .planFeatures li {
+:global(html.dark) .planPopular .planFeatures li {
   color: #3a3a44;
 }
 
-html[data-theme='dark'] .planPopular .planCheck {
+:global(html.dark) .planPopular .planCheck {
   color: var(--accent);
 }
 
-html[data-theme='dark'] .planPopular .planPriceOld {
+:global(html.dark) .planPopular .planPriceOld {
   color: #9a9aa6;
 }
 
 /* White card needs a coloured button (the dark card used a white one). */
-html[data-theme='dark'] .planPopular .planBtnDark {
+:global(html.dark) .planPopular .planBtnDark {
   background: var(--grad-cta);
   color: var(--on-grad);
 }
 
-html[data-theme='dark'] .planPopular .planBtnDark:hover {
+:global(html.dark) .planPopular .planBtnDark:hover {
   background: var(--grad-cta-hover);
   box-shadow: 0 10px 26px color-mix(in srgb, var(--accent) 40%, transparent);
 }
@@ -880,7 +880,7 @@ html[data-theme='dark'] .planPopular .planBtnDark:hover {
 }
 
 /* Dark theme: the Pro card is white, so the accent reads fine as-is. */
-html[data-theme='dark'] .planPopular .planInherits {
+:global(html.dark) .planPopular .planInherits {
   color: var(--accent);
 }
 

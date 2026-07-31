@@ -21,7 +21,7 @@ const RISK_ORDER: Record<string, number> = { Low: 0, Elevated: 1, High: 2 };
 const STATUS_TONE: Record<ContractStatus, string> = {
   Draft: 'var(--mut)',
   'In review': 'var(--sev-med)',
-  Reviewed: 'var(--accent)',
+  Reviewed: 'var(--chart-accent)',
   Signed: 'var(--sev-low)',
 };
 

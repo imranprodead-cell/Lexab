@@ -6,7 +6,14 @@ import { create } from 'zustand';
 
 const STORAGE_KEY = 'lexai.ui.prefs';
 
-export const ACCENT_OPTIONS = ['#8b7cf6', '#5b8def', '#3fb8af', '#e0666b'] as const;
+/** 'default' = графитовый акцент темы (цвет чернил, задан токенами в
+ *  global.css и сам переключается вместе с темой). Явный hex — пользовательское
+ *  переопределение, пишется инлайном на <html>. */
+export const ACCENT_DEFAULT = 'default';
+export const ACCENT_OPTIONS = [ACCENT_DEFAULT, '#5b8def', '#3fb8af', '#e0666b'] as const;
+
+/** Прежний фиолетовый дефолт — мигрируется в 'default' при чтении prefs. */
+const LEGACY_ACCENT = '#8b7cf6';
 
 export type Theme = 'dark' | 'light' | 'system';
 
@@ -88,7 +95,10 @@ function loadPrefs(): Prefs {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return fallback;
-    return { ...fallback, ...(JSON.parse(raw) as Partial<Prefs>) };
+    const prefs = { ...fallback, ...(JSON.parse(raw) as Partial<Prefs>) };
+    // Редизайн: прежний фиолетовый дефолт становится графитом темы.
+    if (prefs.accent === LEGACY_ACCENT) prefs.accent = ACCENT_DEFAULT;
+    return prefs;
   } catch {
     return fallback;
   }
@@ -114,12 +124,33 @@ function resolveTheme(theme: Theme): 'dark' | 'light' {
   return theme === 'dark' ? 'dark' : 'light';
 }
 
-/** Apply theme prefs to the document root as CSS variables / data attrs. */
+/** Apply theme prefs to the document root as CSS variables / class / attrs. */
 export function applyTheme(prefs: Pick<Prefs, 'accent' | 'reduceMotion' | 'theme'>) {
   const root = document.documentElement;
-  root.style.setProperty('--accent', prefs.accent);
+  if (prefs.accent === ACCENT_DEFAULT) {
+    // Графит темы: значение приходит из токенов global.css и меняется
+    // вместе с .dark — инлайн-переопределение снимаем.
+    root.style.removeProperty('--accent');
+    root.style.removeProperty('--on-accent');
+  } else {
+    root.style.setProperty('--accent', prefs.accent);
+    root.style.setProperty('--on-accent', '#0c0c10');
+  }
   root.setAttribute('data-reduce-motion', String(prefs.reduceMotion));
-  root.setAttribute('data-theme', resolveTheme(prefs.theme));
+  root.classList.toggle('dark', resolveTheme(prefs.theme) === 'dark');
+}
+
+/* Плавный кросс-фейд при смене темы: класс theme-switching включает узкий
+   набор transition (см. global.css) и снимается после завершения. */
+let themeSwitchTimer: ReturnType<typeof setTimeout> | null = null;
+function beginThemeTransition() {
+  const root = document.documentElement;
+  root.classList.add('theme-switching');
+  if (themeSwitchTimer) clearTimeout(themeSwitchTimer);
+  themeSwitchTimer = setTimeout(() => {
+    root.classList.remove('theme-switching');
+    themeSwitchTimer = null;
+  }, 420);
 }
 
 const initial = loadPrefs();
@@ -172,6 +203,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   },
 
   setTheme: (theme) => {
+    if (!get().reduceMotion) beginThemeTransition();
     set({ theme });
     applyTheme({ accent: get().accent, reduceMotion: get().reduceMotion, theme });
     persist(snapshot(get(), { theme }));
@@ -180,6 +212,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   toggleTheme: () => {
     // Binary toggle (command palette, auth page): flip to the opposite palette.
     const theme: Theme = resolveTheme(get().theme) === 'dark' ? 'light' : 'dark';
+    if (!get().reduceMotion) beginThemeTransition();
     set({ theme });
     applyTheme({ accent: get().accent, reduceMotion: get().reduceMotion, theme });
     persist(snapshot(get(), { theme }));

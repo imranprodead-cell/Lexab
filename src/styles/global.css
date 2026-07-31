@@ -1,44 +1,44 @@
 /* ============================================================================
    Lexab global stylesheet — design tokens, resets, keyframes, utilities.
-   Colors are exposed as CSS custom properties so the accent can be re-themed
-   at runtime (see UI store). Component styling lives in feature-scoped
-   *.module.css files.
+   Палитра «тёплый графит» перенесена из дизайн-эталона: светлая тема в :root,
+   тёмная — через класс .dark на <html> (ставится pre-paint скриптом в
+   index.html и UI-стором). Семантические цвета данных (--sev-*, --ok/--warn/
+   --danger, --chart-*) при смене темы НЕ меняются.
+   Component styling lives in feature-scoped *.module.css files.
    ========================================================================== */
 
 :root {
+  color-scheme: light;
+
   /* Surfaces */
-  --bg: #101014;
-  --panel: #17171c;
-  --panel-2: #1c1c22;
-  --doc-bg: #0d0d11;
+  --bg: #fafaf9;
+  --panel: #ffffff;
+  --panel-2: #f5f4f2;
+  --doc-bg: #f2f1ef;
 
   /* Hairlines & text */
-  --border: #26262e;
-  --text: #e7e7ec;
-  --dim: #9a9aa6;
-  --mut: #5f5f6a;
+  --border: #e8e6e3;
+  --panel-edge: rgba(35, 33, 32, 0.05);
+  --text: #232120;
+  --dim: #6f6b65;
+  --mut: #a3a09a;
 
-  /* Accent (overridable at runtime via inline style on <html>) */
-  --accent: #8b7cf6;
-  --on-accent: #0c0c10;
+  /* Accent — графит (цвет чернил темы). Пользовательский выбор цвета в
+     Настройках переопределяет --accent/--on-accent инлайном на <html>. */
+  --accent: #232120;
+  --on-accent: #fbfaf9;
 
-  /* Violet CTA gradient — the "Начать бесплатно" / pilot buttons and the
-     pre-footer banner. Derived from the accent so runtime re-theming still
-     tracks, but tuned light→deep to read like a premium brand gradient with
-     white text (contrast holds on both themes). */
-  --grad-cta: linear-gradient(
-    135deg,
-    color-mix(in srgb, var(--accent) 82%, #ffffff) 0%,
-    color-mix(in srgb, var(--accent) 90%, #1c1550) 100%
-  );
+  /* Primary CTA — плоский графит вместо прежнего фиолетового градиента.
+     Имена сохранены: их читают все *.module.css. */
+  --grad-cta: linear-gradient(135deg, var(--accent), var(--accent));
   --grad-cta-hover: linear-gradient(
     135deg,
-    color-mix(in srgb, var(--accent) 88%, #ffffff) 0%,
-    color-mix(in srgb, var(--accent) 96%, #1c1550) 100%
+    color-mix(in srgb, var(--accent) 86%, var(--bg)),
+    color-mix(in srgb, var(--accent) 94%, var(--bg))
   );
-  --on-grad: #ffffff;
+  --on-grad: var(--on-accent);
 
-  /* Severity / status */
+  /* Severity / status — СЕМАНТИКА ДАННЫХ, не менять при редизайне */
   --sev-high: oklch(0.68 0.17 22);
   --sev-med: oklch(0.79 0.14 78);
   --sev-low: oklch(0.74 0.13 150);
@@ -48,77 +48,142 @@
 
   /* Secondary chart series (the muted bars next to the accent ones). */
   --chart-muted: color-mix(in srgb, var(--mut) 80%, transparent);
+  /* Замороженный цвет данных: шкалы «Activity by month», статусы
+     Viewed/Reviewed, RiskGauge — прежний фиолетовый бренд-цвет данных.
+     Не следует за интерфейсным акцентом. */
+  --chart-accent: #8b7cf6;
+  /* Монохромные ступени графиков из эталона */
+  --chart-mid: #8c8c8c;
+  --chart-low: #c9c9c9;
 
   /* Radii */
   --r-sm: 6px;
   --r-md: 10px;
   --r-lg: 12px;
   --r-xl: 16px;
+  --r-2xl: 24px;
 
-  /* Elevation */
-  --shadow-card: 0 1px 0 rgba(255, 255, 255, 0.05) inset,
-    0 24px 60px -30px rgba(0, 0, 0, 0.7);
-  --shadow-pop: 0 20px 60px -20px rgba(0, 0, 0, 0.6);
+  /* Elevation — мягкие тени панелей из эталона */
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.03), 0 12px 28px -16px rgba(0, 0, 0, 0.08);
+  --shadow-pop: 0 20px 60px -20px rgba(0, 0, 0, 0.18);
+
+  /* Liquid glass (эталон) */
+  --glass-bg: rgba(255, 255, 255, 0.55);
+  --glass-bg-solid: rgba(255, 255, 255, 0.92);
+  --glass-bg-strong: rgba(255, 255, 255, 0.78);
+  --glass-nav-bg: rgba(255, 255, 255, 0.4);
+  --glass-nav-bg-scrolled: rgba(255, 255, 255, 0.6);
+  --glass-edge: rgba(35, 33, 32, 0.08);
+  --glass-edge-top: rgba(255, 255, 255, 0.95);
+  --glass-highlight: rgba(255, 255, 255, 0.85);
+  --glass-border: var(--glass-edge);
 
   /* Semantic translucent surfaces & hover overlays (theme-aware) */
-  --glass-bg: rgba(28, 28, 36, 0.55);
-  --glass-border: rgba(255, 255, 255, 0.07);
-  --bar-bg: rgba(16, 16, 20, 0.7);
-  --surface-translucent: rgba(23, 23, 28, 0.92);
-  --toolbar-bg: rgba(20, 20, 25, 0.86);
+  --bar-bg: rgba(255, 255, 255, 0.7);
+  --surface-translucent: rgba(255, 255, 255, 0.95);
+  --toolbar-bg: rgba(255, 255, 255, 0.92);
+  --hover: rgba(35, 33, 32, 0.04);
+  --hover-2: rgba(35, 33, 32, 0.06);
+  --hover-3: rgba(35, 33, 32, 0.09);
+  --row-tint: rgba(35, 33, 32, 0.015);
+  --row-hover: rgba(35, 33, 32, 0.03);
+
+  /* Background scenery (эталон) */
+  --grid-line: rgba(35, 33, 32, 0.05);
+  --blob-core: rgba(35, 33, 32, 0.055);
+  --noise-opacity: 0.025;
+
+  /* Shimmer */
+  --shimmer-edge: rgba(255, 255, 255, 0.08);
+  --shimmer-mid: rgba(160, 160, 160, 0.15);
+  --cta-shimmer: rgba(255, 255, 255, 0.16);
+
+  /* Hero gradient canvas — путешествующие пятна и звёздочки */
+  --bloom-a: rgba(255, 132, 84, 0.32);
+  --bloom-b: rgba(139, 92, 246, 0.28);
+  --bloom-c: rgba(244, 114, 182, 0.16);
+  --spark: rgba(124, 58, 237, 0.45);
+
+  /* Decorative contract lines (chat backdrop) */
+  --contract-line: rgba(27, 42, 74, 0.055);
+  --contract-gold: rgba(176, 141, 87, 0.35);
+
+  /* Type */
+  --font-sans: 'Inter', 'Inter Fallback', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-label: 'Inter', 'Inter Fallback', system-ui, sans-serif;
+  /* Акцентные слова (italic) — Playfair; тело договора остаётся на Georgia. */
+  --font-display: 'Playfair Display', 'Playfair Display Fallback', Georgia, serif;
+  --font-serif: Georgia, 'Times New Roman', serif;
+
+  /* Motion — set to 0s by the UI store when reduce-motion is on.
+     Общий easing эталона: cubic-bezier(0.16, 1, 0.3, 1). */
+  --dur-fast: 0.15s;
+  --dur-mid: 0.22s;
+  --dur-slow: 0.5s;
+  --dur-reveal: 0.7s;
+  --ease: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* ---------------------------------------------------------------------------
+   Тёмная тема — класс .dark на <html> (pre-paint скрипт + UI store).
+   Only surface/text tokens change; severity colours stay.
+   ------------------------------------------------------------------------- */
+html.dark {
+  color-scheme: dark;
+
+  --bg: #0b0b0a;
+  --panel: #121110;
+  --panel-2: #1a1918;
+  --doc-bg: #080807;
+
+  --border: #282623;
+  --panel-edge: rgba(255, 255, 255, 0.06);
+  --text: #f8f7f5;
+  --dim: #9c9892;
+  --mut: #6e6a64;
+
+  --accent: #f8f7f5;
+  --on-accent: #161514;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.25), 0 12px 28px -16px rgba(0, 0, 0, 0.5);
+  --shadow-pop: 0 20px 60px -20px rgba(0, 0, 0, 0.6);
+
+  --glass-bg: rgba(18, 17, 16, 0.55);
+  --glass-bg-solid: rgba(18, 17, 16, 0.92);
+  --glass-bg-strong: rgba(28, 27, 26, 0.7);
+  --glass-nav-bg: rgba(18, 17, 16, 0.4);
+  --glass-nav-bg-scrolled: rgba(28, 27, 26, 0.6);
+  --glass-edge: rgba(255, 255, 255, 0.1);
+  --glass-edge-top: rgba(255, 255, 255, 0.18);
+  --glass-highlight: rgba(255, 255, 255, 0.1);
+
+  --bar-bg: rgba(14, 14, 13, 0.7);
+  --surface-translucent: rgba(18, 17, 16, 0.92);
+  --toolbar-bg: rgba(16, 15, 14, 0.86);
   --hover: rgba(255, 255, 255, 0.04);
   --hover-2: rgba(255, 255, 255, 0.06);
   --hover-3: rgba(255, 255, 255, 0.09);
   --row-tint: rgba(255, 255, 255, 0.015);
   --row-hover: rgba(255, 255, 255, 0.025);
 
-  /* Type */
-  --font-sans: 'Instrument Sans', system-ui, -apple-system, sans-serif;
-  /* Label/accent face for eyebrows, badges and small captions (was JetBrains
-     Mono). Manrope: clean semi-geometric sans with full Cyrillic support. */
-  --font-label: 'Manrope', 'Instrument Sans', system-ui, sans-serif;
-  --font-serif: Georgia, 'Times New Roman', serif;
+  --grid-line: rgba(248, 247, 245, 0.045);
+  --blob-core: rgba(248, 247, 245, 0.05);
+  --noise-opacity: 0.035;
 
-  /* Motion — set to 0s by the UI store when reduce-motion is on */
-  --dur-fast: 0.15s;
-  --dur-mid: 0.22s;
-  --dur-slow: 0.5s;
-  --ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --shimmer-edge: rgba(255, 255, 255, 0.04);
+  --shimmer-mid: rgba(200, 200, 200, 0.1);
+  --cta-shimmer: rgba(10, 10, 10, 0.12);
 
-  color-scheme: dark;
-}
+  --bloom-a: rgba(255, 122, 66, 0.5);
+  --bloom-b: rgba(147, 91, 255, 0.55);
+  --bloom-c: rgba(244, 114, 182, 0.22);
+  --spark: rgba(255, 255, 255, 0.9);
 
-/* ---------------------------------------------------------------------------
-   Light theme — activated by data-theme="light" on <html> (see UI store).
-   Only surface/text tokens change; brand accent and severity colours stay.
-   ------------------------------------------------------------------------- */
-html[data-theme='light'] {
-  --bg: #ffffff;
-  --panel: #f6f6f8;
-  --panel-2: #ededf1;
-  --doc-bg: #f0f0f4;
+  --contract-line: rgba(248, 247, 245, 0.05);
+  --contract-gold: rgba(176, 141, 87, 0.42);
 
-  --border: #e4e4ea;
-  --text: #17171c;
-  --dim: #5a5a66;
-  --mut: #9a9aa6;
-
-  --shadow-card: 0 1px 0 rgba(255, 255, 255, 0.6) inset,
-    0 24px 60px -30px rgba(0, 0, 0, 0.22);
-  --shadow-pop: 0 20px 60px -20px rgba(0, 0, 0, 0.2);
-
-  --glass-bg: rgba(255, 255, 255, 0.72);
-  --glass-border: rgba(0, 0, 0, 0.08);
-  --bar-bg: rgba(255, 255, 255, 0.72);
-  --surface-translucent: rgba(255, 255, 255, 0.95);
-  --toolbar-bg: rgba(255, 255, 255, 0.92);
-  --hover: rgba(0, 0, 0, 0.04);
-  --hover-2: rgba(0, 0, 0, 0.05);
-  --hover-3: rgba(0, 0, 0, 0.08);
-  --row-tint: rgba(0, 0, 0, 0.015);
-  --row-hover: rgba(0, 0, 0, 0.03);
-
-  color-scheme: light;
+  --chart-mid: #8f8f8f;
+  --chart-low: #3d3d3d;
 }
 
 /* Reduce-motion toggle: the UI store sets data-reduce-motion="true" on <html> */
@@ -126,6 +191,7 @@ html[data-reduce-motion='true'] {
   --dur-fast: 0s;
   --dur-mid: 0s;
   --dur-slow: 0s;
+  --dur-reveal: 0s;
 }
 html[data-reduce-motion='true'] *,
 html[data-reduce-motion='true'] *::before,
@@ -141,6 +207,8 @@ html[data-reduce-motion='true'] *::after {
     --dur-fast: 0s;
     --dur-mid: 0s;
     --dur-slow: 0s;
+    --dur-reveal: 0s;
+    scroll-behavior: auto;
   }
   *,
   *::before,
@@ -149,6 +217,17 @@ html[data-reduce-motion='true'] *::after {
     animation-iteration-count: 1 !important;
     transition-duration: 0.001s !important;
   }
+}
+
+/* Плавный кросс-фейд цветов при переключении темы. Намеренно узко: только
+   элементы (без псевдо) и только три дешёвых цветовых свойства — полный
+   recalc дерева остаётся в 60fps. Класс вешает UI store на ~420мс. */
+html.theme-switching,
+html.theme-switching * {
+  transition:
+    background-color 0.3s ease,
+    color 0.3s ease,
+    border-color 0.3s ease !important;
 }
 
 /* Keyboard focus: one consistent ring app-wide (invisible for mouse/touch). */
@@ -167,6 +246,13 @@ body,
   margin: 0;
   padding: 0;
   height: 100%;
+}
+
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 96px;
+  /* reserve the scrollbar track so its appearance never shifts the layout */
+  scrollbar-gutter: stable;
 }
 
 body {
@@ -189,7 +275,8 @@ body {
 }
 
 ::selection {
-  background: color-mix(in srgb, var(--accent) 32%, transparent);
+  background: var(--text);
+  color: var(--bg);
 }
 
 a {
@@ -197,7 +284,8 @@ a {
   text-decoration: none;
 }
 a:hover {
-  color: color-mix(in srgb, var(--accent) 75%, white);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 button {
@@ -219,7 +307,7 @@ button {
   background-clip: padding-box;
 }
 .scroll::-webkit-scrollbar-thumb:hover {
-  background: #3a3a44;
+  background: var(--dim);
   background-clip: padding-box;
   border: 3px solid transparent;
 }
@@ -240,10 +328,367 @@ button {
   border: 0;
 }
 
-/* Keyframes ----------------------------------------------------------------
-   The lx* keyframes live inside the .module.css files that use them:
-   CSS Modules hashes animation names, so a module referencing a keyframe
-   defined here would point at a name that no longer exists after build. */
+/* ============================================================================
+   Дизайн-утилиты эталона. Глобальные классы (не хешируются CSS-модулями) —
+   их можно вешать строкой из любого компонента: className="panel".
+   ========================================================================== */
+
+/* Мягкая серая панель — промежуточный слой между bg и карточкой */
+.panel {
+  background: var(--panel-2);
+  border: 1px solid var(--panel-edge);
+  box-shadow: var(--shadow-card);
+}
+
+/* ---------- liquid glass ---------- */
+.glass {
+  background: var(--glass-bg-solid);
+  border: 1px solid var(--glass-edge);
+}
+
+.glass-nav {
+  background: var(--glass-bg-solid);
+  border-bottom: 1px solid var(--glass-edge);
+  transition:
+    background 0.3s ease,
+    box-shadow 0.3s ease,
+    backdrop-filter 0.3s ease,
+    -webkit-backdrop-filter 0.3s ease;
+}
+
+.glass-nav--scrolled {
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.06);
+}
+html.dark .glass-nav--scrolled {
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.glass-card {
+  position: relative;
+  background: var(--glass-bg-solid);
+  border: 1px solid var(--glass-edge);
+  border-top-color: var(--glass-edge-top);
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    inset 0 0 48px rgba(255, 255, 255, 0.04),
+    0 16px 48px rgba(0, 0, 0, 0.07);
+}
+html.dark .glass-card {
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    inset 0 0 48px rgba(255, 255, 255, 0.02),
+    0 16px 48px rgba(0, 0, 0, 0.45);
+}
+
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass {
+    background: var(--glass-bg);
+    -webkit-backdrop-filter: blur(20px) saturate(1.2);
+    backdrop-filter: blur(20px) saturate(1.2);
+  }
+  .glass-nav {
+    background: var(--glass-nav-bg);
+    -webkit-backdrop-filter: blur(14px) saturate(1.2);
+    backdrop-filter: blur(14px) saturate(1.2);
+  }
+  .glass-nav--scrolled {
+    background: var(--glass-nav-bg-scrolled);
+    -webkit-backdrop-filter: blur(24px) saturate(1.3);
+    backdrop-filter: blur(24px) saturate(1.3);
+  }
+  .glass-card {
+    background: var(--glass-bg);
+    -webkit-backdrop-filter: blur(20px) saturate(1.2);
+    backdrop-filter: blur(20px) saturate(1.2);
+  }
+}
+
+/* Медленная серая иридесценция по стеклу */
+.sheen {
+  position: relative;
+  overflow: hidden;
+}
+.sheen::before {
+  content: '';
+  position: absolute;
+  will-change: transform;
+  inset: -60% -80%;
+  background: linear-gradient(
+    120deg,
+    var(--shimmer-edge) 30%,
+    var(--shimmer-mid) 50%,
+    var(--shimmer-edge) 70%
+  );
+  animation: sheen-drift 7s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+
+/* CTA hover shimmer — мягкая полоса, скользящая по кнопке */
+.btn-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+.btn-shimmer::after {
+  content: '';
+  position: absolute;
+  will-change: transform;
+  inset: 0;
+  background: linear-gradient(
+    115deg,
+    transparent 30%,
+    var(--cta-shimmer) 50%,
+    transparent 70%
+  );
+  transform: translateX(-130%);
+  pointer-events: none;
+}
+.btn-shimmer:hover::after {
+  animation: shimmer-slide 2s ease-in-out infinite;
+}
+
+/* ---------- gradient blooms ---------- */
+.bloom {
+  position: absolute;
+  border-radius: 9999px;
+  will-change: transform, opacity;
+}
+.bloom--a {
+  background: radial-gradient(circle at center, var(--bloom-a), transparent 66%);
+  animation: bloom-roam-a 38s ease-in-out infinite alternate;
+}
+.bloom--b {
+  background: radial-gradient(circle at center, var(--bloom-b), transparent 66%);
+  animation: bloom-roam-b 46s ease-in-out infinite alternate;
+}
+.bloom--c {
+  background: radial-gradient(circle at center, var(--bloom-c), transparent 66%);
+  animation: bloom-roam-c 32s ease-in-out infinite alternate;
+}
+
+.sparkle {
+  position: absolute;
+  color: var(--spark);
+  will-change: transform, opacity;
+  opacity: 0;
+  animation: twinkle ease-in-out infinite;
+  /* во время stagger-задержки держим первый кадр — нет вспышки на загрузке */
+  animation-fill-mode: backwards;
+}
+
+/* ---------- background scenery ---------- */
+.bg-grid {
+  background-image:
+    linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+  background-size: 56px 56px;
+  -webkit-mask-image: radial-gradient(ellipse 90% 70% at 50% 32%, black 25%, transparent 78%);
+  mask-image: radial-gradient(ellipse 90% 70% at 50% 32%, black 25%, transparent 78%);
+  animation: grid-pulse 9s ease-in-out infinite;
+  will-change: opacity;
+}
+
+.blob {
+  border-radius: 9999px;
+  background: radial-gradient(circle at center, var(--blob-core), transparent 68%);
+  will-change: transform, opacity;
+}
+.blob--a {
+  animation: blob-breathe 16s ease-in-out infinite alternate;
+}
+.blob--b {
+  animation: blob-breathe 21s ease-in-out infinite alternate-reverse;
+}
+
+.noise {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  opacity: var(--noise-opacity);
+}
+
+/* Анимированное подчёркивание навигации: слева въезжает, вправо уезжает —
+   быстрые прыжки между ссылками читаются как один непрерывный свайп */
+.nav-link {
+  position: relative;
+}
+.nav-link::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -4px;
+  height: 1px;
+  background: currentColor;
+  transform: scaleX(0);
+  transform-origin: right;
+  transition: transform 0.25s ease-out;
+}
+.nav-link:hover::after,
+.nav-link:focus-visible::after {
+  transform: scaleX(1);
+  transform-origin: left;
+}
+
+/* FAQ-аккордеон без анимации высоты (grid-rows trick) */
+.faq-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.35s var(--ease);
+}
+.faq-body > div {
+  overflow: hidden;
+}
+.faq-item[data-open='true'] .faq-body {
+  grid-template-rows: 1fr;
+}
+
+/* Каскад появления: хук useReveal прячет элемент инлайн-стилем и добавляет
+   is-inview при входе в вьюпорт; задержка — через --reveal-delay. */
+.anim-reveal.is-inview {
+  animation: lx-reveal-up var(--dur-reveal) var(--ease) both;
+  animation-delay: var(--reveal-delay, 0s);
+}
+
+/* ============================================================================
+   Global keyframes — используются ТОЛЬКО глобальными классами выше.
+   Кейфреймы модулей живут в самих *.module.css (CSS Modules хеширует имена).
+   ========================================================================== */
+
+@keyframes lx-reveal-up {
+  from {
+    opacity: 0;
+    transform: translateY(28px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes sheen-drift {
+  from {
+    transform: translateX(-16%);
+  }
+  to {
+    transform: translateX(16%);
+  }
+}
+
+@keyframes shimmer-slide {
+  from {
+    transform: translateX(-130%);
+  }
+  to {
+    transform: translateX(130%);
+  }
+}
+
+@keyframes grid-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.65;
+  }
+}
+
+/* оранжевое: от левого края через весь экран направо */
+@keyframes bloom-roam-a {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0.9;
+  }
+  35% {
+    transform: translate3d(28vw, 16vh, 0) scale(1.12);
+    opacity: 1;
+  }
+  70% {
+    transform: translate3d(56vw, 6vh, 0) scale(0.95);
+    opacity: 0.85;
+  }
+  100% {
+    transform: translate3d(40vw, 30vh, 0) scale(1.1);
+    opacity: 1;
+  }
+}
+
+/* фиолетовое: от правого края налево */
+@keyframes bloom-roam-b {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0.9;
+  }
+  35% {
+    transform: translate3d(-30vw, 10vh, 0) scale(1.1);
+    opacity: 1;
+  }
+  70% {
+    transform: translate3d(-58vw, 22vh, 0) scale(0.92);
+    opacity: 0.85;
+  }
+  100% {
+    transform: translate3d(-34vw, -6vh, 0) scale(1.15);
+    opacity: 1;
+  }
+}
+
+/* розовое: кружит вокруг центра */
+@keyframes bloom-roam-c {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0.8;
+  }
+  30% {
+    transform: translate3d(14vw, -14vh, 0) scale(1.15);
+    opacity: 1;
+  }
+  60% {
+    transform: translate3d(-12vw, -22vh, 0) scale(0.9);
+    opacity: 0.85;
+  }
+  100% {
+    transform: translate3d(-18vw, 8vh, 0) scale(1.1);
+    opacity: 0.95;
+  }
+}
+
+@keyframes twinkle {
+  0%,
+  100% {
+    opacity: 0.12;
+    transform: scale(0.55);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes blob-breathe {
+  from {
+    transform: translate3d(0, 0, 0) scale(1);
+    opacity: 0.75;
+  }
+  to {
+    transform: translate3d(3%, -2.5%, 0) scale(1.12);
+    opacity: 1;
+  }
+}
+
+/* Отключение фоновых анимаций при reduced-motion (дополняет общий kill-switch
+   выше — тот сводит длительности к 0.001s, здесь глушим бесконечные циклы). */
+@media (prefers-reduced-motion: reduce) {
+  .sheen::before,
+  .btn-shimmer::after,
+  .bg-grid,
+  .blob--a,
+  .blob--b,
+  .bloom--a,
+  .bloom--b,
+  .bloom--c,
+  .sparkle {
+    animation: none !important;
+  }
+}
 
 /* Print — only the tagged document surface prints, on clean white paper. */
 @media print {

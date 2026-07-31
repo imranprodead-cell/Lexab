@@ -11,7 +11,7 @@
   --m-gold: #d3a24c;
   --m-paper: #ffffff;
 }
-:global(html[data-theme='light']) .mascot {
+:global(html:not(.dark)) .mascot {
   --m-body: #3b2a5a;
 }
 

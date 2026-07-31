@@ -422,7 +422,7 @@
   pointer-events: none;
 }
 
-:global(html[data-theme='light']) .right::after {
+:global(html:not(.dark)) .right::after {
   opacity: 0.05;
 }
 
@@ -477,7 +477,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(145deg, var(--accent), color-mix(in srgb, var(--accent) 55%, #3a2f80));
+  color: var(--on-accent);
+  background: linear-gradient(145deg, var(--accent), color-mix(in srgb, var(--accent) 78%, var(--bg)));
   box-shadow:
     0 24px 70px color-mix(in srgb, var(--accent) 45%, transparent),
     inset 0 1px 0 rgba(255, 255, 255, 0.25);

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Avatar } from '@/components/ui/Avatar';
+import { LogoMarkGlyph } from '@/components/ui/LogoMark';
 import { ScalesMascot } from '@/components/ui/ScalesMascot';
 import { Button } from '@/components/ui/Button';
 import { GlassCard } from '@/components/ui/GlassCard';
@@ -660,7 +661,7 @@ export function AuthPage() {
           <div className={styles.rightOrbSmall} />
           <div className={styles.rightMark}>
             <div className={styles.rightDiamond}>
-              <Icon name="diamond" size={52} color="var(--on-accent)" strokeWidth={1.8} />
+              <LogoMarkGlyph size={52} />
             </div>
             <div className={styles.rightCaption}>
               Lexab <span>· {t('auth.tagline')}</span>
