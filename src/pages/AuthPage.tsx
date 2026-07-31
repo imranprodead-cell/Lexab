@@ -3,7 +3,6 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Avatar } from '@/components/ui/Avatar';
 import { Background } from '@/components/ui/Background';
 import { CountUp } from '@/components/ui/CountUp';
-import { LogoMarkGlyph } from '@/components/ui/LogoMark';
 import { ScalesMascot } from '@/components/ui/ScalesMascot';
 import { Button } from '@/components/ui/Button';
 import { GlassCard } from '@/components/ui/GlassCard';
@@ -378,6 +377,8 @@ export function AuthPage() {
   // the `finishing` early return so the hook order never changes.
   const heroSubReveal = useReveal<HTMLParagraphElement>(0.4);
   const heroCtasReveal = useReveal<HTMLDivElement>(0.5);
+  /* Бейджи доверия под карточкой — каскад эталона (delay 0.65). */
+  const badgesReveal = useReveal<HTMLDivElement>(0.65);
   const cardReveal = useReveal<HTMLDivElement>(0.45);
   const statsReveal = useReveal<HTMLDivElement>(0.6);
   const statNoteReveal = useReveal<HTMLDivElement>(0.65);
@@ -435,7 +436,7 @@ export function AuthPage() {
           </nav>
           <div className={`${styles.topBarSide} ${styles.topBarRight}`}>
             <div className={styles.controlsPill}>
-              <LanguageMenu />
+              <LanguageMenu showLabel />
               <span className={styles.controlsDivider} />
               <button
                 type="button"
@@ -512,14 +513,16 @@ export function AuthPage() {
             </h1>
             <p className={styles.heroSub} ref={heroSubReveal}>{t('auth.heroSub')}</p>
 
+            {/* Порядок эталона: «Посмотреть демо» — обводочная, «Как это
+                работает» — тихая текстовая. Обработчики прежние. */}
             <div className={styles.heroCtas} ref={heroCtasReveal}>
-              <button type="button" className={styles.heroCtaOutline} onClick={() => scrollToSection('how-it-works')}>
-                {t('landing.howItWorks')}
-                <Icon name="arrowRight" size={17} />
-              </button>
-              <button type="button" className={styles.heroCtaGhost} onClick={() => scrollToSection('demo')}>
+              <button type="button" className={styles.heroCtaOutline} onClick={() => scrollToSection('demo')}>
                 <Icon name="play" size={15} />
                 {t('landing.viewDemo')}
+              </button>
+              <button type="button" className={styles.heroCtaGhost} onClick={() => scrollToSection('how-it-works')}>
+                {t('landing.howItWorks')}
+                <Icon name="arrowRight" size={17} />
               </button>
             </div>
 
@@ -530,8 +533,33 @@ export function AuthPage() {
                 <div className={styles.inviteNoteEmail}>{invite.email}</div>
               </div>
             ) : null}
+          </div>
 
-            <div ref={cardReveal}>
+          {/* Honest, measured metric: citation accuracy without vs with the
+              law-corpus check (RAG eval on the golden set — see HANDOFF.md). */}
+          <div className={styles.stats} ref={statsReveal}>
+              <div className={styles.stat}>
+                <div className={styles.statValue}>
+                  <CountUp to={2.5} decimals={1} suffix="%" />
+                </div>
+                <div className={styles.statLabel}>{t('auth.metricWithoutLabel')}</div>
+              </div>
+              <div className={styles.statArrow} aria-hidden="true">
+                →
+              </div>
+              <div className={styles.stat}>
+                <div className={`${styles.statValue} ${styles.statValueAccent}`}>
+                  <CountUp to={100} suffix="%" />
+                </div>
+                <div className={styles.statLabel}>{t('auth.metricWithLabel')}</div>
+              </div>
+            </div>
+          <div className={styles.statNote} ref={statNoteReveal}>{t('auth.metricNote')}</div>
+        </div>
+
+        {/* ── Right column: sign-in card + trust badges (эталон Hero) ─────── */}
+        <div className={styles.rightCol}>
+            <div className={styles.cardWrap} ref={cardReveal}>
             <div ref={cardTilt}>
             <GlassCard className={`${styles.card} sheen`}>
               {sessionExpired ? (
@@ -714,60 +742,23 @@ export function AuthPage() {
             </GlassCard>
             </div>
             </div>
-          </div>
 
-          {/* Honest, measured metric: citation accuracy without vs with the
-              law-corpus check (RAG eval on the golden set — see HANDOFF.md). */}
-          <div className={styles.stats} ref={statsReveal}>
-            <div className={styles.stat}>
-              <div className={styles.statValue}>
-                <CountUp to={2.5} decimals={1} suffix="%" />
+          {/* Verifiable trust signals — every line is true and checkable. */}
+          <div className={styles.heroBadges} ref={badgesReveal}>
+            {(
+              [
+                { icon: 'check', key: 'auth.badgeVerified' },
+                { icon: 'globe', key: 'auth.badgeSources' },
+                { icon: 'sparkle', key: 'auth.badgeAI' },
+              ] as const
+            ).map((b) => (
+              <div key={b.key} className={styles.heroBadge}>
+                <span className={styles.heroBadgeIcon}>
+                  <Icon name={b.icon} size={14} />
+                </span>
+                {t(b.key)}
               </div>
-              <div className={styles.statLabel}>{t('auth.metricWithoutLabel')}</div>
-            </div>
-            <div className={styles.statArrow} aria-hidden="true">
-              →
-            </div>
-            <div className={styles.stat}>
-              <div className={`${styles.statValue} ${styles.statValueAccent}`}>
-                <CountUp to={100} suffix="%" />
-              </div>
-              <div className={styles.statLabel}>{t('auth.metricWithLabel')}</div>
-            </div>
-          </div>
-          <div className={styles.statNote} ref={statNoteReveal}>{t('auth.metricNote')}</div>
-        </div>
-
-        {/* ── Right: decorative panel (hidden on narrow screens) ──────────── */}
-        <div className={styles.right} aria-hidden="true">
-          <div className={styles.rightGrid} />
-          <div className={styles.rightOrb} />
-          <div className={styles.rightOrbSmall} />
-          <div className={styles.rightMark}>
-            <div className={styles.rightDiamond}>
-              <LogoMarkGlyph size={52} />
-            </div>
-            <div className={styles.rightCaption}>
-              Lexab <span>· {t('auth.tagline')}</span>
-            </div>
-
-            {/* Verifiable trust signals — every line is true and checkable. */}
-            <div className={styles.rightBadges}>
-              {(
-                [
-                  { icon: 'check', key: 'auth.badgeVerified' },
-                  { icon: 'globe', key: 'auth.badgeSources' },
-                  { icon: 'sparkle', key: 'auth.badgeAI' },
-                ] as const
-              ).map((b) => (
-                <div key={b.key} className={styles.rightBadge}>
-                  <span className={styles.rightBadgeIcon}>
-                    <Icon name={b.icon} size={14} />
-                  </span>
-                  {t(b.key)}
-                </div>
-              ))}
-            </div>
+            ))}
           </div>
         </div>
       </div>

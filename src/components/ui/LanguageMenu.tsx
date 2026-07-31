@@ -9,7 +9,7 @@ import styles from './languageMenu.module.css';
  * with the available interface languages. Shared between the public landing
  * page and the in-app top bar so both use the same control.
  */
-export function LanguageMenu({ className }: { className?: string }) {
+export function LanguageMenu({ className, showLabel = false }: { className?: string; showLabel?: boolean }) {
   const { t, lang, setLang } = useI18n();
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -44,6 +44,11 @@ export function LanguageMenu({ className }: { className?: string }) {
         onClick={() => setOpen((v) => !v)}
       >
         <Icon name="translate" size={17} />
+        {showLabel ? (
+          <span className={styles.triggerLabel}>
+            {LANGUAGES.find((l) => l.code === lang)?.short ?? lang.toUpperCase()}
+          </span>
+        ) : null}
       </button>
 
       {open ? (
