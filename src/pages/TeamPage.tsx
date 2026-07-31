@@ -13,6 +13,7 @@ import { EmptyState, ErrorState, SkeletonRows } from '@/components/ui/States';
 import { useAsync, clearAsyncCache } from '@/hooks/useAsync';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { usePageTitle } from '@/hooks/usePageTitle';
+import { useReveal } from '@/hooks/useReveal';
 import { ROLE_COLORS, securityApi, teamApi, userApi, type TeamRole } from '@/api';
 import type { AccessReviewRow } from '@/api';
 import { auditApi, type AuditEvent } from '@/api/audit.api';
@@ -163,6 +164,7 @@ export function TeamPage() {
         <div className={styles.container}>
           <div
             className={styles.pageHead}
+            ref={useReveal()}
             style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 16, flexWrap: 'wrap' }}
           >
             <div>
@@ -203,7 +205,7 @@ export function TeamPage() {
                     onChange={(e) => setOrgName(e.target.value)}
                   />
                 </div>
-                <Button type="submit" variant="primary" icon="check" disabled={orgSaving || orgName.trim().length < 2}>
+                <Button type="submit" variant="secondary" icon="check" disabled={orgSaving || orgName.trim().length < 2}>
                   {orgSaving ? t('common.loading') : t('team.orgSave')}
                 </Button>
                 {editingName ? (
@@ -228,7 +230,7 @@ export function TeamPage() {
               </div>
               <div className={styles.inviteBannerActions}>
                 <Button
-                  variant="primary"
+                  variant="secondary"
                   size="sm"
                   icon="check"
                   disabled={answering === inv.id}
@@ -536,7 +538,7 @@ function SsoSettingsSection() {
             ))}
           </div>
         </div>
-        <Button variant="primary" icon="check" disabled={busy} onClick={() => void save()}>
+        <Button variant="secondary" icon="check" disabled={busy} onClick={() => void save()}>
           {busy ? t('common.loading') : t('sso.save')}
         </Button>
       </div>

@@ -38,22 +38,16 @@ export function Badge({ children, color = 'var(--dim)', filled = false, plain = 
   if (plain) {
     return (
       <span className={styles.badgePlain} style={{ color: c }}>
-        <span className={styles.badgeDot} style={{ background: c }} />
+        <span className={styles.badgeDot} />
         {children}
       </span>
     );
   }
 
+  // Цвет статуса задаётся только через color: подложка/точка берут currentColor.
   return (
-    <span
-      className={styles.badge}
-      style={{
-        color: filled ? 'var(--bg)' : c,
-        background: filled ? c : `color-mix(in srgb, ${c} 12%, transparent)`,
-        border: `1px solid ${filled ? 'transparent' : `color-mix(in srgb, ${c} 35%, transparent)`}`,
-      }}
-    >
-      <span className={styles.badgeDot} style={{ background: filled ? 'var(--bg)' : c }} />
+    <span className={`${styles.badge} ${filled ? styles.badgeFilled : ''}`} style={{ color: c }}>
+      <span className={styles.badgeDot} />
       {children}
     </span>
   );

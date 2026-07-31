@@ -104,24 +104,32 @@
   height: 34px;
 }
 
-/* Badge ------------------------------------------------------------------- */
+/* Badge — статусная пилюля эталона: rounded-full, uppercase, точка currentColor.
+   Сам цвет приходит пропом (var(--sev-*) и т.п.) и здесь НЕ задаётся. */
 .badge {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   font-family: var(--font-label);
-  font-size: 10.5px;
-  font-weight: 500;
-  letter-spacing: 0.06em;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
   text-transform: uppercase;
-  padding: 3px 8px;
-  border-radius: var(--r-sm);
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
   white-space: nowrap;
 }
+/* Filled: тонированная подложка от currentColor вместо обводки. */
+.badgeFilled {
+  border-color: transparent;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
 .badgeDot {
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
+  background: currentColor;
   flex-shrink: 0;
 }
 /* Frameless badge: coloured dot + coloured text, label-face, no box. */
@@ -145,10 +153,14 @@
   font-family: var(--font-label);
   font-size: 12px;
   color: var(--dim);
-  padding: 4px 9px;
-  border-radius: 7px;
-  background: var(--hover);
-  border: 1px solid var(--border);
+  padding: 4px 11px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  border: 1px solid var(--panel-edge);
+  transition: background var(--dur-fast) var(--ease);
+}
+.chip:hover {
+  background: var(--panel);
 }
 .chipMark {
   width: 5px;
@@ -160,14 +172,16 @@
 }
 
 /* Citation verification badge (statute corpus) ----------------------------- */
+/* Пилюля как у статусных бейджей; цвета verifyOk/verifyWarn/verifyDeviation —
+   семантика данных, НЕ менять. */
 .verify {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   font-family: var(--font-label);
   font-size: 11.5px;
-  padding: 3px 8px;
-  border-radius: 7px;
+  padding: 3px 10px;
+  border-radius: 999px;
   white-space: nowrap;
 }
 .verifyOk {
@@ -283,8 +297,8 @@
   position: absolute;
   inset: -5px;
   border-radius: 50%;
-  border: 2px solid color-mix(in srgb, var(--accent) 18%, transparent);
-  border-top-color: var(--accent);
+  border: 2px solid var(--border);
+  border-top-color: var(--text);
   animation: logoLoaderSpin 0.9s linear infinite;
 }
 .logoLoaderMark {
@@ -313,7 +327,7 @@
 .spinner {
   border-radius: 50%;
   border: 2px solid var(--border);
-  border-top-color: var(--accent);
+  border-top-color: var(--text);
   animation: lxspin 0.7s linear infinite;
 }
 
@@ -326,21 +340,30 @@
   align-items: center;
   justify-content: center;
   padding: 24px;
-  background: rgba(6, 6, 10, 0.6);
+  background: rgba(0, 0, 0, 0.4);
   backdrop-filter: blur(4px);
   animation: lxfadeq var(--dur-mid) ease;
 }
+:global(html.dark) .overlay {
+  background: rgba(0, 0, 0, 0.55);
+}
+/* Полотно модалки — рецепт glass-card эталона + r-2xl + shadow-pop. */
 .modal {
   width: 100%;
   max-width: 460px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: var(--r-xl);
-  box-shadow: var(--shadow-pop);
-  animation: lxfade var(--dur-mid) ease both;
+  background: var(--glass-bg-solid);
+  border: 1px solid var(--glass-edge);
+  border-top-color: var(--glass-edge-top);
+  border-radius: var(--r-2xl);
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    var(--shadow-pop);
+  animation: lxpopin var(--dur-mid) var(--ease) both;
   max-height: calc(100vh - 48px);
   display: flex;
   flex-direction: column;
+  /* Скруглённые углы r-2xl не должны «протыкаться» скроллом тела. */
+  overflow: hidden;
 }
 .modalHeader {
   display: flex;
@@ -399,16 +422,20 @@
   font-family: inherit;
   font-size: 14px;
   color: var(--text);
-  background: var(--panel-2);
+  background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: var(--r-md);
+  border-radius: var(--r-lg);
   padding: 10px 12px;
   outline: none;
   transition: border-color var(--dur-fast);
   width: 100%;
 }
+.input::placeholder {
+  color: var(--mut);
+}
+/* Минимализм эталона: фокус — просто чернильный бордер, без свечения. */
 .input:focus {
-  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  border-color: var(--text);
 }
 .inputError {
   border-color: var(--danger);
@@ -418,7 +445,8 @@
   color: var(--danger);
 }
 
-/* Empty / error states ---------------------------------------------------- */
+/* Empty / error states — рецепт EmptyState эталона: иконка на серой плашке
+   panel-2 с радиусом r-2xl, заголовок, приглушённый текст. */
 .state {
   display: flex;
   flex-direction: column;
@@ -426,29 +454,32 @@
   justify-content: center;
   text-align: center;
   gap: 12px;
-  padding: 64px 24px;
+  padding: 80px 24px;
   color: var(--dim);
+  animation: lxfade 0.55s var(--ease) both;
 }
 .stateIcon {
-  width: 52px;
-  height: 52px;
-  border-radius: 14px;
+  width: 56px;
+  height: 56px;
+  border-radius: var(--r-2xl);
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--hover);
+  background: var(--panel-2);
   border: 1px solid var(--border);
-  color: var(--mut);
+  color: var(--dim);
+  margin-bottom: 8px;
 }
 .stateTitle {
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 600;
+  letter-spacing: -0.01em;
   color: var(--text);
 }
 .stateBody {
   font-size: 14px;
-  max-width: 320px;
-  line-height: 1.5;
+  max-width: 340px;
+  line-height: 1.55;
 }
 
 /* Toasts ------------------------------------------------------------------ */
@@ -462,6 +493,7 @@
   gap: 10px;
   pointer-events: none;
 }
+/* Тост — стекло эталона; цвета точек success/error задаёт компонент (токены). */
 .toast {
   display: flex;
   align-items: center;
@@ -470,14 +502,16 @@
   max-width: 360px;
   padding: 12px 14px;
   border-radius: var(--r-lg);
-  background: var(--surface-translucent);
-  backdrop-filter: blur(20px);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-pop);
+  background: var(--glass-bg-solid);
+  border: 1px solid var(--glass-edge);
+  border-top-color: var(--glass-edge-top);
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    var(--shadow-pop);
   font-size: 14px;
   color: var(--text);
   pointer-events: auto;
-  animation: lxfade var(--dur-mid) ease both;
+  animation: lxfade var(--dur-mid) var(--ease) both;
 }
 .toastDot {
   width: 8px;
@@ -496,14 +530,15 @@
   font-family: inherit;
   font-size: 14px;
   color: var(--text);
-  background: var(--panel-2);
+  background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: var(--r-md);
+  border-radius: var(--r-lg);
   cursor: pointer;
   transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
 }
-.dateField:hover {
-  border-color: var(--accent);
+.dateField:hover,
+.dateField:focus-visible {
+  border-color: var(--text);
 }
 .dateFieldEmpty {
   color: var(--mut);
@@ -535,16 +570,20 @@
   color: var(--text);
 }
 
+/* Выпадающий календарь — стекло + shadow-pop. */
 .calendar {
   position: fixed;
   z-index: 400;
   width: 268px;
   padding: 12px;
-  background: var(--panel);
-  border: 1px solid var(--border);
+  background: var(--glass-bg-solid);
+  border: 1px solid var(--glass-edge);
+  border-top-color: var(--glass-edge-top);
   border-radius: var(--r-lg);
-  box-shadow: var(--shadow-pop);
-  animation: lxfade var(--dur-mid) ease both;
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    var(--shadow-pop);
+  animation: lxpopin 0.18s var(--ease) both;
 }
 .calHead {
   display: flex;
@@ -651,6 +690,17 @@
     opacity: 1;
   }
 }
+/* Появление всплывающих поверхностей эталона: scale .96 → 1. */
+@keyframes lxpopin {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
 
 /* ── SelectMenu: unified dropdown filter ─────────────────────────────────── */
 
@@ -671,15 +721,15 @@
   color: var(--text);
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--r-lg);
   cursor: pointer;
-  transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
+  transition: border-color var(--dur-fast);
 }
 
+/* Минимализм эталона: активное поле — чернильный бордер, без свечения. */
 .selectMenuBtn:hover,
 .selectMenuBtnOpen {
-  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
-  box-shadow: 0 4px 16px color-mix(in srgb, var(--accent) 10%, transparent);
+  border-color: var(--text);
 }
 
 .selectMenuLabel {
@@ -700,6 +750,7 @@
   transform: rotate(180deg);
 }
 
+/* Выпадающий список — стекло + shadow-pop, появление scale .96 / y -4. */
 .selectMenuList {
   position: absolute;
   top: calc(100% + 6px);
@@ -710,17 +761,21 @@
   flex-direction: column;
   gap: 2px;
   padding: 6px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  box-shadow: 0 18px 44px color-mix(in srgb, #000 22%, transparent);
-  animation: lxselectin 0.16s ease;
+  background: var(--glass-bg-solid);
+  border: 1px solid var(--glass-edge);
+  border-top-color: var(--glass-edge-top);
+  border-radius: var(--r-lg);
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    var(--shadow-pop);
+  transform-origin: top left;
+  animation: lxselectin 0.18s var(--ease);
 }
 
 @keyframes lxselectin {
   from {
     opacity: 0;
-    transform: translateY(-4px);
+    transform: scale(0.96) translateY(-4px);
   }
   to {
     opacity: 1;
@@ -745,11 +800,11 @@
 }
 
 .selectMenuItem:hover {
-  background: var(--hover-2);
+  background: var(--hover);
 }
 
 .selectMenuItemActive {
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  background: var(--hover-2);
   font-weight: 600;
 }
 
@@ -759,7 +814,7 @@
 
 .selectMenuCheck {
   display: flex;
-  color: var(--accent);
+  color: var(--text);
 }
 
 /* ── Skeleton shimmer (app-wide loading placeholder) ─────────────────────── */
@@ -798,4 +853,16 @@
 
 .toastAction:hover {
   background: var(--hover-3);
+}
+
+/* ── Живое стекло для всплывающих поверхностей (фолбэк — glass-bg-solid) ──── */
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .modal,
+  .toast,
+  .calendar,
+  .selectMenuList {
+    background: var(--glass-bg);
+    -webkit-backdrop-filter: blur(20px) saturate(1.2);
+    backdrop-filter: blur(20px) saturate(1.2);
+  }
 }

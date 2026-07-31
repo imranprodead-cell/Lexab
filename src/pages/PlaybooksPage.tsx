@@ -12,6 +12,8 @@ import { playbooksApi } from '@/api';
 import { ApiError } from '@/api/util';
 import { useAsync } from '@/hooks/useAsync';
 import { usePageTitle } from '@/hooks/usePageTitle';
+import { useReveal } from '@/hooks/useReveal';
+import { Reveal } from './Reveal';
 import { useUIStore } from '@/store/useUIStore';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { Playbook } from '@/types/domain';
@@ -190,6 +192,7 @@ export function PlaybooksPage() {
         <div className={styles.container}>
           <div
             className={styles.pageHead}
+            ref={useReveal()}
             style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 16, flexWrap: 'wrap' }}
           >
             <div>
@@ -247,8 +250,8 @@ export function PlaybooksPage() {
             />
           ) : (
             <div className={styles.grid}>
-              {(data ?? []).map((pb) => (
-                <div key={pb.id} className={styles.card} onClick={() => openEdit(pb)}>
+              {(data ?? []).map((pb, i) => (
+                <Reveal key={pb.id} delay={Math.min(i, 6) * 0.08} className={styles.card} onClick={() => openEdit(pb)}>
                   <div className={styles.cardIcon}>
                     <Icon name="shield" size={20} />
                   </div>
@@ -272,7 +275,7 @@ export function PlaybooksPage() {
                       {t('playbooks.rulesCount', { n: pb.rules.length })}
                     </span>
                   </div>
-                </div>
+                </Reveal>
               ))}
             </div>
           )}

@@ -5,6 +5,7 @@ import { Icon } from '@/components/icons/Icon';
 import { billingApi, type BillingPeriod } from '@/api/billing.api';
 import { useAsync, clearAsyncCache } from '@/hooks/useAsync';
 import { usePageTitle } from '@/hooks/usePageTitle';
+import { useReveal } from '@/hooks/useReveal';
 import { useUIStore } from '@/store/useUIStore';
 import { useI18n } from '@/i18n/I18nProvider';
 import { pickText } from '@/i18n/messages';
@@ -135,14 +136,18 @@ function PlanCard({
   wide,
   current,
   onPurchased,
+  delay = 0,
 }: {
   plan: Plan;
   period: BillingPeriod;
   wide?: boolean;
   current?: boolean;
   onPurchased?: (plan: string) => void;
+  /** Задержка каскада появления (декоративная). */
+  delay?: number;
 }) {
   const { t, lang } = useI18n();
+  const reveal = useReveal<HTMLDivElement>(delay);
   const pushToast = useUIStore((s) => s.pushToast);
   const [busy, setBusy] = useState(false);
   // Consent step before a paid purchase: the withdrawal-right waiver must be
@@ -205,7 +210,7 @@ function PlanCard({
   };
 
   return (
-    <div className={`${styles.planCard} ${plan.accent ? styles.planCardAccent : ''} ${wide ? styles.planWide : ''}`}>
+    <div ref={reveal} className={`${styles.planCard} ${plan.accent ? styles.planCardAccent : ''} ${wide ? styles.planWide : ''}`}>
       {plan.popular && !current ? <span className={styles.planBadge}>{t('plans.popular')}</span> : null}
       {current ? <span className={styles.planBadge}>{t('plans.best')}</span> : null}
       <div>
@@ -240,7 +245,7 @@ function PlanCard({
           </label>
           <div className={styles.planConsentActions}>
             <button
-              className={`${styles.planCta} ${plan.accent ? styles.planCtaAccent : ''}`}
+              className={`${styles.planCta} ${plan.accent ? `${styles.planCtaAccent} btn-shimmer` : ''}`}
               disabled={busy || !consent}
               onClick={confirmPurchase}
             >
@@ -260,7 +265,7 @@ function PlanCard({
         </div>
       ) : (
         <button
-          className={`${styles.planCta} ${plan.accent && !current ? styles.planCtaAccent : ''}`}
+          className={`${styles.planCta} ${plan.accent && !current ? `${styles.planCtaAccent} btn-shimmer` : ''}`}
           disabled={busy}
           onClick={buy}
         >
@@ -289,7 +294,7 @@ export function PlansPage() {
       <TopBar title={t('plans.topTitle')} right={<CountrySelector />} />
       <div className={`${styles.body} scroll`}>
         <div className={styles.container}>
-          <div className={styles.plansHead}>
+          <div className={styles.plansHead} ref={useReveal()}>
             <h1 className={styles.plansTitle}>{t('plans.title')}</h1>
             <p className={styles.plansSub}>
               {t('plans.sub1')}
@@ -320,17 +325,18 @@ export function PlansPage() {
             </div>
           </div>
           <div className={styles.planRow}>
-            {firstFour.map((p) => (
+            {firstFour.map((p, i) => (
               <PlanCard
                 key={p.name}
                 plan={p}
                 period={period}
                 current={p.name === currentPlan}
                 onPurchased={setJustBought}
+                delay={0.08 + i * 0.08}
               />
             ))}
           </div>
-          <PlanCard plan={enterprise} period={period} wide onPurchased={setJustBought} />
+          <PlanCard plan={enterprise} period={period} wide onPurchased={setJustBought} delay={0.4} />
         </div>
       </div>
     </div>

@@ -12,7 +12,8 @@ import { useCallback, useRef } from 'react';
 
 const reducedMotion = () =>
   document.documentElement.getAttribute('data-reduce-motion') === 'true' ||
-  window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  (typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 
 /** Один общий IntersectionObserver на все элементы (margin эталона -80px). */
 let sharedObserver: IntersectionObserver | null = null;
@@ -50,7 +51,8 @@ export function useReveal<T extends HTMLElement = HTMLElement>(delaySeconds = 0)
       }
       nodeRef.current = el;
       if (!el) return;
-      if (reducedMotion()) return; // виден сразу, без анимации
+      // jsdom-тесты и reduce-motion: элемент просто виден, без анимации.
+      if (typeof IntersectionObserver === 'undefined' || reducedMotion()) return;
       el.classList.add('anim-reveal');
       el.style.opacity = '0'; // скрыт до входа в вьюпорт (fill-mode доигрaет)
       el.style.setProperty('--reveal-delay', `${delaySeconds}s`);

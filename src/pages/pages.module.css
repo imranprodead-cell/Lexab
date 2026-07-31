@@ -19,8 +19,8 @@
   margin-bottom: 22px;
 }
 .pageTitle {
-  font-size: 22px;
-  font-weight: 700;
+  font-size: 26px;
+  font-weight: 600;
   letter-spacing: -0.02em;
   margin: 0 0 4px;
 }
@@ -79,10 +79,13 @@
 }
 
 /* Table ------------------------------------------------------------------- */
+/* Рецепт эталона: обёртка с бордером и r-xl, широкая таблица прокручивается
+   вбок внутри неё (узкие экраны), а не ломает страницу. */
 .tableCard {
   border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  overflow: hidden;
+  border-radius: var(--r-xl);
+  overflow-x: auto;
+  overflow-y: hidden;
   background: var(--panel);
 }
 
@@ -243,14 +246,14 @@
 }
 .th {
   text-align: start;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--mut);
+  color: var(--dim);
   padding: 12px 16px;
   border-bottom: 1px solid var(--border);
-  background: var(--row-tint);
+  background: var(--panel-2);
 }
 .thSortable {
   cursor: pointer;
@@ -389,8 +392,8 @@
   color: var(--accent);
 }
 .docDetailName {
-  font-size: 22px;
-  font-weight: 700;
+  font-size: 24px;
+  font-weight: 600;
   letter-spacing: -0.02em;
   margin: 0;
   word-break: break-word;
@@ -407,9 +410,10 @@
   margin-bottom: 24px;
 }
 .docMetaCell {
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  background: var(--panel);
+  border: 1px solid var(--panel-edge);
+  border-radius: var(--r-xl);
+  background: var(--panel-2);
+  box-shadow: var(--shadow-card);
   padding: 16px;
   display: flex;
   flex-direction: column;
@@ -473,15 +477,17 @@
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 16px;
 }
+/* Рецепт панели эталона: серая поверхность между bg и белой карточкой. */
 .card {
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  background: var(--panel);
+  border: 1px solid var(--panel-edge);
+  border-radius: var(--r-xl);
+  background: var(--panel-2);
+  box-shadow: var(--shadow-card);
   padding: 20px;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  transition: transform var(--dur-fast), border-color var(--dur-fast);
+  transition: transform var(--dur-mid) var(--ease), border-color var(--dur-fast);
   cursor: pointer;
 }
 
@@ -595,14 +601,15 @@
   margin-bottom: 24px;
 }
 .stat {
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  background: var(--panel);
+  border: 1px solid var(--panel-edge);
+  border-radius: var(--r-xl);
+  background: var(--panel-2);
+  box-shadow: var(--shadow-card);
   padding: 20px;
 }
 .statLabel {
   font-size: 13px;
-  color: var(--mut);
+  color: var(--dim);
   margin-bottom: 10px;
   display: flex;
   align-items: center;
@@ -610,7 +617,7 @@
 }
 .statValue {
   font-size: 32px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: -0.02em;
   line-height: 1;
 }
@@ -628,9 +635,10 @@
   gap: 16px;
 }
 .panel {
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  background: var(--panel);
+  border: 1px solid var(--panel-edge);
+  border-radius: var(--r-xl);
+  background: var(--panel-2);
+  box-shadow: var(--shadow-card);
   padding: 20px 22px;
 }
 .panelTitle {
@@ -712,9 +720,10 @@
   color: var(--dim);
 }
 .section {
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  background: var(--panel);
+  border: 1px solid var(--panel-edge);
+  border-radius: var(--r-xl);
+  background: var(--panel-2);
+  box-shadow: var(--shadow-card);
   padding: 22px 24px;
 }
 .sectionTitle {
@@ -870,8 +879,8 @@
   margin: 8px 0 30px;
 }
 .plansTitle {
-  font-size: 32px;
-  font-weight: 700;
+  font-size: 30px;
+  font-weight: 600;
   letter-spacing: -0.02em;
   margin: 0 0 10px;
 }
@@ -890,18 +899,19 @@
 .planCard {
   position: relative;
   min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  background: var(--panel);
+  border: 1px solid var(--panel-edge);
+  border-radius: var(--r-xl);
+  background: var(--panel-2);
+  box-shadow: var(--shadow-card);
   padding: 26px 22px;
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
+/* Featured-план эталона: чернильная рамка вместо цветного свечения. */
 .planCardAccent {
-  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
-  background: color-mix(in srgb, var(--accent) 6%, var(--panel));
-  box-shadow: 0 20px 60px -30px color-mix(in srgb, var(--accent) 80%, transparent);
+  border-color: var(--text);
+  background: var(--panel);
 }
 .planWide {
   margin-top: 16px;
@@ -949,7 +959,7 @@
 }
 .planPriceValue {
   font-size: 30px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: -0.02em;
 }
 .planPriceValueSm {
@@ -1362,7 +1372,7 @@
   letter-spacing: 0.12em;
   padding: 10px 12px;
   border-radius: 8px;
-  background: var(--panel-2);
+  background: var(--panel);
   border: 1px solid var(--border);
   cursor: pointer;
   word-break: break-all;
@@ -1372,7 +1382,7 @@
   font-size: 12px;
   padding: 8px 10px;
   border-radius: 8px;
-  background: var(--panel-2);
+  background: var(--panel);
   border: 1px solid var(--border);
   cursor: pointer;
   word-break: break-all;
@@ -1431,7 +1441,7 @@
   padding: 10px 12px;
   border-radius: 8px;
   border: 1px solid var(--border);
-  background: var(--panel-2);
+  background: var(--panel);
 }
 .sessionText {
   display: flex;
@@ -1615,7 +1625,7 @@
   font-family: inherit;
   font-size: 14px;
   color: var(--text);
-  background: var(--panel-2);
+  background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   padding: 9px 12px;
@@ -1870,9 +1880,10 @@
   flex-direction: column;
   gap: 10px;
   padding: 14px;
-  border-radius: 16px;
-  background: var(--panel);
-  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  background: var(--panel-2);
+  border: 1px solid var(--panel-edge);
+  box-shadow: var(--shadow-card);
   cursor: pointer;
   transition: border-color 0.15s ease;
 }
@@ -2101,7 +2112,7 @@
   padding: 9px 10px;
   border-radius: 10px;
   border: 1px solid var(--border);
-  background: var(--panel-2);
+  background: var(--panel);
   margin-bottom: 6px;
 }
 
@@ -2289,7 +2300,7 @@
   padding: 9px 10px;
   border-radius: 10px;
   border: 1px solid var(--border);
-  background: var(--panel-2);
+  background: var(--panel);
 }
 
 .wfStepIcon {
@@ -2320,20 +2331,26 @@
 }
 
 /* Integrations (Settings) --------------------------------------------------- */
+/* Эталон settings: строки в одном скруглённом бордер-контейнере, разделённые
+   тонкими линиями (divide), вместо отдельных карточек. */
 .integrList {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  background: var(--panel);
+  overflow: hidden;
 }
 
 .integrRow {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  background: var(--panel-2);
+  padding: 13px 16px;
+}
+
+.integrRow + .integrRow {
+  border-top: 1px solid var(--border);
 }
 
 .integrIcon {
@@ -2343,7 +2360,7 @@
   width: 40px;
   height: 40px;
   border-radius: 11px;
-  background: var(--panel);
+  background: var(--panel-2);
   border: 1px solid var(--border);
   flex-shrink: 0;
 }
@@ -2809,8 +2826,8 @@
   font-weight: 600;
   color: var(--sev-high);
   background: color-mix(in srgb, var(--sev-high) 12%, transparent);
-  border-radius: 6px;
-  padding: 1px 7px;
+  border-radius: 999px;
+  padding: 1px 8px;
   white-space: nowrap;
 }
 .shareTrack {
@@ -2943,7 +2960,7 @@
   text-align: center;
   padding: 34px 20px;
   border: 1.5px dashed var(--border);
-  border-radius: var(--r-lg);
+  border-radius: var(--r-xl);
   background: var(--panel);
   cursor: pointer;
   transition: border-color var(--dur-fast), background var(--dur-fast);

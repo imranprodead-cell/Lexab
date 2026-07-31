@@ -118,7 +118,7 @@ export function UserMenu({ user, plan, onNavigated }: UserMenuProps) {
         ? createPortal(
             <div
               ref={menuRef}
-              className={styles.userMenu}
+              className={`glass ${styles.userMenu}`}
               role="menu"
               style={{ position: 'fixed', left: pos.left, bottom: pos.bottom, width: MENU_WIDTH }}
             >
@@ -169,7 +169,7 @@ export function UserMenu({ user, plan, onNavigated }: UserMenuProps) {
                 </button>
 
                 {helpOpen ? (
-                  <div className={styles.userMenuSub} role="menu">
+                  <div className={`glass ${styles.userMenuSub}`} role="menu">
                     <button type="button" role="menuitem" className={styles.userMenuItem} onClick={() => openLegal('/terms')}>
                       <Icon name="docs" size={16} />
                       {t('umenu.terms')}

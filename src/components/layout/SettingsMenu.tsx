@@ -80,7 +80,7 @@ export function SettingsMenu() {
       {open ? (
         <div
           ref={menuRef}
-          className={styles.settingsMenu}
+          className={`glass ${styles.settingsMenu}`}
           role="menu"
           aria-label={t('top.settings')}
           onKeyDown={onMenuKey}

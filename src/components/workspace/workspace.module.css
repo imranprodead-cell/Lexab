@@ -187,6 +187,21 @@
   border-radius: 12px;
   background: var(--panel);
   border: 1px solid var(--border);
+  box-shadow: var(--shadow-card);
+  /* Каскад появления карточек находок (эталонный reveal, CSS-only). */
+  animation: wsIn 0.5s var(--ease) both;
+}
+.findingCard:nth-child(2) {
+  animation-delay: 0.06s;
+}
+.findingCard:nth-child(3) {
+  animation-delay: 0.12s;
+}
+.findingCard:nth-child(4) {
+  animation-delay: 0.18s;
+}
+.findingCard:nth-child(n + 5) {
+  animation-delay: 0.24s;
 }
 .findingCardClickable {
   cursor: pointer;
@@ -291,14 +306,17 @@
   overflow-y: auto;
   padding: 40px 28px 120px;
 }
+/* Лист документа: белая карточка эталона (panel + border) на --doc-bg,
+   тень темы вместо жёсткой чёрной из старой тёмной темы. */
 .paper {
   max-width: 720px;
   margin: 0 auto;
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: var(--r-xl);
   padding: 56px 60px;
-  box-shadow: 0 30px 80px -40px rgba(0, 0, 0, 0.8);
+  box-shadow: var(--shadow-pop);
+  animation: wsIn 0.5s var(--ease) both;
 }
 .paperHeader {
   text-align: center;
@@ -393,6 +411,25 @@
   border-radius: 3px;
   padding: 0 2px;
 }
+/* Появление панелей/карточек (эталонный reveal y:14; keyframes локально —
+   CSS Modules хеширует имена, глобальные из global.css тут не резолвятся). */
+@keyframes wsIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .paper,
+  .findingCard {
+    animation: none;
+  }
+}
+
 /* Flash a clause when the user clicks its finding (scroll + brief highlight). */
 .clauseFlash {
   animation: clauseFlash 1.3s ease-out;
@@ -448,8 +485,10 @@
   align-items: center;
   gap: 6px;
   padding: 7px;
-  border-radius: 14px;
+  border-radius: var(--r-xl);
   background: var(--toolbar-bg);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-pop);
 }
 .toolbarDivider {
   width: 1px;

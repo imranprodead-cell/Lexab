@@ -9,6 +9,7 @@ export function useTilt<T extends HTMLElement = HTMLElement>() {
   const frame = useRef(0);
   return useCallback((el: T | null) => {
     if (!el) return;
+    if (typeof window.matchMedia !== 'function') return; // jsdom-тесты
     const fine = window.matchMedia('(pointer: fine)').matches;
     const reduce =
       document.documentElement.getAttribute('data-reduce-motion') === 'true' ||

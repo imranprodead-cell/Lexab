@@ -10,6 +10,8 @@ import { SelectMenu } from '@/components/ui/SelectMenu';
 import { EmptyState, ErrorState, SkeletonRows } from '@/components/ui/States';
 import ui from '@/components/ui/ui.module.css';
 import { useAsync, useDismissable } from '@/hooks/useAsync';
+import { useReveal } from '@/hooks/useReveal';
+import { Reveal } from './Reveal';
 import { promptsApi, templatesApi } from '@/api';
 import { Spinner } from '@/components/ui/Spinner';
 import { COUNTRIES, flagUrl } from '@/data/countries';
@@ -276,7 +278,7 @@ export function TemplatesPage() {
       <TopBar title={t('tpl.title')} />
       <div className={`${styles.body} scroll`}>
         <div className={styles.container}>
-          <div className={styles.pageHead}>
+          <div className={styles.pageHead} ref={useReveal()}>
             <h1 className={styles.pageTitle}>{t('tpl.title')}</h1>
             <p className={styles.pageSub}>{t('tpl.sub')}</p>
           </div>
@@ -290,9 +292,10 @@ export function TemplatesPage() {
             <div style={{ marginBottom: 28 }}>
               <h2 className={styles.sectionTitle}>{t('tpl.mySaved')}</h2>
               <div className={styles.grid}>
-                {saved.map((s) => (
-                  <div
+                {saved.map((s, i) => (
+                  <Reveal
                     key={s.id}
+                    delay={Math.min(i, 6) * 0.08}
                     className={`${styles.card} ${styles.savedCard}`}
                     onClick={() => openSaved(s)}
                   >
@@ -317,7 +320,7 @@ export function TemplatesPage() {
                       <Icon name="fileOpen" size={14} />
                       {t('tpl.view')}
                     </div>
-                  </div>
+                  </Reveal>
                 ))}
               </div>
             </div>
@@ -352,8 +355,13 @@ export function TemplatesPage() {
             <EmptyState icon="layout" title={t('tpl.empty')} />
           ) : (
             <div className={styles.grid}>
-              {rows.map((template) => (
-                <div key={template.id} className={styles.card} onClick={() => openGenerator(template)}>
+              {rows.map((template, i) => (
+                <Reveal
+                  key={template.id}
+                  delay={Math.min(i, 6) * 0.08}
+                  className={styles.card}
+                  onClick={() => openGenerator(template)}
+                >
                   <div className={styles.cardIcon}>
                     <Icon name="layout" size={20} />
                   </div>
@@ -369,7 +377,7 @@ export function TemplatesPage() {
                     <Icon name="sparkle" size={14} />
                     {t('tpl.generate')}
                   </div>
-                </div>
+                </Reveal>
               ))}
             </div>
           )}

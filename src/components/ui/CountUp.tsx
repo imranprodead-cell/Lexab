@@ -18,15 +18,21 @@ export function CountUp({ to, decimals = 0, suffix = '', duration = 0.8 }: Count
   const [value, setValue] = useState(0);
   const started = useRef(false);
 
-  const format = (n: number) => n.toFixed(decimals).replace('.', ',') + suffix;
+  // Разделитель дробной части — по языку интерфейса (ru → запятая, en → точка).
+  const format = (n: number) =>
+    n.toLocaleString(document.documentElement.lang || 'ru', {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    }) + suffix;
 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
     const reduce =
       document.documentElement.getAttribute('data-reduce-motion') === 'true' ||
-      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (reduce) {
+      (typeof window.matchMedia === 'function' &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    if (reduce || typeof IntersectionObserver === 'undefined') {
       setValue(to);
       return;
     }

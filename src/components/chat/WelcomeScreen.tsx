@@ -1,8 +1,8 @@
 import { Icon } from '@/components/icons/Icon';
 import { Avatar } from '@/components/ui/Avatar';
-import { GlassCard } from '@/components/ui/GlassCard';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useUIStore } from '@/store/useUIStore';
+import { useReveal } from '@/hooks/useReveal';
 import { COUNTRIES } from '@/data/countries';
 import { useI18n } from '@/i18n/I18nProvider';
 import styles from './chat.module.css';
@@ -30,6 +30,12 @@ export function WelcomeScreen({ onAnalyze, onDraft, onCompare }: WelcomeScreenPr
     { key: 'compare', icon: 'layout' as const, onSelect: onCompare },
   ];
 
+  // Каскад появления эталона: логотип → приветствие → подзаголовок → карточки.
+  const logoRef = useReveal(0);
+  const titleRef = useReveal(0.08);
+  const subRef = useReveal(0.16);
+  const cardRefs = [useReveal(0.28), useReveal(0.36), useReveal(0.44)];
+
   const hour = new Date().getHours();
   const greeting =
     hour < 12 ? t('chat.greeting.morning') : hour < 18 ? t('chat.greeting.afternoon') : t('chat.greeting.evening');
@@ -37,18 +43,26 @@ export function WelcomeScreen({ onAnalyze, onDraft, onCompare }: WelcomeScreenPr
 
   return (
     <div className={styles.welcome}>
-      <div className={styles.welcomeGlow} />
       <div className={styles.welcomeInner}>
-        <div style={{ display: 'flex', justifyContent: 'center' }}>
+        <div className={styles.welcomeLogo} ref={logoRef}>
+          <div className={styles.welcomeGlow} aria-hidden />
           <Avatar size={52} />
         </div>
-        <h1 className={styles.welcomeTitle}>
+        <h1 className={styles.welcomeTitle} ref={titleRef}>
           {greeting}, {firstName}.
         </h1>
-        <p className={styles.welcomeSub}>{t('chat.welcome.sub')}</p>
+        <p className={styles.welcomeSub} ref={subRef}>
+          {t('chat.welcome.sub')}
+        </p>
         <div className={styles.suggestions}>
-          {suggestions.map((s) => (
-            <GlassCard key={s.key} as="button" className={styles.suggestion} onClick={s.onSelect}>
+          {suggestions.map((s, i) => (
+            <button
+              key={s.key}
+              type="button"
+              ref={cardRefs[i]}
+              className={`panel ${styles.suggestion}`}
+              onClick={s.onSelect}
+            >
               <div className={styles.suggestionIcon}>
                 <Icon name={s.icon} size={20} />
               </div>
@@ -56,7 +70,7 @@ export function WelcomeScreen({ onAnalyze, onDraft, onCompare }: WelcomeScreenPr
               <div className={styles.suggestionBody}>
                 {t(`chat.suggest.${s.key}.body`, s.key === 'draft' ? { country: countryInLaw } : undefined)}
               </div>
-            </GlassCard>
+            </button>
           ))}
         </div>
       </div>

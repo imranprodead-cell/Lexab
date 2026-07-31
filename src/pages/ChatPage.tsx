@@ -32,6 +32,45 @@ import chat from '@/components/chat/chat.module.css';
 
 const ACCEPTED = /\.(pdf|docx?|txt)$/i;
 
+// Декоративный фон «строк договора» (эталон app/page.tsx): тонкие полосы 2px
+// с процентными ширинами, часть — золотые. Числа = ширина в %, 'gap' — пропуск
+// строки (пустая «строка абзаца»).
+type BackdropLine = number | { w: number; gold: true } | 'gap';
+const TOP_LINES: BackdropLine[] = [62, 88, 74, 92, { w: 58, gold: true }, 81, 69, 90, 44, 'gap', 84, 71, 93, 52];
+const BOTTOM_LINES: BackdropLine[] = [76, 91, 60, 86, 70, 'gap', 89, { w: 66, gold: true }, 94, 78, 55, 83, 47];
+
+function ContractLines({ items }: { items: BackdropLine[] }) {
+  return (
+    <>
+      {items.map((it, i) =>
+        it === 'gap' ? (
+          <div key={i} className={chat.backdropGap} />
+        ) : (
+          <div
+            key={i}
+            className={`${chat.backdropLine} ${typeof it === 'object' ? chat.backdropLineGold : ''}`}
+            style={{ width: `${typeof it === 'number' ? it : it.w}%` }}
+          />
+        ),
+      )}
+    </>
+  );
+}
+
+/** Чисто декоративный фон чата: «строки договора» по углам канваса. */
+function ContractBackdrop() {
+  return (
+    <div aria-hidden className={chat.backdrop}>
+      <div className={chat.backdropCol}>
+        <ContractLines items={TOP_LINES} />
+      </div>
+      <div className={`${chat.backdropCol} ${chat.backdropColEnd}`}>
+        <ContractLines items={BOTTOM_LINES} />
+      </div>
+    </div>
+  );
+}
+
 // Позиция прокрутки по сессиям: возврат из рабочей области (размонтирование →
 // монтирование ChatPage) возвращает ленту туда, где читали, а не в самый низ.
 // Сигнатура ids инвалидирует запись, как только переписка изменилась.
@@ -257,11 +296,15 @@ export function ChatPage() {
         <UserBubble text={m.text ?? ''} />
       </div>
     ) : m.streaming && !m.text ? (
-      // Waiting for the first token: the animated scales mascot ponders the
-      // question instead of a blinking cursor.
+      // Waiting for the first token: индикатор набора эталона — панель с
+      // тремя пульсирующими точками рядом с логотипом (текст — для читалок).
       <div key={m.id} className={chat.msgAssistant}>
-        <ScalesMascot size={46} />
-        <div className={`${chat.msgAssistantText} ${chat.thinkingText}`}>{t('chat.thinking')}</div>
+        <Avatar size={30} />
+        <div className={chat.typingBubble} role="status" aria-label={t('chat.thinking')}>
+          <span className={chat.typingDot} />
+          <span className={chat.typingDot} />
+          <span className={chat.typingDot} />
+        </div>
       </div>
     ) : (
       <div key={m.id} className={chat.msgAssistant}>
@@ -304,6 +347,8 @@ export function ChatPage() {
           </div>
         }
       />
+
+      <ContractBackdrop />
 
       {ghost ? (
         <div className={chat.ghostBanner} role="status">

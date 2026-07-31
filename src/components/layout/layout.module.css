@@ -18,12 +18,23 @@
   flex-direction: column;
   height: 100%;
 }
+/* Route change: y 10 → 0 + fade, .35s on the reference easing. */
 .routeFade {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  animation: lxfadeq var(--dur-mid) ease;
+  animation: lxroutein 0.35s var(--ease) both;
+}
+@keyframes lxroutein {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 /* Side rail --------------------------------------------------------------- */
@@ -32,7 +43,7 @@
   flex-shrink: 0;
   position: relative;
   height: 100%;
-  transition: width var(--dur-mid) var(--ease);
+  transition: width 0.3s var(--ease);
 }
 /* Desktop: the open rail is docked and pushes content (reserves its width).
    On phones the slot stays narrow and the open rail overlays as a drawer. */
@@ -47,13 +58,14 @@
   inset-inline-start: 0;
   bottom: 0;
   width: 60px;
-  background: var(--panel);
+  /* Reference sidebar sits on the page background, not on a panel surface. */
+  background: var(--bg);
   border-inline-end: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   padding: 12px 10px;
   overflow: hidden;
-  transition: width var(--dur-mid) var(--ease);
+  transition: width 0.3s var(--ease);
   z-index: 60;
 }
 .railOpen {
@@ -78,6 +90,15 @@
   display: flex;
   align-items: center;
   flex-shrink: 0;
+}
+/* "Lexab" caption next to the logo in the expanded rail head. */
+.brandName {
+  margin-inline-start: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  white-space: nowrap;
 }
 /* Open: logo at the start, collapse toggle pushed to the far (inline-end) edge. */
 .collapseBtn {
@@ -137,7 +158,7 @@
   gap: 11px;
   height: 36px;
   padding: 0 11px;
-  border-radius: 12px; /* softer, rounder highlight — like the reference */
+  border-radius: var(--r-md);
   cursor: pointer;
   color: var(--dim);
   background: transparent;
@@ -146,10 +167,9 @@
   text-decoration: none;
   width: 100%;
 }
-/* Hover uses exactly the same neutral grey as the selected (pressed) state,
-   with no shadow — hover and active look identical. */
+/* Idle rows hover with the lighter grey; the active row keeps the darker one. */
 .navItem:hover {
-  background: var(--hover-2);
+  background: var(--hover);
   color: var(--text);
 }
 .navItemActive {
@@ -184,7 +204,7 @@
   margin-bottom: 8px;
 }
 .newBtn:hover {
-  background: var(--hover-2);
+  background: var(--hover);
   color: var(--text);
 }
 
@@ -206,17 +226,18 @@
   margin-bottom: 16px;
 }
 .recentLabel {
+  font-family: var(--font-label);
   font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--mut);
+  color: var(--dim);
   padding: 0 12px 6px;
 }
 .recentItem {
   display: block;
   padding: 7px 12px;
-  border-radius: 10px;
+  border-radius: var(--r-md);
   font-size: 14px;
   color: var(--dim);
   cursor: pointer;
@@ -227,7 +248,7 @@
   transition: background var(--dur-fast), color var(--dur-fast);
 }
 .recentItem:hover {
-  background: var(--hover-2);
+  background: var(--hover);
   color: var(--text);
 }
 
@@ -267,21 +288,20 @@
   transition: background var(--dur-fast);
 }
 .userBtn:hover {
-  background: var(--hover-2);
+  background: var(--hover);
 }
 /* Portalled to <body> (the rail clips with overflow:hidden); position and
-   width come inline from the component. */
+   width come inline from the component. Surface comes from the global `glass`
+   class added alongside in the component. */
 .userMenu {
   z-index: 90;
   display: flex;
   flex-direction: column;
   gap: 1px;
   padding: 6px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: var(--r-lg);
   box-shadow: var(--shadow-pop);
-  animation: lxdropin 0.16s ease;
+  animation: lxdropin var(--dur-mid) var(--ease);
 }
 .userMenuHead {
   display: flex;
@@ -299,7 +319,7 @@
   transition: background var(--dur-fast);
 }
 .userMenuHead:hover {
-  background: var(--hover-2);
+  background: var(--hover);
 }
 .userMenuHeadText {
   flex: 1;
@@ -333,8 +353,11 @@
   text-align: start;
   transition: background var(--dur-fast);
 }
-.userMenuItem:hover,
-.userMenuItemOpen {
+.userMenuItem:hover {
+  background: var(--hover);
+}
+.userMenuItemOpen,
+.userMenuItemOpen:hover {
   background: var(--hover-2);
 }
 .userMenuChevron {
@@ -370,11 +393,9 @@
   flex-direction: column;
   gap: 1px;
   padding: 6px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: var(--r-lg);
   box-shadow: var(--shadow-pop);
-  animation: lxdropin 0.14s ease;
+  animation: lxdropin var(--dur-mid) var(--ease);
 }
 /* Phones: no room to the right of the drawer — the flyout opens above. */
 @media (max-width: 700px) {
@@ -411,15 +432,15 @@
 
 /* Top bar ----------------------------------------------------------------- */
 .topBar {
-  height: 60px;
+  /* Reference cabinet header: h-14, solid surface, hairline bottom border. */
+  height: 56px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 28px;
-  background: var(--bar-bg);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
   z-index: 5;
 }
 .topTitle {
@@ -446,7 +467,7 @@
   transition: background var(--dur-fast);
 }
 .brandMenuBtn:hover {
-  background: var(--hover-2);
+  background: var(--hover);
 }
 .brandMenuName {
   font-size: 17px;
@@ -474,11 +495,9 @@
   flex-direction: column;
   gap: 2px;
   padding: 8px;
-  background: var(--panel);
-  border: 1px solid var(--border);
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-pop);
-  animation: lxdropin 0.16s ease;
+  animation: lxdropin var(--dur-mid) var(--ease);
 }
 .brandMenuItem {
   display: flex;
@@ -569,7 +588,8 @@
 @media (max-width: 700px) {
   .mobileToggle {
     position: fixed;
-    top: 14px;
+    /* Центр кнопки (6 + 44/2 = 28) совпадает с центром топ-бара высотой 56. */
+    top: 6px;
     inset-inline-start: 14px;
     z-index: 62;
     width: 44px;
@@ -602,13 +622,13 @@
     width: 0;
   }
   .rail {
-    width: 264px;
+    width: 280px;
     transform: translateX(-100%);
     box-shadow: none;
-    transition: transform var(--dur-mid) var(--ease);
+    transition: transform 0.3s var(--ease);
   }
   .railOpen {
-    width: 264px;
+    width: 280px;
     transform: translateX(0);
     box-shadow: var(--shadow-pop);
   }
@@ -627,7 +647,7 @@
   position: fixed;
   inset: 0;
   z-index: 55;
-  background: rgba(6, 6, 10, 0.5);
+  background: rgba(0, 0, 0, 0.4);
   animation: lxfadeq var(--dur-fast) ease;
 }
 
@@ -667,8 +687,8 @@
 }
 .themeToggle:hover,
 .themeToggle[aria-expanded='true'] {
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  color: var(--accent);
+  background: var(--hover);
+  color: var(--text);
 }
 
 /* Settings menu (gear → theme row / language / feedback / plans) ---------- */
@@ -681,12 +701,10 @@
   inset-inline-end: 0;
   width: 236px;
   padding: 8px;
-  border-radius: 14px;
-  background: var(--panel);
-  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
   box-shadow: var(--shadow-pop);
   z-index: 90;
-  animation: lxsettingsin 0.16s var(--ease);
+  animation: lxdropin var(--dur-mid) var(--ease);
 }
 @keyframes lxsettingsin {
   from {
@@ -747,7 +765,7 @@
   text-align: start;
 }
 .settingsItem:hover {
-  background: var(--hover-2);
+  background: var(--hover);
 }
 .settingsItemAccent {
   color: var(--accent);
@@ -788,7 +806,7 @@
   text-align: start;
 }
 .settingsSubItem:hover {
-  background: var(--hover-2);
+  background: var(--hover);
 }
 .settingsSubItemOn {
   color: var(--accent);
@@ -1003,7 +1021,8 @@
   transition: border-color var(--dur-fast);
 }
 .countryTrigger:hover {
-  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  /* Reference flag pill: border darkens to ~ink-2/50 on hover. */
+  border-color: color-mix(in srgb, var(--dim) 50%, transparent);
 }
 .flag {
   border-radius: 50%;
@@ -1031,11 +1050,10 @@
   inset-inline-end: 0;
   width: 260px;
   padding: 6px;
-  border-radius: 14px;
+  border-radius: var(--r-lg);
   transform-origin: top right;
-  animation: lxdropin 0.22s cubic-bezier(0.2, 0.8, 0.3, 1);
   z-index: 80;
-  animation: lxfade 0.16s ease both;
+  animation: lxdropin var(--dur-mid) var(--ease);
 }
 .countrySearch {
   position: relative;
@@ -1117,8 +1135,8 @@
   transition: background var(--dur-fast), color var(--dur-fast);
 }
 .bell:hover {
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  color: var(--accent);
+  background: var(--hover);
+  color: var(--text);
 }
 .bellDot {
   position: absolute;
@@ -1141,16 +1159,21 @@
   z-index: 1;
   border: 2px solid var(--bg);
 }
-.notifMenu {
+/* Panel recipe (doubled class so it reliably wins over the GlassCard glass
+   surface regardless of module emit order). Status colours untouched. */
+.notifMenu.notifMenu {
   position: absolute;
   top: calc(100% + 8px);
   inset-inline-end: 0;
   width: 320px;
   max-width: calc(100vw - 24px); /* узкий телефон: панель не вылезает за экран */
   padding: 6px;
-  border-radius: 14px;
+  border-radius: var(--r-xl);
+  background: var(--panel-2);
+  border: 1px solid var(--panel-edge);
+  box-shadow: var(--shadow-pop);
   z-index: 80;
-  animation: lxfade 0.16s ease both;
+  animation: lxdropin var(--dur-mid) var(--ease);
 }
 .notifHead {
   display: flex;
@@ -1325,21 +1348,25 @@
   align-items: center;
   gap: 12px;
   padding: 10px 12px;
-  border-radius: 9px;
+  border-radius: var(--r-md);
   cursor: pointer;
   font-size: 14px;
   border: 1px solid transparent;
 }
-.paletteItemActive {
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+.paletteItem:hover {
+  background: var(--hover);
+}
+.paletteItemActive,
+.paletteItemActive:hover {
+  background: var(--hover-2);
+  border-color: transparent;
 }
 .paletteItemIcon {
   color: var(--dim);
   display: flex;
 }
 .paletteItemActive .paletteItemIcon {
-  color: var(--accent);
+  color: var(--text);
 }
 .paletteEmpty {
   padding: 28px;
@@ -1415,10 +1442,11 @@
   z-index: 80;
   min-width: 178px;
   padding: 4px;
-  border-radius: 12px;
+  border-radius: var(--r-lg);
   border: 1px solid var(--border);
   background: var(--panel);
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28);
+  box-shadow: var(--shadow-pop);
+  animation: lxdropin var(--dur-mid) var(--ease);
 }
 .recentMenuItem {
   display: flex;
@@ -1467,10 +1495,11 @@
   background: color-mix(in srgb, var(--danger) 12%, transparent);
 }
 
+/* Dropdown reveal per the reference: scale .96 / y -4 → 1 / 0 on var(--ease). */
 @keyframes lxdropin {
   from {
     opacity: 0;
-    transform: translateY(-6px) scale(0.98);
+    transform: translateY(-4px) scale(0.96);
   }
   to {
     opacity: 1;
@@ -1540,7 +1569,7 @@ a.user {
 }
 
 a.user:hover {
-  background: var(--hover-2);
+  background: var(--hover);
 }
 
 /* ── "Verify your email" banner (unverified accounts) ────────────────────── */

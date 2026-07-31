@@ -58,7 +58,7 @@
   font-weight: 600;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--accent);
+  color: var(--dim);
   margin-bottom: 10px;
 }
 
@@ -84,24 +84,24 @@
   gap: 16px;
 }
 
+/* Рецепт панели эталона: panel-2 + panel-edge + shadow-card, radius r-xl. */
 .card {
   padding: 26px 24px;
-  border-radius: 20px;
-  /* Faint violet glow bleeding from the top-right corner (photos 4–6). */
-  background:
-    radial-gradient(130% 90% at 100% 0%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 58%),
-    var(--panel);
-  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  background: var(--panel-2);
+  border: 1px solid var(--panel-edge);
+  box-shadow: var(--shadow-card);
   transition: transform var(--dur-mid) var(--ease), border-color var(--dur-mid) var(--ease),
     box-shadow var(--dur-mid) var(--ease);
 }
 
 .card:hover {
   transform: translateY(-3px);
-  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
-  box-shadow: 0 14px 40px color-mix(in srgb, var(--accent) 12%, transparent);
+  border-color: var(--border);
+  box-shadow: var(--shadow-pop);
 }
 
+/* Иконка — белая карточка поверх панели (panel + border, эталон Features). */
 .cardIcon {
   display: flex;
   align-items: center;
@@ -109,9 +109,16 @@
   width: 46px;
   height: 46px;
   border-radius: 14px;
-  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
-  color: var(--accent);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--dim);
   margin-bottom: 16px;
+  transition: color var(--dur-mid) var(--ease), border-color var(--dur-mid) var(--ease);
+}
+
+.card:hover .cardIcon {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--dim) 50%, var(--border));
 }
 
 .cardTitle {
@@ -139,17 +146,18 @@
   display: flex;
   flex-direction: column;
   padding: 26px 24px;
-  border-radius: 20px;
-  background: var(--panel);
-  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  background: var(--panel-2);
+  border: 1px solid var(--panel-edge);
+  box-shadow: var(--shadow-card);
   transition: transform var(--dur-mid) var(--ease), border-color var(--dur-mid) var(--ease),
     box-shadow var(--dur-mid) var(--ease);
 }
 
 .audienceCard:hover {
   transform: translateY(-3px);
-  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
-  box-shadow: 0 14px 40px color-mix(in srgb, var(--accent) 12%, transparent);
+  border-color: var(--border);
+  box-shadow: var(--shadow-pop);
 }
 
 .audienceTop {
@@ -167,8 +175,9 @@
   width: 46px;
   height: 46px;
   border-radius: 14px;
-  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
-  color: var(--accent);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--dim);
 }
 
 .audienceMetric {
@@ -222,15 +231,16 @@
   position: relative;
   padding: 20px;
   border-radius: var(--r-xl);
-  background: var(--panel);
-  border: 1px solid var(--border);
+  background: var(--panel-2);
+  border: 1px solid var(--panel-edge);
+  box-shadow: var(--shadow-card);
 }
 
 .stepNum {
   font-family: var(--font-label);
   font-size: 13px;
   font-weight: 600;
-  color: var(--accent);
+  color: var(--dim);
   margin-bottom: 10px;
 }
 
@@ -535,8 +545,9 @@
   gap: 14px;
   padding: 20px;
   border-radius: var(--r-xl);
-  background: var(--panel);
-  border: 1px solid var(--border);
+  background: var(--panel-2);
+  border: 1px solid var(--panel-edge);
+  box-shadow: var(--shadow-card);
 }
 
 .securityIcon {
@@ -547,8 +558,9 @@
   width: 38px;
   height: 38px;
   border-radius: 12px;
-  background: color-mix(in srgb, var(--accent) 12%, var(--panel));
-  color: var(--accent);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--dim);
 }
 
 /* Plans */
@@ -628,104 +640,105 @@
   display: flex;
   flex-direction: column;
   padding: 26px 22px;
-  border-radius: 20px;
-  background:
-    radial-gradient(130% 80% at 100% 0%, color-mix(in srgb, var(--accent) 5%, transparent), transparent 60%),
-    var(--panel);
-  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  background: var(--panel-2);
+  border: 1px solid var(--panel-edge);
+  box-shadow: var(--shadow-card);
   transition: transform var(--dur-mid) var(--ease), box-shadow var(--dur-mid) var(--ease);
 }
 
 .plan:hover {
   transform: translateY(-3px);
-  box-shadow: 0 14px 40px color-mix(in srgb, var(--accent) 10%, transparent);
+  box-shadow: var(--shadow-pop);
 }
 
-/* Popular plan (Pro) — the dark stand-out card from photo 7. Explicitly dark
-   in both themes; a violet border + glow keeps it distinct on the dark theme. */
+/* Popular plan (Pro) — тёмная выделенная карточка, перекрашена в тёплый
+   графит палитры (бывший фиолетовый #1d1c29 ушёл вместе с редизайном). */
 .planPopular {
-  background: linear-gradient(165deg, #1d1c29 0%, #101017 100%);
-  border-color: color-mix(in srgb, var(--accent) 50%, #2a2a35);
-  box-shadow: 0 20px 55px color-mix(in srgb, var(--accent) 26%, transparent);
-  color: #fff;
+  background: linear-gradient(165deg, #2e2b28 0%, #171614 100%);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 20px 55px rgba(0, 0, 0, 0.35);
+  color: #f8f7f5;
 }
 
 .planPopular:hover {
-  box-shadow: 0 26px 66px color-mix(in srgb, var(--accent) 34%, transparent);
+  box-shadow: 0 26px 66px rgba(0, 0, 0, 0.45);
 }
 
 .planPopular .planName,
 .planPopular .planPrice {
-  color: #fff;
+  color: #f8f7f5;
 }
 
 .planPopular .planPer {
-  color: rgba(255, 255, 255, 0.62);
+  color: rgba(248, 247, 245, 0.62);
 }
 
 .planPopular .planTagline {
-  color: rgba(255, 255, 255, 0.72);
+  color: rgba(248, 247, 245, 0.72);
 }
 
 .planPopular .planFeatures li {
-  color: rgba(255, 255, 255, 0.82);
+  color: rgba(248, 247, 245, 0.82);
 }
 
 .planPopular .planCheck {
-  color: var(--accent);
+  color: rgba(248, 247, 245, 0.85);
 }
 
 .planPopular .planPriceOld {
-  color: rgba(255, 255, 255, 0.5);
+  color: rgba(248, 247, 245, 0.5);
 }
 
 .planPopular .planPriceNote {
-  color: rgba(255, 255, 255, 0.6);
+  color: rgba(248, 247, 245, 0.6);
 }
 
 /* Dark theme inverts the popular card: the others are dark surfaces, so Pro
-   becomes a white card to stand out (mirror of the light-theme black card). */
+   becomes a warm-white card to stand out (mirror of the graphite card). */
 :global(html.dark) .planPopular {
-  background: linear-gradient(165deg, #ffffff 0%, #f1f1f6 100%);
-  border-color: color-mix(in srgb, var(--accent) 50%, #d6d6e0);
-  box-shadow: 0 22px 58px color-mix(in srgb, var(--accent) 32%, transparent);
-  color: #17171c;
+  background: linear-gradient(165deg, #ffffff 0%, #efedeb 100%);
+  border-color: rgba(35, 33, 32, 0.18);
+  box-shadow: 0 22px 58px rgba(0, 0, 0, 0.55);
+  color: #232120;
 }
 
 :global(html.dark) .planPopular .planName,
 :global(html.dark) .planPopular .planPrice {
-  color: #17171c;
+  color: #232120;
 }
 
 :global(html.dark) .planPopular .planPer,
 :global(html.dark) .planPopular .planTagline,
 :global(html.dark) .planPopular .planPriceNote {
-  color: #5a5a66;
+  color: #6f6b65;
 }
 
 :global(html.dark) .planPopular .planFeatures li {
-  color: #3a3a44;
+  color: #3a3734;
 }
 
 :global(html.dark) .planPopular .planCheck {
-  color: var(--accent);
+  color: #3a3734;
 }
 
 :global(html.dark) .planPopular .planPriceOld {
-  color: #9a9aa6;
+  color: #a3a09a;
 }
 
-/* White card needs a coloured button (the dark card used a white one). */
+/* Белая карточка тёмной темы: её кнопка — графитовая (единственная тёмная). */
 :global(html.dark) .planPopular .planBtnDark {
-  background: var(--grad-cta);
-  color: var(--on-grad);
+  background: #232120;
+  color: #fbfaf9;
 }
 
 :global(html.dark) .planPopular .planBtnDark:hover {
-  background: var(--grad-cta-hover);
-  box-shadow: 0 10px 26px color-mix(in srgb, var(--accent) 40%, transparent);
+  background: #38352f;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
 }
 
+/* Инверсная пилюля: в светлой теме — светлая на графитовой карточке, в тёмной
+   — графитовая на белой (пары --on-accent/--accent дают это автоматически). */
 .planBadge {
   position: absolute;
   top: -11px;
@@ -733,12 +746,13 @@
   transform: translateX(-50%);
   padding: 4px 13px;
   border-radius: 999px;
-  background: var(--grad-cta);
-  color: var(--on-grad);
+  background: var(--on-accent);
+  color: var(--accent);
+  border: 1px solid var(--border);
   font-size: 11.5px;
   font-weight: 700;
   white-space: nowrap;
-  box-shadow: 0 6px 16px color-mix(in srgb, var(--accent) 34%, transparent);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18);
 }
 
 .planName {
@@ -798,45 +812,43 @@
 }
 
 .planCheck {
-  color: var(--accent);
+  color: var(--dim);
   margin-top: 3px;
 }
 
-/* Filled violet button for the white plan cards (photo 7). Full-width via the
-   card's flex-column stretch. */
+/* Обводочная кнопка обычных тарифов — тёмная в секции только у featured. */
 .planBtnFilled {
   padding: 12px 22px;
-  border: none;
+  border: 1px solid var(--border);
   border-radius: 12px;
-  background: var(--grad-cta);
-  color: var(--on-grad);
+  background: var(--panel);
+  color: var(--text);
   font-family: inherit;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   touch-action: manipulation;
-  box-shadow: 0 8px 22px color-mix(in srgb, var(--accent) 26%, transparent);
-  transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease),
-    background var(--dur-fast) var(--ease);
+  transition: transform var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease);
 }
 
 .planBtnFilled:hover {
   transform: translateY(-1px);
-  background: var(--grad-cta-hover);
-  box-shadow: 0 11px 28px color-mix(in srgb, var(--accent) 38%, transparent);
+  border-color: color-mix(in srgb, var(--dim) 55%, var(--border));
+  box-shadow: var(--shadow-card);
 }
 
 .planBtnFilled:active {
   transform: scale(0.97);
 }
 
-/* White button for the dark popular card (photo 7). */
+/* Единственная тёмная кнопка секции: светлая на графитовой карточке. */
 .planBtnDark {
   padding: 12px 22px;
   border: none;
   border-radius: 12px;
-  background: #ffffff;
-  color: #17171c;
+  background: #fbfaf9;
+  color: #232120;
   font-family: inherit;
   font-size: 14px;
   font-weight: 700;
@@ -874,14 +886,14 @@
   margin: -4px 0 12px;
 }
 
-/* Light theme: the Pro card is dark, so lift the inherits line off it. */
+/* Light theme: the Pro card is graphite, so lift the inherits line off it. */
 .planPopular .planInherits {
-  color: color-mix(in srgb, var(--accent) 55%, #ffffff);
+  color: rgba(248, 247, 245, 0.78);
 }
 
-/* Dark theme: the Pro card is white, so the accent reads fine as-is. */
+/* Dark theme: the Pro card is warm white — graphite text reads there. */
 :global(html.dark) .planPopular .planInherits {
-  color: var(--accent);
+  color: #3a3734;
 }
 
 /* Enterprise — full-width card below the plan grid */
@@ -890,11 +902,10 @@
   gap: 28px;
   margin-top: 16px;
   padding: 26px 28px;
-  border-radius: 20px;
-  background:
-    radial-gradient(130% 90% at 100% 0%, color-mix(in srgb, var(--accent) 6%, transparent), transparent 60%),
-    var(--panel);
-  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  background: var(--panel-2);
+  border: 1px solid var(--panel-edge);
+  box-shadow: var(--shadow-card);
 }
 
 .enterpriseInfo {
@@ -912,25 +923,29 @@
   margin: 2px 0 8px;
 }
 
+/* Обводочная: тёмная кнопка секции тарифов — только у featured-плана. */
 .enterpriseCta {
   display: inline-flex;
   align-items: center;
   padding: 11px 22px;
+  border: 1px solid var(--border);
   border-radius: 12px;
-  background: var(--grad-cta);
-  color: var(--on-grad);
+  background: var(--panel);
+  color: var(--text);
   font-size: 14px;
   font-weight: 600;
   text-decoration: none;
   cursor: pointer;
   touch-action: manipulation;
-  box-shadow: 0 8px 22px color-mix(in srgb, var(--accent) 26%, transparent);
-  transition: transform var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+  transition: transform var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease);
 }
 
 .enterpriseCta:hover {
   transform: translateY(-1px);
-  background: var(--grad-cta-hover);
+  border-color: color-mix(in srgb, var(--dim) 55%, var(--border));
+  box-shadow: var(--shadow-card);
+  text-decoration: none;
 }
 
 .enterpriseFeatures {
@@ -983,45 +998,42 @@
   margin: 0 0 12px;
 }
 
+/* Эталонный аккордеон: список с волосяными линиями (высоту схлопывает
+   глобальный faq-body grid-rows, флаг — data-open на .faqItem). */
 .faqItem {
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  background: var(--panel);
-  margin-bottom: 12px;
-  overflow: hidden;
-  transition: border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+  border-bottom: 1px solid var(--border);
 }
 
-.faqItem[open] {
-  border-color: color-mix(in srgb, var(--accent) 38%, var(--border));
-  box-shadow: 0 12px 34px color-mix(in srgb, var(--accent) 9%, transparent);
+.faqItem:first-of-type {
+  border-top: 1px solid var(--border);
 }
 
 .faqQ {
+  width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 14px;
-  padding: 18px 20px;
+  padding: 18px 2px;
+  border: none;
+  background: none;
+  font-family: inherit;
   font-size: 15px;
   font-weight: 600;
   letter-spacing: -0.01em;
+  color: var(--text);
+  text-align: start;
   cursor: pointer;
-  list-style: none;
   touch-action: manipulation;
   transition: color var(--dur-fast) var(--ease);
 }
 
-.faqQ::-webkit-details-marker {
-  display: none;
-}
-
 .faqQ:hover {
-  color: var(--accent);
+  color: var(--dim);
 }
 
-/* Circular +/× control (photo 8): a plus that rotates into a cross and turns
-   violet when its answer is open. */
+/* Стрелка: chevron указывает вниз (rotate 90 от базовой ↦), при открытии
+   доворачивается ещё на полоборота. */
 .faqToggle {
   flex: none;
   display: flex;
@@ -1029,21 +1041,18 @@
   justify-content: center;
   width: 30px;
   height: 30px;
-  border-radius: 50%;
-  background: var(--hover-2);
   color: var(--dim);
-  transition: transform var(--dur-mid) var(--ease), background var(--dur-fast) var(--ease),
-    color var(--dur-fast) var(--ease);
+  transform: rotate(90deg);
+  transition: transform 0.3s var(--ease);
 }
 
-.faqItem[open] .faqToggle {
-  background: color-mix(in srgb, var(--accent) 18%, var(--panel));
-  color: var(--accent);
-  transform: rotate(45deg);
+.faqItem[data-open='true'] .faqToggle {
+  transform: rotate(270deg);
 }
 
 .faqA {
-  padding: 0 18px 16px;
+  padding: 0 2px 18px;
+  max-width: 640px;
   font-size: 14px;
   line-height: 1.65;
   color: var(--dim);
@@ -1068,15 +1077,15 @@
 
 /* Pre-footer CTA banner (photo 9) */
 
+/* Стеклянная плита эталона (CtaBand): фон/кромку даёт глобальный glass-card
+   (+sheen), здесь — только геометрия и цвет текста. */
 .ctaBanner {
   position: relative;
   overflow: hidden;
-  border-radius: 28px;
+  border-radius: var(--r-2xl);
   padding: 58px 40px;
   text-align: center;
-  background: var(--grad-cta);
-  color: var(--on-grad);
-  box-shadow: 0 30px 70px -28px color-mix(in srgb, var(--accent) 70%, transparent);
+  color: var(--text);
 }
 
 /* Faint engineering grid, fading out toward the edges. */
@@ -1084,8 +1093,8 @@
   position: absolute;
   inset: 0;
   background-image:
-    linear-gradient(rgba(255, 255, 255, 0.14) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.14) 1px, transparent 1px);
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
   background-size: 48px 48px;
   -webkit-mask-image: radial-gradient(82% 74% at 50% 38%, #000, transparent 76%);
   mask-image: radial-gradient(82% 74% at 50% 38%, #000, transparent 76%);
@@ -1108,7 +1117,7 @@
   line-height: 1.6;
   margin: 0 auto 26px;
   max-width: 520px;
-  opacity: 0.92;
+  color: var(--dim);
 }
 
 .ctaBannerBtns {
@@ -1119,27 +1128,28 @@
   flex-wrap: wrap;
 }
 
+/* Единственная тёмная кнопка секции (правило одной тёмной кнопки). */
 .ctaBannerPrimary {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 13px 24px;
+  padding: 13px 26px;
   border: none;
-  border-radius: 12px;
-  background: #ffffff;
-  color: #191922;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent);
   font-family: inherit;
   font-size: 15px;
   font-weight: 600;
   cursor: pointer;
   touch-action: manipulation;
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
   transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
 }
 
 .ctaBannerPrimary:hover {
   transform: translateY(-1px);
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.26);
 }
 
 .ctaBannerPrimary:active {
@@ -1151,22 +1161,22 @@
   align-items: center;
   gap: 8px;
   padding: 13px 24px;
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.06);
-  color: #ffffff;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--text);
   font-family: inherit;
   font-size: 15px;
   font-weight: 600;
   cursor: pointer;
   touch-action: manipulation;
-  transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease),
+  transition: border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease),
     transform var(--dur-fast) var(--ease);
 }
 
 .ctaBannerGhost:hover {
-  background: rgba(255, 255, 255, 0.14);
-  border-color: rgba(255, 255, 255, 0.8);
+  border-color: color-mix(in srgb, var(--dim) 55%, var(--border));
+  box-shadow: var(--shadow-card);
   transform: translateY(-1px);
 }
 
@@ -1256,7 +1266,7 @@
 }
 
 .footerLink:hover {
-  color: var(--accent);
+  color: var(--text);
 }
 
 .footerBottom {

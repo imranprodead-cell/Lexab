@@ -3,6 +3,7 @@ import { Avatar } from '@/components/ui/Avatar';
 import { useI18n } from '@/i18n/I18nProvider';
 import { pickText } from '@/i18n/messages';
 import { usePageTitle } from '@/hooks/usePageTitle';
+import { useReveal } from '@/hooks/useReveal';
 import styles from './pages.module.css';
 
 interface Section {
@@ -413,7 +414,7 @@ export function LegalPage({ kind }: { kind: 'terms' | 'privacy' }) {
             ← {lang === 'ru' ? 'Назад' : 'Back'}
           </button>
         </div>
-        <h1 className={styles.legalTitle}>{title}</h1>
+        <h1 className={styles.legalTitle} ref={useReveal()}>{title}</h1>
         <p className={styles.legalUpdated}>{lang === 'ru' ? 'Обновлено: июль 2026' : 'Last updated: July 2026'}</p>
         {prevailingNote ? (
           <p

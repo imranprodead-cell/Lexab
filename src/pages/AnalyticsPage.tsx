@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react';
 import { TopBar } from '@/components/layout/TopBar';
 import { Icon, type IconName } from '@/components/icons/Icon';
+import { CountUp } from '@/components/ui/CountUp';
 import { ErrorState, SkeletonRows } from '@/components/ui/States';
 import { useAsync } from '@/hooks/useAsync';
+import { useReveal } from '@/hooks/useReveal';
 import { usePageTitle } from '@/hooks/usePageTitle';
+import { Reveal } from './Reveal';
 import { analyticsApi } from '@/api';
 import { useI18n } from '@/i18n/I18nProvider';
 import { localeFor } from '@/i18n/dates';
@@ -64,7 +67,7 @@ function MonthlyChart({ data }: { data: AnalyticsSummary['monthly'] }) {
   const ticks = [...new Set([4, 3, 2, 1, 0].map((i) => Math.round((max * i) / 4)))];
 
   return (
-    <div className={styles.panel}>
+    <div className={styles.panel} ref={useReveal(0.1)}>
       <div className={styles.chartHead}>
         <h2 className={styles.panelTitle}>{t('an.monthly')}</h2>
         <div className={styles.chartLegend}>
@@ -168,7 +171,7 @@ function SeverityDonut({ data }: { data: AnalyticsSummary['findingsBySeverity'] 
     });
 
   return (
-    <div className={styles.panel}>
+    <div className={styles.panel} ref={useReveal(0.1)}>
       <h2 className={styles.panelTitle}>{t('an.bySeverity')}</h2>
       <div className={styles.donutWrap}>
         <svg viewBox="0 0 160 160" className={styles.donutSvg} role="img" aria-label={t('an.bySeverity')}>
@@ -191,7 +194,9 @@ function SeverityDonut({ data }: { data: AnalyticsSummary['findingsBySeverity'] 
           </g>
         </svg>
         <div className={styles.donutCenter}>
-          <div className={styles.donutTotal}>{total}</div>
+          <div className={styles.donutTotal}>
+            <CountUp to={total} />
+          </div>
           <div className={styles.donutTotalLabel}>{t('an.donutTotal')}</div>
         </div>
       </div>
@@ -257,7 +262,7 @@ export function AnalyticsPage() {
       <TopBar title={t('an.title')} />
       <div className={`${styles.body} scroll`}>
         <div className={styles.container}>
-          <div className={styles.pageHead}>
+          <div className={styles.pageHead} ref={useReveal()}>
             <h1 className={styles.pageTitle}>{t('an.title')}</h1>
             <p className={styles.pageSub}>{t('an.sub')}</p>
           </div>
@@ -269,19 +274,19 @@ export function AnalyticsPage() {
           ) : data ? (
             <>
               <div className={styles.statGrid}>
-                {STAT_META.map((m) => (
-                  <div key={m.key} className={styles.stat}>
+                {STAT_META.map((m, i) => (
+                  <Reveal key={m.key} delay={i * 0.06} className={styles.stat}>
                     <div className={styles.statLabel}>
                       <Icon name={m.icon} size={15} color="var(--accent)" />
                       {t(m.labelKey)}
                     </div>
                     <div className={styles.statValue}>
-                      {data[m.key]}
+                      <CountUp to={data[m.key]} decimals={Number.isInteger(data[m.key]) ? 0 : 1} />
                       {m.unitKey ? (
                         <span className={styles.statUnit}>{m.unitKey === '/ 100' ? '/ 100' : t(m.unitKey)}</span>
                       ) : null}
                     </div>
-                  </div>
+                  </Reveal>
                 ))}
               </div>
 

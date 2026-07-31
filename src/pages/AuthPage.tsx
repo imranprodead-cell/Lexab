@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { Avatar } from '@/components/ui/Avatar';
+import { Background } from '@/components/ui/Background';
+import { CountUp } from '@/components/ui/CountUp';
 import { LogoMarkGlyph } from '@/components/ui/LogoMark';
 import { ScalesMascot } from '@/components/ui/ScalesMascot';
 import { Button } from '@/components/ui/Button';
@@ -16,6 +18,8 @@ import { ApiError } from '@/api/util';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useResolvedDark } from '@/hooks/useResolvedDark';
+import { useReveal } from '@/hooks/useReveal';
+import { useTilt } from '@/hooks/useTilt';
 import { useI18n } from '@/i18n/I18nProvider';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { scrollBehavior } from '@/lib/scroll';
@@ -63,7 +67,7 @@ const NAV_SECTIONS = [
 export function AuthPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { t, lang } = useI18n();
+  const { t } = useI18n();
   // На «/» (лендинг) оставляем маркетинговый тайтл по умолчанию — он совпадает
   // с пререндером и не портит сниппет в поиске; «Вход» — только на /login.
   usePageTitle(location.pathname === '/' ? undefined : t('auth.signInTitle'));
@@ -104,6 +108,8 @@ export function AuthPage() {
   const rootRef = useRef<HTMLDivElement>(null);
   /** Landing section currently in view — highlights its nav pill item. */
   const [activeSection, setActiveSection] = useState<string | null>(null);
+  /** Glass nav: after 16px of page scroll the bar tightens and gains a shadow. */
+  const [scrolled, setScrolled] = useState(false);
 
   // Team invite link (/login?invite=<token>): show who invites and land on /team.
   const inviteToken = new URLSearchParams(location.search).get('invite');
@@ -338,6 +344,18 @@ export function AuthPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Glass nav (эталон Navbar): scrollTop > 16 of the page's own scroll
+  // container compresses the bar and switches it to the "scrolled" glass.
+  useEffect(() => {
+    if (finishing) return;
+    const el = rootRef.current;
+    if (!el) return;
+    const onScroll = () => setScrolled(el.scrollTop > 16);
+    onScroll();
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, [finishing]);
+
   // Scrollspy: highlight the nav item of the section crossing mid-viewport.
   useEffect(() => {
     if (finishing || typeof IntersectionObserver === 'undefined') return;
@@ -356,6 +374,17 @@ export function AuthPage() {
     return () => observer.disconnect();
   }, [finishing]);
 
+  // Reveal cascade + card tilt (эталон Hero/AuthCard). Hooks are hoisted above
+  // the `finishing` early return so the hook order never changes.
+  const heroSubReveal = useReveal<HTMLParagraphElement>(0.4);
+  const heroCtasReveal = useReveal<HTMLDivElement>(0.5);
+  const cardReveal = useReveal<HTMLDivElement>(0.45);
+  const statsReveal = useReveal<HTMLDivElement>(0.6);
+  const statNoteReveal = useReveal<HTMLDivElement>(0.65);
+  const cardTilt = useTilt<HTMLDivElement>();
+  /** Hero headline words: cascade delays 0.1 + i*0.1 (accent word last). */
+  const heroWords = t('auth.heroLine1').split(' ');
+
   // Branded hand-off screen while the Google session settles in.
   if (finishing) {
     return (
@@ -373,51 +402,59 @@ export function AuthPage() {
 
   return (
     <div className={`${styles.auth} ${leaving ? styles.authLeaving : ''}`} ref={rootRef}>
-      {/* ── Sticky top banner: section nav pill + language/theme controls ── */}
-      <header className={styles.topBar}>
-        <div className={styles.topBarSide}>
-          <div className={styles.bannerBrand}>
-            <Avatar size={30} />
-            <span className={styles.bannerBrandText}>
-              <span className={styles.bannerBrandName}>Lexab</span>
-              <span className={styles.bannerBrandSub}>{t('auth.tagline')}</span>
-            </span>
+      {/* Scenery of the эталон: travelling blooms, masked grid, sparkles,
+          noise — parallaxed against this page's own scroll container. */}
+      <Background scrollRef={rootRef} />
+
+      {/* ── Fixed glass top bar (эталон Navbar): brand · nav links · controls ── */}
+      <header
+        className={`glass-nav ${styles.topBar} ${scrolled ? `glass-nav--scrolled ${styles.topBarScrolled}` : ''}`}
+      >
+        <div className={styles.topBarInner}>
+          <div className={styles.topBarSide}>
+            <div className={styles.bannerBrand}>
+              <Avatar size={30} />
+              <span className={styles.bannerBrandText}>
+                <span className={styles.bannerBrandName}>Lexab</span>
+                <span className={styles.bannerBrandSub}>{t('auth.tagline')}</span>
+              </span>
+            </div>
           </div>
-        </div>
-        <nav className={styles.navPill} aria-label={t('landing.nav.aria')}>
-          {NAV_SECTIONS.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              className={`${styles.navBtn} ${activeSection === s.id ? styles.navBtnActive : ''}`}
-              aria-current={activeSection === s.id ? 'true' : undefined}
-              onClick={() => scrollToSection(s.id)}
-            >
-              {t(s.key)}
-            </button>
-          ))}
-        </nav>
-        <div className={`${styles.topBarSide} ${styles.topBarRight}`}>
-          <div className={styles.controlsPill}>
-            <LanguageMenu />
-            <span className={styles.controlsDivider} />
-            <button
-              type="button"
-              className={styles.themeBtn}
-              onClick={toggleTheme}
-              aria-label={dark ? t('top.theme.toLight') : t('top.theme.toDark')}
-              title={dark ? t('top.theme.toLight') : t('top.theme.toDark')}
-            >
-              <Icon name={dark ? 'moon' : 'sun'} size={17} />
+          <nav className={styles.navPill} aria-label={t('landing.nav.aria')}>
+            {NAV_SECTIONS.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                className={`nav-link ${styles.navBtn} ${activeSection === s.id ? styles.navBtnActive : ''}`}
+                aria-current={activeSection === s.id ? 'true' : undefined}
+                onClick={() => scrollToSection(s.id)}
+              >
+                {t(s.key)}
+              </button>
+            ))}
+          </nav>
+          <div className={`${styles.topBarSide} ${styles.topBarRight}`}>
+            <div className={styles.controlsPill}>
+              <LanguageMenu />
+              <span className={styles.controlsDivider} />
+              <button
+                type="button"
+                className={styles.themeBtn}
+                onClick={toggleTheme}
+                aria-label={dark ? t('top.theme.toLight') : t('top.theme.toDark')}
+                title={dark ? t('top.theme.toLight') : t('top.theme.toDark')}
+              >
+                <Icon name={dark ? 'moon' : 'sun'} size={17} />
+              </button>
+            </div>
+            <button type="button" className={styles.headerCta} onClick={startSignup}>
+              {t('landing.navCta')}
             </button>
           </div>
-          <button type="button" className={styles.headerCta} onClick={startSignup}>
-            {t('landing.navCta')}
-          </button>
         </div>
       </header>
 
-      <main>
+      <main className={styles.main}>
       <div className={styles.layout}>
         {/* ── Left: brand, hero, sign-in card ─────────────────────────────── */}
         <div className={styles.left}>
@@ -431,13 +468,51 @@ export function AuthPage() {
 
           <div className={styles.leftInner}>
             <h1 className={styles.hero}>
-              {t('auth.heroLine1')}
+              {/* Word-by-word cascade (эталон Hero): delay 0.1 + i*0.1. */}
+              {heroWords.map((word, i) => (
+                <span
+                  key={`${word}-${i}`}
+                  className={styles.heroWord}
+                  style={{ animationDelay: `${0.1 + i * 0.1}s` }}
+                >
+                  {word}
+                  {'\u00a0'}
+                </span>
+              ))}
               <br />
-              <span className={styles.heroAccent}>{t('auth.heroLine2')}</span>
+              <span
+                className={`${styles.heroWord} ${styles.heroAccent}`}
+                style={{ animationDelay: `${0.1 + heroWords.length * 0.1}s` }}
+              >
+                {t('auth.heroLine2')}
+                {/* Hand-drawn wavy underline, drawn in on load (эталон). */}
+                <svg
+                  className={styles.heroWave}
+                  viewBox="0 0 300 20"
+                  fill="none"
+                  preserveAspectRatio="none"
+                  aria-hidden="true"
+                >
+                  <defs>
+                    <linearGradient id="lx-hero-wave" x1="0" y1="0" x2="1" y2="0">
+                      <stop offset="0" stopColor="#8B5CF6" />
+                      <stop offset="1" stopColor="#EC4899" />
+                    </linearGradient>
+                  </defs>
+                  <path
+                    className={styles.heroWavePath}
+                    d="M4 13 Q 34 5 64 12 T 124 12 T 184 12 T 244 12 T 296 11"
+                    stroke="url(#lx-hero-wave)"
+                    strokeWidth={6}
+                    strokeLinecap="round"
+                    pathLength={1}
+                  />
+                </svg>
+              </span>
             </h1>
-            <p className={styles.heroSub}>{t('auth.heroSub')}</p>
+            <p className={styles.heroSub} ref={heroSubReveal}>{t('auth.heroSub')}</p>
 
-            <div className={styles.heroCtas}>
+            <div className={styles.heroCtas} ref={heroCtasReveal}>
               <button type="button" className={styles.heroCtaOutline} onClick={() => scrollToSection('how-it-works')}>
                 {t('landing.howItWorks')}
                 <Icon name="arrowRight" size={17} />
@@ -456,7 +531,9 @@ export function AuthPage() {
               </div>
             ) : null}
 
-            <GlassCard className={styles.card}>
+            <div ref={cardReveal}>
+            <div ref={cardTilt}>
+            <GlassCard className={`${styles.card} sheen`}>
               {sessionExpired ? (
                 <p className={styles.verifySent} role="status">
                   <Icon name="clock" size={15} />
@@ -488,7 +565,8 @@ export function AuthPage() {
                       if (e.key === 'Enter') void startSso();
                     }}
                   />
-                  <Button type="button" variant="primary" disabled={ssoBusy} onClick={() => void startSso()}>
+                  {/* Обводочная: единственная тёмная кнопка карточки — email. */}
+                  <Button type="button" variant="secondary" disabled={ssoBusy} onClick={() => void startSso()}>
                     {ssoBusy ? t('common.loading') : t('auth.ssoContinue')}
                   </Button>
                 </div>
@@ -634,24 +712,30 @@ export function AuthPage() {
                 {t('auth.termsB')}
               </p>
             </GlassCard>
+            </div>
+            </div>
           </div>
 
           {/* Honest, measured metric: citation accuracy without vs with the
               law-corpus check (RAG eval on the golden set — see HANDOFF.md). */}
-          <div className={styles.stats}>
+          <div className={styles.stats} ref={statsReveal}>
             <div className={styles.stat}>
-              <div className={styles.statValue}>{lang === 'ru' ? '2,5%' : '2.5%'}</div>
+              <div className={styles.statValue}>
+                <CountUp to={2.5} decimals={1} suffix="%" />
+              </div>
               <div className={styles.statLabel}>{t('auth.metricWithoutLabel')}</div>
             </div>
             <div className={styles.statArrow} aria-hidden="true">
               →
             </div>
             <div className={styles.stat}>
-              <div className={`${styles.statValue} ${styles.statValueAccent}`}>100%</div>
+              <div className={`${styles.statValue} ${styles.statValueAccent}`}>
+                <CountUp to={100} suffix="%" />
+              </div>
               <div className={styles.statLabel}>{t('auth.metricWithLabel')}</div>
             </div>
           </div>
-          <div className={styles.statNote}>{t('auth.metricNote')}</div>
+          <div className={styles.statNote} ref={statNoteReveal}>{t('auth.metricNote')}</div>
         </div>
 
         {/* ── Right: decorative panel (hidden on narrow screens) ──────────── */}

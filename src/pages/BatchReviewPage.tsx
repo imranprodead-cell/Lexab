@@ -14,6 +14,7 @@ import { COUNTRIES, countryName } from '@/data/countries';
 import { useAsync } from '@/hooks/useAsync';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { usePageTitle } from '@/hooks/usePageTitle';
+import { useReveal } from '@/hooks/useReveal';
 import { useUIStore } from '@/store/useUIStore';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { BatchItem, BatchJob } from '@/types/domain';
@@ -500,7 +501,7 @@ export function BatchReviewPage() {
       <TopBar title={t('batch.title')} />
       <div className={`${styles.body} scroll`}>
         <div className={styles.container}>
-          <div className={styles.pageHead}>
+          <div className={styles.pageHead} ref={useReveal()}>
             <h1 className={styles.pageTitle}>{t('batch.title')}</h1>
             <p className={styles.pageSub}>{t('batch.sub')}</p>
           </div>

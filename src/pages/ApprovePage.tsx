@@ -8,6 +8,7 @@ import { http } from '@/api/client';
 import { useI18n } from '@/i18n/I18nProvider';
 import { localeFor } from '@/i18n/dates';
 import { usePageTitle } from '@/hooks/usePageTitle';
+import { useReveal } from '@/hooks/useReveal';
 import styles from './pages.module.css';
 
 interface ChainStep {
@@ -77,7 +78,7 @@ export function ApprovePage() {
         <Avatar size={30} />
         <span className={styles.signBrand}>Lexab</span>
       </div>
-      <div className={styles.signBody}>
+      <div className={styles.signBody} ref={useReveal()}>
         {error && !info ? (
           <GlassCard className={styles.signCard}>
             <div className={styles.signIcon} style={{ color: 'var(--danger)' }}>

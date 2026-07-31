@@ -35,9 +35,10 @@
   flex-wrap: wrap;
   margin-bottom: 20px;
 }
+/* Заголовок страницы кабинета (эталон): 24-30px, weight 600, подзаголовок dim. */
 .title {
-  font-size: 22px;
-  font-weight: 700;
+  font-size: 24px;
+  font-weight: 600;
   letter-spacing: -0.02em;
   margin: 0 0 4px;
 }
@@ -66,11 +67,15 @@
   grid-template-columns: 1fr 1fr;
   gap: 16px;
   margin-bottom: 12px;
+  animation: cmpIn 0.5s var(--ease) both;
 }
+/* Карточка результата: рецепт панели эталона (panel-2 + panel-edge + тень);
+   цветные бордеры изменённых ячеек ниже — семантика, не трогаем. */
 .cell {
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  background: var(--panel);
+  border: 1px solid var(--panel-edge);
+  border-radius: var(--r-xl);
+  background: var(--panel-2);
+  box-shadow: var(--shadow-card);
   padding: 16px 18px;
 }
 .cellChanged {
@@ -125,7 +130,7 @@
 }
 .pickCard {
   padding: 16px;
-  border-radius: var(--r-lg);
+  border-radius: var(--r-xl);
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -161,10 +166,11 @@
 }
 .summaryCard {
   padding: 16px 18px;
-  border-radius: var(--r-lg);
+  border-radius: var(--r-xl);
   font-size: 14px;
   line-height: 1.6;
   margin-bottom: 20px;
+  animation: cmpIn 0.5s var(--ease) both;
 }
 .summaryHead {
   display: flex;
@@ -194,5 +200,24 @@
 @media (max-width: 700px) {
   .pickRow {
     grid-template-columns: 1fr;
+  }
+}
+
+/* Появление результатов сравнения (эталонный reveal y:14; keyframes локально —
+   CSS Modules хеширует имена, глобальные тут не резолвятся). */
+@keyframes cmpIn {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .summaryCard,
+  .row {
+    animation: none;
   }
 }

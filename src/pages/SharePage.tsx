@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/Badge';
 import { shareApi, type PublicReport } from '@/api/growth.api';
 import { localeFor } from '@/i18n/dates';
 import { useI18n } from '@/i18n/I18nProvider';
+import { useReveal } from '@/hooks/useReveal';
 import type { Severity } from '@/types/domain';
 import styles from './pages.module.css';
 
@@ -47,7 +48,7 @@ export function SharePage() {
         <Avatar size={30} />
         <span className={styles.signBrand}>Lexab</span>
       </div>
-      <div className={`${styles.signBody} scroll`}>
+      <div className={`${styles.signBody} scroll`} ref={useReveal()}>
         <GlassCard className={styles.signCard} style={{ maxWidth: 720, width: '100%' }}>
           {state === 'loading' ? (
             <p className={styles.signSub}>{t('common.loading')}</p>

@@ -6,6 +6,7 @@ import { Icon } from '@/components/icons/Icon';
 import { authApi } from '@/api/auth.api';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useI18n } from '@/i18n/I18nProvider';
+import { useReveal } from '@/hooks/useReveal';
 import styles from './pages.module.css';
 
 /** PUBLIC: /verify-email?token=… — confirms the address from the letter. */
@@ -56,7 +57,7 @@ export function VerifyEmailPage() {
         <Avatar size={30} />
         <span className={styles.signBrand}>Lexab</span>
       </div>
-      <div className={styles.signBody}>
+      <div className={styles.signBody} ref={useReveal()}>
         <GlassCard className={styles.signCard} style={{ textAlign: 'center' }}>
           {state === 'working' ? (
             <p className={styles.signSub}>{t('common.loading')}</p>

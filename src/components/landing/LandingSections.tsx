@@ -1,7 +1,8 @@
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { Icon, type IconName } from '@/components/icons/Icon';
 import { Avatar } from '@/components/ui/Avatar';
+import { useReveal } from '@/hooks/useReveal';
 import { useI18n } from '@/i18n/I18nProvider';
 import { pickText } from '@/i18n/messages';
 import { prefersReducedMotion, scrollBehavior } from '@/lib/scroll';
@@ -526,10 +527,28 @@ function Head({ id }: { id: keyof typeof HEADS }) {
   const { lang } = useI18n();
   const head = HEADS[id];
   return (
-    <div className={styles.head}>
+    <div className={styles.head} ref={useReveal<HTMLDivElement>()}>
       <div className={styles.eyebrow}>{pickText(head.eyebrow, lang)}</div>
       <h2 className={styles.title}>{pickText(head.title, lang)}</h2>
       <p className={styles.sub}>{pickText(head.sub, lang)}</p>
+    </div>
+  );
+}
+
+/** Каскад появления эталона (whileInView-once): обёртка вокруг useReveal,
+ *  чтобы задержку i*0.08 можно было задавать прямо в .map без хука в цикле. */
+function Reveal({
+  delay = 0,
+  className,
+  children,
+}: {
+  delay?: number;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <div ref={useReveal<HTMLDivElement>(delay)} className={className}>
+      {children}
     </div>
   );
 }
@@ -542,9 +561,13 @@ function Head({ id }: { id: keyof typeof HEADS }) {
 export function LandingSections({ onStart }: { onStart: () => void }) {
   const { t, lang } = useI18n();
   const [yearly, setYearly] = useState(false);
+  /** FAQ-аккордеон эталона: открыт максимум один вопрос (ключ — item.q.en). */
+  const [openFaq, setOpenFaq] = useState<string | null>(null);
 
-  // Scroll-reveal: tag [data-reveal] elements as hidden only when JS runs and
-  // motion is allowed, then fade each one in as it enters the viewport.
+  // Scroll-reveal for the remaining [data-reveal] elements (the demo window in
+  // LandingDemo): tag them as hidden only when JS runs and motion is allowed,
+  // then fade each one in as it enters the viewport. The section cards use the
+  // эталонный useReveal-каскад (see <Reveal>).
   useEffect(() => {
     if (prefersReducedMotion() || typeof IntersectionObserver === 'undefined') return;
     const els = Array.from(document.querySelectorAll<HTMLElement>('[data-reveal]'));
@@ -567,9 +590,6 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
     };
   }, []);
 
-  /** Stagger: each card in a grid enters 60ms after the previous one. */
-  const revealAt = (i: number) => ({ '--reveal-delay': `${i * 60}ms` }) as CSSProperties;
-
   return (
     <>
       {/* ── Возможности ──────────────────────────────────────────────────── */}
@@ -578,13 +598,13 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
           <Head id="features" />
           <div className={styles.cardsGrid}>
             {FEATURES.map((f, i) => (
-              <div key={f.icon} className={styles.card} data-reveal style={revealAt(i)}>
+              <Reveal key={f.icon} delay={i * 0.08} className={styles.card}>
                 <span className={styles.cardIcon}>
                   <Icon name={f.icon} size={19} />
                 </span>
                 <div className={styles.cardTitle}>{pickText(f.title, lang)}</div>
                 <div className={styles.cardText}>{pickText(f.text, lang)}</div>
-              </div>
+              </Reveal>
             ))}
           </div>
         </div>
@@ -596,11 +616,11 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
           <Head id="how" />
           <div className={styles.steps}>
             {STEPS.map((s, i) => (
-              <div key={s.title.en} className={styles.step} data-reveal style={revealAt(i)}>
+              <Reveal key={s.title.en} delay={i * 0.08} className={styles.step}>
                 <div className={styles.stepNum}>{String(i + 1).padStart(2, '0')}</div>
                 <div className={styles.stepTitle}>{pickText(s.title, lang)}</div>
                 <div className={styles.stepText}>{pickText(s.text, lang)}</div>
-              </div>
+              </Reveal>
             ))}
           </div>
         </div>
@@ -626,7 +646,7 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
           <Head id="solutions" />
           <div className={styles.audienceGrid}>
             {AUDIENCES.map((a, i) => (
-              <div key={a.title.en} className={styles.audienceCard} data-reveal style={revealAt(i)}>
+              <Reveal key={a.title.en} delay={i * 0.08} className={styles.audienceCard}>
                 <div className={styles.audienceTop}>
                   <span className={styles.audienceIcon}>
                     <Icon name={a.icon} size={19} />
@@ -645,7 +665,7 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
                   {pickText({ ru: 'Подробнее', en: 'Learn more', de: 'Mehr erfahren', ar: 'المزيد', kk: 'Толығырақ', uz: 'Batafsil' }, lang)}
                   <Icon name="arrowUpRight" size={14} />
                 </button>
-              </div>
+              </Reveal>
             ))}
           </div>
         </div>
@@ -657,7 +677,7 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
           <Head id="security" />
           <div className={styles.securityGrid}>
             {SECURITY.map((s, i) => (
-              <div key={s.title.en} className={styles.securityCard} data-reveal style={revealAt(i)}>
+              <Reveal key={s.title.en} delay={i * 0.08} className={styles.securityCard}>
                 <span className={styles.securityIcon}>
                   <Icon name={s.icon} size={17} />
                 </span>
@@ -665,7 +685,7 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
                   <div className={styles.cardTitle}>{pickText(s.title, lang)}</div>
                   <div className={styles.cardText}>{pickText(s.text, lang)}</div>
                 </div>
-              </div>
+              </Reveal>
             ))}
           </div>
         </div>
@@ -699,11 +719,10 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
 
           <div className={styles.plansGrid}>
             {PLANS.map((p, i) => (
-              <div
+              <Reveal
                 key={p.name}
+                delay={i * 0.08}
                 className={`${styles.plan} ${p.popular ? styles.planPopular : ''}`}
-                data-reveal
-                style={revealAt(i)}
               >
                 {p.popular ? (
                   <div className={styles.planBadge}>{pickText({ ru: 'Популярный', en: 'Popular', de: 'Beliebt', ar: 'الأكثر شيوعًا', kk: 'Танымал', uz: 'Ommabop' }, lang)}</div>
@@ -737,11 +756,11 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
                 >
                   {p.name === 'Free' ? t('landing.startFree') : t('landing.choosePlan')}
                 </button>
-              </div>
+              </Reveal>
             ))}
           </div>
           {/* Enterprise — custom pricing, full-width card (mirrors the in-app page). */}
-          <div className={styles.enterprise} data-reveal>
+          <Reveal className={styles.enterprise}>
             <div className={styles.enterpriseInfo}>
               <div className={styles.planName}>
                 <span className={styles.planDot} style={{ background: ENTERPRISE.dot }} />
@@ -766,7 +785,7 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
                 </li>
               ))}
             </ul>
-          </div>
+          </Reveal>
         </div>
       </section>
 
@@ -775,36 +794,54 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
         <div className={styles.inner}>
           <Head id="faq" />
           <div className={styles.faq}>
-            {FAQ_GROUPS.map((group) => (
-              <div key={group.title.en}>
+            {FAQ_GROUPS.map((group, gi) => (
+              <Reveal key={group.title.en} delay={gi * 0.08}>
                 <h3 className={styles.faqGroupTitle}>{pickText(group.title, lang)}</h3>
-                {group.items.map((item) => (
-                  <details key={item.q.en} className={styles.faqItem}>
-                    <summary className={styles.faqQ}>
-                      {pickText(item.q, lang)}
-                      <span className={styles.faqToggle}>
-                        <Icon name="plus" size={16} />
-                      </span>
-                    </summary>
-                    <div className={styles.faqA}>
-                      {pickText(item.a, lang)}
-                      {item.link ? (
-                        <button
-                          type="button"
-                          className={styles.faqLink}
-                          onClick={() =>
-                            document
-                              .getElementById(item.link!.id)
-                              ?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' })
-                          }
-                        >
-                          {pickText(item.link.label, lang)} →
-                        </button>
-                      ) : null}
+                {/* Аккордеон эталона: высота через глобальные faq-item/faq-body
+                    (grid-rows), стрелка поворачивается на 180°. */}
+                {group.items.map((item) => {
+                  const open = openFaq === item.q.en;
+                  return (
+                    <div
+                      key={item.q.en}
+                      data-open={open}
+                      className={`faq-item ${styles.faqItem}`}
+                    >
+                      <button
+                        type="button"
+                        aria-expanded={open}
+                        className={styles.faqQ}
+                        onClick={() => setOpenFaq(open ? null : item.q.en)}
+                      >
+                        {pickText(item.q, lang)}
+                        <span className={styles.faqToggle}>
+                          <Icon name="chevron" size={16} />
+                        </span>
+                      </button>
+                      <div className="faq-body">
+                        <div>
+                          <div className={styles.faqA}>
+                            {pickText(item.a, lang)}
+                            {item.link ? (
+                              <button
+                                type="button"
+                                className={styles.faqLink}
+                                onClick={() =>
+                                  document
+                                    .getElementById(item.link!.id)
+                                    ?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' })
+                                }
+                              >
+                                {pickText(item.link.label, lang)} →
+                              </button>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                  </details>
-                ))}
-              </div>
+                  );
+                })}
+              </Reveal>
             ))}
           </div>
         </div>
@@ -813,7 +850,7 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
       {/* ── Pre-footer CTA banner ────────────────────────────────────────── */}
       <section className={styles.section}>
         <div className={styles.inner}>
-          <div className={styles.ctaBanner} data-reveal>
+          <Reveal className={`${styles.ctaBanner} glass-card sheen`}>
             <span className={styles.ctaBannerGrid} aria-hidden="true" />
             <h2 className={styles.ctaBannerTitle}>
               {pickText({ ru: 'Готовы ускорить работу с контрактами?', en: 'Ready to speed up your contract work?', de: 'Bereit, Ihre Vertragsarbeit zu beschleunigen?', ar: 'هل أنت مستعد لتسريع العمل على عقودك؟', kk: 'Келісімшарт жұмысын жеделдетуге дайынсыз ба?', uz: 'Shartnomalar bilan ishlashni tezlashtirishga tayyormisiz?' }, lang)}
@@ -822,7 +859,8 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
               {pickText({ ru: 'Пилот за 3 дня. Никакой карты. Полный доступ к возможностям Enterprise.', en: 'A 3-day pilot. No card. Full access to Enterprise features.', de: 'Pilot in 3 Tagen. Keine Karte nötig. Voller Zugriff auf Enterprise-Funktionen.', ar: 'تجربة خلال 3 أيام. دون بطاقة. وصول كامل إلى إمكانات Enterprise.', kk: '3 күнде пилот. Карта қажет емес. Enterprise мүмкіндіктеріне толық қолжетімділік.', uz: "3 kunda pilot. Karta shart emas. Enterprise imkoniyatlaridan to'liq foydalanish." }, lang)}
             </p>
             <div className={styles.ctaBannerBtns}>
-              <button type="button" className={styles.ctaBannerPrimary} onClick={onStart}>
+              {/* Единственная тёмная кнопка секции + shimmer-полоса эталона. */}
+              <button type="button" className={`btn-shimmer ${styles.ctaBannerPrimary}`} onClick={onStart}>
                 {t('landing.navCta')}
                 <Icon name="arrowRight" size={17} />
               </button>
@@ -836,7 +874,7 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
                 {t('landing.viewDemo')}
               </button>
             </div>
-          </div>
+          </Reveal>
         </div>
       </section>
 

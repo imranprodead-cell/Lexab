@@ -113,7 +113,7 @@ export function TelegramWidget({
       <div className={styles.items}>
         <div className={styles.tg}>
           <a
-            className={styles.tgBtn}
+            className={`glass ${styles.tgBtn}`}
             href={TELEGRAM_URL}
             target="_blank"
             rel="noreferrer noopener"
@@ -137,7 +137,7 @@ export function TelegramWidget({
 
         <div className={styles.tg}>
           <a
-            className={styles.tgBtn}
+            className={`glass ${styles.tgBtn}`}
             href={WHATSAPP_URL}
             target="_blank"
             rel="noreferrer noopener"

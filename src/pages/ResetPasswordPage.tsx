@@ -10,6 +10,7 @@ import { ApiError } from '@/api/util';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useI18n } from '@/i18n/I18nProvider';
+import { useReveal } from '@/hooks/useReveal';
 import styles from './pages.module.css';
 
 /** PUBLIC: /reset-password?token=… — set a new password from the letter. */
@@ -29,6 +30,9 @@ export function ResetPasswordPage() {
   const [twoFactor, setTwoFactor] = useState(false);
   const [tfCode, setTfCode] = useState('');
   const [useBackup, setUseBackup] = useState(false);
+  // Один и тот же хук для обеих веток return (без токена / форма) — порядок
+  // хуков не должен зависеть от ветки.
+  const bodyReveal = useReveal<HTMLDivElement>();
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -80,7 +84,7 @@ export function ResetPasswordPage() {
           <Avatar size={30} />
           <span className={styles.signBrand}>Lexab</span>
         </div>
-        <div className={styles.signBody}>
+        <div className={styles.signBody} ref={bodyReveal}>
           <GlassCard className={styles.signCard} style={{ textAlign: 'center' }}>
             <div className={styles.signIcon} style={{ color: 'var(--danger)', display: 'flex', justifyContent: 'center' }}>
               <Icon name="alert" size={28} />
@@ -99,7 +103,7 @@ export function ResetPasswordPage() {
         <Avatar size={30} />
         <span className={styles.signBrand}>Lexab</span>
       </div>
-      <div className={styles.signBody}>
+      <div className={styles.signBody} ref={bodyReveal}>
         <GlassCard className={styles.signCard} style={{ maxWidth: 440 }}>
           <h1 className={styles.signTitle}>{t('reset.title')}</h1>
           <p className={styles.signSub}>{t('reset.sub')}</p>

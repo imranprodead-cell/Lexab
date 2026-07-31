@@ -234,6 +234,7 @@ export function SideRail({ sessions, user, onNewReview }: SideRailProps) {
               <span className={styles.brandLogo}>
                 <Avatar size={28} />
               </span>
+              <span className={styles.brandName}>Lexab</span>
               <button
                 type="button"
                 className={styles.collapseBtn}

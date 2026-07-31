@@ -8,6 +8,7 @@ import { EmptyState, ErrorState, SkeletonRows } from '@/components/ui/States';
 import { useAsync } from '@/hooks/useAsync';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { usePageTitle } from '@/hooks/usePageTitle';
+import { useReveal } from '@/hooks/useReveal';
 import { signaturesApi } from '@/api';
 import type { SignatureRequest, SignatureStatus } from '@/types/domain';
 import { useUIStore } from '@/store/useUIStore';
@@ -85,7 +86,7 @@ export function SignaturesPage() {
       <TopBar title={t('sig.title')} />
       <div className={`${styles.body} scroll`}>
         <div className={styles.container}>
-          <div className={styles.pageHead}>
+          <div className={styles.pageHead} ref={useReveal()}>
             <h1 className={styles.pageTitle}>{t('sig.title')}</h1>
             <p className={styles.pageSub}>{t('sig.sub')}</p>
           </div>

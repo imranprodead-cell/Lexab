@@ -31,7 +31,7 @@ export function BrandMenu() {
       </button>
 
       {open ? (
-        <div className={styles.brandMenu} role="menu">
+        <div className={`glass ${styles.brandMenu}`} role="menu">
           <div className={styles.brandMenuItem}>
             <span className={styles.brandMenuIcon}>
               <Icon name="sparkle" size={18} />

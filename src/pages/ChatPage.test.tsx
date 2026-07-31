@@ -47,6 +47,22 @@ const ANALYSIS = {
 
 // jsdom has no scroll APIs — the app calls them in the scroll effect.
 Element.prototype.scrollTo = Element.prototype.scrollTo ?? (() => undefined);
+// jsdom also lacks matchMedia/IntersectionObserver — the reveal cascade
+// (useReveal в приветствии) needs both; stubs keep the render identical.
+window.matchMedia =
+  window.matchMedia ??
+  ((query: string) =>
+    ({ matches: false, media: query, addEventListener: () => undefined, removeEventListener: () => undefined }) as unknown as MediaQueryList);
+globalThis.IntersectionObserver =
+  globalThis.IntersectionObserver ??
+  (class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+    takeRecords() {
+      return [];
+    }
+  } as unknown as typeof IntersectionObserver);
 
 declare global {
   // eslint-disable-next-line no-var

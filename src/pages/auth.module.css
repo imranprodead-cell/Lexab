@@ -76,28 +76,42 @@
   overflow-wrap: break-word;
 }
 
-/* Accent word ("быстрее"): violet gradient fill with a hand-drawn wavy
-   underline. Falls back to a solid accent colour where background-clip:text
-   is unsupported, so the word is never invisible. */
+/* Hero words: cascade up one by one (delay set inline: 0.1 + i*0.1). */
+.heroWord {
+  display: inline-block;
+  max-width: 100%;
+  overflow-wrap: break-word;
+  animation: lxheroword var(--dur-reveal) var(--ease) both;
+}
+
+@keyframes lxheroword {
+  from {
+    opacity: 0;
+    transform: translateY(28px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Accent word ("быстрее") — эталон: Playfair italic, violet→pink gradient,
+   with a hand-drawn wavy line drawing itself underneath. Falls back to a
+   solid colour where background-clip:text is unsupported. */
 .heroAccent {
   position: relative;
   display: inline-block;
-  color: var(--accent);
+  font-family: var(--font-display);
+  font-style: italic;
+  letter-spacing: 0;
+  color: #a855f7;
   padding-bottom: 0.04em;
+  padding-inline-end: 0.08em; /* italic overhang */
 }
 
 @supports ((-webkit-background-clip: text) or (background-clip: text)) {
   .heroAccent {
-    /* Left half = the heading colour (near-black in light, near-white in dark)
-       so it blends into "контракты"; the violet gradient sits on the RIGHT. */
-    /* Long gradient: "б" keeps the heading colour, then from "ы" it ramps
-       smoothly across the remaining letters to full violet at the end. */
-    background: linear-gradient(
-      95deg,
-      var(--text) 0%,
-      var(--text) 12%,
-      var(--accent) 100%
-    );
+    background: linear-gradient(90deg, #8b5cf6, #ec4899);
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
@@ -105,19 +119,42 @@
   }
 }
 
-/* Freehand marker underline: a smooth, slightly curved band in translucent
-   lavender with uneven thickness (filled shape, not a stroke) so the background
-   shows through — a highlighter feel. Stretched once under the word. */
-.heroAccent::after {
-  content: '';
+/* The wavy underline: pathLength=1 + dashoffset 1 keeps it invisible until
+   the draw animation starts (delay 0.8s, эталон Hero). */
+.heroWave {
   position: absolute;
   left: 0;
-  right: 0;
-  bottom: -0.18em;
-  height: 0.3em;
-  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 220 14' preserveAspectRatio='none'%3E%3Cpath d='M4 8.4C46 4.2 120 3.1 176 5.2 197 6 209 6.6 216 5.1 210 8.6 197 10.4 176 9.7 120 8.2 46 9 4 10.6 2.4 9.9 2.4 9 4 8.4Z' fill='%23c3b2f2' fill-opacity='0.6'/%3E%3C/svg%3E")
-    no-repeat center / 100% 100%;
+  bottom: -0.14em;
+  width: 100%;
+  height: 0.2em;
+  overflow: visible;
   pointer-events: none;
+}
+
+.heroWavePath {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: lxherodraw 0.9s var(--ease) 0.8s forwards;
+}
+
+@keyframes lxherodraw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Reduce-motion: the global kill-switch shrinks durations but not delays —
+   zero them so the headline is never blank while it waits. */
+:global(html[data-reduce-motion='true']) .heroWord,
+:global(html[data-reduce-motion='true']) .heroWavePath {
+  animation-delay: 0s !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .heroWord,
+  .heroWavePath {
+    animation-delay: 0s !important;
+  }
 }
 
 .heroSub {
@@ -138,17 +175,46 @@
   margin: 0 0 18px;
 }
 
-/* Primary hero action: soft-violet tinted fill with a trailing arrow. The
-   text colour blends toward --text so it stays legible on both themes. */
+/* Primary hero action — эталон: outline pill on the panel surface. */
 .heroCtaOutline {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 11px 20px;
+  padding: 11px 22px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+  box-shadow: 0 1px 2px color-mix(in srgb, #000 6%, transparent);
+  transition: border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease),
+    transform var(--dur-fast) var(--ease);
+}
+
+.heroCtaOutline:hover {
+  border-color: color-mix(in srgb, var(--dim) 55%, var(--border));
+  box-shadow: var(--shadow-card);
+  transform: translateY(-1px);
+}
+
+.heroCtaOutline:active {
+  transform: scale(0.97);
+}
+
+/* Secondary hero action — эталон: quiet ghost pill. */
+.heroCtaGhost {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 18px;
   border: 1px solid transparent;
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--accent) 15%, var(--panel));
-  color: color-mix(in srgb, var(--accent) 74%, var(--text));
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text);
   font-family: inherit;
   font-size: 14px;
   font-weight: 600;
@@ -157,38 +223,8 @@
   transition: background var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
 }
 
-.heroCtaOutline:hover {
-  background: color-mix(in srgb, var(--accent) 24%, var(--panel));
-  transform: translateY(-1px);
-}
-
-.heroCtaOutline:active {
-  transform: scale(0.97);
-}
-
-/* Secondary hero action: quiet surface button with a leading play glyph. */
-.heroCtaGhost {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 11px 20px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--panel);
-  color: var(--text);
-  font-family: inherit;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  touch-action: manipulation;
-  box-shadow: 0 1px 2px color-mix(in srgb, #000 8%, transparent);
-  transition: border-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease),
-    transform var(--dur-fast) var(--ease);
-}
-
 .heroCtaGhost:hover {
-  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
-  color: var(--accent);
+  background: var(--hover-2);
   transform: translateY(-1px);
 }
 
@@ -203,6 +239,8 @@
   border-radius: var(--r-xl);
 }
 
+/* Обводочные кнопки эталона (AuthCard): border-edge + bg-surface; единственная
+   тёмная кнопка карточки — «Продолжить по email». */
 .googleBtn {
   width: 100%;
   display: flex;
@@ -212,18 +250,23 @@
   padding: 12px 16px;
   border-radius: 12px;
   border: 1px solid var(--border);
-  background: #ffffff;
-  color: #1f1f1f;
+  background: var(--panel);
+  color: var(--text);
   font-family: inherit;
   font-size: 15px;
   font-weight: 600;
   cursor: pointer;
-  transition: box-shadow 0.15s ease, transform 0.15s ease;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
 }
 
 .googleBtn:hover {
-  box-shadow: 0 4px 18px color-mix(in srgb, var(--accent) 22%, transparent);
+  border-color: color-mix(in srgb, var(--dim) 60%, var(--border));
+  box-shadow: var(--shadow-card);
   transform: translateY(-1px);
+}
+
+.googleBtn:active {
+  transform: scale(0.99);
 }
 
 .ssoBtn {
@@ -236,17 +279,17 @@
   padding: 10px 16px;
   border-radius: 12px;
   border: 1px solid var(--border);
-  background: transparent;
-  color: var(--dim);
+  background: var(--panel);
+  color: var(--text);
   font-family: inherit;
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.15s ease;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 .ssoBtn:hover {
-  background: var(--hover-2);
-  color: var(--text);
+  border-color: color-mix(in srgb, var(--dim) 60%, var(--border));
+  box-shadow: var(--shadow-card);
 }
 .ssoRow {
   margin-top: 10px;
@@ -443,7 +486,8 @@
   width: 480px;
   height: 480px;
   transform: translateX(-50%);
-  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 34%, transparent), transparent 65%);
+  /* Эталонное фиолетовое пятно вместо серого тумана от графитового акцента */
+  background: radial-gradient(circle, var(--bloom-b), transparent 65%);
   filter: blur(48px);
   animation: lxglow 7s ease-in-out infinite;
   pointer-events: none;
@@ -455,7 +499,7 @@
   right: 10%;
   width: 220px;
   height: 220px;
-  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 26%, transparent), transparent 65%);
+  background: radial-gradient(circle, var(--bloom-a), transparent 65%);
   filter: blur(36px);
   pointer-events: none;
 }
@@ -497,32 +541,36 @@
   font-size: 13px;
 }
 
-/* ── Sticky top banner: nav pill + language/theme controls ───────────────── */
+/* ── Fixed glass top bar (эталон Navbar) ─────────────────────────────────── */
 
+/* The glass surface itself comes from the global .glass-nav class; here we
+   only pin the bar. `fixed` works against the viewport: the page scrolls
+   inside .auth, so the bar stays put while content slides underneath. */
 .topBar {
-  position: sticky;
-  top: 14px;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
   /* Above the fixed Telegram dock (z-70): the banner is a stacking context,
      so the open language menu inherits this ceiling. */
   z-index: 80;
+}
+
+/* Centred content row; the vertical padding compresses 16→10 on scroll. */
+.topBarInner {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
   gap: 12px;
-  /* One unified floating bar (photo 1): centred, rounded, blurred surface. */
-  width: min(1240px, calc(100% - 32px));
-  margin: 14px auto -74px; /* still overlays the 100vh first screen */
-  padding: 10px 12px 10px 16px;
-  border-radius: 22px;
-  /* Liquid glass: very translucent surface + strong blur & saturation so
-     scrolled content shows through the empty areas, with a top sheen for the
-     glass edge. Text/controls sit on top and stay fully opaque. */
-  background: color-mix(in srgb, var(--panel) 44%, transparent);
-  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
-  box-shadow: var(--shadow-card), inset 0 1px 0 rgba(255, 255, 255, 0.2);
-  backdrop-filter: blur(24px) saturate(1.8);
-  -webkit-backdrop-filter: blur(24px) saturate(1.8);
-  pointer-events: auto;
+  width: min(1240px, 100%);
+  margin: 0 auto;
+  padding: 16px 20px;
+  transition: padding 0.3s ease;
+}
+
+.topBarScrolled .topBarInner {
+  padding-top: 10px;
+  padding-bottom: 10px;
 }
 
 .topBarSide {
@@ -563,18 +611,14 @@
   font-family: var(--font-label);
 }
 
+/* Plain text links with the animated nav-link underline (эталон Navbar). */
 .navPill {
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: 3px;
-  border-radius: 999px;
-  /* Subtle backing so the labels stay legible when a bright element (the white
-     Pro card, the violet CTA banner) scrolls under the translucent bar; the
-     empty gaps of the bar stay clear glass. */
-  background: color-mix(in srgb, var(--panel) 42%, transparent);
-  border: none;
-  box-shadow: none;
+  gap: 26px;
+  /* Нижний отступ больше: подчёркивание nav-link живёт на -4px и не должно
+     срезаться overflow-скроллом на узких экранах. */
+  padding: 4px 2px 7px;
   pointer-events: auto;
   max-width: 100%;
   overflow-x: auto;
@@ -588,38 +632,36 @@
 .navBtn {
   border: none;
   background: transparent;
-  padding: 7px 14px;
-  border-radius: 999px;
+  padding: 2px 0;
   font-family: inherit;
-  font-size: 13.5px;
+  font-size: 14px;
   font-weight: 500;
   letter-spacing: -0.01em;
   color: var(--dim);
   cursor: pointer;
   white-space: nowrap;
   touch-action: manipulation;
-  transition: color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+  transition: color var(--dur-mid) var(--ease);
 }
 
 .navBtn:hover {
   color: var(--text);
-  background: var(--hover);
 }
 
 /* Scrollspy: the section currently in view. */
 .navBtnActive {
   color: var(--text);
-  background: var(--hover);
 }
 
-/* Sticky conversion CTA in the banner — the violet gradient from photo 1. */
+/* Header CTA — outline pill (эталон): the page's only dark button lives in
+   the sign-in card, so the bar stays quiet. */
 .headerCta {
   margin-inline-end: 0;
-  padding: 10px 18px;
-  border: none;
+  padding: 9px 18px;
+  border: 1px solid var(--border);
   border-radius: 999px;
-  background: var(--grad-cta);
-  color: var(--on-grad);
+  background: var(--panel);
+  color: var(--text);
   font-family: inherit;
   font-size: 13px;
   font-weight: 600;
@@ -627,15 +669,14 @@
   cursor: pointer;
   touch-action: manipulation;
   pointer-events: auto;
-  box-shadow: 0 8px 20px color-mix(in srgb, var(--accent) 34%, transparent);
-  transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease),
-    background var(--dur-fast) var(--ease);
+  transition: transform var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease);
 }
 
 .headerCta:hover {
   transform: translateY(-1px);
-  background: var(--grad-cta-hover);
-  box-shadow: 0 11px 26px color-mix(in srgb, var(--accent) 46%, transparent);
+  border-color: color-mix(in srgb, var(--dim) 60%, var(--border));
+  box-shadow: var(--shadow-card);
 }
 
 .headerCta:active {
@@ -648,10 +689,6 @@
   gap: 4px;
   padding: 3px 5px;
   border-radius: 999px;
-  /* Same subtle backing as the nav cluster (see .navPill) for legibility. */
-  background: color-mix(in srgb, var(--panel) 42%, transparent);
-  border: none;
-  box-shadow: none;
   pointer-events: auto;
 }
 
@@ -684,7 +721,7 @@
 /* Touch devices: 44px minimum targets (Apple HIG / Material). */
 @media (pointer: coarse) {
   .navBtn {
-    padding: 12px 16px;
+    padding: 12px 4px;
   }
   .themeBtn {
     width: 44px;
@@ -695,18 +732,27 @@
   }
 }
 
+/* Content sits above the fixed scenery (Background is position:fixed z-0;
+   positioned layers paint over in-flow text unless the content is lifted). */
+.main {
+  position: relative;
+  z-index: 1;
+}
+
 /* ── Responsive ──────────────────────────────────────────────────────────── */
 
 @media (max-width: 940px) {
   .layout {
     grid-template-columns: 1fr;
-    min-height: calc(100vh - 62px);
+    min-height: 100vh;
+    min-height: 100dvh;
   }
   .right {
     display: none;
   }
   .left {
-    padding: 24px 20px 32px;
+    /* The bar is fixed (out of flow) — reserve its height at the top. */
+    padding: 84px 20px 32px;
   }
   .leftInner {
     max-width: 440px;
@@ -714,19 +760,10 @@
   .hero {
     font-size: clamp(30px, 8.5vw, 38px);
   }
-  /* The banner stops overlaying and becomes a full-width blurred strip. */
-  .topBar {
+  /* Compact strip: the brand hides, nav links + controls share one row. */
+  .topBarInner {
     grid-template-columns: minmax(0, 1fr) auto;
-    top: 0;
-    width: auto;
-    margin: 0;
-    border-radius: 0;
-    border-width: 0 0 1px;
     padding: 10px 12px;
-    background: color-mix(in srgb, var(--bg) 86%, transparent);
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
-    pointer-events: auto;
   }
   /* Banner logo hides here; the hero keeps its own lockup on mobile. */
   .topBarSide:first-child {
@@ -734,6 +771,7 @@
   }
   .navPill {
     justify-self: start;
+    gap: 18px;
   }
 }
 
@@ -763,6 +801,7 @@
 
 /* ── Stats under the sign-in card ────────────────────────────────────────── */
 
+/* Metrics strip (эталон Hero): numbers count up between two hairlines. */
 .stats {
   width: 100%;
   max-width: 420px;
@@ -771,7 +810,10 @@
   align-items: center;
   justify-content: center;
   gap: 34px;
-  padding-top: 16px;
+  margin-top: 16px;
+  padding: 14px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
 }
 
 .stat {
@@ -783,6 +825,20 @@
   font-weight: 700;
   letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
+}
+
+/* На 390px метрики ужимаются, не вылезая за колонку. */
+@media (max-width: 480px) {
+  .stats {
+    gap: 16px;
+  }
+  .statValue {
+    font-size: 21px;
+  }
+  .statLabel {
+    max-width: 140px;
+    font-size: 11.5px;
+  }
 }
 
 .statValueAccent {

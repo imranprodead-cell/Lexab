@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Icon } from '@/components/icons/Icon';
-import { GlassCard } from '@/components/ui/GlassCard';
 import { Spinner } from '@/components/ui/Spinner';
 import { promptsApi } from '@/api/prompts.api';
 import { useVoiceInput } from '@/hooks/useVoiceInput';
@@ -270,8 +269,9 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
 
         {/* ChatGPT-style two-row pill: the textarea spans the FULL width on
             top (no side gutters squeezing long prompts), the buttons live in
-            their own row underneath — attach/cloud left, ✦/mic/send right. */}
-        <GlassCard className={styles.inputBar}>
+            their own row underneath — attach/cloud left, ✦/mic/send right.
+            Панель эталона (bg-surface + бордер) вместо стекла — см. .inputBar. */}
+        <div className={styles.inputBar}>
           <input
             ref={fileInputRef}
             type="file"
@@ -352,9 +352,10 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
               </button>
             ) : null}
 
+              {/* Единственная тёмная кнопка чата: графит + shimmer по hover. */}
               <button
                 type="button"
-                className={styles.sendBtn}
+                className={`${styles.sendBtn} btn-shimmer`}
                 aria-label={t('chat.sendLabel')}
                 onClick={submit}
                 style={{
@@ -366,7 +367,7 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
               </button>
             </div>
           </div>
-        </GlassCard>
+        </div>
 
         <div className={styles.disclaimer}>{t('chat.disclaimer')}</div>
       </div>

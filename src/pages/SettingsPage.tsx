@@ -9,6 +9,7 @@ import { TextField } from '@/components/ui/TextField';
 import { SkeletonRows } from '@/components/ui/States';
 import { useAsync, useDismissable } from '@/hooks/useAsync';
 import { usePageTitle } from '@/hooks/usePageTitle';
+import { useReveal } from '@/hooks/useReveal';
 import { billingApi, securityApi, userApi } from '@/api';
 import type { TwoFactorSetup } from '@/api';
 import { authApi } from '@/api/auth.api';
@@ -48,6 +49,8 @@ export function SettingsPage() {
   const adoptSession = useAuthStore((s) => s.adoptSession);
   const logout = useAuthStore((s) => s.logout);
   const fileRef = useRef<HTMLInputElement>(null);
+  // Появление заголовка — хук зовётся до раннего return (скелет загрузки).
+  const headReveal = useReveal<HTMLDivElement>();
 
   const { data, loading } = useAsync((signal) => userApi.me(signal), []);
   const limits = useAsync((signal) => billingApi.limits(signal), []);
@@ -329,7 +332,7 @@ export function SettingsPage() {
       <TopBar title={t('settings.title')} />
       <div className={`${styles.body} scroll`}>
         <div className={styles.container}>
-          <div className={styles.pageHead}>
+          <div className={styles.pageHead} ref={headReveal}>
             <h1 className={styles.pageTitle}>{t('settings.title')}</h1>
             <p className={styles.pageSub}>{t('settings.sub')}</p>
           </div>
@@ -581,7 +584,7 @@ export function SettingsPage() {
                   </div>
                   <Button
                     size="sm"
-                    variant={digest.data?.enabled ? 'secondary' : 'primary'}
+                    variant="secondary"
                     disabled={digestBusy || !digest.data}
                     onClick={() => void toggleDigest()}
                   >
@@ -609,7 +612,7 @@ export function SettingsPage() {
                                 onChange={(e) => setHookUrl(e.target.value)}
                               />
                             </span>
-                            <Button size="sm" variant="primary" disabled={hookBusy || hookUrl.trim().length < 20} onClick={() => void saveHook(provider)}>
+                            <Button size="sm" variant="secondary" disabled={hookBusy || hookUrl.trim().length < 20} onClick={() => void saveHook(provider)}>
                               {t('common.save')}
                             </Button>
                             <Button size="sm" onClick={() => setHookEditing(null)}>
@@ -628,7 +631,7 @@ export function SettingsPage() {
                           </Button>
                         </span>
                       ) : (
-                        <Button size="sm" variant="primary" onClick={() => { setHookEditing(provider); setHookUrl(''); }}>
+                        <Button size="sm" variant="secondary" onClick={() => { setHookEditing(provider); setHookUrl(''); }}>
                           {t('hooks.connect')}
                         </Button>
                       )}
@@ -741,7 +744,7 @@ export function SettingsPage() {
                   />
                 </div>
                 <div>
-                  <Button variant="primary" icon="shield" disabled={passBusy || !curPass || !newPass} onClick={() => void changePassword()}>
+                  <Button variant="secondary" icon="shield" disabled={passBusy || !curPass || !newPass} onClick={() => void changePassword()}>
                     {passBusy ? t('common.loading') : t('settings.changePassword')}
                   </Button>
                 </div>
@@ -928,7 +931,7 @@ function TwoFactorSection() {
             <Button size="sm" variant="secondary" icon="copy" onClick={() => copy(backupCodes.join('\n'))}>
               {t('sec.2fa.copyCodes')}
             </Button>
-            <Button size="sm" variant="primary" icon="check" onClick={() => { setBackupCodes(null); status.reload(); }}>
+            <Button size="sm" variant="secondary" icon="check" onClick={() => { setBackupCodes(null); status.reload(); }}>
               {t('sec.2fa.backupSaved')}
             </Button>
           </div>
@@ -993,7 +996,7 @@ function TwoFactorSection() {
             <Button size="sm" onClick={() => { setSetup(null); setCode(''); }}>
               {t('common.cancel')}
             </Button>
-            <Button size="sm" variant="primary" icon="check" disabled={busy || code.trim().length < 6} onClick={() => void confirm()}>
+            <Button size="sm" variant="secondary" icon="check" disabled={busy || code.trim().length < 6} onClick={() => void confirm()}>
               {busy ? t('common.loading') : t('sec.2fa.confirm')}
             </Button>
           </div>

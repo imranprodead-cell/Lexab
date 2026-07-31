@@ -4,11 +4,11 @@ import { TopBar } from '@/components/layout/TopBar';
 import { Icon } from '@/components/icons/Icon';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
-import { GlassCard } from '@/components/ui/GlassCard';
 import { EmptyState } from '@/components/ui/States';
 import { compareApi, type CompareResult } from '@/api/compare.api';
 import { useUIStore } from '@/store/useUIStore';
 import { usePageTitle } from '@/hooks/usePageTitle';
+import { useReveal } from '@/hooks/useReveal';
 import { useI18n } from '@/i18n/I18nProvider';
 import styles from './compare.module.css';
 
@@ -77,7 +77,7 @@ function FilePick({
 }) {
   const ref = useRef<HTMLInputElement>(null);
   return (
-    <GlassCard className={styles.pickCard}>
+    <div className={`panel ${styles.pickCard}`}>
       <input
         ref={ref}
         type="file"
@@ -99,7 +99,7 @@ function FilePick({
       <Button size="sm" icon="upload" onClick={() => ref.current?.click()}>
         {pickLabel}
       </Button>
-    </GlassCard>
+    </div>
   );
 }
 
@@ -114,6 +114,11 @@ export function ComparePage() {
   const [fileB, setFileB] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<CompareResult | null>(null);
+
+  // Каскад появления страницы (эталонный reveal): заголовок → пикеры → кнопка.
+  const headRef = useReveal(0);
+  const pickRef = useReveal(0.08);
+  const runRef = useReveal(0.16);
 
   const run = async () => {
     if (!fileA || !fileB) return;
@@ -139,7 +144,7 @@ export function ComparePage() {
       />
       <div className={`${styles.body} scroll`}>
         <div className={styles.container}>
-          <div className={styles.head}>
+          <div className={styles.head} ref={headRef}>
             <div>
               <h1 className={styles.title}>{t('cmp.title')}</h1>
               <p className={styles.sub}>{t('cmp.sub')}</p>
@@ -147,11 +152,11 @@ export function ComparePage() {
             {result ? <Badge color="accent">{t('cmp.changes', { n: result.changes.length })}</Badge> : null}
           </div>
 
-          <div className={styles.pickRow}>
+          <div className={styles.pickRow} ref={pickRef}>
             <FilePick label={t('cmp.uploadA')} file={fileA} onPick={setFileA} pickLabel={t('cmp.pick')} />
             <FilePick label={t('cmp.uploadB')} file={fileB} onPick={setFileB} pickLabel={t('cmp.pick')} />
           </div>
-          <div className={styles.runRow}>
+          <div className={styles.runRow} ref={runRef}>
             <Button variant="primary" icon="layout" disabled={!fileA || !fileB || busy} onClick={() => void run()}>
               {busy ? t('common.loading') : t('cmp.run')}
             </Button>
@@ -164,13 +169,13 @@ export function ComparePage() {
             )
           ) : (
             <>
-              <GlassCard className={styles.summaryCard}>
+              <div className={`panel ${styles.summaryCard}`}>
                 <div className={styles.summaryHead}>
                   <Icon name="sparkle" size={15} color="var(--accent)" />
                   {t('cmp.aiSummary')}
                 </div>
                 {result.summary}
-              </GlassCard>
+              </div>
 
               <div className={styles.cols}>
                 <div className={styles.colHead}>

@@ -8,6 +8,7 @@ import { Icon } from '@/components/icons/Icon';
 import { http } from '@/api/client';
 import { useI18n } from '@/i18n/I18nProvider';
 import { usePageTitle } from '@/hooks/usePageTitle';
+import { useReveal } from '@/hooks/useReveal';
 import styles from './pages.module.css';
 
 interface SignInfo {
@@ -63,7 +64,7 @@ export function SignPage() {
         <span className={styles.signBrand}>Lexab</span>
       </div>
 
-      <div className={styles.signBody}>
+      <div className={styles.signBody} ref={useReveal()}>
         {error && !info ? (
           <GlassCard className={styles.signCard}>
             <div className={styles.signIcon} style={{ color: 'var(--danger)' }}>

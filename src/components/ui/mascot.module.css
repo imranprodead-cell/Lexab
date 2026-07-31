@@ -5,14 +5,14 @@
 .mascot {
   display: block;
   flex-shrink: 0;
-  /* Default theme is dark — lift the body colour so the mascot reads on a
-     dark background; the light theme gets the original deep purple. */
-  --m-body: #7e6cae;
+  /* Тёплый графит палитры редизайна: светлый корпус на тёмной теме,
+     тёмный — на светлой. Золото и бумага — прежние. */
+  --m-body: #d9d6d2;
   --m-gold: #d3a24c;
   --m-paper: #ffffff;
 }
 :global(html:not(.dark)) .mascot {
-  --m-body: #3b2a5a;
+  --m-body: #3a3734;
 }
 
 .rock {

@@ -4,6 +4,7 @@ import { TopBar } from '@/components/layout/TopBar';
 import { Icon, type IconName } from '@/components/icons/Icon';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+import { CountUp } from '@/components/ui/CountUp';
 import { EmptyState, ErrorState, SkeletonRows } from '@/components/ui/States';
 import { ExpiryChip } from '@/components/contracts/ExpiryChip';
 import { ObligationList } from '@/components/contracts/ObligationList';
@@ -12,9 +13,11 @@ import { ApiError } from '@/api/util';
 import { useAsync } from '@/hooks/useAsync';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { usePageTitle } from '@/hooks/usePageTitle';
+import { useReveal } from '@/hooks/useReveal';
 import { useI18n } from '@/i18n/I18nProvider';
 import { localeFor } from '@/i18n/dates';
 import type { ContractRow } from '@/types/domain';
+import { Reveal } from './Reveal';
 import styles from './pages.module.css';
 
 type Filter = 'all' | 'd30' | 'd60' | 'd90' | 'auto' | 'obligations';
@@ -132,7 +135,7 @@ export function ContractsPage() {
       <TopBar title={t('contracts.title')} />
       <div className={`${styles.body} scroll`}>
         <div className={styles.container}>
-          <div className={styles.pageHead}>
+          <div className={styles.pageHead} ref={useReveal()}>
             <h1 className={styles.pageTitle}>{t('contracts.title')}</h1>
             <p className={styles.pageSub}>{t('contracts.sub')}</p>
           </div>
@@ -166,14 +169,16 @@ export function ContractsPage() {
           ) : (
             <>
               <div className={styles.statGrid}>
-                {statCards.map((m) => (
-                  <div key={m.key} className={styles.stat}>
+                {statCards.map((m, i) => (
+                  <Reveal key={m.key} delay={i * 0.06} className={styles.stat}>
                     <div className={styles.statLabel}>
                       <Icon name={m.icon} size={15} color="var(--accent)" />
                       {t(m.labelKey)}
                     </div>
-                    <div className={styles.statValue}>{stats[m.key]}</div>
-                  </div>
+                    <div className={styles.statValue}>
+                      <CountUp to={stats[m.key]} />
+                    </div>
+                  </Reveal>
                 ))}
               </div>
 

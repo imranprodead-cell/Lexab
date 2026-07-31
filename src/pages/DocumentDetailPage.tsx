@@ -12,6 +12,7 @@ import { ExpiryChip } from '@/components/contracts/ExpiryChip';
 import { ObligationList } from '@/components/contracts/ObligationList';
 import { useAsync, clearAsyncCache } from '@/hooks/useAsync';
 import { usePageTitle } from '@/hooks/usePageTitle';
+import { useReveal } from '@/hooks/useReveal';
 import { analysisApi, contractsApi, documentsApi, versionsApi, workflowsApi, ApiError } from '@/api';
 import { approvalsApi, type NewApprovalStep } from '@/api/approvals.api';
 import { downloadBlob } from '@/lib/download';
@@ -203,6 +204,9 @@ export function DocumentDetailPage() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
   const { t, lang } = useI18n();
+  // Появление шапки документа (y:14) — хук зовётся безусловно наверху,
+  // ниже шапка рендерится в условной ветке.
+  const headReveal = useReveal<HTMLDivElement>();
 
   const formatDate = (iso: string): string =>
     new Date(iso).toLocaleDateString(localeFor(lang), {
@@ -481,7 +485,7 @@ export function DocumentDetailPage() {
             <ErrorState message={error ?? t('common.error')} onRetry={reload} />
           ) : (
             <>
-              <div className={styles.docDetailHead}>
+              <div className={styles.docDetailHead} ref={headReveal}>
                 <div className={styles.docDetailIcon}>
                   <Icon name="docs" size={26} />
                 </div>

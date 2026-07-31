@@ -34,18 +34,30 @@
   color: var(--text);
 }
 
+/* Дропдаун — стекло эталона, появление scale .96 / y -4 из правого верха. */
 .menu {
   position: absolute;
   top: calc(100% + 8px);
   right: 0;
   min-width: 172px;
   padding: 5px;
-  border-radius: 12px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-pop);
+  border-radius: var(--r-lg);
+  background: var(--glass-bg-solid);
+  border: 1px solid var(--glass-edge);
+  border-top-color: var(--glass-edge-top);
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    var(--shadow-pop);
   z-index: 90;
-  animation: lxlangin 0.16s var(--ease);
+  transform-origin: top right;
+  animation: lxlangin 0.18s var(--ease);
+}
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .menu {
+    background: var(--glass-bg);
+    -webkit-backdrop-filter: blur(20px) saturate(1.2);
+    backdrop-filter: blur(20px) saturate(1.2);
+  }
 }
 
 .item {
@@ -69,7 +81,8 @@
 }
 
 .itemActive {
-  color: var(--accent);
+  color: var(--text);
+  font-weight: 600;
 }
 
 .itemShort {
@@ -82,7 +95,7 @@
 }
 
 .itemActive .itemShort {
-  color: var(--accent);
+  color: var(--text);
 }
 
 .itemLabel {
@@ -91,7 +104,7 @@
 }
 
 .itemCheck {
-  color: var(--accent);
+  color: var(--text);
 }
 
 /* Keyframes live in the module: CSS Modules hashes animation names, so
@@ -99,7 +112,7 @@
 @keyframes lxlangin {
   from {
     opacity: 0;
-    transform: translateY(-4px);
+    transform: scale(0.96) translateY(-4px);
   }
   to {
     opacity: 1;

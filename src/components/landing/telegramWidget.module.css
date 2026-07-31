@@ -30,12 +30,47 @@
 }
 
 .tg {
-  /* Intentionally not positioned — the popover anchors to .items above. */
+  /* Intentionally not positioned — the popover anchors to .items above.
+     (Transform живёт только пока идёт входная анимация — к моменту, когда
+     кто-то успеет навести на QR, containing block уже обычный.) */
   position: static;
+  /* Появление эталона (FloatingContacts): delay 1s + i*0.1. */
+  animation: lxdockin 0.5s var(--ease) both;
 }
 
-/* Compact 44px circles — same footprint as the back-to-top button, so the
-   whole dock reads as one tidy column. */
+.items .tg:nth-child(1) {
+  animation-delay: 1s;
+}
+
+.items .tg:nth-child(2) {
+  animation-delay: 1.1s;
+}
+
+@keyframes lxdockin {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Reduce-motion: kill-switch сжимает длительности, но не задержки — обнуляем,
+   чтобы кнопки не были невидимы первую секунду. */
+:global(html[data-reduce-motion='true']) .tg {
+  animation-delay: 0s !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tg {
+    animation-delay: 0s !important;
+  }
+}
+
+/* Стеклянные круги эталона (глобальный .glass даёт фон/кромку/blur) — 44px,
+   same footprint as the back-to-top button, so the dock reads as one column. */
 .tgBtn {
   display: flex;
   align-items: center;
@@ -44,20 +79,22 @@
   height: 44px;
   border-radius: 50%;
   touch-action: manipulation;
-  color: #ffffff;
-  background: linear-gradient(165deg, var(--accent), color-mix(in srgb, var(--accent) 60%, #3a2f80));
-  border: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  color: var(--dim);
   text-decoration: none;
-  box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 22%, transparent);
-  transition: box-shadow var(--dur-mid) var(--ease), transform var(--dur-mid) var(--ease);
+  box-shadow: var(--shadow-card);
+  transition: box-shadow var(--dur-mid) var(--ease), transform var(--dur-mid) var(--ease),
+    color var(--dur-mid) var(--ease);
 }
 
 .tgBtn:hover,
 .tg:focus-within .tgBtn {
-  transform: translateY(-1px);
-  box-shadow:
-    0 8px 26px color-mix(in srgb, var(--accent) 45%, transparent),
-    0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent);
+  transform: scale(1.06);
+  color: var(--text);
+  box-shadow: var(--shadow-pop);
+}
+
+.tgBtn:active {
+  transform: scale(0.95);
 }
 
 .tgIcon {
