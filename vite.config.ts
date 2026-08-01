@@ -81,6 +81,26 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        // Вендоры — отдельными чанками: меняются только при апгрейде
+        // зависимостей и кешируются браузером между деплоями (entry-чанк
+        // приложения при этом худеет с 780KB до ~410KB). Завершающий [\\/]
+        // в каждой ветке обязателен: без него 'react' захватил бы
+        // 'react-router', а 'motion' — 'motion-dom'. Catch-all vendor-группы
+        // НЕ добавлять: она затянула бы ленивые react-markdown/remark из
+        // чанка MarkdownMessage в первую загрузку.
+        manualChunks(id: string) {
+          if (!id.includes('node_modules')) return undefined;
+          if (/[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id)) return 'react-vendor';
+          if (/[\\/]node_modules[\\/](react-router|react-router-dom|@remix-run[\\/]router)[\\/]/.test(id)) return 'router';
+          if (/[\\/]node_modules[\\/](motion|framer-motion|motion-dom|motion-utils)[\\/]/.test(id)) return 'motion';
+          return undefined;
+        },
+      },
+    },
+  },
   server: {
     port: 5173,
     // Never silently hop to 5174/5175: a second `npm run dev` fails loudly

@@ -1,6 +1,12 @@
-import { describe, expect, it } from 'vitest';
-import { isLanguage, isRtl, LANGUAGES, MESSAGES, pickText, resolveMessage } from './messages';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { isLanguage, isRtl, LANGUAGES, MESSAGES, pickText, registerExtraLanguage, resolveMessage, type Language } from './messages';
 import { EXTRA } from './translations';
+
+// В проде словари грузятся лениво (loadDict.ts); здесь регистрируем их явно,
+// чтобы resolveMessage проверял НАСТОЯЩИЕ переводы, а не только EN-фолбэк.
+beforeAll(() => {
+  for (const [code, dict] of Object.entries(EXTRA)) registerExtraLanguage(code as Language, dict);
+});
 
 describe('i18n messages', () => {
   it('every key has both ru and en translations', () => {

@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { isLanguage, isRtl, resolveMessage, type Language } from './messages';
+import { hasExtraLanguage, isRtl, loadLang, resolveMessage, type Language } from './messages';
+import { ensureDict } from './loadDict';
 
 const STORAGE_KEY = 'lexai.lang';
 
@@ -20,33 +21,6 @@ interface I18nValue {
 
 const I18nContext = createContext<I18nValue | null>(null);
 
-function loadLang(): Language {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (isLanguage(stored)) return stored;
-  } catch {
-    /* ignore */
-  }
-  // First visit: follow the browser locale. Map each supported language to its
-  // locale prefix; Russian stays the default fallback for the CIS market.
-  try {
-    const locales = typeof navigator !== 'undefined' ? (navigator.languages ?? [navigator.language]) : [];
-    for (const locale of locales) {
-      if (/^ru\b/i.test(locale)) return 'ru';
-      if (/^en\b/i.test(locale)) return 'en';
-      if (/^ar\b/i.test(locale)) return 'ar';
-      if (/^de\b/i.test(locale)) return 'de';
-      if (/^kk\b/i.test(locale)) return 'kk';
-      if (/^uz\b/i.test(locale)) return 'uz';
-      // Other Russian-speaking locales still land on RU.
-      if (/^(be|ky|tg)\b/i.test(locale)) return 'ru';
-    }
-    return locales.length > 0 ? 'en' : 'ru';
-  } catch {
-    return 'ru';
-  }
-}
-
 function interpolate(template: string, params?: TParams): string {
   if (!params) return template;
   return template.replace(/\{(\w+)\}/g, (_, k: string) => String(params[k] ?? `{${k}}`));
@@ -54,6 +28,12 @@ function interpolate(template: string, params?: TParams): string {
 
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [lang, setLangState] = useState<Language>(loadLang);
+  // ru/en — сразу true; async-языки — true, если словарь уже в реестре
+  // (bootstrap в main.tsx обычно грузит его ДО первого рендера, так что gate
+  // ниже почти никогда не срабатывает). После первого true не сбрасывается.
+  const [dictReady, setDictReady] = useState<boolean>(() => hasExtraLanguage(lang));
+  // Растёт при (до)загрузке словаря — пересоздаёт t, тексты обновляются.
+  const [dictVersion, setDictVersion] = useState(0);
 
   // Apply the initial language's dir/lang on mount (e.g. Arabic → rtl).
   useEffect(() => {
@@ -61,14 +41,74 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Страховочный gate: сюда попадаем, только если bootstrap не успел (таймаут
+  // 3с в main.tsx) или упал. Ошибка сети → рендер с EN-фолбэком, повтор ниже.
+  useEffect(() => {
+    if (dictReady) return;
+    let cancelled = false;
+    ensureDict(lang).then(
+      () => {
+        if (!cancelled) {
+          setDictVersion((v) => v + 1);
+          setDictReady(true);
+        }
+      },
+      () => {
+        if (!cancelled) setDictReady(true);
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [lang, dictReady]);
+
+  // Словарь так и не приехал (offline/пропавший чанк старого деплоя) — тихо
+  // добираем в фоне: интерфейс с EN-фолбэка сам станет родным.
+  useEffect(() => {
+    if (!dictReady || hasExtraLanguage(lang)) return;
+    let cancelled = false;
+    const timer = setInterval(() => {
+      ensureDict(lang).then(
+        () => {
+          if (!cancelled) {
+            clearInterval(timer);
+            setDictVersion((v) => v + 1);
+          }
+        },
+        () => undefined,
+      );
+    }, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [dictReady, lang, dictVersion]);
+
   const setLang = useCallback((next: Language) => {
-    setLangState(next);
-    try {
-      localStorage.setItem(STORAGE_KEY, next);
-    } catch {
-      /* ignore */
+    const commit = () => {
+      setLangState(next);
+      try {
+        localStorage.setItem(STORAGE_KEY, next);
+      } catch {
+        /* ignore */
+      }
+      applyDocumentLang(next);
+    };
+    // ru/en и прогретые словари — прежний синхронный путь (обычный случай:
+    // prefetchDicts в App.tsx греет все словари после первой отрисовки).
+    if (hasExtraLanguage(next)) {
+      commit();
+      return;
     }
-    applyDocumentLang(next);
+    // Холодный словарь: сначала await import, потом атомарный commit — никаких
+    // промежуточных состояний. Сеть легла → переключаемся с EN-фолбэком,
+    // фоновый повтор выше доберёт словарь.
+    void ensureDict(next)
+      .catch(() => undefined)
+      .then(() => {
+        setDictVersion((v) => v + 1);
+        commit();
+      });
   }, []);
 
   const t = useCallback(
@@ -77,12 +117,17 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       if (text === undefined) return key; // surface missing keys instead of crashing
       return interpolate(text, params);
     },
-    [lang],
+    // dictVersion намеренно в deps: дозагрузка словаря обязана пересоздать t,
+    // иначе consumers не узнают, что resolveMessage отдаёт родные строки.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [lang, dictVersion],
   );
 
   const value = useMemo<I18nValue>(() => ({ lang, setLang, t }), [lang, setLang, t]);
 
-  return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
+  // Gate только для async-языка без словаря (bootstrap не успел): держим
+  // пустоту вместо вспышки EN/RU. dictReady никогда не падает обратно в false.
+  return <I18nContext.Provider value={value}>{dictReady ? children : null}</I18nContext.Provider>;
 }
 
 export function useI18n(): I18nValue {

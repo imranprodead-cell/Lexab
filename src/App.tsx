@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { RouterProvider } from 'react-router-dom';
 import { MotionConfig } from 'motion/react';
 import { I18nProvider } from '@/i18n/I18nProvider';
+import { prefetchDicts } from '@/i18n/loadDict';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { ToastHost } from '@/components/ui/ToastHost';
 import { prefetchAllPages, router } from '@/router/routes';
@@ -10,6 +11,8 @@ export default function App() {
   // Warm all page chunks once the first screen has painted.
   useEffect(() => {
     prefetchAllPages();
+    // Тёплый кэш ленивых словарей: переключение языка остаётся мгновенным.
+    prefetchDicts();
   }, []);
 
   return (

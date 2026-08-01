@@ -5,8 +5,6 @@
  * Adding a language = add a column to each entry. No runtime deps.
  */
 
-import { EXTRA } from './translations';
-
 export type Language = 'en' | 'ru' | 'ar' | 'de' | 'kk' | 'uz';
 
 /** Order matters: EN and RU stay first; the rest are the product's markets. */
@@ -48,15 +46,31 @@ export function pickText(
 }
 
 /**
+ * Реестр словарей доп. языков. Заполняется лениво (loadDict.ts): uz/ar/kk/de
+ * не входят в главный чанк (−240KB) и приезжают отдельными файлами по нужде.
+ */
+const EXTRA_DICTS: Partial<Record<Language, Record<string, string>>> = {};
+
+/** Кладёт загруженный словарь в реестр (идемпотентно). */
+export function registerExtraLanguage(lang: Language, dict: Record<string, string>): void {
+  EXTRA_DICTS[lang] = dict;
+}
+
+/** true, если язык можно рендерить синхронно: ru/en или словарь уже загружен. */
+export function hasExtraLanguage(lang: Language): boolean {
+  return lang === 'ru' || lang === 'en' || EXTRA_DICTS[lang] !== undefined;
+}
+
+/**
  * Resolve a key for any language. RU/EN come from the base MESSAGES; the extra
- * languages come from their translation map, falling back to English (then the
- * raw key) when a string hasn't been translated yet.
+ * languages come from their lazily-loaded dictionaries, falling back to
+ * English (then the raw key) when a string hasn't been translated yet.
  */
 export function resolveMessage(key: string, lang: Language): string | undefined {
   const entry = MESSAGES[key];
   if (!entry) return undefined;
   if (lang === 'ru' || lang === 'en') return entry[lang];
-  return EXTRA[lang]?.[key] ?? entry.en;
+  return EXTRA_DICTS[lang]?.[key] ?? entry.en;
 }
 
 export const MESSAGES: Dict = {
@@ -975,6 +989,7 @@ export const MESSAGES: Dict = {
   'settings.plan': { ru: 'Подписка и лимиты', en: 'Plan & limits' },
   'settings.planSub': { ru: 'Ваш тариф и использование за текущий месяц.', en: 'Your plan and this month’s usage.' },
   'settings.changePlan': { ru: 'Изменить план', en: 'Change plan' },
+  'settings.managePayment': { ru: 'Оплата и чеки', en: 'Manage billing' },
   'settings.subActiveUntil': { ru: 'Активна, продление {date}', en: 'Active, renews {date}' },
   'settings.subCancel': { ru: 'Отменить подписку', en: 'Cancel subscription' },
   'settings.subCancelConfirm': { ru: 'Доступ сохранится до конца оплаченного периода; деньги за начатый период не возвращаются.', en: 'Access stays until the end of the paid period; the started period is non-refundable.' },
@@ -1322,6 +1337,12 @@ export const MESSAGES: Dict = {
   'plans.renew': { ru: 'Обновить лимиты', en: 'Renew limits' },
   'plans.activatedMonthly': { ru: 'Подписка {plan} активирована — лимиты обновлены.', en: '{plan} plan activated — limits refreshed.' },
   'plans.activatedYearly': { ru: 'Подписка {plan} (годовая, −{d}%) активирована — лимиты обновлены.', en: '{plan} plan (yearly, −{d}%) activated — limits refreshed.' },
+  'plans.changed': { ru: 'Тариф изменён на {plan} — разница досчитана проратой.', en: 'Plan changed to {plan} — the difference is prorated.' },
+  'plans.currentBtn': { ru: 'Текущий план', en: 'Current plan' },
+  'plans.switchPeriod': { ru: 'Сменить период оплаты', en: 'Switch billing period' },
+  'plans.paymentProcessing': { ru: 'Обрабатываем оплату — обычно это занимает несколько секунд…', en: 'Processing your payment — this usually takes a few seconds…' },
+  'plans.paymentDone': { ru: 'Оплата получена — подписка {plan} активирована!', en: 'Payment received — your {plan} plan is active!' },
+  'plans.paymentTimeout': { ru: 'Оплата ещё обрабатывается. Обновите страницу через минуту — доступ включится автоматически.', en: 'The payment is still processing. Refresh in a minute — access will switch on automatically.' },
 
   // Email verification
   'verify.banner': {
@@ -1498,6 +1519,38 @@ export const MESSAGES: Dict = {
   },
   'an.varNoCurrency': { ru: 'Без валюты', en: 'No currency' },
 };
+
+/**
+ * Язык интерфейса для загрузки: сохранённый выбор, иначе локаль браузера.
+ * Живёт здесь (не в I18nProvider) — файл без компонентов, нужен bootstrap'у
+ * main.tsx до первого рендера.
+ */
+export function loadLang(): Language {
+  try {
+    const stored = localStorage.getItem('lexai.lang');
+    if (isLanguage(stored)) return stored;
+  } catch {
+    /* ignore */
+  }
+  // First visit: follow the browser locale. Map each supported language to its
+  // locale prefix; Russian stays the default fallback for the CIS market.
+  try {
+    const locales = typeof navigator !== 'undefined' ? (navigator.languages ?? [navigator.language]) : [];
+    for (const locale of locales) {
+      if (/^ru\b/i.test(locale)) return 'ru';
+      if (/^en\b/i.test(locale)) return 'en';
+      if (/^ar\b/i.test(locale)) return 'ar';
+      if (/^de\b/i.test(locale)) return 'de';
+      if (/^kk\b/i.test(locale)) return 'kk';
+      if (/^uz\b/i.test(locale)) return 'uz';
+      // Other Russian-speaking locales still land on RU.
+      if (/^(be|ky|tg)\b/i.test(locale)) return 'ru';
+    }
+    return locales.length > 0 ? 'en' : 'ru';
+  } catch {
+    return 'ru';
+  }
+}
 
 /**
  * Translate outside React (stores, class components): reads the persisted

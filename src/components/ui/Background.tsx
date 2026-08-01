@@ -48,20 +48,23 @@ export function Background({ scrollRef }: { scrollRef?: RefObject<HTMLElement | 
         pointerEvents: 'none',
       }}
     >
-      {/* colour blooms, different parallax speeds, slow breathing */}
-      <motion.div style={{ y: bloomAY, position: 'absolute', left: '-18%', top: '-25%' }}>
+      {/* colour blooms, different parallax speeds, slow breathing.
+          willChange: параллакс двигает эти слои из JS на каждый кадр скролла —
+          постоянная промоция в GPU-слой убирает пере-растеризацию на слабых
+          устройствах (визуально ничего не меняет). */}
+      <motion.div style={{ y: bloomAY, position: 'absolute', left: '-18%', top: '-25%', willChange: 'transform' }}>
         <div className="bloom bloom--a" style={{ height: '50rem', width: '50rem' }} />
       </motion.div>
-      <motion.div style={{ y: bloomBY, position: 'absolute', right: '-15%', top: '-12%' }}>
+      <motion.div style={{ y: bloomBY, position: 'absolute', right: '-15%', top: '-12%', willChange: 'transform' }}>
         <div className="bloom bloom--b" style={{ height: '54rem', width: '54rem' }} />
       </motion.div>
-      <motion.div style={{ y: bloomCY, position: 'absolute', left: '24%', top: '38%' }}>
+      <motion.div style={{ y: bloomCY, position: 'absolute', left: '24%', top: '38%', willChange: 'transform' }}>
         <div className="bloom bloom--c" style={{ height: '36rem', width: '36rem' }} />
       </motion.div>
 
       {/* the same subtle line grid as before, radial mask + soft pulse */}
       <motion.div
-        style={{ y: gridY, position: 'absolute', left: 0, right: 0, top: '-2.5rem', height: '130vh' }}
+        style={{ y: gridY, position: 'absolute', left: 0, right: 0, top: '-2.5rem', height: '130vh', willChange: 'transform' }}
         className="bg-grid"
       />
 

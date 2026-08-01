@@ -186,6 +186,13 @@
          IP посетителей не уходит в Google (немецкие суды признавали внешнюю
          загрузку Google Fonts нарушением GDPR), и первый рендер не зависит от
          чужого CDN. Async-паттерн (media swap) сохранён — не блокирует paint. -->
+    <!-- Preload критичных начертаний интерфейса (latin+cyr): woff2 стартуют с
+         первых байт HTML, а не после цепочки fonts.css → при font-display:
+         optional Inter успевает к первому кадру вместо Arial-фолбэка на
+         холодном визите. Playfair не прелоадим: он нужен только лендингу.
+         crossorigin обязателен даже same-origin — иначе двойная загрузка. -->
+    <link rel="preload" as="font" type="font/woff2" href="/fonts/inter-latin.woff2" crossorigin />
+    <link rel="preload" as="font" type="font/woff2" href="/fonts/inter-cyr.woff2" crossorigin />
     <link href="/fonts/fonts.css" rel="stylesheet" media="print" onload="this.media='all'" />
     <noscript>
       <link href="/fonts/fonts.css" rel="stylesheet" />

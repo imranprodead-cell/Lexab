@@ -23,10 +23,11 @@ export class ErrorBoundary extends Component<Props, State> {
     console.error('Unhandled UI error:', error, info.componentStack);
     // Самые тяжёлые падения фронта (белый экран у пользователя) обязаны
     // долетать до мониторинга. Динамический импорт — как в main.tsx: без DSN
-    // Sentry не грузится вовсе.
+    // Sentry не грузится вовсе. ВАЖНО: только через обёртку @/lib/sentry —
+    // прямой import('@sentry/react') вернул бы в бандл полный пакет (491KB).
     if (import.meta.env.VITE_SENTRY_DSN) {
-      void import('@sentry/react')
-        .then((Sentry) => Sentry.captureException(error, { extra: { componentStack: info.componentStack } }))
+      void import('@/lib/sentry')
+        .then((S) => S.captureException(error, { extra: { componentStack: info.componentStack } }))
         .catch(() => undefined);
     }
   }
