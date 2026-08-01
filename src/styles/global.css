@@ -98,7 +98,7 @@
   --shimmer-mid: rgba(160, 160, 160, 0.15);
   --cta-shimmer: rgba(255, 255, 255, 0.16);
 
-  /* Hero gradient canvas — путешествующие пятна и звёздочки */
+  /* Hero gradient canvas — путешествующие пятна и звёздочки (эталон 1:1) */
   --bloom-a: rgba(255, 132, 84, 0.32);
   --bloom-b: rgba(139, 92, 246, 0.28);
   --bloom-c: rgba(244, 114, 182, 0.16);

@@ -1,109 +1,71 @@
-import { useEffect, useRef, type RefObject } from 'react';
+/* Скопировано дословно из эталона "new design/components/Background.tsx".
+   Изменения ТОЛЬКО адаптационные: Tailwind-классы позиций переведены в
+   inline-стили с теми же значениями, и useScroll получает container —
+   у нас страница скроллится во внутреннем контейнере, а не в window.
+   Все числа (позиции, размеры, диапазоны параллакса, SPARKS) — эталонные. */
+import type { RefObject } from 'react';
+import { motion, useScroll, useTransform } from 'motion/react';
 
-/**
- * Анимированный фон из дизайн-эталона: три путешествующих градиентных пятна
- * (bloom-roam-* в global.css), сетка с радиальной маской, 12 мерцающих
- * звёздочек и слой noise. Параллакс — на rAF по скроллу контейнера
- * (scrollRef) или окна; при reduce-motion параллакс не подключается,
- * а бесконечные CSS-циклы глушит global.css.
- */
-
-const SPARKS: { left: string; top: string; size: number; dur: number; delay: number }[] = [
-  { left: '8%', top: '18%', size: 14, dur: 3.6, delay: 0.2 },
-  { left: '16%', top: '64%', size: 10, dur: 4.4, delay: 1.1 },
-  { left: '23%', top: '32%', size: 12, dur: 3.2, delay: 2.0 },
-  { left: '31%', top: '78%', size: 9, dur: 5.0, delay: 0.6 },
-  { left: '42%', top: '12%', size: 16, dur: 4.0, delay: 1.6 },
-  { left: '51%', top: '52%', size: 10, dur: 3.4, delay: 2.6 },
-  { left: '58%', top: '26%', size: 13, dur: 4.8, delay: 0.9 },
-  { left: '66%', top: '70%', size: 11, dur: 3.8, delay: 1.9 },
-  { left: '74%', top: '16%', size: 15, dur: 4.2, delay: 0.4 },
-  { left: '81%', top: '48%', size: 10, dur: 3.6, delay: 2.3 },
-  { left: '88%', top: '30%', size: 12, dur: 5.2, delay: 1.4 },
-  { left: '94%', top: '62%', size: 9, dur: 4.6, delay: 3.0 },
+const SPARKS = [
+  { left: '12%', top: '16%', size: 12, dur: 3.6, delay: 0 },
+  { left: '28%', top: '34%', size: 10, dur: 4.4, delay: 1.2 },
+  { left: '44%', top: '12%', size: 12, dur: 3.2, delay: 0.6 },
+  { left: '56%', top: '40%', size: 14, dur: 4.8, delay: 2 },
+  { left: '68%', top: '18%', size: 10, dur: 4.2, delay: 1.7 },
+  { left: '83%', top: '30%', size: 12, dur: 3.9, delay: 2.6 },
+  { left: '20%', top: '58%', size: 10, dur: 4.6, delay: 3.1 },
+  { left: '48%', top: '68%', size: 12, dur: 5, delay: 0.9 },
+  { left: '74%', top: '60%', size: 10, dur: 3.4, delay: 2.2 },
+  { left: '34%', top: '82%', size: 10, dur: 4.9, delay: 1.5 },
+  { left: '88%', top: '78%', size: 12, dur: 4.1, delay: 0.4 },
+  { left: '8%', top: '80%', size: 10, dur: 4.5, delay: 2.9 },
 ];
 
-/** Четырёхлучевая звезда эталона. */
-function SparkIcon({ size }: { size: number }) {
+function SparkIcon() {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <svg viewBox="0 0 24 24" fill="currentColor" style={{ height: '100%', width: '100%' }}>
       <path d="M12 0c1.2 7.4 4.6 10.8 12 12-7.4 1.2-10.8 4.6-12 12-1.2-7.4-4.6-10.8-12-12C7.4 10.8 10.8 7.4 12 0Z" />
     </svg>
   );
 }
 
-/** Линейная проекция скролла [0..900] в сдвиг [0..max] (парллакс-фактор). */
-const shift = (scrollTop: number, max: number) => Math.min(scrollTop, 900) * (max / 900);
-
 export function Background({ scrollRef }: { scrollRef?: RefObject<HTMLElement | null> }) {
-  const gridRef = useRef<HTMLDivElement | null>(null);
-  const aRef = useRef<HTMLDivElement | null>(null);
-  const bRef = useRef<HTMLDivElement | null>(null);
-  const cRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    const reduce =
-      document.documentElement.getAttribute('data-reduce-motion') === 'true' ||
-      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (reduce) return;
-    const target: HTMLElement | Window = scrollRef?.current ?? window;
-    let frame = 0;
-    const onScroll = () => {
-      cancelAnimationFrame(frame);
-      frame = requestAnimationFrame(() => {
-        const top =
-          target instanceof Window ? target.scrollY : (target as HTMLElement).scrollTop;
-        if (gridRef.current) gridRef.current.style.translate = `0 ${shift(top, 50)}px`;
-        if (aRef.current) aRef.current.style.translate = `0 ${shift(top, 90)}px`;
-        if (bRef.current) bRef.current.style.translate = `0 ${shift(top, 140)}px`;
-        if (cRef.current) cRef.current.style.translate = `0 ${shift(top, 60)}px`;
-      });
-    };
-    target.addEventListener('scroll', onScroll, { passive: true });
-    return () => {
-      cancelAnimationFrame(frame);
-      target.removeEventListener('scroll', onScroll);
-    };
-  }, [scrollRef]);
+  const { scrollY } = useScroll(scrollRef ? { container: scrollRef as RefObject<HTMLElement> } : undefined);
+  const gridY = useTransform(scrollY, [0, 900], [0, 50]);
+  const bloomAY = useTransform(scrollY, [0, 900], [0, 90]);
+  const bloomBY = useTransform(scrollY, [0, 900], [0, 140]);
+  const bloomCY = useTransform(scrollY, [0, 900], [0, 60]);
 
   return (
     <div
-      aria-hidden="true"
+      aria-hidden
       style={{
         position: 'fixed',
         inset: 0,
         zIndex: 0,
         overflow: 'hidden',
-        pointerEvents: 'none',
         contain: 'layout paint',
+        pointerEvents: 'none',
       }}
     >
-      {/* сетка с маской */}
-      <div
-        ref={gridRef}
+      {/* colour blooms, different parallax speeds, slow breathing */}
+      <motion.div style={{ y: bloomAY, position: 'absolute', left: '-18%', top: '-25%' }}>
+        <div className="bloom bloom--a" style={{ height: '50rem', width: '50rem' }} />
+      </motion.div>
+      <motion.div style={{ y: bloomBY, position: 'absolute', right: '-15%', top: '-12%' }}>
+        <div className="bloom bloom--b" style={{ height: '54rem', width: '54rem' }} />
+      </motion.div>
+      <motion.div style={{ y: bloomCY, position: 'absolute', left: '24%', top: '38%' }}>
+        <div className="bloom bloom--c" style={{ height: '36rem', width: '36rem' }} />
+      </motion.div>
+
+      {/* the same subtle line grid as before, radial mask + soft pulse */}
+      <motion.div
+        style={{ y: gridY, position: 'absolute', left: 0, right: 0, top: '-2.5rem', height: '130vh' }}
         className="bg-grid"
-        style={{ position: 'absolute', inset: '-8% 0 auto 0', height: '130vh' }}
       />
-      {/* путешествующие пятна */}
-      <div
-        ref={aRef}
-        style={{ position: 'absolute', left: '-18%', top: '-25%', width: '50rem', height: '50rem' }}
-      >
-        <div className="bloom bloom--a" style={{ inset: 0 }} />
-      </div>
-      <div
-        ref={bRef}
-        style={{ position: 'absolute', right: '-20%', top: '-12%', width: '54rem', height: '54rem' }}
-      >
-        <div className="bloom bloom--b" style={{ inset: 0 }} />
-      </div>
-      <div
-        ref={cRef}
-        style={{ position: 'absolute', left: '30%', top: '38%', width: '36rem', height: '36rem' }}
-      >
-        <div className="bloom bloom--c" style={{ inset: 0 }} />
-      </div>
-      {/* мерцающие звёздочки — fill-mode backwards держит первый кадр */}
+
+      {/* twinkling glints across the viewport */}
       {SPARKS.map((s, i) => (
         <span
           key={i}
@@ -117,11 +79,12 @@ export function Background({ scrollRef }: { scrollRef?: RefObject<HTMLElement | 
             animationDelay: `${s.delay}s`,
           }}
         >
-          <SparkIcon size={s.size} />
+          <SparkIcon />
         </span>
       ))}
-      {/* плёнка шума поверх */}
-      <div className="noise" style={{ position: 'absolute', inset: 0 }} />
+
+      {/* premium grain */}
+      <div className="noise" style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }} />
     </div>
   );
 }

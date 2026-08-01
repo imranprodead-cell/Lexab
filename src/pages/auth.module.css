@@ -86,23 +86,17 @@
   overflow-wrap: break-word;
 }
 
-/* Hero words: cascade up one by one (delay set inline: 0.1 + i*0.1). */
+/* Арабская вязь: отрицательный трекинг рвёт связные глифы (обрезанные буквы) —
+   для RTL интервал обнуляем. */
+:global([dir='rtl']) .hero {
+  letter-spacing: 0;
+}
+
+/* Hero words: анимация — motion.span в AuthPage (эталон Hero.tsx). */
 .heroWord {
   display: inline-block;
   max-width: 100%;
   overflow-wrap: break-word;
-  animation: lxheroword var(--dur-reveal) var(--ease) both;
-}
-
-@keyframes lxheroword {
-  from {
-    opacity: 0;
-    transform: translateY(28px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
 }
 
 /* Accent word ("быстрее") — эталон: Playfair italic, violet→pink gradient,
@@ -121,16 +115,24 @@
 
 @supports ((-webkit-background-clip: text) or (background-clip: text)) {
   .heroAccent {
-    background: linear-gradient(90deg, #8b5cf6, #ec4899);
+    background: linear-gradient(90deg, #8b5cf6, #ec4899, #8b5cf6);
+    background-size: 200% 100%;
+    background-position: 0% 0%;
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
     color: transparent;
+    transition: background-position 0.7s var(--ease);
+  }
+
+  /* Лёгкий перелив градиента при наведении на слово. */
+  .heroAccent:hover {
+    background-position: 100% 0%;
   }
 }
 
-/* The wavy underline: pathLength=1 + dashoffset 1 keeps it invisible until
-   the draw animation starts (delay 0.8s, эталон Hero). */
+/* The wavy underline: рисование — motion.path в AuthPage (эталон Hero.tsx:
+   stroke currentColor поверх цвета чернил). */
 .heroWave {
   position: absolute;
   left: 0;
@@ -139,32 +141,7 @@
   height: 0.2em;
   overflow: visible;
   pointer-events: none;
-}
-
-.heroWavePath {
-  stroke-dasharray: 1;
-  stroke-dashoffset: 1;
-  animation: lxherodraw 0.9s var(--ease) 0.8s forwards;
-}
-
-@keyframes lxherodraw {
-  to {
-    stroke-dashoffset: 0;
-  }
-}
-
-/* Reduce-motion: the global kill-switch shrinks durations but not delays —
-   zero them so the headline is never blank while it waits. */
-:global(html[data-reduce-motion='true']) .heroWord,
-:global(html[data-reduce-motion='true']) .heroWavePath {
-  animation-delay: 0s !important;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .heroWord,
-  .heroWavePath {
-    animation-delay: 0s !important;
-  }
+  color: var(--text);
 }
 
 .heroSub {
@@ -185,61 +162,70 @@
   margin: 0 0 18px;
 }
 
-/* Primary hero action — эталон: outline pill on the panel surface. */
+/* Primary hero action — эталон Hero.tsx дословно: rounded-full, bg-surface,
+   shadow-sm, transition-all 200ms, hover: border-ink-2/50 + shadow-md.
+   Масштаб (1.02/0.98) даёт motion (whileHover/whileTap). */
 .heroCtaOutline {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 11px 22px;
+  gap: 10px;
+  padding: 12px 24px;
   border: 1px solid var(--border);
   border-radius: 999px;
   background: var(--panel);
   color: var(--text);
   font-family: inherit;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
   touch-action: manipulation;
-  box-shadow: 0 1px 2px color-mix(in srgb, #000 6%, transparent);
-  transition: border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease),
-    transform var(--dur-fast) var(--ease);
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  transition: all 0.2s ease;
 }
 
 .heroCtaOutline:hover {
-  border-color: color-mix(in srgb, var(--dim) 55%, var(--border));
-  box-shadow: var(--shadow-card);
-  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--dim) 50%, transparent);
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
 }
 
-.heroCtaOutline:active {
-  transform: scale(0.97);
-}
-
-/* Secondary hero action — эталон: quiet ghost pill. */
+/* Secondary hero action — эталон Hero.tsx: ghost, transition-colors 200ms,
+   hover: bg ink/5 (в тёмной — white/10). */
 .heroCtaGhost {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 11px 18px;
+  padding: 12px 20px;
   border: 1px solid transparent;
   border-radius: 999px;
   background: transparent;
   color: var(--text);
   font-family: inherit;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
   touch-action: manipulation;
-  transition: background var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
+  transition: color 0.2s ease, background-color 0.2s ease;
 }
 
 .heroCtaGhost:hover {
-  background: var(--hover-2);
-  transform: translateY(-1px);
+  background: color-mix(in srgb, var(--text) 5%, transparent);
 }
 
-.heroCtaGhost:active {
-  transform: scale(0.97);
+:global(html.dark) .heroCtaGhost:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Стрелка ghost-кнопки — эталон: text-ink-2, на hover translate-x-0.5 (2px)
+   и цвет чернил, 200ms. */
+.ctaArrow {
+  display: inline-flex;
+  color: var(--dim);
+  transition: transform 0.2s ease, color 0.2s ease;
+}
+
+.heroCtaGhost:hover .ctaArrow {
+  transform: translateX(2px);
+  color: var(--text);
 }
 
 /* ── Card ────────────────────────────────────────────────────────────────── */
@@ -247,6 +233,37 @@
 .card {
   padding: 22px;
   border-radius: var(--r-xl);
+}
+
+/* Блик по стеклу — следует за курсором вместе с 3D-наклоном (motion). */
+.cardGlare {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+/* Спиннер в кнопке «Войти» во время запроса. */
+.submitInner {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.btnSpinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--on-accent) 35%, transparent);
+  border-top-color: var(--on-accent);
+  animation: lxauthspin 0.7s linear infinite;
+}
+
+@keyframes lxauthspin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Обводочные кнопки эталона (AuthCard): border-edge + bg-surface; единственная
@@ -266,13 +283,14 @@
   font-size: 15px;
   font-weight: 600;
   cursor: pointer;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.15s ease;
+  /* Эталон AuthCard.tsx: transition-all 200ms, hover border-ink-2/60 +
+     shadow-sm, active:scale-[0.99]. */
+  transition: all 0.2s ease;
 }
 
 .googleBtn:hover {
-  border-color: color-mix(in srgb, var(--dim) 60%, var(--border));
-  box-shadow: var(--shadow-card);
-  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--dim) 60%, transparent);
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
 }
 
 .googleBtn:active {
@@ -295,11 +313,16 @@
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  /* Эталон AuthCard.tsx: transition-all 200ms, hover border-ink-2/60 +
+     shadow-sm, active:scale-[0.99]. */
+  transition: all 0.2s ease;
 }
 .ssoBtn:hover {
-  border-color: color-mix(in srgb, var(--dim) 60%, var(--border));
-  box-shadow: var(--shadow-card);
+  border-color: color-mix(in srgb, var(--dim) 60%, transparent);
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+}
+.ssoBtn:active {
+  transform: scale(0.99);
 }
 .ssoRow {
   margin-top: 10px;
@@ -497,11 +520,21 @@
 
 /* Brand lockup inside the banner (photo 1). Hidden on mobile, where the hero
    keeps its own lockup — see the responsive block. */
+/* Кнопка-лого: сброс кнопочных стилей + курсор-палец, клик ведёт наверх. */
 .bannerBrand {
   display: flex;
   align-items: center;
   gap: 9px;
+  padding: 0;
   padding-inline-start: 2px;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  color: inherit;
+  text-align: start;
+  cursor: pointer;
+  touch-action: manipulation;
+  pointer-events: auto;
 }
 
 .bannerBrandText {
@@ -564,6 +597,13 @@
   color: var(--text);
 }
 
+/* Скроллспай: активный пункт держит то же подчёркивание, что появляется на
+   hover (глобальный .nav-link::after — трюк со сменой transform-origin). */
+.navBtnActive::after {
+  transform: scaleX(1);
+  transform-origin: left;
+}
+
 /* Header CTA — outline pill (эталон): the page's only dark button lives in
    the sign-in card, so the bar stays quiet. */
 .headerCta {
@@ -580,18 +620,13 @@
   cursor: pointer;
   touch-action: manipulation;
   pointer-events: auto;
-  transition: transform var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease),
-    box-shadow var(--dur-fast) var(--ease);
+  /* Эталон Navbar.tsx: transition-colors 200ms, hover border-ink-2/60;
+     масштаб (1.02/0.98) даёт motion (whileHover/whileTap). */
+  transition: color 0.2s ease, background-color 0.2s ease, border-color 0.2s ease;
 }
 
 .headerCta:hover {
-  transform: translateY(-1px);
-  border-color: color-mix(in srgb, var(--dim) 60%, var(--border));
-  box-shadow: var(--shadow-card);
-}
-
-.headerCta:active {
-  transform: scale(0.97);
+  border-color: color-mix(in srgb, var(--dim) 60%, transparent);
 }
 
 .controlsPill {
@@ -609,23 +644,27 @@
   background: var(--border);
 }
 
+/* Эталон ThemeToggle.tsx дословно: h-9 w-9 rounded-full, прозрачная рамка,
+   на hover появляется рамка edge и цвет чернил (transition-colors 200ms);
+   поворот иконки делает motion (AnimatePresence, 0.25s easeOut). */
 .themeBtn {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border: none;
-  border-radius: 9px;
+  border: 1px solid transparent;
+  border-radius: 50%;
   background: transparent;
   color: var(--dim);
   cursor: pointer;
   touch-action: manipulation;
-  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+  transition: color 0.2s ease, border-color 0.2s ease;
 }
 
-.themeBtn:hover {
-  background: var(--hover);
+.themeBtn:hover,
+.themeBtn:focus-visible {
+  border-color: var(--border);
   color: var(--text);
 }
 
@@ -732,23 +771,42 @@
 
 /* ── Stats in the left column (эталон Hero) ──────────────────────────────── */
 
-/* Metrics strip: numbers count up between two hairlines, left-aligned. */
+/* Metrics strip — эталон Hero.tsx дословно: border-y, py-5, gap-4/sm:gap-8,
+   вертикальная линия у второй колонки (border-l + pl-4/sm:pl-8). */
 .stats {
   width: 100%;
-  max-width: 560px;
+  max-width: 640px;
   align-self: flex-start;
   display: flex;
-  align-items: center;
+  align-items: stretch;
   justify-content: flex-start;
-  gap: clamp(28px, 3.4vw, 56px);
+  gap: 16px;
   margin-top: clamp(28px, 4.5vh, 56px);
-  padding: 18px 0;
+  padding: 20px 0;
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
 }
 
 .stat {
   text-align: start;
+}
+
+.stat:last-child {
+  border-inline-start: 1px solid var(--border);
+  padding-inline-start: 16px;
+}
+
+.statArrow {
+  align-self: center;
+}
+
+@media (min-width: 640px) {
+  .stats {
+    gap: 32px;
+  }
+  .stat:last-child {
+    padding-inline-start: 32px;
+  }
 }
 
 .statValue {
@@ -788,54 +846,51 @@
   color: var(--accent);
 }
 
-.statNote {
-  width: 100%;
-  max-width: 560px;
-  align-self: flex-start;
-  text-align: start;
-  font-size: 11.5px;
-  color: var(--dim);
-  margin-top: 10px;
-}
 
-/* ── Trust badges under the sign-in card (эталон Badges) ─────────────────── */
+/* ── Trust badges under the sign-in card — эталон Badges.tsx дословно:
+      стеклянная пилюля .glass (класс добавляется в JSX), transition-colors
+      300ms, hover: bg → --glass-bg-strong; появление и hover x:4 — motion. ── */
 
 .heroBadges {
+  list-style: none;
+  margin: 30px 0 0; /* блок опущен к строке «Как это работает» */
+  padding: 0;
   display: flex;
   flex-direction: column;
-  align-items: stretch;
   gap: 12px;
 }
 
 .heroBadge {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 20px;
+  gap: 14px;
   border-radius: 999px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-card);
-  font-size: 13.5px;
-  font-weight: 500;
+  padding: 12px 20px 12px 16px;
+  font-size: 14px;
+  color: var(--text);
   text-align: start;
-  transition: transform var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+  transition: background-color 0.3s ease;
 }
 
 .heroBadge:hover {
-  transform: translateX(4px);
+  background: var(--glass-bg-strong);
 }
 
 .heroBadgeIcon {
   flex: none;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--panel-2);
-  border: 1px solid var(--panel-edge);
+  border: 1px solid var(--border);
+  color: var(--dim);
+  transition: color 0.3s ease, border-color 0.3s ease;
+}
+
+.heroBadge:hover .heroBadgeIcon {
+  border-color: color-mix(in srgb, var(--dim) 60%, transparent);
   color: var(--text);
 }
 

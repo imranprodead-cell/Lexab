@@ -5,21 +5,23 @@
   display: flex;
 }
 
+/* Эталон LanguageSwitcher.tsx дословно: h-9 rounded-full, прозрачная рамка,
+   на hover появляется рамка edge и цвет чернил (transition-colors 200ms). */
 .trigger {
-  min-width: 32px;
-  height: 32px;
-  padding: 0 6px;
+  min-width: 36px;
+  height: 36px;
+  padding: 0 10px;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  border: none;
-  border-radius: 9px;
+  border: 1px solid transparent;
+  border-radius: 999px;
   background: transparent;
   color: var(--dim);
   cursor: pointer;
   touch-action: manipulation;
-  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+  transition: color 0.2s ease, border-color 0.2s ease;
 }
 
 /* Touch devices: 44px minimum target. */
@@ -31,8 +33,9 @@
 }
 
 .trigger:hover,
+.trigger:focus-visible,
 .trigger[aria-expanded='true'] {
-  background: var(--hover);
+  border-color: var(--border);
   color: var(--text);
 }
 
@@ -51,8 +54,8 @@
     inset 0 1px 0 var(--glass-highlight),
     var(--shadow-pop);
   z-index: 90;
+  /* Появление/уход меню — motion (эталон LanguageSwitcher, 0.18s easeOut). */
   transform-origin: top right;
-  animation: lxlangin 0.18s var(--ease);
 }
 @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .menu {

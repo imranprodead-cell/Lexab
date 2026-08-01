@@ -16,8 +16,8 @@
 .revealIn {
   opacity: 1;
   /* `backwards` (not `both`): once finished the animation stops applying,
-     so the cards' own hover transforms keep working. */
-  animation: lxrevealin 0.4s var(--ease) backwards;
+     so the cards' own hover transforms keep working. 0.7s — темп эталона. */
+  animation: lxrevealin 0.7s var(--ease) backwards;
   animation-delay: var(--reveal-delay, 0ms);
 }
 
@@ -33,9 +33,85 @@
 }
 
 .sectionAlt {
-  background: color-mix(in srgb, var(--panel) 45%, var(--bg));
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
+  /* Полупрозрачная тонировка с плавными краями: анимированный фон
+     просвечивает, а полоса растворяется без резких границ. */
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    color-mix(in srgb, var(--panel) 42%, transparent) 16%,
+    color-mix(in srgb, var(--panel) 42%, transparent) 84%,
+    transparent
+  );
+}
+
+/* ── Карусель сценариев (эталон UseCases) ────────────────────────────────── */
+
+.ucGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 40px;
+  align-items: center;
+}
+
+@media (min-width: 941px) {
+  .ucGrid {
+    grid-template-columns: 1fr 2.4fr;
+    gap: 64px;
+  }
+}
+
+.ucLabel {
+  max-width: 260px;
+  margin: 0;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.ucWindow {
+  --uc-row: 3.5rem;
+  position: relative;
+  overflow: hidden;
+  height: calc(var(--uc-row) * 7);
+  /* растворяем сам список, а не красим поверх — фон страницы просвечивает */
+  -webkit-mask-image: linear-gradient(to bottom, transparent, black 28%, black 72%, transparent);
+  mask-image: linear-gradient(to bottom, transparent, black 28%, black 72%, transparent);
+}
+
+@media (min-width: 640px) {
+  .ucWindow {
+    --uc-row: 5.5rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  .ucWindow {
+    --uc-row: 6rem;
+  }
+}
+
+.ucTrack {
+  will-change: transform;
+}
+
+.ucTrackAnim {
+  transition: transform 600ms var(--ease);
+}
+
+.ucRow {
+  display: flex;
+  align-items: center;
+  height: var(--uc-row);
+  white-space: nowrap;
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  font-size: clamp(26px, 4.4vw, 58px);
+  color: var(--text);
+}
+
+.ucRowAnim {
+  transition: opacity 600ms var(--ease);
 }
 
 .inner {
@@ -76,146 +152,149 @@
   margin: 0;
 }
 
-/* Feature / audience cards */
+/* ── Возможности — карточки эталона Features.tsx дословно ────────────────── */
 
 .cardsGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
   gap: 16px;
 }
 
-/* Рецепт панели эталона: panel-2 + panel-edge + shadow-card, radius r-xl. */
+@media (min-width: 640px) {
+  .cardsGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (min-width: 1024px) {
+  .cardsGrid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+/* Эталон: panel rounded-2xl p-6, transition-all 300ms,
+   hover: -translate-y-1 + shadow-lg/5 (dark /30). */
 .card {
-  padding: 26px 24px;
+  height: 100%;
+  padding: 24px;
   border-radius: var(--r-xl);
   background: var(--panel-2);
   border: 1px solid var(--panel-edge);
   box-shadow: var(--shadow-card);
-  transition: transform var(--dur-mid) var(--ease), border-color var(--dur-mid) var(--ease),
-    box-shadow var(--dur-mid) var(--ease);
+  transition: all 0.3s ease;
 }
 
 .card:hover {
-  transform: translateY(-3px);
-  border-color: var(--border);
-  box-shadow: var(--shadow-pop);
+  transform: translateY(-4px);
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.05), 0 4px 6px -4px rgb(0 0 0 / 0.05);
 }
 
-/* Иконка — белая карточка поверх панели (panel + border, эталон Features). */
+:global(html.dark) .card:hover {
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.3), 0 4px 6px -4px rgb(0 0 0 / 0.3);
+}
+
+/* Иконка — эталон: h-10 w-10 rounded-xl border-edge bg-surface,
+   group-hover: рамка ink-2/50 + цвет чернил (300ms). */
 .cardIcon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 46px;
-  height: 46px;
-  border-radius: 14px;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
   background: var(--panel);
   border: 1px solid var(--border);
   color: var(--dim);
-  margin-bottom: 16px;
-  transition: color var(--dur-mid) var(--ease), border-color var(--dur-mid) var(--ease);
+  transition: color 0.3s ease, border-color 0.3s ease;
 }
 
 .card:hover .cardIcon {
   color: var(--text);
-  border-color: color-mix(in srgb, var(--dim) 50%, var(--border));
+  border-color: color-mix(in srgb, var(--dim) 50%, transparent);
 }
 
 .cardTitle {
-  font-size: 16.5px;
-  font-weight: 700;
+  margin: 20px 0 0;
+  font-size: 16px;
+  font-weight: 600;
   letter-spacing: -0.01em;
-  margin-bottom: 7px;
 }
 
 .cardText {
+  margin: 8px 0 0;
   font-size: 14px;
-  line-height: 1.58;
+  line-height: 1.6;
   color: var(--dim);
 }
 
 /* Audience cards (photo 10): icon + headline metric, then a "learn more" link */
 
+/* ── Для кого — карточки эталона Audience.tsx дословно ───────────────────── */
+
 .audienceGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 16px;
 }
 
+@media (min-width: 941px) {
+  .audienceGrid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* Эталон: panel rounded-2xl p-7, hover -translate-y-0.5 + shadow-lg (300ms). */
 .audienceCard {
+  height: 100%;
   display: flex;
   flex-direction: column;
-  padding: 26px 24px;
+  padding: 28px;
   border-radius: var(--r-xl);
   background: var(--panel-2);
   border: 1px solid var(--panel-edge);
   box-shadow: var(--shadow-card);
-  transition: transform var(--dur-mid) var(--ease), border-color var(--dur-mid) var(--ease),
-    box-shadow var(--dur-mid) var(--ease);
+  transition: all 0.3s ease;
 }
 
 .audienceCard:hover {
-  transform: translateY(-3px);
-  border-color: var(--border);
-  box-shadow: var(--shadow-pop);
+  transform: translateY(-2px);
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.05), 0 4px 6px -4px rgb(0 0 0 / 0.05);
 }
 
-.audienceTop {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.audienceIcon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 46px;
-  height: 46px;
-  border-radius: 14px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  color: var(--dim);
-}
-
-.audienceMetric {
-  font-size: 26px;
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  font-variant-numeric: tabular-nums;
-  color: color-mix(in srgb, var(--accent) 68%, var(--text));
+:global(html.dark) .audienceCard:hover {
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.3), 0 4px 6px -4px rgb(0 0 0 / 0.3);
 }
 
 .audienceTitle {
-  font-size: 16.5px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  margin-bottom: 7px;
-}
-
-.audienceMore {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  align-self: flex-start;
-  margin-top: 16px;
-  padding: 0;
-  border: none;
-  background: none;
-  color: var(--accent);
-  font-family: inherit;
-  font-size: 13.5px;
+  margin: 0;
+  font-size: 18px;
   font-weight: 600;
-  cursor: pointer;
-  touch-action: manipulation;
-  transition: gap var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+  letter-spacing: -0.01em;
 }
 
-.audienceMore:hover {
-  gap: 9px;
-  color: color-mix(in srgb, var(--accent) 80%, var(--text));
+.audienceText {
+  margin: 8px 0 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--dim);
+}
+
+/* Список пунктов — эталон: mt-6 + border-t + pt-6, gap-3, text-sm чернилами. */
+.audiencePoints {
+  list-style: none;
+  margin: 24px 0 0;
+  padding: 24px 0 0;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.audiencePoints li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--text);
 }
 
 /* How-it-works steps */
@@ -227,13 +306,26 @@
   counter-reset: step;
 }
 
+/* Карточка шага — тот же ховер, что у остальных панелей секций
+   (эталон: transition-all 300ms, подъём + мягкая тень). */
 .step {
   position: relative;
+  height: 100%;
   padding: 20px;
   border-radius: var(--r-xl);
   background: var(--panel-2);
   border: 1px solid var(--panel-edge);
   box-shadow: var(--shadow-card);
+  transition: all 0.3s ease;
+}
+
+.step:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.05), 0 4px 6px -4px rgb(0 0 0 / 0.05);
+}
+
+:global(html.dark) .step:hover {
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.3), 0 4px 6px -4px rgb(0 0 0 / 0.3);
 }
 
 .stepNum {
@@ -482,20 +574,28 @@
 
 /* Shared CTA buttons */
 
+/* Тёмная CTA под демо — стиль featured-кнопки эталона (accent + shimmer). */
 .ctaPrimary {
-  padding: 11px 22px;
+  padding: 12px 24px;
   border: none;
   border-radius: 12px;
-  background: var(--grad-cta);
-  color: var(--on-grad);
+  background: var(--accent);
+  color: var(--on-accent);
   font-family: inherit;
   font-size: 14.5px;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
   touch-action: manipulation;
-  box-shadow: 0 8px 26px color-mix(in srgb, var(--accent) 30%, transparent);
-  transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease),
-    background var(--dur-fast) var(--ease);
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  transition: all 0.2s ease;
+}
+
+.ctaPrimary:hover {
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+}
+
+.ctaPrimary:active {
+  transform: scale(0.99);
 }
 
 .ctaPrimary:hover {
@@ -519,7 +619,7 @@
   font-weight: 600;
   cursor: pointer;
   touch-action: manipulation;
-  transition: border-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+  transition: border-color 0.3s var(--ease), color 0.3s var(--ease);
 }
 
 .ctaGhost:hover {
@@ -533,33 +633,74 @@
 
 /* Security cards */
 
-.securityGrid {
+/* ── Безопасность — эталон Security.tsx дословно: сплит 2fr/3fr ──────────── */
+
+.secSplit {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 48px;
+}
+
+@media (min-width: 1024px) {
+  .secSplit {
+    grid-template-columns: 2fr 3fr;
+    gap: 80px;
+  }
+}
+
+.secLead {
+  margin: 20px 0 0;
+  max-width: 448px;
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--dim);
+}
+
+.secCards {
+  display: grid;
   gap: 16px;
 }
 
-.securityCard {
-  display: flex;
-  align-items: flex-start;
-  gap: 14px;
-  padding: 20px;
+@media (min-width: 640px) {
+  .secCards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* Эталон: panel rounded-2xl p-6, hover -translate-y-0.5 + shadow-lg (300ms). */
+.secCard {
+  height: 100%;
+  padding: 24px;
   border-radius: var(--r-xl);
   background: var(--panel-2);
   border: 1px solid var(--panel-edge);
   box-shadow: var(--shadow-card);
+  transition: all 0.3s ease;
 }
 
-.securityIcon {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 12px;
-  background: var(--panel);
-  border: 1px solid var(--border);
+.secCard:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.05), 0 4px 6px -4px rgb(0 0 0 / 0.05);
+}
+
+:global(html.dark) .secCard:hover {
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.3), 0 4px 6px -4px rgb(0 0 0 / 0.3);
+}
+
+.secCardIcon {
+  color: var(--dim);
+}
+
+.secCardTitle {
+  margin: 16px 0 0;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.secCardText {
+  margin: 6px 0 0;
+  font-size: 14px;
+  line-height: 1.6;
   color: var(--dim);
 }
 
@@ -578,6 +719,7 @@
 }
 
 .billingBtn {
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -591,11 +733,26 @@
   font-weight: 600;
   cursor: pointer;
   touch-action: manipulation;
-  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+  transition: color 0.3s var(--ease);
+}
+
+/* Фон активной кнопки — скользящая «таблетка» (motion layoutId). */
+.billingPill {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.billingLabel {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
 }
 
 .billingBtnActive {
-  background: var(--accent);
   color: var(--on-accent);
 }
 
@@ -635,146 +792,111 @@
   align-items: stretch;
 }
 
+/* ── Тарифы — дизайн эталона Pricing.tsx (контент прежний) ──────────────── */
+
+/* Шапка секции слева (эталон: eyebrow + заголовок max-w-xl). */
+.plansHead {
+  text-align: start;
+  max-width: 640px;
+  margin: 0 0 28px;
+}
+
+.plansSectionTitle {
+  margin: 12px 0 0;
+  font-size: clamp(28px, 3.2vw, 36px);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  max-width: 576px;
+}
+
+.plansSectionSub {
+  margin: 10px 0 0;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--dim);
+}
+
+/* Карточка тарифа — эталон: rounded-2xl p-7, transition-all 300ms;
+   обычная — серая панель с подъёмом на hover. */
 .plan {
   position: relative;
   display: flex;
   flex-direction: column;
-  padding: 26px 22px;
+  padding: 28px;
   border-radius: var(--r-xl);
   background: var(--panel-2);
   border: 1px solid var(--panel-edge);
   box-shadow: var(--shadow-card);
-  transition: transform var(--dur-mid) var(--ease), box-shadow var(--dur-mid) var(--ease);
+  transition: all 0.3s ease;
 }
 
 .plan:hover {
-  transform: translateY(-3px);
-  box-shadow: var(--shadow-pop);
+  transform: translateY(-2px);
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.05), 0 4px 6px -4px rgb(0 0 0 / 0.05);
 }
 
-/* Popular plan (Pro) — тёмная выделенная карточка, перекрашена в тёплый
-   графит палитры (бывший фиолетовый #1d1c29 ушёл вместе с редизайном). */
+:global(html.dark) .plan:hover {
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.3), 0 4px 6px -4px rgb(0 0 0 / 0.3);
+}
+
+/* Featured — эталон: белая карточка с чернильной рамкой (dark: рамка white/60,
+   фон white/2%); без подъёма на hover. */
 .planPopular {
-  background: linear-gradient(165deg, #2e2b28 0%, #171614 100%);
-  border-color: rgba(255, 255, 255, 0.12);
-  box-shadow: 0 20px 55px rgba(0, 0, 0, 0.35);
-  color: #f8f7f5;
+  background: var(--panel);
+  border: 1px solid var(--text);
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.05), 0 4px 6px -4px rgb(0 0 0 / 0.05);
 }
 
 .planPopular:hover {
-  box-shadow: 0 26px 66px rgba(0, 0, 0, 0.45);
+  transform: none;
 }
 
-.planPopular .planName,
-.planPopular .planPrice {
-  color: #f8f7f5;
-}
-
-.planPopular .planPer {
-  color: rgba(248, 247, 245, 0.62);
-}
-
-.planPopular .planTagline {
-  color: rgba(248, 247, 245, 0.72);
-}
-
-.planPopular .planFeatures li {
-  color: rgba(248, 247, 245, 0.82);
-}
-
-.planPopular .planCheck {
-  color: rgba(248, 247, 245, 0.85);
-}
-
-.planPopular .planPriceOld {
-  color: rgba(248, 247, 245, 0.5);
-}
-
-.planPopular .planPriceNote {
-  color: rgba(248, 247, 245, 0.6);
-}
-
-/* Dark theme inverts the popular card: the others are dark surfaces, so Pro
-   becomes a warm-white card to stand out (mirror of the graphite card). */
 :global(html.dark) .planPopular {
-  background: linear-gradient(165deg, #ffffff 0%, #efedeb 100%);
-  border-color: rgba(35, 33, 32, 0.18);
-  box-shadow: 0 22px 58px rgba(0, 0, 0, 0.55);
-  color: #232120;
+  border-color: rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.02);
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.3), 0 4px 6px -4px rgb(0 0 0 / 0.3);
 }
 
-:global(html.dark) .planPopular .planName,
-:global(html.dark) .planPopular .planPrice {
-  color: #232120;
-}
-
-:global(html.dark) .planPopular .planPer,
-:global(html.dark) .planPopular .planTagline,
-:global(html.dark) .planPopular .planPriceNote {
-  color: #6f6b65;
-}
-
-:global(html.dark) .planPopular .planFeatures li {
-  color: #3a3734;
-}
-
-:global(html.dark) .planPopular .planCheck {
-  color: #3a3734;
-}
-
-:global(html.dark) .planPopular .planPriceOld {
-  color: #a3a09a;
-}
-
-/* Белая карточка тёмной темы: её кнопка — графитовая (единственная тёмная). */
-:global(html.dark) .planPopular .planBtnDark {
-  background: #232120;
-  color: #fbfaf9;
-}
-
-:global(html.dark) .planPopular .planBtnDark:hover {
-  background: #38352f;
-  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
-}
-
-/* Инверсная пилюля: в светлой теме — светлая на графитовой карточке, в тёмной
-   — графитовая на белой (пары --on-accent/--accent дают это автоматически). */
-.planBadge {
-  position: absolute;
-  top: -11px;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 4px 13px;
-  border-radius: 999px;
-  background: var(--on-accent);
-  color: var(--accent);
-  border: 1px solid var(--border);
-  font-size: 11.5px;
-  font-weight: 700;
-  white-space: nowrap;
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18);
+/* Имя-эйбрау и бейдж «Популярный» в одной строке (эталон). */
+.planNameRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .planName {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 15px;
-  font-weight: 700;
-  margin-bottom: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--dim);
 }
 
+/* Цветные точки тиров на лендинге скрыты (дизайн по фото эталона);
+   в кабинете они остаются как были. */
 .planDot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
+  display: none;
+}
+
+.planBadge {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
 }
 
 .planPrice {
+  margin-top: 20px;
   font-size: 30px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: -0.02em;
-  margin-bottom: 4px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -786,84 +908,89 @@
 }
 
 .planTagline {
-  font-size: 12.5px;
+  margin-top: 4px;
+  font-size: 12px;
   color: var(--dim);
-  margin-bottom: 14px;
   min-height: 32px;
 }
 
+/* Список фич — эталон: mt-7 + border-t + pt-7, пункты text-sm цветом чернил. */
 .planFeatures {
   list-style: none;
-  margin: 0 0 18px;
-  padding: 0;
+  margin: 24px 0 0;
+  padding: 24px 0 0;
+  border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
   flex: 1;
 }
 
 .planFeatures li {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  font-size: 13px;
+  gap: 10px;
+  font-size: 14px;
   line-height: 1.45;
-  color: var(--dim);
+  color: var(--text);
 }
 
 .planCheck {
   color: var(--dim);
-  margin-top: 3px;
+  margin-top: 2px;
+  flex: none;
 }
 
-/* Обводочная кнопка обычных тарифов — тёмная в секции только у featured. */
+/* CTA — эталон: rounded-xl w-full py-3, transition-all 200ms, active .99;
+   обычная — обводка с hover border-ink-2/60. */
 .planBtnFilled {
-  padding: 12px 22px;
+  margin-top: 32px;
+  width: 100%;
+  padding: 12px 16px;
   border: 1px solid var(--border);
   border-radius: 12px;
-  background: var(--panel);
+  background: transparent;
   color: var(--text);
   font-family: inherit;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
   touch-action: manipulation;
-  transition: transform var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease),
-    box-shadow var(--dur-fast) var(--ease);
+  transition: all 0.2s ease;
 }
 
 .planBtnFilled:hover {
-  transform: translateY(-1px);
-  border-color: color-mix(in srgb, var(--dim) 55%, var(--border));
-  box-shadow: var(--shadow-card);
+  border-color: color-mix(in srgb, var(--dim) 60%, transparent);
 }
 
 .planBtnFilled:active {
-  transform: scale(0.97);
+  transform: scale(0.99);
 }
 
-/* Единственная тёмная кнопка секции: светлая на графитовой карточке. */
+/* Featured CTA — эталон: bg-accent + btn-shimmer, shadow-sm → md на hover. */
 .planBtnDark {
-  padding: 12px 22px;
+  margin-top: 32px;
+  width: 100%;
+  padding: 12px 16px;
   border: none;
   border-radius: 12px;
-  background: #fbfaf9;
-  color: #232120;
+  background: var(--accent);
+  color: var(--on-accent);
   font-family: inherit;
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 500;
   cursor: pointer;
   touch-action: manipulation;
-  transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  transition: all 0.2s ease;
 }
 
 .planBtnDark:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
 }
 
 .planBtnDark:active {
-  transform: scale(0.97);
+  transform: scale(0.99);
 }
 
 .plansNote {
@@ -878,22 +1005,13 @@
   font-weight: 600;
 }
 
-/* "Everything in X, plus:" line above a plan's feature list */
+/* "Everything in X, plus:" line above a plan's feature list.
+   Карточки теперь светлые в обеих темах — обычный цвет чернил читается везде. */
 .planInherits {
   font-size: 12.5px;
   font-weight: 600;
-  color: var(--accent);
-  margin: -4px 0 12px;
-}
-
-/* Light theme: the Pro card is graphite, so lift the inherits line off it. */
-.planPopular .planInherits {
-  color: rgba(248, 247, 245, 0.78);
-}
-
-/* Dark theme: the Pro card is warm white — graphite text reads there. */
-:global(html.dark) .planPopular .planInherits {
-  color: #3a3734;
+  color: var(--text);
+  margin: 8px 0 -12px;
 }
 
 /* Enterprise — full-width card below the plan grid */
@@ -937,8 +1055,8 @@
   text-decoration: none;
   cursor: pointer;
   touch-action: manipulation;
-  transition: transform var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease),
-    box-shadow var(--dur-fast) var(--ease);
+  transition: transform 0.3s var(--ease), border-color 0.3s var(--ease),
+    box-shadow 0.3s var(--ease);
 }
 
 .enterpriseCta:hover {
@@ -1025,7 +1143,7 @@
   text-align: start;
   cursor: pointer;
   touch-action: manipulation;
-  transition: color var(--dur-fast) var(--ease);
+  transition: color 0.3s var(--ease);
 }
 
 .faqQ:hover {
@@ -1144,7 +1262,7 @@
   cursor: pointer;
   touch-action: manipulation;
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
-  transition: transform var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+  transition: transform 0.3s var(--ease), box-shadow 0.3s var(--ease);
 }
 
 .ctaBannerPrimary:hover {
@@ -1170,8 +1288,8 @@
   font-weight: 600;
   cursor: pointer;
   touch-action: manipulation;
-  transition: border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease),
-    transform var(--dur-fast) var(--ease);
+  transition: border-color 0.3s var(--ease), box-shadow 0.3s var(--ease),
+    transform 0.3s var(--ease);
 }
 
 .ctaBannerGhost:hover {
@@ -1262,7 +1380,7 @@
   text-align: start;
   cursor: pointer;
   touch-action: manipulation;
-  transition: color var(--dur-fast) var(--ease);
+  transition: color 0.3s var(--ease);
 }
 
 .footerLink:hover {

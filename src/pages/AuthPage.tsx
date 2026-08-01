@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { AnimatePresence, motion, useMotionTemplate, useMotionValue, useReducedMotion, useSpring } from 'motion/react';
+import { EASE } from '@/lib/motion';
 import { Avatar } from '@/components/ui/Avatar';
 import { Background } from '@/components/ui/Background';
 import { CountUp } from '@/components/ui/CountUp';
@@ -17,8 +19,6 @@ import { ApiError } from '@/api/util';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useResolvedDark } from '@/hooks/useResolvedDark';
-import { useReveal } from '@/hooks/useReveal';
-import { useTilt } from '@/hooks/useTilt';
 import { useI18n } from '@/i18n/I18nProvider';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { scrollBehavior } from '@/lib/scroll';
@@ -26,6 +26,14 @@ import styles from './auth.module.css';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api';
+
+/* Эталон AuthCard.tsx: амплитуда 3D-наклона карточки. */
+const MAX_TILT = 2.5;
+
+/** Обёртки, анимирующие высоту, режут фокусное кольцо инпутов по бокам
+ *  (overflow: hidden проходит ровно по краю поля). Сдвигаем границу клипа
+ *  на 6px наружу: кольцо (2px + отступ 2px) целиком помещается. */
+const CLIP_STYLE: React.CSSProperties = { overflow: 'hidden', margin: '0 -6px', padding: '0 6px' };
 
 type Mode = 'signin' | 'signup' | 'reset';
 
@@ -358,11 +366,14 @@ export function AuthPage() {
   // Scrollspy: highlight the nav item of the section crossing mid-viewport.
   useEffect(() => {
     if (finishing || typeof IntersectionObserver === 'undefined') return;
+    /* Помним видимость КАЖДОЙ секции: когда ни одна не в средней полосе
+       вьюпорта (пользователь на hero) — подсветка гаснет, а не «залипает». */
+    const visible = new Map<string, boolean>();
     const observer = new IntersectionObserver(
       (entries) => {
-        for (const entry of entries) {
-          if (entry.isIntersecting) setActiveSection(entry.target.id);
-        }
+        for (const entry of entries) visible.set(entry.target.id, entry.isIntersecting);
+        const current = NAV_SECTIONS.find((s) => visible.get(s.id));
+        setActiveSection(current ? current.id : null);
       },
       { root: rootRef.current, rootMargin: '-35% 0px -55% 0px' },
     );
@@ -373,16 +384,53 @@ export function AuthPage() {
     return () => observer.disconnect();
   }, [finishing]);
 
-  // Reveal cascade + card tilt (эталон Hero/AuthCard). Hooks are hoisted above
-  // the `finishing` early return so the hook order never changes.
-  const heroSubReveal = useReveal<HTMLParagraphElement>(0.4);
-  const heroCtasReveal = useReveal<HTMLDivElement>(0.5);
-  /* Бейджи доверия под карточкой — каскад эталона (delay 0.65). */
-  const badgesReveal = useReveal<HTMLDivElement>(0.65);
-  const cardReveal = useReveal<HTMLDivElement>(0.45);
-  const statsReveal = useReveal<HTMLDivElement>(0.6);
-  const statNoteReveal = useReveal<HTMLDivElement>(0.65);
-  const cardTilt = useTilt<HTMLDivElement>();
+  // 3D-tilt карточки — скопировано дословно из эталона AuthCard.tsx
+  // (useSpring stiffness 160 / damping 20, MAX_TILT 2.5, perspective 900).
+  // Хуки подняты над ранним return (finishing) — порядок хуков стабилен.
+  const cardRef = useRef<HTMLDivElement>(null);
+  const reduce = useReducedMotion();
+  const rotateX = useSpring(useMotionValue(0), { stiffness: 160, damping: 20 });
+  const rotateY = useSpring(useMotionValue(0), { stiffness: 160, damping: 20 });
+
+  // Блик по стеклу (glare) движется за курсором вместе с наклоном карточки.
+  const glareX = useMotionValue(50);
+  const glareY = useMotionValue(30);
+  const glareOpacity = useSpring(useMotionValue(0), { stiffness: 200, damping: 30 });
+  const glare = useMotionTemplate`radial-gradient(280px circle at ${glareX}% ${glareY}%, rgba(255, 255, 255, 0.16), transparent 70%)`;
+
+  const onCardMouseMove = (e: React.MouseEvent) => {
+    if (reduce || !cardRef.current) return;
+    if (!window.matchMedia('(pointer: fine)').matches) return;
+    const rect = cardRef.current.getBoundingClientRect();
+    const px = (e.clientX - rect.left) / rect.width - 0.5;
+    const py = (e.clientY - rect.top) / rect.height - 0.5;
+    rotateY.set(px * MAX_TILT * 2);
+    rotateX.set(-py * MAX_TILT * 2);
+    glareX.set((px + 0.5) * 100);
+    glareY.set((py + 0.5) * 100);
+    glareOpacity.set(1);
+  };
+
+  const onCardMouseLeave = () => {
+    rotateX.set(0);
+    rotateY.set(0);
+    glareOpacity.set(0);
+  };
+
+  // Магнитная «Начать бесплатно» в шапке: слегка тянется к курсору (±4px).
+  const magX = useSpring(useMotionValue(0), { stiffness: 320, damping: 24 });
+  const magY = useSpring(useMotionValue(0), { stiffness: 320, damping: 24 });
+  const onCtaMouseMove = (e: React.MouseEvent<HTMLButtonElement>) => {
+    if (reduce || !window.matchMedia('(pointer: fine)').matches) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    magX.set(Math.max(-4, Math.min(4, (e.clientX - (r.left + r.width / 2)) * 0.15)));
+    magY.set(Math.max(-3, Math.min(3, (e.clientY - (r.top + r.height / 2)) * 0.25)));
+  };
+  const onCtaMouseLeave = () => {
+    magX.set(0);
+    magY.set(0);
+  };
+
   /** Hero headline words: cascade delays 0.1 + i*0.1 (accent word last). */
   const heroWords = t('auth.heroLine1').split(' ');
 
@@ -407,19 +455,30 @@ export function AuthPage() {
           noise — parallaxed against this page's own scroll container. */}
       <Background scrollRef={rootRef} />
 
-      {/* ── Fixed glass top bar (эталон Navbar): brand · nav links · controls ── */}
-      <header
+      {/* ── Fixed glass top bar (эталон Navbar): brand · nav links · controls.
+             Появление y:-32 → 0 за 0.6s EASE — дословно из Navbar.tsx. ── */}
+      <motion.header
+        initial={{ y: -32, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ duration: 0.6, ease: EASE }}
         className={`glass-nav ${styles.topBar} ${scrolled ? `glass-nav--scrolled ${styles.topBarScrolled}` : ''}`}
       >
         <div className={styles.topBarInner}>
           <div className={styles.topBarSide}>
-            <div className={styles.bannerBrand}>
+            {/* Лого-кнопка (эталон Navbar: клик по знаку ведёт наверх). */}
+            <button
+              type="button"
+              className={styles.bannerBrand}
+              onClick={() => rootRef.current?.scrollTo({ top: 0, behavior: scrollBehavior() })}
+              aria-label={t('landing.toTop')}
+              title={t('landing.toTop')}
+            >
               <Avatar size={30} />
               <span className={styles.bannerBrandText}>
                 <span className={styles.bannerBrandName}>Lexab</span>
                 <span className={styles.bannerBrandSub}>{t('auth.tagline')}</span>
               </span>
-            </div>
+            </button>
           </div>
           <nav className={styles.navPill} aria-label={t('landing.nav.aria')}>
             {NAV_SECTIONS.map((s) => (
@@ -438,6 +497,8 @@ export function AuthPage() {
             <div className={styles.controlsPill}>
               <LanguageMenu showLabel />
               <span className={styles.controlsDivider} />
+              {/* Эталон ThemeToggle.tsx: AnimatePresence mode="wait",
+                  rotate -90→0 (exit 90), duration 0.25 easeOut. */}
               <button
                 type="button"
                 className={styles.themeBtn}
@@ -445,15 +506,38 @@ export function AuthPage() {
                 aria-label={dark ? t('top.theme.toLight') : t('top.theme.toDark')}
                 title={dark ? t('top.theme.toLight') : t('top.theme.toDark')}
               >
-                <Icon name={dark ? 'moon' : 'sun'} size={17} />
+                <AnimatePresence mode="wait" initial={false}>
+                  <motion.span
+                    key={dark ? 'dark' : 'light'}
+                    initial={{ rotate: -90, opacity: 0 }}
+                    animate={{ rotate: 0, opacity: 1 }}
+                    exit={{ rotate: 90, opacity: 0 }}
+                    transition={{ duration: 0.25, ease: 'easeOut' }}
+                    style={{ display: 'flex' }}
+                  >
+                    {dark ? <Icon name="moon" size={18} /> : <Icon name="sun" size={18} />}
+                  </motion.span>
+                </AnimatePresence>
               </button>
             </div>
-            <button type="button" className={styles.headerCta} onClick={startSignup}>
+            {/* Эталон Navbar.tsx: whileHover 1.02 / whileTap 0.98, 0.2s;
+                плюс магнитное притяжение к курсору. */}
+            <motion.button
+              type="button"
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              transition={{ duration: 0.2 }}
+              style={{ x: magX, y: magY }}
+              onMouseMove={onCtaMouseMove}
+              onMouseLeave={onCtaMouseLeave}
+              className={styles.headerCta}
+              onClick={startSignup}
+            >
               {t('landing.navCta')}
-            </button>
+            </motion.button>
           </div>
         </div>
-      </header>
+      </motion.header>
 
       <main className={styles.main}>
       <div className={styles.layout}>
@@ -471,22 +555,28 @@ export function AuthPage() {
             <h1 className={styles.hero}>
               {/* Word-by-word cascade (эталон Hero): delay 0.1 + i*0.1. */}
               {heroWords.map((word, i) => (
-                <span
+                <motion.span
                   key={`${word}-${i}`}
+                  initial={{ opacity: 0, y: 28 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.7, ease: EASE, delay: 0.1 + i * 0.1 }}
                   className={styles.heroWord}
-                  style={{ animationDelay: `${0.1 + i * 0.1}s` }}
                 >
                   {word}
                   {'\u00a0'}
-                </span>
+                </motion.span>
               ))}
               <br />
-              <span
+              <motion.span
+                initial={{ opacity: 0, y: 28 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.7, ease: EASE, delay: 0.1 + heroWords.length * 0.1 }}
                 className={`${styles.heroWord} ${styles.heroAccent}`}
-                style={{ animationDelay: `${0.1 + heroWords.length * 0.1}s` }}
               >
                 {t('auth.heroLine2')}
-                {/* Hand-drawn wavy underline, drawn in on load (эталон). */}
+                {/* Анимация рисования — эталон Hero.tsx (pathLength 0.9s EASE
+                    delay 0.8 + opacity 0.2s). Цвет — по просьбе пользователя:
+                    тот же градиент, что у слова (#8B5CF6→#EC4899). */}
                 <svg
                   className={styles.heroWave}
                   viewBox="0 0 300 20"
@@ -500,31 +590,64 @@ export function AuthPage() {
                       <stop offset="1" stopColor="#EC4899" />
                     </linearGradient>
                   </defs>
-                  <path
-                    className={styles.heroWavePath}
+                  <motion.path
                     d="M4 13 Q 34 5 64 12 T 124 12 T 184 12 T 244 12 T 296 11"
                     stroke="url(#lx-hero-wave)"
                     strokeWidth={6}
                     strokeLinecap="round"
-                    pathLength={1}
+                    initial={reduce ? false : { pathLength: 0, opacity: 0 }}
+                    animate={{ pathLength: 1, opacity: 1 }}
+                    transition={{
+                      pathLength: { duration: 0.9, ease: EASE, delay: 0.8 },
+                      opacity: { duration: 0.2, delay: 0.8 },
+                    }}
                   />
                 </svg>
-              </span>
+              </motion.span>
             </h1>
-            <p className={styles.heroSub} ref={heroSubReveal}>{t('auth.heroSub')}</p>
+            <motion.p
+              initial={{ opacity: 0, y: 24 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.7, ease: EASE, delay: 0.4 }}
+              className={styles.heroSub}
+            >
+              {t('auth.heroSub')}
+            </motion.p>
 
-            {/* Порядок эталона: «Посмотреть демо» — обводочная, «Как это
-                работает» — тихая текстовая. Обработчики прежние. */}
-            <div className={styles.heroCtas} ref={heroCtasReveal}>
-              <button type="button" className={styles.heroCtaOutline} onClick={() => scrollToSection('demo')}>
+            {/* Эталон Hero.tsx: контейнер y:24 delay 0.5; кнопки whileHover
+                1.02 / whileTap 0.98 (0.2s); стрелка ghost — translate-x на
+                hover (0.2s). Обработчики прежние. */}
+            <motion.div
+              initial={{ opacity: 0, y: 24 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.7, ease: EASE, delay: 0.5 }}
+              className={styles.heroCtas}
+            >
+              <motion.button
+                type="button"
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                transition={{ duration: 0.2 }}
+                className={styles.heroCtaOutline}
+                onClick={() => scrollToSection('demo')}
+              >
                 <Icon name="play" size={15} />
                 {t('landing.viewDemo')}
-              </button>
-              <button type="button" className={styles.heroCtaGhost} onClick={() => scrollToSection('how-it-works')}>
+              </motion.button>
+              <motion.button
+                type="button"
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                transition={{ duration: 0.2 }}
+                className={styles.heroCtaGhost}
+                onClick={() => scrollToSection('how-it-works')}
+              >
                 {t('landing.howItWorks')}
-                <Icon name="arrowRight" size={17} />
-              </button>
-            </div>
+                <span className={styles.ctaArrow} aria-hidden="true">
+                  <Icon name="arrowRight" size={17} />
+                </span>
+              </motion.button>
+            </motion.div>
 
             {invite ? (
               <div className={styles.inviteNote}>
@@ -537,10 +660,16 @@ export function AuthPage() {
 
           {/* Honest, measured metric: citation accuracy without vs with the
               law-corpus check (RAG eval on the golden set — see HANDOFF.md). */}
-          <div className={styles.stats} ref={statsReveal}>
+          {/* Эталон Hero.tsx: метрики — y:24, 0.7s EASE, delay 0.6. */}
+          <motion.div
+            initial={{ opacity: 0, y: 24 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.7, ease: EASE, delay: 0.6 }}
+            className={styles.stats}
+          >
               <div className={styles.stat}>
                 <div className={styles.statValue}>
-                  <CountUp to={2.5} decimals={1} suffix="%" />
+                  <CountUp to={2.5} decimals={1} suffix="%" duration={3.5} />
                 </div>
                 <div className={styles.statLabel}>{t('auth.metricWithoutLabel')}</div>
               </div>
@@ -549,24 +678,47 @@ export function AuthPage() {
               </div>
               <div className={styles.stat}>
                 <div className={`${styles.statValue} ${styles.statValueAccent}`}>
-                  <CountUp to={100} suffix="%" />
+                  <CountUp to={100} suffix="%" duration={3.5} />
                 </div>
                 <div className={styles.statLabel}>{t('auth.metricWithLabel')}</div>
               </div>
-            </div>
-          <div className={styles.statNote} ref={statNoteReveal}>{t('auth.metricNote')}</div>
+            </motion.div>
         </div>
 
         {/* ── Right column: sign-in card + trust badges (эталон Hero) ─────── */}
         <div className={styles.rightCol}>
-            <div className={styles.cardWrap} ref={cardReveal}>
-            <div ref={cardTilt}>
+            {/* Эталон Hero.tsx: карточка y:28 delay 0.45; tilt — AuthCard.tsx
+                (useSpring 160/20, perspective 900). */}
+            <motion.div
+              className={styles.cardWrap}
+              initial={{ opacity: 0, y: 28 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.7, ease: EASE, delay: 0.45 }}
+            >
+            <motion.div
+              ref={cardRef}
+              onMouseMove={onCardMouseMove}
+              onMouseLeave={onCardMouseLeave}
+              style={{ rotateX, rotateY, transformPerspective: 900 }}
+            >
             <GlassCard className={`${styles.card} sheen`}>
+              {/* Блик, следующий за курсором вместе с 3D-наклоном. */}
+              <motion.div
+                aria-hidden="true"
+                className={styles.cardGlare}
+                style={{ background: glare, opacity: glareOpacity }}
+              />
               {sessionExpired ? (
-                <p className={styles.verifySent} role="status">
+                <motion.p
+                  initial={{ opacity: 0, y: -6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3, ease: 'easeOut' }}
+                  className={styles.verifySent}
+                  role="status"
+                >
                   <Icon name="clock" size={15} />
                   <span>{t('auth.sessionExpired')}</span>
-                </p>
+                </motion.p>
               ) : null}
 
               <button type="button" className={styles.googleBtn} onClick={startGoogle}>
@@ -581,6 +733,12 @@ export function AuthPage() {
                   {t('auth.ssoButton')}
                 </button>
               ) : (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  transition={{ duration: 0.3, ease: EASE }}
+                  style={CLIP_STYLE}
+                >
                 <div className={styles.ssoRow}>
                   <TextField
                     label={t('auth.ssoEmailLabel')}
@@ -598,13 +756,22 @@ export function AuthPage() {
                     {ssoBusy ? t('common.loading') : t('auth.ssoContinue')}
                   </Button>
                 </div>
+                </motion.div>
               )}
 
               <div className={styles.divider}>
                 <span>{t('auth.or')}</span>
               </div>
 
+              {/* Плавная смена «кнопка → форма»: CTA гаснет, форма раскрывается
+                  по высоте, поля всплывают каскадом. */}
+              <AnimatePresence initial={false} mode="wait">
               {!emailOpen ? (
+                <motion.div
+                  key="email-cta"
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.15, ease: 'easeOut' }}
+                >
                 <Button
                   type="button"
                   variant="primary"
@@ -614,23 +781,79 @@ export function AuthPage() {
                 >
                   {t('auth.emailContinue')}
                 </Button>
+                </motion.div>
               ) : (
+                <motion.div
+                  key="email-form"
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: 'auto', opacity: 1 }}
+                  transition={{ duration: 0.35, ease: EASE }}
+                  style={CLIP_STYLE}
+                >
                 <div className={styles.emailBlock}>
-                  <h2 className={styles.formTitle}>{title}</h2>
+                  <motion.h2
+                    className={styles.formTitle}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.3, ease: 'easeOut', delay: 0.12 }}
+                  >
+                    {title}
+                  </motion.h2>
+                  <AnimatePresence initial={false}>
                   {verifySentTo && mode === 'signin' ? (
-                    <p className={styles.verifySent} role="status">
+                    <motion.p
+                      key="verify-sent"
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.25, ease: EASE }}
+                      style={CLIP_STYLE}
+                      className={styles.verifySent}
+                      role="status"
+                    >
                       <Icon name="inbox" size={15} />
                       <span>
                         {t('auth.verifySentA')}
                         <strong>{verifySentTo}</strong>
                         {t('auth.verifySentB')}
                       </span>
-                    </p>
+                    </motion.p>
                   ) : null}
-                  {mode === 'reset' ? <p className={styles.resetHint}>{t('auth.resetHint')}</p> : null}
+                  </AnimatePresence>
+                  <AnimatePresence initial={false}>
+                  {mode === 'reset' ? (
+                    <motion.p
+                      key="reset-hint"
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: 'auto', opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.25, ease: EASE }}
+                      style={CLIP_STYLE}
+                      className={styles.resetHint}
+                    >
+                      {t('auth.resetHint')}
+                    </motion.p>
+                  ) : null}
+                  </AnimatePresence>
 
-                  <form className={styles.form} onSubmit={submit} noValidate>
+                  <motion.form
+                    className={styles.form}
+                    onSubmit={submit}
+                    noValidate
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.3, ease: 'easeOut', delay: 0.18 }}
+                  >
+                    <AnimatePresence initial={false}>
                     {mode === 'signup' ? (
+                      <motion.div
+                        key="name-field"
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.25, ease: EASE }}
+                        style={CLIP_STYLE}
+                      >
                       <TextField
                         label={t('auth.name')}
                         name="name"
@@ -638,7 +861,9 @@ export function AuthPage() {
                         autoComplete="name"
                         onChange={(e) => setName(e.target.value)}
                       />
+                      </motion.div>
                     ) : null}
+                    </AnimatePresence>
                     <TextField
                       label={t('auth.email')}
                       name="email"
@@ -654,7 +879,16 @@ export function AuthPage() {
                         }
                       }}
                     />
+                    <AnimatePresence initial={false}>
                     {mode !== 'reset' ? (
+                      <motion.div
+                        key="password-field"
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.25, ease: EASE }}
+                        style={CLIP_STYLE}
+                      >
                       <TextField
                         label={t('auth.password')}
                         name="password"
@@ -663,9 +897,20 @@ export function AuthPage() {
                         autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
                         onChange={(e) => setPassword(e.target.value)}
                       />
+                      </motion.div>
                     ) : null}
+                    </AnimatePresence>
 
+                    <AnimatePresence initial={false}>
                     {mode === 'signin' && twoFactor ? (
+                      <motion.div
+                        key="totp"
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.25, ease: EASE }}
+                        style={CLIP_STYLE}
+                      >
                       <div className={styles.twoFactorBlock}>
                         <TextField
                           label={useBackupCode ? t('sec.2fa.backupCodeLabel') : t('sec.2fa.codeLabel')}
@@ -688,30 +933,72 @@ export function AuthPage() {
                           {useBackupCode ? t('sec.2fa.useAppCode') : t('sec.2fa.useBackupCode')}
                         </button>
                       </div>
+                      </motion.div>
                     ) : null}
+                    </AnimatePresence>
 
+                    <AnimatePresence initial={false}>
                     {mode === 'signin' && !twoFactor ? (
+                      <motion.div
+                        key="forgot"
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.25, ease: EASE }}
+                        style={CLIP_STYLE}
+                      >
                       <button type="button" className={styles.forgotBtn} onClick={() => switchMode('reset')}>
                         {t('auth.forgot')}
                       </button>
+                      </motion.div>
                     ) : null}
+                    </AnimatePresence>
 
-                    {error ? <p className={styles.formError}>{error}</p> : null}
+                    {/* Ошибка: мягко раскрывается + короткое покачивание. */}
+                    <AnimatePresence initial={false}>
+                    {error ? (
+                      <motion.p
+                        key={error}
+                        className={styles.formError}
+                        style={CLIP_STYLE}
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1, x: [0, -6, 6, -4, 4, 0] }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{
+                          height: { duration: 0.25, ease: EASE },
+                          opacity: { duration: 0.2 },
+                          x: { duration: 0.4, ease: 'easeOut' },
+                        }}
+                      >
+                        {error}
+                      </motion.p>
+                    ) : null}
+                    </AnimatePresence>
 
                     <Button type="submit" variant="primary" className={styles.submit} disabled={status === 'loading' || resetBusy}>
-                      {status === 'loading' || resetBusy
-                        ? t('common.loading')
-                        : mode === 'signin'
-                          ? twoFactor
-                            ? t('sec.2fa.verify')
-                            : t('auth.signIn')
-                          : mode === 'signup'
-                            ? t('auth.signUp')
-                            : t('auth.resetSend')}
+                      <span className={styles.submitInner}>
+                        {status === 'loading' || resetBusy ? (
+                          <span className={styles.btnSpinner} aria-hidden="true" />
+                        ) : null}
+                        {status === 'loading' || resetBusy
+                          ? t('common.loading')
+                          : mode === 'signin'
+                            ? twoFactor
+                              ? t('sec.2fa.verify')
+                              : t('auth.signIn')
+                            : mode === 'signup'
+                              ? t('auth.signUp')
+                              : t('auth.resetSend')}
+                      </span>
                     </Button>
-                  </form>
+                  </motion.form>
 
-                  <div className={styles.switch}>
+                  <motion.div
+                    className={styles.switch}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.3, ease: 'easeOut', delay: 0.26 }}
+                  >
                     {mode === 'reset' ? (
                       <button className={styles.switchBtn} onClick={() => switchMode('signin')}>
                         {t('auth.backToSignIn')}
@@ -724,9 +1011,11 @@ export function AuthPage() {
                         {mode === 'signin' ? t('auth.toSignUp') : t('auth.toSignIn')}
                       </button>
                     )}
-                  </div>
+                  </motion.div>
                 </div>
+                </motion.div>
               )}
+              </AnimatePresence>
 
               <p className={styles.terms}>
                 {t('auth.termsA')}
@@ -740,26 +1029,49 @@ export function AuthPage() {
                 {t('auth.termsB')}
               </p>
             </GlassCard>
-            </div>
-            </div>
+            </motion.div>
+            </motion.div>
 
-          {/* Verifiable trust signals — every line is true and checkable. */}
-          <div className={styles.heroBadges} ref={badgesReveal}>
+          {/* Verifiable trust signals — эталон Badges.tsx дословно:
+              появление y:20, 0.6s EASE, delay 0.65+i*0.1; hover x:4 spring
+              (stiffness 300, damping 22); стеклянная пилюля .glass.
+              Когда открыта email-форма, карточка вырастает — бейджи плавно
+              уходят (и возвращаются каскадом после закрытия формы). */}
+          <AnimatePresence>
+          {!emailOpen ? (
+          <motion.ul
+            className={styles.heroBadges}
+            exit={{ opacity: 0, y: 12 }}
+            transition={{ duration: 0.25, ease: 'easeOut' }}
+          >
             {(
               [
                 { icon: 'check', key: 'auth.badgeVerified' },
                 { icon: 'globe', key: 'auth.badgeSources' },
                 { icon: 'sparkle', key: 'auth.badgeAI' },
               ] as const
-            ).map((b) => (
-              <div key={b.key} className={styles.heroBadge}>
-                <span className={styles.heroBadgeIcon}>
-                  <Icon name={b.icon} size={14} />
-                </span>
-                {t(b.key)}
-              </div>
+            ).map((b, i) => (
+              <motion.li
+                key={b.key}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, ease: EASE, delay: 0.65 + i * 0.1 }}
+              >
+                <motion.div
+                  whileHover={{ x: 4 }}
+                  transition={{ type: 'spring', stiffness: 300, damping: 22 }}
+                  className={`glass ${styles.heroBadge}`}
+                >
+                  <span className={styles.heroBadgeIcon}>
+                    <Icon name={b.icon} size={16} />
+                  </span>
+                  <span>{t(b.key)}</span>
+                </motion.div>
+              </motion.li>
             ))}
-          </div>
+          </motion.ul>
+          ) : null}
+          </AnimatePresence>
         </div>
       </div>
 

@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { RouterProvider } from 'react-router-dom';
+import { MotionConfig } from 'motion/react';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { ToastHost } from '@/components/ui/ToastHost';
@@ -13,6 +14,9 @@ export default function App() {
 
   return (
     <ErrorBoundary>
+      {/* Эталон ThemeProvider.tsx: все motion-анимации уважают системный
+          prefers-reduced-motion. */}
+      <MotionConfig reducedMotion="user">
       <I18nProvider>
         <RouterProvider
           router={router}
@@ -24,6 +28,7 @@ export default function App() {
             routes too — AuthPage, reset-password, sign, etc. Portals to body. */}
         <ToastHost />
       </I18nProvider>
+      </MotionConfig>
     </ErrorBoundary>
   );
 }

@@ -1,8 +1,9 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
+import { AnimatePresence, motion, useInView } from 'motion/react';
+import { EASE } from '@/lib/motion';
 import { Icon, type IconName } from '@/components/icons/Icon';
 import { Avatar } from '@/components/ui/Avatar';
-import { useReveal } from '@/hooks/useReveal';
 import { useI18n } from '@/i18n/I18nProvider';
 import { pickText } from '@/i18n/messages';
 import { prefersReducedMotion, scrollBehavior } from '@/lib/scroll';
@@ -81,35 +82,39 @@ const HEADS: Record<string, SectionHead> = {
 
 const FEATURES: { icon: IconName; title: Text2; text: Text2 }[] = [
   {
-    icon: 'alert',
-    title: { ru: 'Анализ договоров', en: 'Contract analysis', de: 'Vertragsanalyse', ar: 'تحليل العقود', kk: 'Шарттарды талдау', uz: 'Shartnomalar tahlili' },
+    icon: 'docs',
+    title: { ru: 'Анализ рисков', en: 'Risk analysis', de: 'Risikoanalyse' },
     text: {
-      ru: 'Загрузите договор — Lexab разберёт его по пунктам и отметит риски: высокий, средний, низкий.',
-      en: 'Upload a contract — Lexab reviews it clause by clause and flags risks as high, medium or low.', de: 'Laden Sie einen Vertrag hoch – Lexab prüft ihn Klausel für Klausel und markiert Risiken als hoch, mittel oder niedrig.', ar: 'ارفع العقد — يحلّله Lexab بنداً بنداً ويحدّد المخاطر: عالية أو متوسطة أو منخفضة.', kk: 'Шартты жүктеңіз — Lexab оны тармақтап талдап, тәуекелдерді белгілейді: жоғары, орташа, төмен.', uz: 'Shartnomani yuklang — Lexab uni band-band tahlil qilib, xavflarni belgilaydi: yuqori, oʻrta, past.',
+      ru: 'Lexab читает договор целиком, находит опасные формулировки и объясняет, чем именно они грозят.',
+      en: 'Lexab reads the entire contract, finds dangerous wording and explains exactly what it threatens.',
+      de: 'Lexab liest den gesamten Vertrag, findet gefährliche Formulierungen und erklärt, was genau sie bedeuten.',
     },
   },
   {
-    icon: 'pen',
-    title: { ru: 'Редлайнинг', en: 'Redlining', de: 'Redlining', ar: 'التنقيح (Redlining)', kk: 'Редлайнинг', uz: 'Redlayning' },
+    icon: 'esign',
+    title: { ru: 'Правки и редлайн', en: 'Redlines and edits', de: 'Änderungen und Redline' },
     text: {
-      ru: 'ИИ предлагает конкретные правки: что убрать и чем заменить. Каждую можно принять или отклонить.',
-      en: 'The AI drafts concrete edits: what to remove and what to put instead. Accept or reject each one.', de: 'Die KI schlägt konkrete Änderungen vor: was gestrichen und was stattdessen eingesetzt werden sollte. Jede lässt sich annehmen oder ablehnen.', ar: 'يقترح الذكاء الاصطناعي تعديلات محددة: ما الذي يُحذف وما الذي يحلّ محلّه. ويمكنك قبول كل تعديل أو رفضه.', kk: 'ЖИ нақты түзетулер ұсынады: нені алып тастап, немен алмастыру керек. Әр түзетуді қабылдауға немесе қабылдамауға болады.', uz: 'AI aniq tahrirlarni taklif qiladi: nimani olib tashlash va oʻrniga nima qoʻyish kerakligini. Har birini qabul qilish yoki rad etish mumkin.',
+      ru: 'Готовые формулировки правок в вашем стиле — остаётся принять или отклонить изменения.',
+      en: 'Ready-made edit wording in your style — just accept or reject the changes.',
+      de: 'Fertige Formulierungen im eigenen Stil – Änderungen nur annehmen oder ablehnen.',
     },
   },
   {
-    icon: 'shield',
-    title: { ru: 'Цитаты на законодательство', en: 'Legal citations', de: 'Gesetzeszitate', ar: 'استشهادات بالتشريعات', kk: 'Заңнамадан дәйексөздер', uz: 'Qonunchilikka havolalar' },
+    icon: 'message',
+    title: { ru: 'Вопросы к документу', en: 'Questions to the document', de: 'Fragen an das Dokument' },
     text: {
-      ru: 'Каждый вывод подкреплён ссылкой на конкретную норму. Цитаты автоматически сверяются с официальными текстами законов.',
-      en: 'Every finding is backed by a reference to a specific provision, automatically checked against official law texts.', de: 'Jedes Ergebnis ist mit einem Verweis auf eine konkrete Rechtsnorm belegt. Die Zitate werden automatisch mit den offiziellen Gesetzestexten abgeglichen.', ar: 'كل استنتاج مدعوم بإحالة إلى نص قانوني محدد، وتُقارن الاستشهادات تلقائياً بالنصوص الرسمية للقوانين.', kk: 'Әр тұжырым нақты нормаға сілтемемен бекітілген. Дәйексөздер заңдардың ресми мәтіндерімен автоматты түрде салыстырылып тексеріледі.', uz: 'Har bir xulosa aniq normaga havola bilan asoslanadi. Iqtiboslar qonunlarning rasmiy matnlari bilan avtomatik solishtiriladi.',
+      ru: 'Спросите про сроки, штрафы или ответственность — ответ придёт со ссылкой на пункт договора.',
+      en: 'Ask about deadlines, penalties or liability — the answer comes with a link to the contract clause.',
+      de: 'Fragen Sie nach Fristen, Strafen oder Haftung – die Antwort verweist auf die Vertragsklausel.',
     },
   },
   {
-    icon: 'download',
-    title: { ru: 'Экспорт в DOCX и PDF', en: 'DOCX & PDF export', de: 'Export als DOCX und PDF', ar: 'تصدير بصيغتي DOCX وPDF', kk: 'DOCX және PDF форматына экспорт', uz: 'DOCX va PDFga eksport' },
+    icon: 'check',
+    title: { ru: 'Проверка цитат', en: 'Citation checking', de: 'Zitatprüfung' },
     text: {
-      ru: 'Документ с принятыми правками скачивается в DOCX или PDF — форматирование сохраняется, файл открывается в Word.',
-      en: 'Download the document with accepted edits as DOCX or PDF — formatting preserved, opens in Word.', de: 'Das Dokument mit den angenommenen Änderungen laden Sie als DOCX oder PDF herunter – die Formatierung bleibt erhalten, die Datei öffnet sich in Word.', ar: 'يمكن تنزيل المستند مع التعديلات المقبولة بصيغة DOCX أو PDF — مع الحفاظ على التنسيق، ويفتح الملف في Word.', kk: 'Қабылданған түзетулері бар құжат DOCX немесе PDF форматында жүктеледі — пішімдеу сақталады, файл Word-та ашылады.', uz: 'Qabul qilingan tahrirlar kiritilgan hujjat DOCX yoki PDF formatida yuklab olinadi — formatlash saqlanadi, fayl Wordda ochiladi.',
+      ru: 'Каждая ссылка на закон сверяется с базой официальных текстов, прежде чем попасть в ответ.',
+      en: 'Every legal citation is checked against the base of official texts before it reaches the answer.',
+      de: 'Jeder Gesetzesverweis wird vor der Antwort mit den offiziellen Texten abgeglichen.',
     },
   },
 ];
@@ -148,132 +153,86 @@ const STEPS: { title: Text2; text: Text2 }[] = [
 /** Audience cards (photo-10 layout): an optional headline metric top-right,
  *  plus a "learn more" link. Metrics are product-positioning figures — the
  *  Individuals card intentionally carries none (no number to stand behind). */
-const AUDIENCES: { icon: IconName; metric?: Text2; title: Text2; text: Text2 }[] = [
+const AUDIENCES: { title: Text2; text: Text2; points: Text2[] }[] = [
   {
-    icon: 'users',
-    metric: { ru: '10×', en: '10×', de: '10×', ar: '10×', kk: '10×', uz: '10×' },
-    title: { ru: 'In-house юристы', en: 'In-house counsel', de: 'Unternehmensjuristen', ar: 'المستشارون القانونيون الداخليون', kk: 'In-house заңгерлер', uz: 'In-house yuristlar' },
+    title: { ru: 'Юридические фирмы', en: 'Law firms', de: 'Kanzleien' },
     text: {
-      ru: 'Ускорьте обзор входящих контрактов в 10 раз. Освободите время на стратегию.',
-      en: 'Review incoming contracts 10× faster. Free up time for strategy.', de: 'Prüfen Sie eingehende Verträge zehnmal schneller. Gewinnen Sie Zeit für strategische Aufgaben.', ar: 'سرّع مراجعة العقود الواردة عشرة أضعاف، وحرّر وقتك للاستراتيجية.', kk: 'Келіп түсетін шарттарды қарауды 10 есе жеделдетіңіз. Стратегияға уақыт босатыңыз.', uz: 'Kiruvchi shartnomalarni koʻrib chiqishni 10 barobar tezlashtiring. Vaqtingizni strategiyaga boʻshating.',
+      ru: 'Больше договоров на юриста без потери качества проверки.',
+      en: 'More contracts per lawyer without losing review quality.',
+      de: 'Mehr Verträge pro Jurist – ohne Qualitätsverlust bei der Prüfung.',
     },
+    points: [
+      { ru: 'Due diligence в разы быстрее', en: 'Due diligence times faster', de: 'Due Diligence um ein Vielfaches schneller' },
+      { ru: 'Единый стандарт правок', en: 'A single redline standard', de: 'Ein einheitlicher Redline-Standard' },
+      { ru: 'Отчёты для клиентов', en: 'Reports for clients', de: 'Berichte für Mandanten' },
+    ],
   },
   {
-    icon: 'layout',
-    metric: { ru: '3,5×', en: '3.5×', de: '3,5×', ar: '3.5×', kk: '3,5×', uz: '3,5×' },
-    title: { ru: 'Юридические фирмы', en: 'Law firms', de: 'Kanzleien', ar: 'مكاتب المحاماة', kk: 'Заң фирмалары', uz: 'Yuridik firmalar' },
+    title: { ru: 'Инхаус-команды', en: 'In-house teams', de: 'Inhouse-Teams' },
     text: {
-      ru: 'Стандартизируйте качество due diligence в команде любого размера.',
-      en: 'Standardise due-diligence quality across a team of any size.', de: 'Standardisieren Sie die Qualität der Due Diligence – in Teams jeder Größe.', ar: 'وحّد جودة الفحص النافي للجهالة (Due Diligence) في فريق من أي حجم.', kk: 'Кез келген көлемдегі командада due diligence сапасын бірыңғай стандартқа келтіріңіз.', uz: 'Har qanday hajmdagi jamoada due diligence sifatini standartlashtiring.',
+      ru: 'Согласование договоров перестаёт быть узким местом бизнеса.',
+      en: 'Contract approvals stop being the bottleneck of the business.',
+      de: 'Vertragsfreigaben sind kein Engpass mehr für das Geschäft.',
     },
+    points: [
+      { ru: 'Очередь договоров под контролем', en: 'The contract queue under control', de: 'Die Vertragswarteschlange unter Kontrolle' },
+      { ru: 'Типовые риски ловятся сразу', en: 'Standard risks are caught immediately', de: 'Typische Risiken werden sofort erkannt' },
+      { ru: 'SSO и роли доступа', en: 'SSO and access roles', de: 'SSO und Zugriffsrollen' },
+    ],
   },
   {
-    icon: 'shield',
-    metric: { ru: '99,9%', en: '99.9%', de: '99,9 %', ar: '99.9%', kk: '99,9%', uz: '99,9%' },
-    title: { ru: 'Compliance & Risk', en: 'Compliance & Risk', de: 'Compliance & Risk', ar: 'الامتثال والمخاطر', kk: 'Compliance & Risk', uz: 'Compliance & Risk' },
+    title: { ru: 'Частная практика', en: 'Solo practice', de: 'Einzelpraxis' },
     text: {
-      ru: 'Автоматический мониторинг соответствия локальному законодательству.',
-      en: 'Automatic monitoring of compliance with local legislation.', de: 'Automatische Überwachung der Einhaltung lokaler Rechtsvorschriften.', ar: 'مراقبة تلقائية للامتثال للتشريعات المحلية.', kk: 'Жергілікті заңнамаға сәйкестіктің автоматты мониторингі.', uz: 'Mahalliy qonunchilikka muvofiqlikning avtomatik monitoringi.',
+      ru: 'Возможности большой команды — в руках одного юриста.',
+      en: 'The capabilities of a big team — in the hands of one lawyer.',
+      de: 'Die Möglichkeiten eines großen Teams – in der Hand eines einzelnen Juristen.',
     },
-  },
-  {
-    icon: 'chat',
-    title: { ru: 'Частные лица', en: 'Individuals', de: 'Privatpersonen', ar: 'الأفراد', kk: 'Жеке тұлғалар', uz: 'Jismoniy shaxslar' },
-    text: {
-      ru: 'Аренда, оферта, трудовой договор — понятный разбор без юридического жаргона.',
-      en: 'A lease, an offer, an employment contract — a clear breakdown without legal jargon.', de: 'Mietvertrag, Angebot, Arbeitsvertrag – eine verständliche Analyse ohne Juristendeutsch.', ar: 'عقد إيجار أو عرض تعاقدي أو عقد عمل — تحليل واضح من دون مصطلحات قانونية معقدة.', kk: 'Жалдау шарты, оферта, еңбек шарты — заң жаргонынсыз түсінікті талдау.', uz: 'Ijara, oferta, mehnat shartnomasi — yuridik jargonsiz tushunarli tahlil.',
-    },
+    points: [
+      { ru: 'Быстрый разбор входящих документов', en: 'Fast triage of incoming documents', de: 'Schnelle Sichtung eingehender Dokumente' },
+      { ru: 'Черновики правок за минуты', en: 'Draft redlines in minutes', de: 'Änderungsentwürfe in Minuten' },
+      { ru: 'Оплата по мере роста', en: 'Pay as you grow', de: 'Bezahlen nach Wachstum' },
+    ],
   },
 ];
 
-/** Every claim below is implemented in the product — no marketing invention. */
+/** Каждая карточка сверена с кодом продукта: AES-256-GCM шифрование документов
+ *  (обязательный ключ), TLS к базе, отсутствие обучения у ИИ-провайдеров,
+ *  ключ шифрования на каждый аккаунт, SSO/роли/журнал аудита. */
 const SECURITY: { icon: IconName; title: Text2; text: Text2 }[] = [
   {
-    icon: 'shield',
-    title: { ru: 'Приватное хранилище', en: 'Private storage', de: 'Privater Speicher', ar: 'تخزين خاص', kk: 'Жеке қойма', uz: 'Yopiq (privat) xotira' },
+    icon: 'lock',
+    title: { ru: 'Шифрование', en: 'Encryption', de: 'Verschlüsselung' },
     text: {
-      ru: 'Файлы хранятся в приватном облачном хранилище; доступ — только по временным подписанным ссылкам.',
-      en: 'Files live in a private cloud bucket; access is via expiring signed links only.', de: 'Ihre Dateien liegen in einem privaten Cloud-Speicher; der Zugriff erfolgt ausschließlich über zeitlich begrenzte signierte Links.', ar: 'تُحفظ الملفات في مساحة تخزين سحابية خاصة، ولا يتم الوصول إليها إلا عبر روابط موقّعة مؤقتة.', kk: 'Файлдар жеке бұлттық қоймада сақталады; қол жеткізу — тек мерзімі шектеулі қол қойылған сілтемелер арқылы.', uz: 'Fayllar yopiq bulut xotirasida saqlanadi; kirish — faqat muddati cheklangan imzolangan havolalar orqali.',
+      ru: 'Данные защищены при передаче и хранении — TLS 1.3 и AES-256.',
+      en: 'Data is protected in transit and at rest — TLS 1.3 and AES-256.',
+      de: 'Daten sind bei Übertragung und Speicherung geschützt – TLS 1.3 und AES-256.',
     },
   },
   {
     icon: 'eyeOff',
-    title: { ru: 'Без обучения на ваших данных', en: 'No training on your data', de: 'Kein Training mit Ihren Daten', ar: 'لا تدريب على بياناتك', kk: 'Деректеріңізде модельдер оқытылмайды', uz: 'Maʼlumotlaringizda model oʻqitilmaydi' },
+    title: { ru: 'Без обучения на ваших данных', en: 'No training on your data', de: 'Kein Training mit Ihren Daten' },
     text: {
-      ru: 'Документы не используются для обучения моделей и не передаются третьим лицам. Условия наших ИИ-провайдеров исключают обучение моделей на переданных данных.',
-      en: 'Your documents are not used to train models and are not shared with third parties. Our AI providers’ terms preclude training models on submitted data.', de: 'Ihre Dokumente werden weder zum Trainieren von Modellen verwendet noch an Dritte weitergegeben. Die Bedingungen unserer KI-Anbieter schließen ein Training der Modelle mit übermittelten Daten aus.', ar: 'لا تُستخدم مستنداتك لتدريب النماذج ولا تُشارك مع أطراف ثالثة، كما تستبعد شروط مزوّدي الذكاء الاصطناعي لدينا تدريب النماذج على البيانات المرسلة.', kk: 'Құжаттар модельдерді оқытуға пайдаланылмайды және үшінші тұлғаларға берілмейді. ЖИ-провайдерлеріміздің шарттары жіберілген деректерде модельдерді оқытуды болдырмайды.', uz: 'Hujjatlar modellarni oʻqitish uchun ishlatilmaydi va uchinchi shaxslarga berilmaydi. AI provayderlarimizning shartlari yuborilgan maʼlumotlarda model oʻqitishni istisno qiladi.',
+      ru: 'Документы клиентов никогда не используются для обучения моделей.',
+      en: 'Client documents are never used to train models.',
+      de: 'Kundendokumente werden niemals zum Trainieren von Modellen verwendet.',
     },
   },
   {
-    icon: 'users',
-    title: { ru: 'Доступ контролируете вы', en: 'You control access', de: 'Den Zugriff kontrollieren Sie', ar: 'أنت من يتحكم في الوصول', kk: 'Қол жеткізуді өзіңіз бақылайсыз', uz: 'Kirishni siz nazorat qilasiz' },
+    icon: 'server',
+    title: { ru: 'Изоляция данных', en: 'Data isolation', de: 'Datenisolation' },
     text: {
-      ru: 'По умолчанию документ видите только вы. На тарифе Business его можно открыть команде — с ролями: администратор, редактор, просмотр.',
-      en: 'By default only you can see a document. On the Business plan you can share it with your team — with admin, editor or viewer roles.', de: 'Standardmäßig sehen nur Sie ein Dokument. Im Business-Tarif können Sie es für Ihr Team freigeben – mit Rollen: Administrator, Bearbeiter, Betrachter.', ar: 'افتراضياً، أنت وحدك من يرى المستند. وعلى باقة Business يمكنك مشاركته مع فريقك — بأدوار: مسؤول ومحرر وعارض.', kk: 'Әдепкіде құжатты тек өзіңіз көресіз. Business тарифінде оны командаға ашуға болады — рөлдермен: әкімші, редактор, қарау.', uz: 'Sukut boʻyicha hujjatni faqat siz koʻrasiz. Business tarifida uni jamoaga ochish mumkin — rollar bilan: administrator, muharrir, koʻruvchi.',
+      ru: 'Документы каждой организации шифруются собственным ключом и изолированы правами доступа.',
+      en: 'Each organisation’s documents are encrypted with their own key and isolated by access rights.',
+      de: 'Die Dokumente jeder Organisation werden mit eigenem Schlüssel verschlüsselt und über Zugriffsrechte isoliert.',
     },
   },
   {
-    icon: 'check',
-    title: { ru: 'Проверяемые цитаты', en: 'Verifiable citations', de: 'Überprüfbare Zitate', ar: 'استشهادات قابلة للتحقق', kk: 'Тексерілетін дәйексөздер', uz: 'Tekshiriladigan iqtiboslar' },
+    icon: 'key',
+    title: { ru: 'Контроль доступа', en: 'Access control', de: 'Zugriffskontrolle' },
     text: {
-      ru: 'Ссылки на законы проверяются кодом по официальным государственным источникам законодательства. Неподтверждённое помечается.',
-      en: 'Legal citations are validated in code against official government sources. Anything unconfirmed is flagged.', de: 'Gesetzesverweise werden programmatisch anhand offizieller staatlicher Rechtsquellen validiert. Unbestätigtes wird gekennzeichnet.', ar: 'يجري التحقق برمجياً من الإحالات إلى القوانين بمقارنتها بالمصادر الحكومية الرسمية للتشريعات، ويوسَم كل ما لم يتأكد.', kk: 'Заңдарға сілтемелер заңнаманың ресми мемлекеттік дереккөздері бойынша кодпен тексеріледі. Расталмағаны белгіленеді.', uz: 'Qonunlarga havolalar kod darajasida rasmiy davlat qonunchilik manbalari boʻyicha tekshiriladi. Tasdiqlanmaganlari belgilab qoʻyiladi.',
-    },
-  },
-  {
-    icon: 'trash',
-    title: { ru: 'Удаление в один клик', en: 'One-click deletion', de: 'Löschen mit einem Klick', ar: 'حذف بنقرة واحدة', kk: 'Бір басумен жою', uz: 'Bir bosishda oʻchirish' },
-    text: {
-      ru: 'Удалите документ — он исчезнет из аккаунта и базы данных. Можно удалить и аккаунт целиком вместе со всеми данными.',
-      en: 'Delete a document and it disappears from your account and the database. You can also delete your entire account with all its data.', de: 'Löschen Sie ein Dokument – es verschwindet aus Ihrem Konto und aus der Datenbank. Sie können auch Ihr gesamtes Konto mit allen Daten löschen.', ar: 'احذف المستند فيختفي من حسابك ومن قاعدة البيانات، ويمكنك أيضاً حذف حسابك بالكامل مع جميع بياناته.', kk: 'Құжатты жойыңыз — ол аккаунттан да, дерекқордан да жоғалады. Аккаунтты барлық деректерімен қоса толығымен жоюға да болады.', uz: 'Hujjatni oʻchiring — u akkauntdan ham, maʼlumotlar bazasidan ham yoʻqoladi. Akkauntni barcha maʼlumotlari bilan butunlay oʻchirish ham mumkin.',
-    },
-  },
-  {
-    icon: 'globe',
-    title: { ru: 'SSO', en: 'SSO', de: 'SSO', ar: 'SSO', kk: 'SSO', uz: 'SSO' },
-    text: {
-      ru: 'Единый корпоративный вход через вашего провайдера (SAML/OIDC) — на тарифе Business.',
-      en: 'Single sign-on through your corporate identity provider (SAML/OIDC) on the Business plan.', de: 'Single Sign-on über Ihren Unternehmens-Identity-Provider (SAML/OIDC) – im Business-Tarif.', ar: 'تسجيل دخول مؤسسي موحّد عبر مزوّد الهوية لديكم (SAML/OIDC) — على باقة Business.', kk: 'Өз провайдеріңіз арқылы бірыңғай корпоративтік кіру (SAML/OIDC) — Business тарифінде.', uz: 'Oʻz provayderingiz orqali yagona korporativ kirish (SAML/OIDC) — Business tarifida.',
-    },
-  },
-  {
-    icon: 'users',
-    title: { ru: 'RBAC', en: 'RBAC', de: 'RBAC', ar: 'RBAC', kk: 'RBAC', uz: 'RBAC' },
-    text: {
-      ru: 'Роли доступа: администратор, редактор, просмотр — каждый видит только то, что ему разрешено.',
-      en: 'Role-based access: admin, editor, viewer — each teammate sees only what they’re allowed to.', de: 'Zugriffsrollen: Administrator, Bearbeiter, Betrachter – jeder sieht nur das, was für ihn freigegeben ist.', ar: 'أدوار وصول: مسؤول ومحرر وعارض — لا يرى كل عضو إلا ما هو مصرّح له به.', kk: 'Қол жеткізу рөлдері: әкімші, редактор, қарау — әркім тек өзіне рұқсат етілгенді көреді.', uz: 'Kirish rollari: administrator, muharrir, koʻruvchi — har kim faqat oʻziga ruxsat etilganini koʻradi.',
-    },
-  },
-  {
-    icon: 'shield',
-    title: { ru: 'MFA', en: 'MFA', de: 'MFA', ar: 'MFA', kk: 'MFA', uz: 'MFA' },
-    text: {
-      ru: 'Двухфакторная защита входа через ваш аккаунт Google или корпоративный SSO-провайдер.',
-      en: 'Two-factor protection at sign-in via your Google account or corporate SSO provider.', de: 'Zwei-Faktor-Schutz bei der Anmeldung über Ihr Google-Konto oder Ihren Unternehmens-SSO-Provider.', ar: 'حماية ثنائية العوامل لتسجيل الدخول عبر حسابك في Google أو مزوّد SSO المؤسسي لديكم.', kk: 'Google аккаунтыңыз немесе корпоративтік SSO-провайдер арқылы кіруді екі факторлы қорғау.', uz: 'Google akkauntingiz yoki korporativ SSO-provayderingiz orqali kirishni ikki bosqichli himoyalash.',
-    },
-  },
-  {
-    icon: 'history',
-    title: { ru: 'Audit Logs', en: 'Audit Logs', de: 'Audit Logs', ar: 'سجلات التدقيق (Audit Logs)', kk: 'Audit Logs', uz: 'Audit Logs' },
-    text: {
-      ru: 'Журнал действий: кто открыл, изменил, скачал или удалил документ — с поиском и фильтром.',
-      en: 'Audit trail: who opened, edited, downloaded or deleted a document — with search and filters.', de: 'Aktivitätsprotokoll: wer ein Dokument geöffnet, geändert, heruntergeladen oder gelöscht hat – mit Suche und Filtern.', ar: 'سجل للإجراءات: من فتح المستند أو عدّله أو نزّله أو حذفه — مع بحث وتصفية.', kk: 'Әрекеттер журналы: құжатты кім ашты, өзгертті, жүктеп алды немесе жойды — іздеуі мен сүзгісі бар.', uz: 'Harakatlar jurnali: hujjatni kim ochgani, oʻzgartirgani, yuklab olgani yoki oʻchirgani — qidiruv va filtr bilan.',
-    },
-  },
-  {
-    icon: 'cloud',
-    title: { ru: 'Secure Cloud Infrastructure', en: 'Secure Cloud Infrastructure', de: 'Secure Cloud Infrastructure', ar: 'بنية تحتية سحابية آمنة', kk: 'Secure Cloud Infrastructure', uz: 'Secure Cloud Infrastructure' },
-    text: {
-      ru: 'Данные — в защищённой облачной инфраструктуре; доступ к файлам только по временным подписанным ссылкам.',
-      en: 'Data lives in secure cloud infrastructure; files are reachable only via expiring signed links.', de: 'Ihre Daten liegen in einer geschützten Cloud-Infrastruktur; der Zugriff auf Dateien erfolgt nur über zeitlich begrenzte signierte Links.', ar: 'تُحفظ البيانات في بنية تحتية سحابية آمنة، ولا يمكن الوصول إلى الملفات إلا عبر روابط موقّعة مؤقتة.', kk: 'Деректер — қорғалған бұлттық инфрақұрылымда; файлдарға қол жеткізу тек мерзімі шектеулі қол қойылған сілтемелер арқылы.', uz: 'Maʼlumotlar himoyalangan bulut infratuzilmasida saqlanadi; fayllarga kirish faqat muddati cheklangan imzolangan havolalar orqali.',
-    },
-  },
-  {
-    icon: 'layout',
-    title: { ru: 'Workspace Permissions', en: 'Workspace Permissions', de: 'Workspace Permissions', ar: 'صلاحيات مساحات العمل', kk: 'Workspace Permissions', uz: 'Workspace Permissions' },
-    text: {
-      ru: 'Документ виден только вам, пока вы сами не откроете доступ команде и не назначите роли.',
-      en: 'A document is private to you until you share it with your team and assign roles.', de: 'Ein Dokument sehen nur Sie – bis Sie es selbst für Ihr Team freigeben und Rollen zuweisen.', ar: 'يبقى المستند مرئياً لك وحدك حتى تشاركه بنفسك مع فريقك وتعيّن الأدوار.', kk: 'Өзіңіз командаға қол жеткізуді ашып, рөлдерді тағайындағанша, құжат тек сізге көрінеді.', uz: 'Toki oʻzingiz jamoaga ruxsat berib, rollarni tayinlamaguningizcha, hujjat faqat sizga koʻrinadi.',
+      ru: 'SSO, роли и журнал действий — доступ только у тех, кому он нужен.',
+      en: 'SSO, roles and an audit log — access only for those who need it.',
+      de: 'SSO, Rollen und Aktivitätsprotokoll – Zugriff nur für jene, die ihn brauchen.',
     },
   },
 ];
@@ -527,16 +486,17 @@ function Head({ id }: { id: keyof typeof HEADS }) {
   const { lang } = useI18n();
   const head = HEADS[id];
   return (
-    <div className={styles.head} ref={useReveal<HTMLDivElement>()}>
+    <Reveal className={styles.head}>
       <div className={styles.eyebrow}>{pickText(head.eyebrow, lang)}</div>
       <h2 className={styles.title}>{pickText(head.title, lang)}</h2>
       <p className={styles.sub}>{pickText(head.sub, lang)}</p>
-    </div>
+    </Reveal>
   );
 }
 
-/** Каскад появления эталона (whileInView-once): обёртка вокруг useReveal,
- *  чтобы задержку i*0.08 можно было задавать прямо в .map без хука в цикле. */
+/** Появление секций при скролле — эталон components/Reveal.tsx (см. ниже). */
+/* Скопировано дословно из эталона components/Reveal.tsx (whileInView, once,
+   margin -80px, 0.7s EASE). */
 function Reveal({
   delay = 0,
   className,
@@ -547,9 +507,117 @@ function Reveal({
   children: ReactNode;
 }) {
   return (
-    <div ref={useReveal<HTMLDivElement>(delay)} className={className}>
+    <motion.div
+      className={className}
+      initial={{ opacity: 0, y: 28 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: '-80px' }}
+      transition={{ duration: 0.7, ease: EASE, delay }}
+    >
       {children}
-    </div>
+    </motion.div>
+  );
+}
+
+/* ── Бесконечная вертикальная карусель сценариев (эталон UseCases) ────────── */
+
+const UC_LABEL: Text2 = {
+  ru: 'Ведущие юридические команды используют Lexab для',
+  en: 'Leading legal teams use Lexab for',
+  de: 'Führende Legal-Teams nutzen Lexab für',
+};
+
+const UC_ITEMS: Text2[] = [
+  { ru: 'Юридических исследований', en: 'Legal research', de: 'Juristische Recherche' },
+  { ru: 'Сопровождения сделок', en: 'Deal support', de: 'Dealbegleitung' },
+  { ru: 'Due diligence', en: 'Due diligence', de: 'Due diligence' },
+  { ru: 'Анализа контрактов', en: 'Contract analysis', de: 'Vertragsanalyse' },
+  { ru: 'Проверки рисков', en: 'Risk review', de: 'Risikoprüfung' },
+  { ru: 'Подготовки правок', en: 'Preparing redlines', de: 'Redlines vorbereiten' },
+  { ru: 'Согласования договоров', en: 'Contract approvals', de: 'Vertragsfreigaben' },
+  { ru: 'Массового разбора', en: 'Bulk review', de: 'Massenprüfung' },
+  { ru: 'Электронного подписания', en: 'E-signing', de: 'E-Signatur' },
+  { ru: 'Создания договоров', en: 'Contract drafting', de: 'Vertragserstellung' },
+  { ru: 'Сравнения версий', en: 'Version comparison', de: 'Versionsvergleich' },
+];
+
+/* Константы эталона UseCases.tsx — дословно. */
+const UC_CENTER = 3; // middle row of the 7-row window
+const UC_OPACITY = [1, 0.35, 0.16, 0.07];
+const UC_STEP_MS = 1500;
+const UC_SLIDE_MS = 600;
+
+function UseCasesCarousel() {
+  const { lang } = useI18n();
+  const hostRef = useRef<HTMLDivElement>(null);
+  // Эталон: useInView(ref, { margin: "-15%" }).
+  const inView = useInView(hostRef, { margin: '-15%' });
+  const [idx, setIdx] = useState(UC_CENTER);
+  const [instant, setInstant] = useState(false);
+  /** Пауза при наведении — чтобы строку можно было дочитать. */
+  const [hovered, setHovered] = useState(false);
+
+  // duplicated head so the loop wraps without an empty tail (эталон).
+  const list = [...UC_ITEMS, ...UC_ITEMS.slice(0, UC_CENTER + 1)];
+
+  // Крутится только на экране и при включённой анимации (эталонный интервал).
+  useEffect(() => {
+    if (!inView || hovered || prefersReducedMotion()) return;
+    const id = window.setInterval(() => setIdx((i) => i + 1), UC_STEP_MS);
+    return () => window.clearInterval(id);
+  }, [inView, hovered]);
+
+  // Бесшовная петля: когда в центре дублированная голова — мгновенный снап.
+  useEffect(() => {
+    if (idx < UC_ITEMS.length) return;
+    const t = window.setTimeout(() => {
+      setInstant(true);
+      setIdx((i) => i - UC_ITEMS.length);
+    }, UC_SLIDE_MS + 40);
+    return () => window.clearTimeout(t);
+  }, [idx]);
+
+  useEffect(() => {
+    if (!instant) return;
+    const t = window.setTimeout(() => setInstant(false), 50);
+    return () => window.clearTimeout(t);
+  }, [instant]);
+
+  return (
+    <section className={styles.section}>
+      <div className={`${styles.inner} ${styles.ucGrid}`}>
+        <Reveal>
+          <p className={styles.ucLabel}>{pickText(UC_LABEL, lang)}</p>
+        </Reveal>
+        <Reveal delay={0.1}>
+          <div
+            className={styles.ucWindow}
+            ref={hostRef}
+            aria-hidden="true"
+            onMouseEnter={() => setHovered(true)}
+            onMouseLeave={() => setHovered(false)}
+          >
+            <div
+              className={instant ? styles.ucTrack : `${styles.ucTrack} ${styles.ucTrackAnim}`}
+              style={{ transform: `translateY(calc(${UC_CENTER - idx} * var(--uc-row)))` }}
+            >
+              {list.map((item, i) => {
+                const dist = Math.min(Math.abs(i - idx), 3);
+                return (
+                  <div
+                    key={`${item.en}-${i}`}
+                    className={instant ? styles.ucRow : `${styles.ucRow} ${styles.ucRowAnim}`}
+                    style={{ opacity: UC_OPACITY[dist] }}
+                  >
+                    {pickText(item, lang)}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </Reveal>
+      </div>
+    </section>
   );
 }
 
@@ -592,18 +660,23 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
 
   return (
     <>
-      {/* ── Возможности ──────────────────────────────────────────────────── */}
+      {/* ── Возможности — эталон Features.tsx (шапка слева, 4 карточки) ─── */}
       <section id="features" className={styles.section}>
         <div className={styles.inner}>
-          <Head id="features" />
+          <Reveal className={styles.plansHead}>
+            <div className={styles.eyebrow}>{pickText(HEADS.features.eyebrow, lang)}</div>
+            <h2 className={styles.plansSectionTitle}>{pickText({ ru: 'Всё, что юрист делает с договором, — быстрее', en: 'Everything a lawyer does with a contract — faster', de: 'Alles, was ein Jurist mit einem Vertrag macht – schneller' }, lang)}</h2>
+          </Reveal>
           <div className={styles.cardsGrid}>
             {FEATURES.map((f, i) => (
-              <Reveal key={f.icon} delay={i * 0.08} className={styles.card}>
-                <span className={styles.cardIcon}>
-                  <Icon name={f.icon} size={19} />
-                </span>
-                <div className={styles.cardTitle}>{pickText(f.title, lang)}</div>
-                <div className={styles.cardText}>{pickText(f.text, lang)}</div>
+              <Reveal key={f.icon} delay={i * 0.08}>
+                <div className={styles.card}>
+                  <span className={styles.cardIcon}>
+                    <Icon name={f.icon} size={20} />
+                  </span>
+                  <h3 className={styles.cardTitle}>{pickText(f.title, lang)}</h3>
+                  <p className={styles.cardText}>{pickText(f.text, lang)}</p>
+                </div>
               </Reveal>
             ))}
           </div>
@@ -616,10 +689,14 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
           <Head id="how" />
           <div className={styles.steps}>
             {STEPS.map((s, i) => (
-              <Reveal key={s.title.en} delay={i * 0.08} className={styles.step}>
-                <div className={styles.stepNum}>{String(i + 1).padStart(2, '0')}</div>
-                <div className={styles.stepTitle}>{pickText(s.title, lang)}</div>
-                <div className={styles.stepText}>{pickText(s.text, lang)}</div>
+              <Reveal key={s.title.en} delay={i * 0.08}>
+                {/* Карточка отдельно от Reveal: инлайновый transform появления
+                    иначе глушил бы CSS-ховер (как у остальных секций). */}
+                <div className={styles.step}>
+                  <div className={styles.stepNum}>{String(i + 1).padStart(2, '0')}</div>
+                  <div className={styles.stepTitle}>{pickText(s.title, lang)}</div>
+                  <div className={styles.stepText}>{pickText(s.text, lang)}</div>
+                </div>
               </Reveal>
             ))}
           </div>
@@ -633,70 +710,81 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
           <LandingDemo />
           <div className={styles.demoNote}>{pickText(DEMO_NOTE, lang)}</div>
           <div className={styles.centerCta}>
-            <button type="button" className={styles.ctaPrimary} onClick={onStart}>
+            {/* Тёмная CTA — по правилу эталона с бегущим бликом. */}
+            <button type="button" className={`btn-shimmer ${styles.ctaPrimary}`} onClick={onStart}>
               {t('landing.startFree')}
             </button>
           </div>
         </div>
       </section>
 
-      {/* ── Для кого ─────────────────────────────────────────────────────── */}
-      <section id="solutions" className={`${styles.section} ${styles.sectionAlt}`}>
+      {/* ── Для кого — эталон Audience.tsx ───────────────────────────────── */}
+      <section id="solutions" className={styles.section}>
         <div className={styles.inner}>
-          <Head id="solutions" />
+          <Reveal className={styles.plansHead}>
+            <div className={styles.eyebrow}>{pickText(HEADS.solutions.eyebrow, lang)}</div>
+            <h2 className={styles.plansSectionTitle}>{pickText({ ru: 'Создан для юридической работы любого масштаба', en: 'Built for legal work at any scale', de: 'Gemacht für juristische Arbeit jeder Größenordnung' }, lang)}</h2>
+          </Reveal>
           <div className={styles.audienceGrid}>
             {AUDIENCES.map((a, i) => (
-              <Reveal key={a.title.en} delay={i * 0.08} className={styles.audienceCard}>
-                <div className={styles.audienceTop}>
-                  <span className={styles.audienceIcon}>
-                    <Icon name={a.icon} size={19} />
-                  </span>
-                  {a.metric ? <span className={styles.audienceMetric}>{pickText(a.metric, lang)}</span> : null}
+              <Reveal key={a.title.en} delay={i * 0.1}>
+                <div className={styles.audienceCard}>
+                  <h3 className={styles.audienceTitle}>{pickText(a.title, lang)}</h3>
+                  <p className={styles.audienceText}>{pickText(a.text, lang)}</p>
+                  <ul className={styles.audiencePoints}>
+                    {a.points.map((p) => (
+                      <li key={p.en}>
+                        <Icon name="check" size={16} className={styles.planCheck} />
+                        {pickText(p, lang)}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
-                <div className={styles.audienceTitle}>{pickText(a.title, lang)}</div>
-                <div className={styles.cardText}>{pickText(a.text, lang)}</div>
-                <button
-                  type="button"
-                  className={styles.audienceMore}
-                  onClick={() =>
-                    document.getElementById('features')?.scrollIntoView({ behavior: scrollBehavior(), block: 'start' })
-                  }
-                >
-                  {pickText({ ru: 'Подробнее', en: 'Learn more', de: 'Mehr erfahren', ar: 'المزيد', kk: 'Толығырақ', uz: 'Batafsil' }, lang)}
-                  <Icon name="arrowUpRight" size={14} />
-                </button>
               </Reveal>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ── Безопасность ─────────────────────────────────────────────────── */}
+      {/* ── Безопасность — эталон Security.tsx (сплит 2fr/3fr + 4 карточки) ─ */}
       <section id="security" className={styles.section}>
         <div className={styles.inner}>
-          <Head id="security" />
-          <div className={styles.securityGrid}>
-            {SECURITY.map((s, i) => (
-              <Reveal key={s.title.en} delay={i * 0.08} className={styles.securityCard}>
-                <span className={styles.securityIcon}>
-                  <Icon name={s.icon} size={17} />
-                </span>
-                <div>
-                  <div className={styles.cardTitle}>{pickText(s.title, lang)}</div>
-                  <div className={styles.cardText}>{pickText(s.text, lang)}</div>
-                </div>
-              </Reveal>
-            ))}
+          <div className={styles.secSplit}>
+            <Reveal>
+              <div className={styles.eyebrow}>{pickText(HEADS.security.eyebrow, lang)}</div>
+              <h2 className={styles.plansSectionTitle}>{pickText({ ru: 'Конфиденциальность — по умолчанию', en: 'Confidentiality — by default', de: 'Vertraulichkeit – standardmäßig' }, lang)}</h2>
+              <p className={styles.secLead}>{pickText({ ru: 'Lexab создан для работы с чувствительными документами: адвокатская тайна и коммерческие условия клиентов остаются только вашими.', en: 'Lexab is built for sensitive documents: attorney–client privilege and your clients’ commercial terms stay yours alone.', de: 'Lexab ist für sensible Dokumente gemacht: Anwaltsgeheimnis und Konditionen Ihrer Mandanten bleiben allein bei Ihnen.' }, lang)}</p>
+            </Reveal>
+            <div className={styles.secCards}>
+              {SECURITY.map((s, i) => (
+                <Reveal key={s.title.en} delay={0.1 + i * 0.08}>
+                  <div className={styles.secCard}>
+                    <Icon name={s.icon} size={20} className={styles.secCardIcon} />
+                    <h3 className={styles.secCardTitle}>{pickText(s.title, lang)}</h3>
+                    <p className={styles.secCardText}>{pickText(s.text, lang)}</p>
+                  </div>
+                </Reveal>
+              ))}
+            </div>
           </div>
         </div>
       </section>
 
-      {/* ── Тарифы ───────────────────────────────────────────────────────── */}
-      <section id="plans" className={`${styles.section} ${styles.sectionAlt}`}>
-        <div className={styles.inner}>
-          <Head id="plans" />
+      {/* ── Карусель сценариев (эталон UseCases) — после «Безопасности» ──── */}
+      <UseCasesCarousel />
 
-          {/* Billing period — same 15% yearly discount as the in-app page. */}
+      {/* ── Тарифы ───────────────────────────────────────────────────────── */}
+      <section id="plans" className={styles.section}>
+        <div className={styles.inner}>
+          {/* Эталон Pricing.tsx: шапка секции слева (eyebrow + заголовок). */}
+          <Reveal className={styles.plansHead}>
+            <div className={styles.eyebrow}>{pickText(HEADS.plans.eyebrow, lang)}</div>
+            <h2 className={styles.plansSectionTitle}>{pickText(HEADS.plans.title, lang)}</h2>
+            <p className={styles.plansSectionSub}>{pickText(HEADS.plans.sub, lang)}</p>
+          </Reveal>
+
+          {/* Billing period — same 15% yearly discount as the in-app page.
+              Тёмная «таблетка» скользит между кнопками (shared layoutId). */}
           <div className={styles.billingToggle} role="group" aria-label={t('landing.nav.plans')}>
             <button
               type="button"
@@ -704,7 +792,14 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
               aria-pressed={!yearly}
               onClick={() => setYearly(false)}
             >
-              {t('plans.monthly')}
+              {!yearly ? (
+                <motion.span
+                  layoutId="billingPill"
+                  className={styles.billingPill}
+                  transition={{ type: 'spring', stiffness: 400, damping: 32 }}
+                />
+              ) : null}
+              <span className={styles.billingLabel}>{t('plans.monthly')}</span>
             </button>
             <button
               type="button"
@@ -712,8 +807,17 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
               aria-pressed={yearly}
               onClick={() => setYearly(true)}
             >
-              {t('plans.yearly')}
-              <span className={styles.billingBadge}>−15%</span>
+              {yearly ? (
+                <motion.span
+                  layoutId="billingPill"
+                  className={styles.billingPill}
+                  transition={{ type: 'spring', stiffness: 400, damping: 32 }}
+                />
+              ) : null}
+              <span className={styles.billingLabel}>
+                {t('plans.yearly')}
+                <span className={styles.billingBadge}>−15%</span>
+              </span>
             </button>
           </div>
 
@@ -724,16 +828,44 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
                 delay={i * 0.08}
                 className={`${styles.plan} ${p.popular ? styles.planPopular : ''}`}
               >
-                {p.popular ? (
-                  <div className={styles.planBadge}>{pickText({ ru: 'Популярный', en: 'Popular', de: 'Beliebt', ar: 'الأكثر شيوعًا', kk: 'Танымал', uz: 'Ommabop' }, lang)}</div>
-                ) : null}
-                <div className={styles.planName}>
-                  <span className={styles.planDot} style={{ background: p.dot }} />
-                  {p.name}
+                {/* Эталон Pricing.tsx: имя-эйбрау и бейдж «Популярный» в одной строке. */}
+                <div className={styles.planNameRow}>
+                  <div className={styles.planName}>
+                    <span className={styles.planDot} style={{ background: p.dot }} />
+                    {p.name}
+                  </div>
+                  {p.popular ? (
+                    <span className={styles.planBadge}>{pickText({ ru: 'Популярный', en: 'Popular', de: 'Beliebt', ar: 'الأكثر شيوعًا', kk: 'Танымал', uz: 'Ommabop' }, lang)}</span>
+                  ) : null}
                 </div>
                 <div className={styles.planPrice}>
-                  {yearly && p.monthly > 0 ? <span className={styles.planPriceOld}>${p.monthly}</span> : null}
-                  ${yearly ? Math.round(p.monthly * (1 - YEARLY_DISCOUNT)) : p.monthly}
+                  <AnimatePresence mode="popLayout" initial={false}>
+                    {yearly && p.monthly > 0 ? (
+                      <motion.span
+                        key="old-price"
+                        className={styles.planPriceOld}
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -8 }}
+                        transition={{ duration: 0.25, ease: 'easeOut' }}
+                      >
+                        ${p.monthly}
+                      </motion.span>
+                    ) : null}
+                  </AnimatePresence>
+                  {/* Перекат цены при смене месячный↔годовой. */}
+                  <AnimatePresence mode="popLayout" initial={false}>
+                    <motion.span
+                      key={yearly ? 'yearly' : 'monthly'}
+                      style={{ display: 'inline-block' }}
+                      initial={{ opacity: 0, y: 12 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -12 }}
+                      transition={{ duration: 0.25, ease: 'easeOut' }}
+                    >
+                      ${yearly ? Math.round(p.monthly * (1 - YEARLY_DISCOUNT)) : p.monthly}
+                    </motion.span>
+                  </AnimatePresence>
                   <span className={styles.planPer}>{pickText({ ru: '/мес', en: '/mo', de: '/Mon.', ar: '/شهر', kk: '/ай', uz: '/oy' }, lang)}</span>
                 </div>
                 {yearly && p.monthly > 0 ? (
@@ -751,7 +883,7 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
                 </ul>
                 <button
                   type="button"
-                  className={p.popular ? styles.planBtnDark : styles.planBtnFilled}
+                  className={p.popular ? `btn-shimmer ${styles.planBtnDark}` : styles.planBtnFilled}
                   onClick={onStart}
                 >
                   {p.name === 'Free' ? t('landing.startFree') : t('landing.choosePlan')}

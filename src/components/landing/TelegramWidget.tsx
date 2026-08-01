@@ -1,4 +1,6 @@
 import { useEffect, useState, type RefObject } from 'react';
+import { motion } from 'motion/react';
+import { EASE } from '@/lib/motion';
 import { useI18n } from '@/i18n/I18nProvider';
 import { scrollBehavior } from '@/lib/scroll';
 import styles from './telegramWidget.module.css';
@@ -112,7 +114,14 @@ export function TelegramWidget({
     <div className={`${styles.dock} ${hidden ? styles.dockHidden : ''}`}>
       <div className={styles.items}>
         <div className={styles.tg}>
-          <a
+          {/* Эталон FloatingContacts.tsx: y:16→0 за 0.5s EASE, delay 1 + i*0.1;
+              whileHover 1.06 / whileTap 0.95. */}
+          <motion.a
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, ease: EASE, delay: 1 }}
+            whileHover={{ scale: 1.06 }}
+            whileTap={{ scale: 0.95 }}
             className={`glass ${styles.tgBtn}`}
             href={TELEGRAM_URL}
             target="_blank"
@@ -122,7 +131,7 @@ export function TelegramWidget({
             <span className={styles.tgIcon}>
               <PlaneGlyph />
             </span>
-          </a>
+          </motion.a>
 
           <div className={styles.qrPop} role="tooltip">
             <div className={styles.qrTitle}>{t('landing.tg.title')}</div>
@@ -136,7 +145,12 @@ export function TelegramWidget({
         </div>
 
         <div className={styles.tg}>
-          <a
+          <motion.a
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.5, ease: EASE, delay: 1.1 }}
+            whileHover={{ scale: 1.06 }}
+            whileTap={{ scale: 0.95 }}
             className={`glass ${styles.tgBtn}`}
             href={WHATSAPP_URL}
             target="_blank"
@@ -146,7 +160,7 @@ export function TelegramWidget({
             <span className={styles.tgIcon}>
               <WhatsAppGlyph />
             </span>
-          </a>
+          </motion.a>
 
           <div className={styles.qrPop} role="tooltip">
             <div className={styles.qrTitle}>{t('landing.wa.title')}</div>
