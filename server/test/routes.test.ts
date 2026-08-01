@@ -40,6 +40,12 @@ process.env.GOOGLE_TTS_CREDENTIALS_JSON = JSON.stringify({
 // Many users register from one loopback IP in this suite — lift the per-minute
 // auth cap so the rate limiter (still 10/min in production) doesn't throttle it.
 process.env.AUTH_RATE_LIMIT_MAX = '1000';
+// Биллинг-тесты этого сьюта написаны под мгновенную активацию (pre-PSP).
+// С появлением Lemon Squeezy она живёт только за явным dev-флагом; сам LS
+// покрыт отдельным процессом test/lemonsqueezy.test.ts со своим env.
+// Амбиентные LEMONSQUEEZY_* из shell зануляем: частичный конфиг валит старт.
+process.env.BILLING_FALLBACK = 'dev';
+for (const k of Object.keys(process.env)) if (k.startsWith('LEMONSQUEEZY_')) delete process.env[k];
 
 const { getDb, migrate } = await import('../src/db.ts');
 const { buildApp } = await import('../src/app.ts');

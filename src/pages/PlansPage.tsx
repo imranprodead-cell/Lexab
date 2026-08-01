@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { TopBar } from '@/components/layout/TopBar';
 import { CountrySelector } from '@/components/layout/CountrySelector';
 import { Icon } from '@/components/icons/Icon';
 import { billingApi, type BillingPeriod } from '@/api/billing.api';
+import { Spinner } from '@/components/ui/Spinner';
 import { useAsync, clearAsyncCache } from '@/hooks/useAsync';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { useReveal } from '@/hooks/useReveal';
@@ -25,6 +26,10 @@ interface Plan {
   price: Text2;
   /** Numeric monthly price in USD; undefined = custom pricing (Enterprise). */
   monthly?: number;
+  /** Фактическая ГОДОВАЯ цена у платёжного провайдера, если она не равна
+   *  monthly*12*(1−15%): у Lemon Squeezy потолок цены $5000 — годовой
+   *  Business стоит ровно $5000 вместо расчётных $5088. */
+  yearlyTotal?: number;
   accent?: boolean;
   popular?: boolean;
   cta: Text2;
@@ -97,6 +102,7 @@ const PLANS: Plan[] = [
     dot: '#8B7CF6',
     price: { ru: '$499', en: '$499' },
     monthly: 499,
+    yearlyTotal: 5000,
     cta: { ru: 'Перейти в Business', en: 'Upgrade to Business' },
     tagline: { ru: 'Для юридических фирм и компаний', en: 'For law firms and companies' },
     inherits: { ru: 'Всё из Pro, плюс:', en: 'Everything in Pro, plus:' },
@@ -135,6 +141,8 @@ function PlanCard({
   period,
   wide,
   current,
+  currentPeriod,
+  lsManaged,
   onPurchased,
   delay = 0,
 }: {
@@ -142,6 +150,11 @@ function PlanCard({
   period: BillingPeriod;
   wide?: boolean;
   current?: boolean;
+  /** Период действующей подписки ('monthly'|'yearly') — для честной CTA. */
+  currentPeriod?: BillingPeriod | null;
+  /** Подписка живёт у Lemon Squeezy: «продлить» текущий план бессмысленно
+   *  (продлевает провайдер), а смена периода — платная прората. */
+  lsManaged?: boolean;
   onPurchased?: (plan: string) => void;
   /** Задержка каскада появления (декоративная). */
   delay?: number;
@@ -157,9 +170,14 @@ function PlanCard({
 
   const yearly = period === 'yearly';
   const hasNumericPrice = plan.monthly !== undefined;
-  const shownPrice = hasNumericPrice
-    ? `$${yearly ? Math.round((plan.monthly as number) * (1 - YEARLY_DISCOUNT)) : plan.monthly}`
-    : pickText(plan.price, lang);
+  // Месячный эквивалент годовой цены: из фактической цены провайдера, если
+  // она задана (Business: $5000/год из-за потолка LS → $417/мес), иначе −15%.
+  const yearlyMonthlyEq = hasNumericPrice
+    ? plan.yearlyTotal !== undefined
+      ? Math.round(plan.yearlyTotal / 12)
+      : Math.round((plan.monthly as number) * (1 - YEARLY_DISCOUNT))
+    : 0;
+  const shownPrice = hasNumericPrice ? `$${yearly ? yearlyMonthlyEq : plan.monthly}` : pickText(plan.price, lang);
   const showDiscount = yearly && hasNumericPrice && (plan.monthly as number) > 0;
   const longPrice = shownPrice.length > 6;
 
@@ -191,22 +209,37 @@ function PlanCard({
       return;
     }
     setBusy(true);
+    let redirecting = false;
     billingApi
       .checkout(plan.name, period, true)
       .then((res) => {
+        // Новая покупка через Lemon Squeezy: уходим на их страницу оплаты;
+        // активация придёт вебхуком, а возврат — на /plans?checkout=success.
+        if (res.url) {
+          // busy НЕ сбрасываем: навигация на внешний URL занимает секунды, и
+          // повторный клик успел бы создать второй checkout + дублировать
+          // consent-запись в append-only журнале.
+          redirecting = true;
+          window.location.assign(res.url);
+          return;
+        }
         clearAsyncCache(); // sidebar/settings quotas re-read the new plan
         onPurchased?.(res.plan);
         setConfirming(false);
         setConsent(false);
         pushToast(
-          yearly
-            ? t('plans.activatedYearly', { plan: res.plan, d: res.discountPercent })
-            : t('plans.activatedMonthly', { plan: res.plan }),
+          res.changed
+            ? t('plans.changed', { plan: res.plan })
+            : yearly
+              ? t('plans.activatedYearly', { plan: res.plan, d: res.discountPercent })
+              : t('plans.activatedMonthly', { plan: res.plan }),
           'success',
         );
       })
       .catch((err) => pushToast(err instanceof Error && err.message ? err.message : t('plans.checkoutFailed'), 'error'))
-      .finally(() => setBusy(false));
+      .finally(() => {
+        if (!redirecting) setBusy(false);
+      });
   };
 
   return (
@@ -263,13 +296,20 @@ function PlanCard({
             </button>
           </div>
         </div>
+      ) : lsManaged && current && (currentPeriod ?? 'monthly') === period ? (
+        // Текущий LS-план в текущем периоде: «обновить лимиты» дал бы 400
+        // (продлевает провайдер), — честная неактивная кнопка. Другой период
+        // остаётся кликабельным: это реальная платная смена периода с проратой.
+        <button className={styles.planCta} disabled>
+          {t('plans.currentBtn')}
+        </button>
       ) : (
         <button
           className={`${styles.planCta} ${plan.accent && !current ? `${styles.planCtaAccent} btn-shimmer` : ''}`}
           disabled={busy}
           onClick={buy}
         >
-          {busy ? t('plans.opening') : current ? t('plans.renew') : pickText(plan.cta, lang)}
+          {busy ? t('plans.opening') : current ? (lsManaged ? t('plans.switchPeriod') : t('plans.renew')) : pickText(plan.cta, lang)}
         </button>
       )}
     </div>
@@ -286,8 +326,66 @@ export function PlansPage() {
 
   // Real current plan (not hardcoded) + instant update after purchase.
   const limits = useAsync((signal) => billingApi.limits(signal), []);
+  const subscription = useAsync((signal) => billingApi.subscription(signal), []);
   const [justBought, setJustBought] = useState<string | null>(null);
   const currentPlan = justBought ?? limits.data?.plan ?? null;
+  const pushToast = useUIStore((s) => s.pushToast);
+
+  // Возврат со страницы оплаты Lemon Squeezy (?checkout=success): вебхук может
+  // отстать от редиректа на секунды — показываем «обрабатываем» и поллим
+  // подписку до смены плана (потолок ~60с), затем обновляем весь кабинет.
+  const [processingPayment, setProcessingPayment] = useState(
+    () => new URLSearchParams(window.location.search).get('checkout') === 'success',
+  );
+  const pollRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!processingPayment) return;
+    // Параметр убираем сразу — перезагрузка страницы не перезапустит ожидание.
+    window.history.replaceState(null, '', window.location.pathname);
+    const startedAt = Date.now();
+    // alive-флаг: in-flight запрос, завершившийся ПОСЛЕ ухода со страницы, не
+    // должен перезапустить цикл (утечка таймера + setState на размонтированном).
+    let alive = true;
+    const controller = new AbortController();
+    const schedule = () => {
+      if (!alive) return;
+      // Потолок ожидания применяется и к ошибкам сети — иначе при лежащем
+      // API спиннер и запросы крутились бы вечно.
+      if (Date.now() - startedAt > 60_000) {
+        setProcessingPayment(false);
+        pushToast(t('plans.paymentTimeout'), 'default');
+        return;
+      }
+      pollRef.current = window.setTimeout(poll, 2500);
+    };
+    const poll = () => {
+      void billingApi
+        .subscription(controller.signal)
+        .then((sub) => {
+          if (!alive) return;
+          // Успех — только когда подписка реально пришла от провайдера:
+          // сравнение с 'Free' давало ложный мгновенный успех пользователям,
+          // у которых уже был платный план без LS (dev-активации).
+          if (sub.provider === 'lemonsqueezy' && sub.plan !== 'Free') {
+            setProcessingPayment(false);
+            setJustBought(sub.plan);
+            clearAsyncCache();
+            limits.reload();
+            pushToast(t('plans.paymentDone', { plan: sub.plan }), 'success');
+            return;
+          }
+          schedule();
+        })
+        .catch(() => schedule());
+    };
+    poll();
+    return () => {
+      alive = false;
+      controller.abort();
+      if (pollRef.current) window.clearTimeout(pollRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [processingPayment]);
 
   return (
     <div className={styles.page}>
@@ -324,6 +422,12 @@ export function PlansPage() {
               </button>
             </div>
           </div>
+          {processingPayment ? (
+            <div className={styles.paymentProcessing} role="status">
+              <Spinner size={16} />
+              {t('plans.paymentProcessing')}
+            </div>
+          ) : null}
           <div className={styles.planRow}>
             {firstFour.map((p, i) => (
               <PlanCard
@@ -331,6 +435,8 @@ export function PlansPage() {
                 plan={p}
                 period={period}
                 current={p.name === currentPlan}
+                currentPeriod={subscription.data?.period ?? null}
+                lsManaged={subscription.data?.provider === 'lemonsqueezy'}
                 onPurchased={setJustBought}
                 delay={0.08 + i * 0.08}
               />

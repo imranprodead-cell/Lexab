@@ -17,21 +17,29 @@ export interface PlanLimits {
 
 export type BillingPeriod = 'monthly' | 'yearly';
 
-/** PRE-STRIPE: purchase activates the plan immediately and refreshes quotas. */
+/** Результат checkout: либо url страницы оплаты Lemon Squeezy (новая покупка),
+ *  либо changed=true (смена тарифа с проратой), либо мгновенная dev-активация. */
 export interface PurchaseResult {
   ok: boolean;
   plan: string;
   period: BillingPeriod;
   discountPercent: number;
-  renewsAt: string | null;
+  renewsAt?: string | null;
+  /** Hosted-checkout URL — фронт делает window.location.assign(url). */
+  url?: string;
+  /** Тариф изменён у провайдера немедленно (прорация LS). */
+  changed?: boolean;
 }
 
 export interface Subscription {
   plan: string;
+  period?: BillingPeriod | null;
   status: 'active' | 'past_due' | 'canceled';
   renewsAt: string | null;
   periodEnd: string | null;
   cancelAtPeriodEnd: boolean;
+  /** 'lemonsqueezy' — подписка живёт у провайдера (доступен портал оплаты). */
+  provider?: 'lemonsqueezy' | null;
 }
 
 export const billingApi = {
@@ -57,7 +65,8 @@ export const billingApi = {
     return http<Subscription>('/billing/subscription', { signal });
   },
 
-  /** Buy / renew a plan (activates immediately until the PSP fronts it).
+  /** Buy / change a plan. С настроенным Lemon Squeezy возвращает url оплаты
+   *  (новая покупка) или changed=true (смена тарифа); в dev — активирует сразу.
    *  `consent` is the required waiver of the 14-day withdrawal right. */
   async checkout(plan: string, period: BillingPeriod, consent: boolean): Promise<PurchaseResult> {
     if (USE_MOCK) {
@@ -65,6 +74,15 @@ export const billingApi = {
       return { ok: true, plan, period, discountPercent: period === 'yearly' ? 15 : 0, renewsAt: null };
     }
     return http<PurchaseResult>('/billing/checkout', { method: 'POST', body: { plan, period, consent } });
+  },
+
+  /** Подписанный короткоживущий URL Кабинета покупателя LS (карта, чеки). */
+  async portal(): Promise<{ url: string }> {
+    if (USE_MOCK) {
+      await delay(150);
+      return { url: 'https://example.lemonsqueezy.com/billing' };
+    }
+    return http<{ url: string }>('/billing/portal');
   },
 
   /** Cancel at period end — access stays until the period expires. */

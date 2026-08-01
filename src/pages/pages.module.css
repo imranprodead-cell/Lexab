@@ -874,6 +874,22 @@
 }
 
 /* Plans / pricing --------------------------------------------------------- */
+/* Баннер «обрабатываем оплату» после возврата с Lemon Squeezy. */
+.paymentProcessing {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 0 auto 18px;
+  padding: 10px 18px;
+  width: fit-content;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--dim);
+  font-size: 14px;
+}
+
 .plansHead {
   text-align: center;
   margin: 8px 0 30px;

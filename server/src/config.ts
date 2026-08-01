@@ -19,6 +19,50 @@ function env(name: string, fallback = ''): string {
 const allowInsecureSecrets = env('ALLOW_INSECURE_SECRETS') === '1';
 
 /**
+ * Lemon Squeezy (Merchant of Record) — реальные платежи за подписки.
+ * Включается только ПОЛНЫМ конфигом: ключ + store + webhook-secret + все 6
+ * variant_id (Standard/Pro/Business × monthly/yearly). Частичный конфиг —
+ * ошибка старта (fail-loud, как JWT_SECRET): полуработающий биллинг опаснее
+ * выключенного. Целиком пусто = LS выключен: /billing/checkout отвечает 503,
+ * если не включён явный dev-фолбэк BILLING_FALLBACK=dev (мгновенная бесплатная
+ * активация — ТОЛЬКО для локалки и тестов, калька LLM_FALLBACK).
+ */
+function resolveLemonSqueezy() {
+  const apiKey = env('LEMONSQUEEZY_API_KEY');
+  const storeId = env('LEMONSQUEEZY_STORE_ID');
+  const webhookSecret = env('LEMONSQUEEZY_WEBHOOK_SECRET');
+  const variants = {
+    Standard: { monthly: env('LEMONSQUEEZY_VARIANT_STANDARD_MONTHLY'), yearly: env('LEMONSQUEEZY_VARIANT_STANDARD_YEARLY') },
+    Pro: { monthly: env('LEMONSQUEEZY_VARIANT_PRO_MONTHLY'), yearly: env('LEMONSQUEEZY_VARIANT_PRO_YEARLY') },
+    Business: { monthly: env('LEMONSQUEEZY_VARIANT_BUSINESS_MONTHLY'), yearly: env('LEMONSQUEEZY_VARIANT_BUSINESS_YEARLY') },
+  } as const;
+  const variantIds = Object.values(variants).flatMap((v) => [v.monthly, v.yearly]);
+  const all = [apiKey, storeId, webhookSecret, ...variantIds];
+  const set = all.filter(Boolean).length;
+  if (set > 0 && set < all.length) {
+    throw new Error(
+      'Lemon Squeezy is PARTIALLY configured — set ALL of LEMONSQUEEZY_API_KEY, LEMONSQUEEZY_STORE_ID, ' +
+        'LEMONSQUEEZY_WEBHOOK_SECRET and the six LEMONSQUEEZY_VARIANT_{STANDARD|PRO|BUSINESS}_{MONTHLY|YEARLY} ids, or none.',
+    );
+  }
+  // Копипаст-опечатка в variant id тихо активировала бы НЕ ТОТ план после
+  // реальной оплаты (variantToPlan берёт первое совпадение) — fail-loud.
+  if (set === all.length && new Set(variantIds).size !== variantIds.length) {
+    throw new Error('Lemon Squeezy variant ids must be pairwise distinct — check the six LEMONSQUEEZY_VARIANT_* values.');
+  }
+  return {
+    enabled: set === all.length,
+    apiKey,
+    storeId,
+    webhookSecret,
+    variants: variants as Record<string, { monthly: string; yearly: string }>,
+    /** Принимать события с test_mode=true (Этап A). В проде НЕ выставлять. */
+    acceptTestEvents: env('LEMONSQUEEZY_TEST_MODE') === '1',
+  };
+}
+const lemonSqueezy = resolveLemonSqueezy();
+
+/**
  * Resolve a safe JWT signing secret. A weak/absent/default secret would let
  * anyone forge tokens for any user, so:
  *  - default: refuse to start unless a strong secret (≥32 chars) is set;
@@ -196,6 +240,13 @@ export const config = {
    * DROPBOX_SIGN_TEST_MODE=1 uses the free sandbox (non-legally-binding). */
   dropboxSignApiKey: env('DROPBOX_SIGN_API_KEY'),
   dropboxSignTestMode: env('DROPBOX_SIGN_TEST_MODE', '1') === '1',
+
+  /* Lemon Squeezy — реальные платежи за подписки (см. resolveLemonSqueezy). */
+  lemonSqueezy,
+  /** 'dev' = прежняя мгновенная бесплатная активация плана (локалка/тесты).
+   *  Любое другое значение (включая дефолт) — checkout без LS отвечает 503:
+   *  прод без платёжных ключей не должен раздавать планы бесплатно. */
+  billingFallback: env('BILLING_FALLBACK', 'off').toLowerCase(),
 
   supabaseUrl: env('SUPABASE_URL'),
   supabaseAnonKey: env('SUPABASE_ANON_KEY'),
