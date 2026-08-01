@@ -1,8 +1,10 @@
+import type { ReactNode } from 'react';
+import { motion } from 'motion/react';
+import { EASE } from '@/lib/motion';
 import { Icon } from '@/components/icons/Icon';
 import { Avatar } from '@/components/ui/Avatar';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useUIStore } from '@/store/useUIStore';
-import { useReveal } from '@/hooks/useReveal';
 import { COUNTRIES } from '@/data/countries';
 import { useI18n } from '@/i18n/I18nProvider';
 import styles from './chat.module.css';
@@ -11,9 +13,16 @@ interface WelcomeScreenProps {
   onAnalyze: () => void;
   onDraft: () => void;
   onCompare: () => void;
+  /** Композер первого сообщения — стоит в середине экрана между
+   *  подзаголовком и карточками (эталон app/page.tsx, empty state). */
+  composer?: ReactNode;
 }
 
-export function WelcomeScreen({ onAnalyze, onDraft, onCompare }: WelcomeScreenProps) {
+/* Каскад появления — дословно эталонный app/page.tsx (empty state):
+   логотип scale 0.92 (0.5s) → заголовок y:16 (0.55s, delay .08) →
+   подзаголовок (delay .16) → композер (delay .24, в ChatPage) →
+   карточки y:18 (0.5s, delay .34+i*.08, hover y:-3) → дисклеймер (delay .6). */
+export function WelcomeScreen({ onAnalyze, onDraft, onCompare, composer }: WelcomeScreenProps) {
   const { t, lang } = useI18n();
   const user = useAuthStore((s) => s.user);
   // The NDA card follows the top-bar country selector — the same jurisdiction
@@ -30,12 +39,6 @@ export function WelcomeScreen({ onAnalyze, onDraft, onCompare }: WelcomeScreenPr
     { key: 'compare', icon: 'layout' as const, onSelect: onCompare },
   ];
 
-  // Каскад появления эталона: логотип → приветствие → подзаголовок → карточки.
-  const logoRef = useReveal(0);
-  const titleRef = useReveal(0.08);
-  const subRef = useReveal(0.16);
-  const cardRefs = [useReveal(0.28), useReveal(0.36), useReveal(0.44)];
-
   const hour = new Date().getHours();
   const greeting =
     hour < 12 ? t('chat.greeting.morning') : hour < 18 ? t('chat.greeting.afternoon') : t('chat.greeting.evening');
@@ -44,35 +47,67 @@ export function WelcomeScreen({ onAnalyze, onDraft, onCompare }: WelcomeScreenPr
   return (
     <div className={styles.welcome}>
       <div className={styles.welcomeInner}>
-        <div className={styles.welcomeLogo} ref={logoRef}>
-          <div className={styles.welcomeGlow} aria-hidden />
-          <Avatar size={52} />
-        </div>
-        <h1 className={styles.welcomeTitle} ref={titleRef}>
+        <motion.div
+          initial={{ opacity: 0, scale: 0.92 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.5, ease: EASE }}
+          className={styles.welcomeLogo}
+        >
+          <span className={styles.welcomeGlow} aria-hidden />
+          <Avatar size={64} />
+        </motion.div>
+
+        <motion.h1
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.55, ease: EASE, delay: 0.08 }}
+          className={styles.welcomeTitle}
+        >
           {greeting}, {firstName}.
-        </h1>
-        <p className={styles.welcomeSub} ref={subRef}>
+        </motion.h1>
+
+        <motion.p
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.55, ease: EASE, delay: 0.16 }}
+          className={styles.welcomeSub}
+        >
           {t('chat.welcome.sub')}
-        </p>
+        </motion.p>
+
+        {composer}
+
         <div className={styles.suggestions}>
           {suggestions.map((s, i) => (
-            <button
+            <motion.button
               key={s.key}
               type="button"
-              ref={cardRefs[i]}
+              initial={{ opacity: 0, y: 18 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, ease: EASE, delay: 0.34 + i * 0.08 }}
+              whileHover={{ y: -3 }}
               className={`panel ${styles.suggestion}`}
               onClick={s.onSelect}
             >
-              <div className={styles.suggestionIcon}>
+              <span className={styles.suggestionIcon}>
                 <Icon name={s.icon} size={20} />
-              </div>
-              <div className={styles.suggestionTitle}>{t(`chat.suggest.${s.key}.title`)}</div>
-              <div className={styles.suggestionBody}>
+              </span>
+              <span className={styles.suggestionTitle}>{t(`chat.suggest.${s.key}.title`)}</span>
+              <span className={styles.suggestionBody}>
                 {t(`chat.suggest.${s.key}.body`, s.key === 'draft' ? { country: countryInLaw } : undefined)}
-              </div>
-            </button>
+              </span>
+            </motion.button>
           ))}
         </div>
+
+        <motion.p
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.5, ease: EASE, delay: 0.6 }}
+          className={styles.welcomeDisclaimer}
+        >
+          {t('chat.disclaimer')}
+        </motion.p>
       </div>
     </div>
   );

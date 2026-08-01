@@ -24,7 +24,10 @@
 }
 .backdropCol {
   position: absolute;
-  top: 64px;
+  /* Эталон: колонки стоят top-16 (64px) от верха КОНТЕНТА под шапкой. Наш
+     канвас включает TopBar (56px), поэтому прибавляем его высоту — иначе
+     строки прилипают к шапке. */
+  top: calc(56px + 64px);
   inset-inline-start: 64px;
   width: 340px;
   display: flex;
@@ -60,14 +63,12 @@
   gap: 22px;
 }
 
-/* Welcome ----------------------------------------------------------------- */
+/* Welcome (эталон app/page.tsx, empty state) ------------------------------ */
 .welcome {
   flex: 1;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  padding: 0 28px;
+  padding: 40px 24px; /* эталон: px-6 py-10 */
   position: relative;
   z-index: 1; /* поверх декоративного фона «строк договора» */
   /* Выросшая плашка ввода должна отжимать приветствие, а не выталкивать
@@ -75,77 +76,100 @@
   min-height: 0;
   overflow-y: auto;
 }
-/* Логотип с мягким radial-свечением позади (эталон: -inset-16 от --blob-core). */
+/* Логотип с мягким гало позади — эталон: span -inset-16, radial от
+   --glass-edge, opacity 60%; статичный, вход анимирует motion (scale 0.92). */
 .welcomeLogo {
   position: relative;
-  display: flex;
-  justify-content: center;
+  width: max-content;
+  margin: 0 auto;
 }
 .welcomeGlow {
   position: absolute;
   inset: -64px;
   border-radius: 50%;
-  background: radial-gradient(circle at center, var(--blob-core), transparent 70%);
+  opacity: 0.6;
+  background: radial-gradient(circle at center, var(--glass-edge), transparent 70%);
   pointer-events: none;
-  animation: lxglow 6s ease-in-out infinite;
 }
+/* margin auto вместо justify-content:center — при нехватке высоты контент
+   прокручивается, а не обрезается сверху (флекс-ловушка center+overflow). */
 .welcomeInner {
   position: relative;
   text-align: center;
-  max-width: 640px;
+  width: 100%;
+  max-width: 768px; /* эталон: max-w-3xl — композер, карточки и сетка одной ширины */
+  margin: auto;
 }
 .welcomeTitle {
-  font-size: 34px;
+  font-size: 36px; /* эталон: text-3xl sm:text-4xl */
   font-weight: 600;
   letter-spacing: -0.02em;
-  margin: 22px 0 10px;
+  margin: 32px 0 0; /* эталон: mt-8 */
 }
 .welcomeSub {
-  font-size: 17px;
+  font-size: 16px;
   color: var(--dim);
-  margin: 0 0 34px;
+  margin: 12px 0 0; /* эталон: mt-3 */
   line-height: 1.5;
 }
-.suggestions {
-  display: flex;
-  gap: 12px;
-  justify-content: center;
-  flex-wrap: wrap;
+/* Композер посреди экрана (обёртка layoutId="composer" в ChatPage). */
+.welcomeComposer {
+  margin-top: 40px; /* эталон: mt-10 */
+  width: 100%;
+  text-align: start;
 }
-/* Quick-action карточки: рецепт панели эталона (panel-2 + panel-edge),
-   hover — подъём y:-3 + мягкая тень (эталон whileHover y:-3 + shadow-lg). */
+.suggestions {
+  margin-top: 20px; /* эталон: mt-5 */
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px; /* эталон: gap-4 */
+  width: 100%;
+}
+/* Quick-action карточки: panel + hover-тень; подъём y:-3 ведёт motion
+   (эталон whileHover y:-3 + transition-shadow 200ms + hover:shadow-lg). */
 .suggestion {
-  width: 196px;
-  padding: 18px 16px;
+  padding: 20px; /* эталон: p-5 */
   cursor: pointer;
   text-align: start;
   border-radius: var(--r-xl);
-  transition: transform 0.25s var(--ease), box-shadow 0.25s var(--ease);
+  transition: box-shadow 0.2s;
   color: inherit;
   font: inherit;
 }
 .suggestion:hover {
-  transform: translateY(-3px);
   box-shadow:
-    var(--shadow-card),
-    0 14px 30px -18px rgba(0, 0, 0, 0.25);
+    0 10px 15px -3px rgba(0, 0, 0, 0.05),
+    0 4px 6px -4px rgba(0, 0, 0, 0.05);
 }
-.suggestion:active {
-  transform: scale(0.98);
+:global(html.dark) .suggestion:hover {
+  box-shadow:
+    0 10px 15px -3px rgba(0, 0, 0, 0.3),
+    0 4px 6px -4px rgba(0, 0, 0, 0.3);
 }
 .suggestionIcon {
+  display: block;
   color: var(--dim);
-  margin-bottom: 12px;
+  margin-bottom: 16px; /* эталон: заголовок mt-4 от иконки */
 }
 .suggestionTitle {
+  display: block;
   font-size: 15px;
   font-weight: 600;
-  margin-bottom: 4px;
+  letter-spacing: -0.01em;
 }
 .suggestionBody {
-  font-size: 13px;
-  color: var(--mut);
-  line-height: 1.4;
+  display: block;
+  margin-top: 6px; /* эталон: mt-1.5 */
+  font-size: 14px;
+  color: var(--dim);
+  line-height: 1.625; /* эталон: leading-relaxed */
+}
+/* Подпись под карточками (эталон: mt-8 text-xs text-ink-2). */
+.welcomeDisclaimer {
+  margin: 32px 0 0;
+  font-size: 12px;
+  color: var(--dim);
+  text-align: center;
 }
 
 /* Message rows ------------------------------------------------------------ */
@@ -906,6 +930,18 @@
 .composerInnerFull {
   max-width: none;
 }
+/* bare-режим ChatInput: рамкой и шириной управляет родитель (ChatPage) —
+   так layoutId-переезд композера welcome → низ не растягивает плашку. */
+.composerBare {
+  position: relative;
+  z-index: 1;
+}
+/* Центрирующая обёртка motion.div layoutId="composer" в доке: та же ширина,
+   что и у welcome-контейнера, поэтому переезд — чистый сдвиг по вертикали. */
+.dockSlide {
+  max-width: 760px;
+  margin: 0 auto;
+}
 /* Плашка ввода: панель эталона — bg-surface с бордером, при фокусе бордер
    темнеет (эталон: rounded-2xl border-edge bg-surface focus-within:ink-2/60). */
 .inputBar {
@@ -1096,10 +1132,10 @@
     padding-inline-end: 16px;
   }
   .welcomeTitle {
-    font-size: 27px;
+    font-size: 30px; /* эталон: text-3xl до брейкпоинта sm */
   }
-  .suggestion {
-    width: 100%;
+  .suggestions {
+    grid-template-columns: 1fr; /* эталон: grid-cols-1 до sm */
   }
 }
 
@@ -1136,15 +1172,6 @@
   }
   50% {
     opacity: 0.35;
-  }
-}
-@keyframes lxglow {
-  0%,
-  100% {
-    opacity: 0.45;
-  }
-  50% {
-    opacity: 0.85;
   }
 }
 

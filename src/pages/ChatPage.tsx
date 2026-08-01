@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type DragEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { motion } from 'motion/react';
+import { EASE } from '@/lib/motion';
 import { TopBar } from '@/components/layout/TopBar';
 import { TopBarActions } from '@/components/layout/TopBarActions';
 import { BrandMenu } from '@/components/layout/BrandMenu';
@@ -290,6 +292,63 @@ export function ChatPage() {
   const fileMessage = messages.find((m) => m.kind === 'file');
   const textMessages = messages.filter((m) => m.kind === 'text');
 
+  // Пустой канвас: ни сообщений, ни идущего анализа, ни загрузки сессии.
+  // Только здесь показывается декоративный фон «строк договора» — в живой
+  // переписке он убран (решение пользователя; страница диалога чистая).
+  const emptyCanvas =
+    messages.length === 0 &&
+    (phase === 'idle' || phase === 'analyzed') &&
+    !sessionLoading &&
+    !sessionLoadFailed;
+
+  // Welcome-экран (эталон empty state): композер стоит посреди экрана между
+  // подзаголовком и карточками; после первого сообщения motion layoutId
+  // плавно увозит его в нижний док. Условие повторяет ветку рендера ниже.
+  const onWelcome = emptyCanvas && !ghost;
+
+  const composerEl = (
+    <ChatInput
+      key={ghost ? 'ghost' : 'chat'}
+      bare
+      hideDisclaimer={onWelcome}
+      ephemeral={ghost}
+      onAnalyze={() => pushToast(ghost ? t('ghost.noFiles') : t('chat.attachFirst'), 'default')}
+      onFile={ghost ? undefined : (file) => handleFile(file)}
+      onCloudImport={ghost ? undefined : () => setCloudOpen(true)}
+      onSend={(text) => {
+        const lower = text.trim().toLowerCase();
+        if (lower.startsWith('/compare')) return navigate('/compare');
+        if (lower.startsWith('/draft')) return void runDraft(text.trim().replace(/^\/draft\s*/i, ''));
+        return sendMessage(text);
+      }}
+      banner={
+        nearLimit && limits?.aiRequests?.limit ? (
+          // ≥80% месячного лимита: конкретная шкала вместо общего апселла —
+          // человек должен узнать о потолке ДО обидного отказа 402.
+          <div className={chat.upsellBar}>
+            <span className={chat.upsellText}>
+              <Icon name="alert" size={14} color="var(--accent)" />
+              {t('chat.usage.nearLimit', { used: limits.aiRequests.used, limit: limits.aiRequests.limit })}
+            </span>
+            <button type="button" className={chat.upsellBtn} onClick={() => navigate('/plans')}>
+              {t('chat.upsell.cta')}
+            </button>
+          </div>
+        ) : isFree ? (
+          <div className={chat.upsellBar}>
+            <span className={chat.upsellText}>
+              <Icon name="diamond" size={14} color="var(--accent)" />
+              {t('chat.upsell.title')}
+            </span>
+            <button type="button" className={chat.upsellBtn} onClick={() => navigate('/plans')}>
+              {t('chat.upsell.cta')}
+            </button>
+          </div>
+        ) : null
+      }
+    />
+  );
+
   const renderText = (m: ChatMessage) =>
     m.role === 'user' ? (
       <div key={m.id} className={chat.msgUser} data-mid={m.id}>
@@ -348,7 +407,7 @@ export function ChatPage() {
         }
       />
 
-      <ContractBackdrop />
+      {emptyCanvas ? <ContractBackdrop /> : null}
 
       {ghost ? (
         <div className={chat.ghostBanner} role="status">
@@ -392,6 +451,19 @@ export function ChatPage() {
             onAnalyze={() => pushToast(t('chat.attachFirst'), 'default')}
             onDraft={() => void runDraft('')}
             onCompare={() => navigate('/compare')}
+            composer={
+              // Эталонный вход композера (y:18, delay .24); layoutId связывает
+              // его с нижним доком — при первом сообщении он уезжает на место.
+              <motion.div
+                layoutId="composer"
+                initial={{ opacity: 0, y: 18 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.55, ease: EASE, delay: 0.24 }}
+                className={chat.welcomeComposer}
+              >
+                {composerEl}
+              </motion.div>
+            }
           />
         )
       ) : (
@@ -437,44 +509,16 @@ export function ChatPage() {
         </div>
       )}
 
-      <ChatInput
-        key={ghost ? 'ghost' : 'chat'}
-        ephemeral={ghost}
-        onAnalyze={() => pushToast(ghost ? t('ghost.noFiles') : t('chat.attachFirst'), 'default')}
-        onFile={ghost ? undefined : (file) => handleFile(file)}
-        onCloudImport={ghost ? undefined : () => setCloudOpen(true)}
-        onSend={(text) => {
-          const lower = text.trim().toLowerCase();
-          if (lower.startsWith('/compare')) return navigate('/compare');
-          if (lower.startsWith('/draft')) return void runDraft(text.trim().replace(/^\/draft\s*/i, ''));
-          return sendMessage(text);
-        }}
-        banner={
-          nearLimit && limits?.aiRequests?.limit ? (
-            // ≥80% месячного лимита: конкретная шкала вместо общего апселла —
-            // человек должен узнать о потолке ДО обидного отказа 402.
-            <div className={chat.upsellBar}>
-              <span className={chat.upsellText}>
-                <Icon name="alert" size={14} color="var(--accent)" />
-                {t('chat.usage.nearLimit', { used: limits.aiRequests.used, limit: limits.aiRequests.limit })}
-              </span>
-              <button type="button" className={chat.upsellBtn} onClick={() => navigate('/plans')}>
-                {t('chat.upsell.cta')}
-              </button>
-            </div>
-          ) : isFree ? (
-            <div className={chat.upsellBar}>
-              <span className={chat.upsellText}>
-                <Icon name="diamond" size={14} color="var(--accent)" />
-                {t('chat.upsell.title')}
-              </span>
-              <button type="button" className={chat.upsellBtn} onClick={() => navigate('/plans')}>
-                {t('chat.upsell.cta')}
-              </button>
-            </div>
-          ) : null
-        }
-      />
+      {onWelcome ? null : (
+        // Нижний док композера. Обёртка layoutId без initial — при смене
+        // welcome → диалог motion сам ведёт FLIP из середины экрана вниз
+        // (эталон: transition 0.5s EASE на layoutId="composer").
+        <div className={chat.composer}>
+          <motion.div layoutId="composer" transition={{ duration: 0.5, ease: EASE }} className={chat.dockSlide}>
+            {composerEl}
+          </motion.div>
+        </div>
+      )}
 
       <Modal
         open={ghostConfirm}

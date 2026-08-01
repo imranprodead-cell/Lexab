@@ -19,24 +19,14 @@
   height: 100%;
 }
 /* Route change: y 10 → 0 + fade, .35s on the reference easing. */
+/* Анимацию входа ведёт motion в AppShell (эталон: opacity+y, 0.35s EASE) —
+   класс оставляет только раскладку колонки. */
 .routeFade {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  animation: lxroutein 0.35s var(--ease) both;
 }
-@keyframes lxroutein {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
-}
-
 /* Side rail --------------------------------------------------------------- */
 .railSlot {
   width: 60px;
@@ -150,6 +140,13 @@
 .railOpen .navLabel,
 .railOpen .userText {
   opacity: 1;
+}
+
+/* Пункты рейла — кнопки, а не текстовые ссылки: глобальное подчёркивание
+   a:hover (global.css) к ним не применяется (в эталоне его нет). */
+.rail a:hover,
+.rail a:focus-visible {
+  text-decoration: none;
 }
 
 .navItem {

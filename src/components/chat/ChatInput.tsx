@@ -62,13 +62,19 @@ interface ChatInputProps {
   ephemeral?: boolean;
   /** Optional slot rendered above the input bar (e.g. the Free-plan upsell). */
   banner?: ReactNode;
+  /** Без внешней рамки-дока: позицией и шириной управляет родитель (нужно
+   *  для layoutId-переезда композера welcome → низ, эталон app/page.tsx). */
+  bare?: boolean;
+  /** Спрятать подпись «может ошибаться»: на welcome-экране она стоит ниже
+   *  карточек (эталон), а не под плашкой. */
+  hideDisclaimer?: boolean;
 }
 
 /**
  * The chat composer: auto-growing textarea, attach button, and slash-command
  * autocomplete with full keyboard control (↑/↓ to move, ↵ to pick, Esc to close).
  */
-export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudImport, draftKey = 'chat', hideAttach = false, ephemeral = false, banner }: ChatInputProps) {
+export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudImport, draftKey = 'chat', hideAttach = false, ephemeral = false, banner, bare = false, hideDisclaimer = false }: ChatInputProps) {
   const { t } = useI18n();
   const [value, setValue] = useState(() => (ephemeral ? '' : loadDraft(draftKey)));
   const [slashOpen, setSlashOpen] = useState(false);
@@ -259,8 +265,8 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
   const improveHint = improveTooLong ? t('chat.improveLong') : hasText && !improveReady ? t('chat.improveShort') : t('chat.improve');
 
   return (
-    <div className={`${styles.composer} ${compact ? styles.composerCompact : ''}`}>
-      <div className={`${styles.composerInner} ${compact ? styles.composerInnerFull : ''}`}>
+    <div className={bare ? styles.composerBare : `${styles.composer} ${compact ? styles.composerCompact : ''}`}>
+      <div className={`${styles.composerInner} ${compact || bare ? styles.composerInnerFull : ''}`}>
         {slashOpen ? (
           <SlashMenu commands={filtered} activeIndex={slashIndex} onHover={setSlashIndex} onPick={pick} />
         ) : null}
@@ -369,7 +375,7 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
           </div>
         </div>
 
-        <div className={styles.disclaimer}>{t('chat.disclaimer')}</div>
+        {hideDisclaimer ? null : <div className={styles.disclaimer}>{t('chat.disclaimer')}</div>}
       </div>
     </div>
   );

@@ -1,5 +1,7 @@
 import { useEffect } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { motion } from 'motion/react';
+import { EASE } from '@/lib/motion';
 import { SideRail } from './SideRail';
 import { CommandPalette } from './CommandPalette';
 import { OnboardingModal } from './OnboardingModal';
@@ -88,9 +90,17 @@ export function AppShell() {
             </button>
           </div>
         ) : null}
-        <div key={location.pathname.split('/')[1] || 'root'} className={styles.routeFade}>
+        {/* Переход между разделами — дословно эталонный AppShell:
+            motion.div key={pathname}, opacity 0→1 + y 10→0, 0.35s EASE. */}
+        <motion.div
+          key={location.pathname}
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.35, ease: EASE }}
+          className={styles.routeFade}
+        >
           <Outlet />
-        </div>
+        </motion.div>
       </div>
       <CommandPalette />
       <OnboardingModal />
