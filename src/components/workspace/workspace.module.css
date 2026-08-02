@@ -539,9 +539,20 @@
   gap: 2px;
   padding: 6px;
   border-radius: 12px;
-  background: var(--toolbar-bg, var(--surface));
-  border: 1px solid var(--border);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+  background: var(--glass-bg-solid);
+  border: 1px solid var(--glass-edge);
+  border-top-color: var(--glass-edge-top);
+  box-shadow:
+    inset 0 1px 0 var(--glass-highlight),
+    var(--shadow-pop);
+}
+/* Матовое «жидкое стекло» — единый вид всех всплывающих панелей. */
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .toolbarMenu {
+    background: var(--glass-pop-bg);
+    -webkit-backdrop-filter: var(--glass-pop-blur);
+    backdrop-filter: var(--glass-pop-blur);
+  }
 }
 .toolbarMenuItem {
   display: flex;

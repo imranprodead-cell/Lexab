@@ -3,14 +3,17 @@ import { useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
 import { Icon } from '@/components/icons/Icon';
 import { RiskBadge, Badge } from '@/components/ui/Badge';
+import { Button, IconButton } from '@/components/ui/Button';
+import { Modal } from '@/components/ui/Modal';
 import { SelectMenu } from '@/components/ui/SelectMenu';
-import { EmptyState, ErrorState } from '@/components/ui/States';
+import { EmptyState, ErrorState, SkeletonRows } from '@/components/ui/States';
 import { useAsync } from '@/hooks/useAsync';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { useReveal } from '@/hooks/useReveal';
-import { documentsApi } from '@/api';
-import type { ContractStatus } from '@/types/domain';
+import { documentsApi, projectsApi } from '@/api';
+import type { ContractDocument, ContractStatus, Project } from '@/types/domain';
+import { useUIStore } from '@/store/useUIStore';
 import { useI18n } from '@/i18n/I18nProvider';
 import styles from './pages.module.css';
 
@@ -59,10 +62,52 @@ export function DocumentsPage() {
   };
 
   const query = useMemo(() => ({ search: debouncedSearch, status, risk }), [debouncedSearch, status, risk]);
-  const { data, loading, error, reload } = useAsync(
+  const { data, loading, error, reload, mutate } = useAsync(
     (signal) => documentsApi.list(query, signal),
     [query.search, query.status, query.risk],
   );
+
+  // «В проект…»: модалка-выбор дела для конкретного документа. Проекты
+  // грузятся при первом открытии (дальше — из кэша useAsync).
+  const pushToast = useUIStore((s) => s.pushToast);
+  const [pickFor, setPickFor] = useState<ContractDocument | null>(null);
+  const [pickBusy, setPickBusy] = useState(false);
+  const projects = useAsync(
+    (signal) => (pickFor ? projectsApi.list(signal) : Promise.resolve([] as Project[])),
+    [pickFor !== null],
+  );
+
+  const assignTo = async (projectId: string | null) => {
+    if (!pickFor || pickBusy) return;
+    setPickBusy(true);
+    try {
+      const updated = await documentsApi.assignProject(pickFor.id, projectId);
+      mutate((rows) => (rows ?? []).map((r) => (r.id === updated.id ? { ...r, projectId: updated.projectId ?? projectId } : r)));
+      pushToast(projectId ? t('projects.addedToast') : t('projects.removedToast'), projectId ? 'success' : 'default');
+      setPickFor(null);
+    } catch (err) {
+      pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
+    } finally {
+      setPickBusy(false);
+    }
+  };
+
+  /** Кнопка «В проект…» в строке — только для СВОИХ документов (перенос в
+   *  дело доступен владельцу; чужие расшаренные сервер не даст двигать). */
+  const toProjectBtn = (d: ContractDocument) =>
+    d.sharedBy ? null : (
+      <IconButton
+        icon="folder"
+        label={t('projects.toProject')}
+        title={t('projects.toProject')}
+        size="sm"
+        iconSize={15}
+        onClick={(e) => {
+          e.stopPropagation();
+          setPickFor(d);
+        }}
+      />
+    );
 
   const sorted = useMemo(() => {
     const rows = [...(data ?? [])];
@@ -147,7 +192,7 @@ export function DocumentsPage() {
                 <tbody>
                   {Array.from({ length: PAGE_SIZE }).map((_, i) => (
                     <tr key={i}>
-                      <td className={styles.td} colSpan={5}>
+                      <td className={styles.td} colSpan={6}>
                         <div className={styles.skeleton} style={{ height: 20, width: `${60 + ((i * 7) % 30)}%` }} />
                       </td>
                     </tr>
@@ -175,6 +220,7 @@ export function DocumentsPage() {
                           {d.counterparty}
                         </div>
                       </div>
+                      {toProjectBtn(d)}
                     </div>
                     <div className={styles.rowCardBadges}>
                       <Badge color={STATUS_TONE[d.status]} plain>{t(`status.${d.status}`)}</Badge>
@@ -220,6 +266,7 @@ export function DocumentsPage() {
                       {sortableTh('risk', t('docs.col.risk'))}
                       <th className={`${styles.th} ${styles.hideSm}`}>{t('docs.col.jurisdiction')}</th>
                       {sortableTh('updatedAt', t('docs.col.updated'), styles.hideSm)}
+                      <th className={styles.th} aria-label={t('projects.toProject')} />
                     </tr>
                   </thead>
                   <tbody>
@@ -247,6 +294,7 @@ export function DocumentsPage() {
                         </td>
                         <td className={`${styles.td} ${styles.hideSm} ${styles.mono}`}>{d.jurisdiction}</td>
                         <td className={`${styles.td} ${styles.hideSm} ${styles.metaText}`}>{timeAgo(d.updatedAt)}</td>
+                        <td className={styles.td} style={{ width: 44 }}>{toProjectBtn(d)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -277,6 +325,48 @@ export function DocumentsPage() {
           )}
         </div>
       </div>
+
+      {/* «В проект…» — выбор дела для документа. */}
+      <Modal open={pickFor !== null} title={t('projects.pickTitle')} onClose={() => !pickBusy && setPickFor(null)} maxWidth={460}>
+        {projects.loading ? (
+          <SkeletonRows rows={3} height={40} />
+        ) : projects.error ? (
+          <ErrorState message={projects.error} onRetry={projects.reload} />
+        ) : (projects.data ?? []).length === 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <p className={styles.pageSub} style={{ margin: 0 }}>{t('projects.pickEmpty')}</p>
+            <div>
+              <Button variant="secondary" icon="folder" onClick={() => navigate('/projects')}>
+                {t('projects.title')}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="scroll" style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 320, overflowY: 'auto' }}>
+            {pickFor?.projectId ? (
+              <button type="button" className={styles.projPickRow} disabled={pickBusy} onClick={() => void assignTo(null)}>
+                <Icon name="x" size={15} />
+                <span>{t('projects.removeFromProject')}</span>
+              </button>
+            ) : null}
+            {(projects.data ?? []).map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                className={styles.projPickRow}
+                disabled={pickBusy || pickFor?.projectId === p.id}
+                onClick={() => void assignTo(p.id)}
+              >
+                <Icon name="folder" size={16} />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name}</span>
+                <span className={styles.projPickMeta}>
+                  {pickFor?.projectId === p.id ? t('projects.current') : t('projects.docsCount', { n: p.docsCount })}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

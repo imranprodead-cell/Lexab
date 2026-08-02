@@ -76,6 +76,9 @@ export function WorkspacePage() {
 
   const analysisReadOnly = () => useChatStore.getState().analysis?.canEdit === false;
   const [signOpen, setSignOpen] = useState(false);
+  // «Весь договор»: чистый полный текст всех листов без пометок правок
+  // (режим чтения; редактирование по клику отключено, чтобы ничего не мешало).
+  const [fullView, setFullView] = useState(false);
   // Публичная ссылка на отчёт: модалка с URL + копирование + отзыв.
   const [shareOpen, setShareOpen] = useState(false);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
@@ -477,11 +480,12 @@ export function WorkspacePage() {
         ref={editorRef}
         analysis={analysis}
         pendingCount={pendingCount}
-        canEdit={canEdit}
-        onChange={canEdit ? persistDocument : undefined}
+        canEdit={canEdit && !fullView}
+        onChange={canEdit && !fullView ? persistDocument : undefined}
         onActiveChange={setActiveBlock}
         anchor={anchor}
         hideHeader={isDraft}
+        forceClean={fullView}
         topBar={
           isDraft ? (
             // Черновик шаблона: вместо тулбара редактирования — панель действий.
@@ -510,11 +514,16 @@ export function WorkspacePage() {
             </div>
           ) : (
           <EditorToolbar
-            canEdit={canEdit}
+            canEdit={canEdit && !fullView}
             active={activeBlock}
             editor={editorRef}
-            showEdits={showEdits}
+            showEdits={showEdits && !fullView}
             onToggleShowEdits={toggleShowEdits}
+            fullView={fullView}
+            onToggleFullView={() => {
+              editorRef.current?.exitEdit(); // открытый редактор не должен пересохранить старое
+              setFullView((v) => !v);
+            }}
             canUndo={canUndo}
             canRedo={canRedo}
             onUndo={() => {

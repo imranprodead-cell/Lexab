@@ -1,9 +1,7 @@
 import type { MouseEvent, ReactNode } from 'react';
 import { Icon, type IconName } from '@/components/icons/Icon';
-import { SelectMenu } from '@/components/ui/SelectMenu';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { ActiveBlock, DocEditorHandle } from './DocumentViewer';
-import type { DocBlockType } from '@/types/domain';
 import styles from './workspace.module.css';
 
 interface EditorToolbarProps {
@@ -12,6 +10,9 @@ interface EditorToolbarProps {
   editor: React.RefObject<DocEditorHandle>;
   showEdits: boolean;
   onToggleShowEdits: () => void;
+  /** «Весь договор»: чистый полный текст без пометок правок (режим чтения). */
+  fullView: boolean;
+  onToggleFullView: () => void;
   canUndo: boolean;
   canRedo: boolean;
   onUndo: () => void;
@@ -19,17 +20,6 @@ interface EditorToolbarProps {
   versionLabel: string | null;
   onVersionHistory: () => void;
   onClose: () => void;
-}
-
-/** The "style" dropdown value derived from the active block. */
-type StyleValue = 'h1' | 'h2' | 'p' | 'bullet' | 'numbered';
-
-function styleOfActive(active: ActiveBlock | null): StyleValue {
-  if (!active) return 'p';
-  if (active.type === 'heading') return active.level === 1 ? 'h1' : 'h2';
-  if (active.type === 'bullet') return 'bullet';
-  if (active.type === 'numbered') return 'numbered';
-  return 'p';
 }
 
 /**
@@ -43,6 +33,8 @@ export function EditorToolbar({
   editor,
   showEdits,
   onToggleShowEdits,
+  fullView,
+  onToggleFullView,
   canUndo,
   canRedo,
   onUndo,
@@ -86,14 +78,6 @@ export function EditorToolbar({
 
   const Divider = () => <span className={styles.etDivider} aria-hidden="true" />;
 
-  const applyStyle = (value: string) => {
-    const h = editor.current;
-    if (!h) return;
-    if (value === 'h1') h.applyLevel(1);
-    else if (value === 'h2') h.applyLevel(2);
-    else h.applyBlockType(value as DocBlockType);
-  };
-
   const linkPrompt = () => {
     const url = window.prompt(t('editor.linkPrompt'), 'https://');
     if (url === null) return; // cancelled
@@ -102,20 +86,6 @@ export function EditorToolbar({
 
   const formatButtons: ReactNode = (
     <>
-      <SelectMenu
-        ariaLabel={t('editor.style')}
-        disabled={!hasActive}
-        value={styleOfActive(active)}
-        onChange={applyStyle}
-        options={[
-          { value: 'h1', label: t('editor.heading1') },
-          { value: 'h2', label: t('editor.heading2') },
-          { value: 'p', label: t('editor.body') },
-          { value: 'bullet', label: t('editor.bulletList') },
-          { value: 'numbered', label: t('editor.numberedList') },
-        ]}
-      />
-      <Divider />
       <FmtBtn icon="bold" label={t('editor.bold')} disabled={!hasActive} onRun={() => editor.current?.format('bold')} />
       <FmtBtn icon="italic" label={t('editor.italic')} disabled={!hasActive} onRun={() => editor.current?.format('italic')} />
       <FmtBtn icon="underline" label={t('editor.underline')} disabled={!hasActive} onRun={() => editor.current?.format('underline')} />
@@ -144,16 +114,32 @@ export function EditorToolbar({
       <div className={styles.editorToolbarInner}>
         {canEdit ? formatButtons : null}
 
-        {/* Show/hide AI tracked changes — available to everyone. */}
+        {/* Show/hide AI tracked changes — available to everyone. В режиме «Весь
+            договор» правки и так скрыты, поэтому переключатель неактивен: иначе
+            клик по нему скрытно менял бы сохранённое состояние показа правок. */}
         <button
           type="button"
           className={`${styles.etBtn} ${styles.etTextBtn} ${showEdits ? styles.etBtnOn : ''}`}
           title={t('editor.showEdits')}
           aria-pressed={showEdits}
+          disabled={fullView}
           onClick={onToggleShowEdits}
         >
           <Icon name={showEdits ? 'eye' : 'eyeOff'} size={16} />
           <span className={styles.etBtnText}>{t('editor.showEdits')}</span>
+        </button>
+
+        {/* «Весь договор»: чистый полный текст всех листов без пометок правок —
+            удобно прочитать документ целиком как финальную версию. */}
+        <button
+          type="button"
+          className={`${styles.etBtn} ${styles.etTextBtn} ${fullView ? styles.etBtnOn : ''}`}
+          title={t('ws.fullView')}
+          aria-pressed={fullView}
+          onClick={onToggleFullView}
+        >
+          <Icon name="docs" size={16} />
+          <span className={styles.etBtnText}>{t('ws.fullView')}</span>
         </button>
 
         {versionLabel ? (

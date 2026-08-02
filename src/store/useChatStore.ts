@@ -9,7 +9,7 @@
  * backed by the API layer.
  */
 import { create } from 'zustand';
-import { USE_MOCK, analysisApi } from '@/api';
+import { consumePendingProject, USE_MOCK, analysisApi, documentsApi } from '@/api';
 import { chatsApi } from '@/api/chats.api';
 import { uploadsApi } from '@/api/uploads.api';
 import { ApiError } from '@/api/util';
@@ -24,6 +24,26 @@ import { isRedlineSlot } from '@/types/domain';
 /** Refresh the sidebar list so new sessions / updated order show up instantly. */
 function refreshHistory() {
   void useChatHistoryStore.getState().load();
+}
+
+/**
+ * «Новый договор» со страницы проекта: ProjectDetailPage кладёт id дела в
+ * sessionStorage (PENDING_PROJECT_KEY); первый успешный анализ переносит
+ * готовый документ в проект и гасит ключ (одноразовый — не копится вечно).
+ * Любая ошибка уходит в тост и НЕ роняет анализ.
+ */
+function adoptDocIntoProject(documentId: string | undefined, projectId: string | null): void {
+  if (!projectId) return; // этот анализ не из флоу «новый договор в деле»
+  if (!documentId) {
+    // Анализ прошёл, но id документа сервер не вернул — честно сообщаем,
+    // что в дело договор не попал (ключ уже погашен на старте).
+    useUIStore.getState().pushToast(tStandalone('projects.addFailedToast'), 'error');
+    return;
+  }
+  documentsApi
+    .assignProject(documentId, projectId)
+    .then(() => useUIStore.getState().pushToast(tStandalone('projects.addedToast'), 'success'))
+    .catch(() => useUIStore.getState().pushToast(tStandalone('projects.addFailedToast'), 'error'));
 }
 
 /** Default law context ("German law", …) from the top-bar country selector. */
@@ -403,6 +423,10 @@ export const useChatStore = create<ChatState>((set, get) => {
       useUIStore.getState().pushToast(tStandalone('chat.retryNeedsFile'), 'error');
       return;
     }
+    // Потребляем ключ «новый договор в деле» СЕЙЧАС (read+clear): строго
+    // одноразово для этого запуска. Провал/следующий несвязанный анализ уже не
+    // подхватят его и не утащат договор в чужое дело. Успех подошьёт по локали.
+    const pendingProjectId = consumePendingProject();
     const epoch = canvasEpoch;
     clearStepTimers();
 
@@ -448,6 +472,10 @@ export const useChatStore = create<ChatState>((set, get) => {
         fileSize: file.size,
         jurisdiction: defaultLaw(),
       });
+      // «Новый договор» из проекта: здесь фронт впервые узнаёт documentId —
+      // переносим документ в дело (по локали, ключ уже погашен на старте) даже
+      // если канвас переключили. Ошибка глотается в тост внутри хелпера.
+      adoptDocIntoProject(result.documentId, pendingProjectId);
       // Persist the session↔analysis link NO MATTER which canvas is visible —
       // otherwise an analysis finished in the background is never restorable
       // and its sidebar chat opens empty. (Idempotent server-side.)

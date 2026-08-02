@@ -96,7 +96,7 @@ export function FloatingToolbar({
           ) : null}
         </div>
         {action('docs', t('ws.report'), onReport)}
-        {!readOnly && onShare ? action('link', t('ws.share'), onShare) : null}
+        {!readOnly && onShare ? action('share', t('ws.share'), onShare) : null}
         {!readOnly ? action('esign', t('ws.sendSign'), onSendForSignature) : null}
         {action('history', t('ws.versionsTitle'), onVersionHistory)}
       </GlassCard>

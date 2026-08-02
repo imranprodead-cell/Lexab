@@ -341,13 +341,18 @@
   justify-content: center;
   padding: 24px;
   background: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(4px);
+  /* Лёгкое размытие фона; основную стеклянную глубину даёт сама модалка
+     (её backdrop-filter), поэтому здесь не гоним второй тяжёлый проход. */
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
   animation: lxfadeq var(--dur-mid) ease;
 }
 :global(html.dark) .overlay {
   background: rgba(0, 0, 0, 0.55);
 }
-/* Полотно модалки — рецепт glass-card эталона + r-2xl + shadow-pop. */
+/* Полотно модалки — БЕЛОЕ матовое «жидкое стекло»: высокая доля белого читается
+ *  как белый (не серый), крепкий blur+saturate даёт стеклянную глубину. Solid-
+ *  фон — фолбэк там, где backdrop-filter не поддержан. */
 .modal {
   width: 100%;
   max-width: 460px;
@@ -365,6 +370,8 @@
   /* Скруглённые углы r-2xl не должны «протыкаться» скроллом тела. */
   overflow: hidden;
 }
+/* Матовое стекло модалки применяется в едином @supports-блоке в конце файла
+   (--glass-pop-bg + --glass-pop-blur) — он идёт последним и потому авторитетен. */
 .modalHeader {
   display: flex;
   align-items: center;
@@ -771,6 +778,7 @@
   transform-origin: top left;
   animation: lxselectin 0.18s var(--ease);
 }
+/* Матовое стекло списка — в едином @supports-блоке в конце файла (авторитетном). */
 
 @keyframes lxselectin {
   from {
@@ -855,14 +863,17 @@
   background: var(--hover-3);
 }
 
-/* ── Живое стекло для всплывающих поверхностей (фолбэк — glass-bg-solid) ──── */
+/* ── Живое стекло для всплывающих поверхностей (фолбэк — glass-bg-solid) ────
+   Единый матовый белый рецепт (--glass-pop-bg 0.86 + blur 30/saturate 1.5):
+   читается как БЕЛЫЙ, не серый. Это АВТОРИТЕТНЫЙ блок для .modal/.selectMenuList
+   (идёт последним в файле) — держим значения тут, чтобы не разъезжались. */
 @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .modal,
   .toast,
   .calendar,
   .selectMenuList {
-    background: var(--glass-bg);
-    -webkit-backdrop-filter: blur(20px) saturate(1.2);
-    backdrop-filter: blur(20px) saturate(1.2);
+    background: var(--glass-pop-bg);
+    -webkit-backdrop-filter: var(--glass-pop-blur);
+    backdrop-filter: var(--glass-pop-blur);
   }
 }

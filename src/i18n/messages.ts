@@ -1467,6 +1467,7 @@ export const MESSAGES: Dict = {
 
   // Публичная ссылка на отчёт
   'ws.share': { ru: 'Поделиться', en: 'Share' },
+  'ws.fullView': { ru: 'Весь договор', en: 'Full contract' },
   'ws.shareTitle': { ru: 'Ссылка на отчёт', en: 'Report link' },
   'ws.shareBody': {
     ru: 'Любой, у кого есть эта ссылка, увидит краткий отчёт: балл риска, резюме и находки с цитатами норм. Текст договора и правки не показываются.',
@@ -1560,6 +1561,32 @@ export const MESSAGES: Dict = {
   'api.created': { ru: 'Создан', en: 'Created' },
   'api.lastUsed': { ru: 'Последний вызов', en: 'Last used' },
   'api.neverUsed': { ru: 'ещё не использовался', en: 'never used' },
+  'api.scopesTitle': { ru: 'Права ключа', en: 'Key permissions' },
+  'api.scopesHint': {
+    ru: 'Отмечены все права — ключ получит полный доступ. Снимите лишние, чтобы ограничить.',
+    en: 'All permissions checked — the key gets full access. Untick some to restrict it.',
+  },
+  'api.scopesNone': { ru: 'Выберите хотя бы одно право — ключ без прав бесполезен', en: 'Select at least one permission — a key with none is useless' },
+  'api.scope.analyses:read': { ru: 'чтение анализов', en: 'read analyses' },
+  'api.scope.analyses:write': { ru: 'отправка на анализ', en: 'submit analyses' },
+  'api.scope.drafts:write': { ru: 'черновики договоров', en: 'contract drafts' },
+  'api.scope.compares:write': { ru: 'сравнение версий', en: 'compare versions' },
+  'api.scope.templates:write': { ru: 'шаблоны и генерация', en: 'templates & generation' },
+  'api.scope.webhooks:manage': { ru: 'управление вебхуками', en: 'manage webhooks' },
+  'api.fullAccess': { ru: 'Полный доступ', en: 'Full access' },
+  'api.expiryTitle': { ru: 'Срок действия', en: 'Expiry' },
+  'api.expiryNone': { ru: 'Бессрочно', en: 'No expiry' },
+  'api.expiryDays': { ru: '{days} дней', en: '{days} days' },
+  'api.expiresOn': { ru: 'до {date}', en: 'until {date}' },
+  'api.noExpiry': { ru: 'Бессрочный', en: 'Never expires' },
+  'api.expiredBadge': { ru: 'Истёк', en: 'Expired' },
+  'api.createdByLabel': { ru: 'Создал: {name}', en: 'Created by {name}' },
+  'api.rotate': { ru: 'Ротация', en: 'Rotate' },
+  'api.rotateConfirm': {
+    ru: 'Перевыпустить ключ «{label}»? Старый секрет перестанет работать сразу; новый ключ получит те же название и права.',
+    en: 'Rotate “{label}”? The old secret stops working immediately; the new key keeps the same label and permissions.',
+  },
+  'api.rotated': { ru: 'Ключ перевыпущен — скопируйте новый секрет', en: 'Key rotated — copy the new secret' },
   'api.usage': { ru: 'Использование', en: 'Usage' },
   'api.usageSub': { ru: 'Вызовы публичного API за последние 30 дней', en: 'Public API calls over the last 30 days' },
   'api.usedThisMonth': { ru: 'Вызовов в этом месяце', en: 'Calls this month' },
@@ -1596,6 +1623,24 @@ export const MESSAGES: Dict = {
     ru: 'Лимиты: {limit} анализов в месяц на аккаунт и 60 запросов в минуту (бёрст-лимит). Превышение — ошибка 429 с кодом monthly_limit_exceeded или rate_limited.',
     en: 'Limits: {limit} analyses per month per account and 60 requests per minute (burst limit). Exceeding returns 429 with monthly_limit_exceeded or rate_limited.',
   },
+  'api.docsMore': { ru: 'Ещё возможности через API', en: 'More capabilities via API' },
+  'api.docsMoreBody': {
+    ru: 'Кроме анализа, через API доступны: сравнение версий, генерация черновиков и по шаблонам. Все — асинхронно (отправил → опрашиваешь статус), как анализ; каждый вызов тратит один месячный юнит.',
+    en: 'Beyond analysis, the API also offers version comparison, draft generation and templates. All asynchronous (submit → poll), like analysis; each call spends one monthly unit.',
+  },
+  'api.docsDraft': { ru: 'Черновик договора из промпта', en: 'Contract draft from a prompt' },
+  'api.docsCompare': { ru: 'Сравнение двух версий', en: 'Compare two versions' },
+  'api.docsTemplate': { ru: 'Каталог шаблонов и генерация', en: 'Template catalog & generation' },
+  'api.docsWebhooks': { ru: 'Вебхуки и ссылка-отчёт', en: 'Webhooks & report link' },
+  'api.docsWebhooksBody': {
+    ru: 'Не хотите опрашивать статус — зарегистрируйте вебхук: когда задание готово, мы сами POST-им подписанное уведомление на ваш URL (проверьте X-Lexab-Signature секретом). А ?report=1 у готового анализа возвращает ссылку на страницу-отчёт, которую можно показать человеку.',
+    en: 'Don’t want to poll — register a webhook: when a job finishes we POST a signed notification to your URL (verify X-Lexab-Signature with your secret). And ?report=1 on a finished analysis returns a link to a viewable report page you can show a human.',
+  },
+  'api.docsIdem': { ru: 'Идемпотентность и права ключа', en: 'Idempotency & key permissions' },
+  'api.docsIdemBody': {
+    ru: 'Передавайте заголовок Idempotency-Key (любая уникальная строка) на любой POST /v1/* — повтор с тем же значением вернёт тот же результат, не создаст дубль и не спишет юнит. Если ключ создан с ограниченными правами, запрос вне этих прав вернёт 403 insufficient_scope.',
+    en: 'Send an Idempotency-Key header (any unique string) on any POST /v1/* — a retry with the same value returns the same result, creates no duplicate and consumes no unit. If a key was created with restricted permissions, a request outside them returns 403 insufficient_scope.',
+  },
   'api.docsErrors': { ru: 'Ошибки', en: 'Errors' },
   'api.docsErrorsBody': {
     ru: 'Все ошибки приходят как JSON { error: { code, message } }: 401 invalid_api_key, 403 plan_required, 404 not_found, 429 monthly_limit_exceeded / rate_limited.',
@@ -1608,6 +1653,94 @@ export const MESSAGES: Dict = {
   },
   'api.openSettings': { ru: 'Открыть настройки', en: 'Open settings' },
   'api.openPlans': { ru: 'Тарифы', en: 'Plans' },
+  // Подписи под-навигации страницы API (вкладки). Ключи/Использование/
+  // Документация переиспользуют api.keys/api.usage/api.docs — здесь только
+  // короткая подпись вкладки «Тариф» и aria-заголовок списка вкладок.
+  'api.tabPlan': { ru: 'Тариф', en: 'Plan' },
+  'api.tabsAria': { ru: 'Разделы API', en: 'API sections' },
+  // Интерактивная документация API (/developer/docs). Названия и описания
+  // эндпоинтов приходят из OpenAPI-спеки на английском и НЕ переводятся.
+  'api.docsPage.title': { ru: 'Документация API', en: 'API reference' },
+  'api.docsPage.sub': {
+    ru: 'Полное описание публичного API /v1: эндпоинты, схемы и готовые примеры кода. Технический контракт — на английском.',
+    en: 'Complete reference for the public /v1 API: endpoints, schemas and ready-to-use code examples.',
+  },
+  'api.docsPage.open': { ru: 'Открыть полную документацию', en: 'Open full API reference' },
+  'api.docsPage.back': { ru: 'К ключам API', en: 'Back to API keys' },
+  'api.docsPage.download': { ru: 'Скачать openapi.json', en: 'Download openapi.json' },
+  'api.docsPage.baseUrl': { ru: 'Базовый URL', en: 'Base URL' },
+  'api.docsPage.version': { ru: 'версия {v}', en: 'version {v}' },
+  'api.docsPage.endpoints': { ru: 'Эндпоинты', en: 'Endpoints' },
+  'api.docsPage.params': { ru: 'Параметры', en: 'Parameters' },
+  'api.docsPage.reqBody': { ru: 'Тело запроса', en: 'Request body' },
+  'api.docsPage.responses': { ru: 'Ответы', en: 'Responses' },
+  'api.docsPage.required': { ru: 'обязательно', en: 'required' },
+  'api.docsPage.multipart': {
+    ru: 'Альтернатива: multipart/form-data с полями {fields}.',
+    en: 'Alternative: multipart/form-data with fields {fields}.',
+  },
+  // Projects (дела юристов): папки с договорами одного клиента/спора
+  'nav.projects': { ru: 'Проекты', en: 'Projects' },
+  'projects.title': { ru: 'Проекты', en: 'Projects' },
+  'projects.sub': {
+    ru: 'Дела: папки, где договоры одного клиента или спора лежат вместе',
+    en: 'Matters: folders that keep the contracts of one client or case together',
+  },
+  'projects.new': { ru: 'Новый проект', en: 'New project' },
+  'projects.create': { ru: 'Создать', en: 'Create' },
+  'projects.name': { ru: 'Название', en: 'Name' },
+  'projects.namePh': { ru: 'Например, «Дело Acme»', en: 'e.g. “Acme matter”' },
+  'projects.needName': { ru: 'Введите название', en: 'Enter a name' },
+  'projects.createdToast': { ru: 'Проект создан', en: 'Project created' },
+  'projects.rename': { ru: 'Переименовать', en: 'Rename' },
+  'projects.renamedToast': { ru: 'Проект переименован', en: 'Project renamed' },
+  'projects.delete': { ru: 'Удалить', en: 'Delete' },
+  'projects.deleteTitle': { ru: 'Удалить проект?', en: 'Delete the project?' },
+  'projects.deleteBody': {
+    ru: '«{name}» будет удалён. Договоры не удаляются — они вернутся в общий список «Документы».',
+    en: '“{name}” will be deleted. Its contracts are not deleted — they return to the general Documents list.',
+  },
+  'projects.deletedToast': {
+    ru: 'Проект удалён, договоры остались в «Документах»',
+    en: 'Project deleted; its contracts remain in Documents',
+  },
+  'projects.empty': { ru: 'Пока нет проектов', en: 'No projects yet' },
+  'projects.emptyBody': {
+    ru: 'Создайте первое дело, чтобы держать договоры одного клиента вместе.',
+    en: 'Create your first matter to keep one client’s contracts together.',
+  },
+  'projects.docsCount': { ru: 'Договоров: {n}', en: '{n} contracts' },
+  'projects.cardMenu': { ru: 'Меню проекта', en: 'Project menu' },
+  'projects.notFound': { ru: 'Проект не найден', en: 'Project not found' },
+  'projects.backToList': { ru: 'К проектам', en: 'All projects' },
+  'projects.newContract': { ru: 'Новый договор', en: 'New contract' },
+  'projects.addExisting': { ru: 'Добавить существующий', en: 'Add existing' },
+  'projects.addTitle': { ru: 'Добавить договор в проект', en: 'Add a contract to the project' },
+  'projects.addSearchPh': { ru: 'Поиск по имени…', en: 'Search by name…' },
+  'projects.addEmpty': {
+    ru: 'Свободных договоров нет — все уже разложены по проектам.',
+    en: 'No unassigned contracts — everything is already in a project.',
+  },
+  'projects.addNoMatch': { ru: 'Ничего не найдено', en: 'Nothing found' },
+  'projects.addedToast': { ru: 'Договор добавлен в проект', en: 'Contract added to the project' },
+  'projects.addFailedToast': {
+    ru: 'Не удалось добавить договор в проект',
+    en: 'Couldn’t add the contract to the project',
+  },
+  'projects.removeFromProject': { ru: 'Убрать из проекта', en: 'Remove from project' },
+  'projects.removedToast': { ru: 'Договор возвращён в общий список', en: 'Contract returned to the general list' },
+  'projects.emptyDocs': { ru: 'В проекте пока нет договоров', en: 'No contracts in this project yet' },
+  'projects.emptyDocsBody': {
+    ru: 'Загрузите новый договор или добавьте существующий.',
+    en: 'Upload a new contract or add an existing one.',
+  },
+  'projects.toProject': { ru: 'В проект…', en: 'To a project…' },
+  'projects.pickTitle': { ru: 'Выберите проект', en: 'Choose a project' },
+  'projects.pickEmpty': {
+    ru: 'Проектов пока нет — создайте первый в разделе «Проекты».',
+    en: 'No projects yet — create one in the Projects section.',
+  },
+  'projects.current': { ru: 'Текущий', en: 'Current' },
 };
 
 /**

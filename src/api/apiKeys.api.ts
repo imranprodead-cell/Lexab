@@ -12,6 +12,13 @@ export interface ApiKeyInfo {
   keyPrefix: string;
   createdAt: string;
   lastUsedAt: string | null;
+  /** Права ключа; пустой массив = полный доступ. */
+  scopes: string[];
+  /** Срок действия (ISO) или null — бессрочный ключ. */
+  expiresAt: string | null;
+  expired: boolean;
+  /** Имя создателя — для командных ключей; null, если неизвестно. */
+  createdBy: string | null;
 }
 
 export interface ApiKeyCreated extends ApiKeyInfo {
@@ -26,12 +33,26 @@ export interface ApiUsage {
   activeKeys: number;
 }
 
+/** Каталог прав — фолбэк на случай, когда GET /api-keys/scopes ещё не ответил. */
+export const API_SCOPES_FALLBACK: string[] = [
+  'analyses:read',
+  'analyses:write',
+  'drafts:write',
+  'compares:write',
+  'templates:write',
+  'webhooks:manage',
+];
+
 const MOCK_KEY: ApiKeyInfo = {
   id: 'key_mock1',
   label: 'Production backend',
   keyPrefix: 'lxb_a1b2c3d4…',
   createdAt: new Date().toISOString(),
   lastUsedAt: null,
+  scopes: [],
+  expiresAt: null,
+  expired: false,
+  createdBy: null,
 };
 
 export const apiKeysApi = {
@@ -43,12 +64,32 @@ export const apiKeysApi = {
     return http<ApiKeyInfo[]>('/api-keys', { signal });
   },
 
-  async create(label: string): Promise<ApiKeyCreated> {
+  /** Каталог доступных прав ключа (для чекбоксов в модалке создания). */
+  async scopes(signal?: AbortSignal): Promise<string[]> {
+    if (USE_MOCK) {
+      await delay(40);
+      return [...API_SCOPES_FALLBACK];
+    }
+    const res = await http<{ scopes: string[] }>('/api-keys/scopes', { signal });
+    return res.scopes;
+  },
+
+  async create(label: string, scopes: string[] = [], expiresInDays: number | null = null): Promise<ApiKeyCreated> {
     if (USE_MOCK) {
       await delay(200);
-      return { ...MOCK_KEY, label, key: 'lxb_mock-secret-shown-once' };
+      return { ...MOCK_KEY, label, scopes, key: 'lxb_mock-secret-shown-once' };
     }
-    return http<ApiKeyCreated>('/api-keys', { method: 'POST', body: { label } });
+    return http<ApiKeyCreated>('/api-keys', { method: 'POST', body: { label, scopes, expiresInDays } });
+  },
+
+  /** Ротация: отзывает старый ключ и выпускает новый с теми же label+scopes.
+   *  Секрет нового ключа — в ответе один раз, как при создании. */
+  async rotate(id: string, expiresInDays: number | null = null): Promise<ApiKeyCreated> {
+    if (USE_MOCK) {
+      await delay(200);
+      return { ...MOCK_KEY, key: 'lxb_mock-rotated-secret-shown-once' };
+    }
+    return http<ApiKeyCreated>(`/api-keys/${id}/rotate`, { method: 'POST', body: { expiresInDays } });
   },
 
   async revoke(id: string): Promise<void> {

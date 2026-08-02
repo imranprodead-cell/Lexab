@@ -1166,11 +1166,19 @@
   max-width: calc(100vw - 24px); /* узкий телефон: панель не вылезает за экран */
   padding: 6px;
   border-radius: var(--r-xl);
-  background: var(--panel-2);
+  background: var(--glass-bg-solid);
   border: 1px solid var(--panel-edge);
   box-shadow: var(--shadow-pop);
   z-index: 80;
   animation: lxdropin var(--dur-mid) var(--ease);
+}
+/* Матовое «жидкое стекло» — панель уведомлений в одном стиле со всеми. */
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .notifMenu.notifMenu {
+    background: var(--glass-pop-bg);
+    -webkit-backdrop-filter: var(--glass-pop-blur);
+    backdrop-filter: var(--glass-pop-blur);
+  }
 }
 .notifHead {
   display: flex;

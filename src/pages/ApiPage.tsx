@@ -4,15 +4,17 @@
  * (SideRail фильтрует по плану), а по прямому URL получают апселл: сервер
  * отвечает 402 → { locked } → EmptyState, как в Playbooks.
  */
-import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { ApiError } from '@/api/util';
-import { apiKeysApi, type ApiKeyCreated, type ApiKeyInfo, type ApiUsage } from '@/api/apiKeys.api';
+import { API_SCOPES_FALLBACK, apiKeysApi, type ApiKeyCreated, type ApiKeyInfo, type ApiUsage } from '@/api/apiKeys.api';
 import { TopBar } from '@/components/layout/TopBar';
 import { Icon } from '@/components/icons/Icon';
+import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { CountUp } from '@/components/ui/CountUp';
 import { Modal } from '@/components/ui/Modal';
+import { SelectMenu } from '@/components/ui/SelectMenu';
 import { EmptyState, ErrorState, SkeletonRows } from '@/components/ui/States';
 import { TextField } from '@/components/ui/TextField';
 import { useAsync } from '@/hooks/useAsync';
@@ -36,6 +38,18 @@ async function gated<T>(load: () => Promise<T>): Promise<Gated<T>> {
 }
 
 const statusColor = (s: string) => (s === 'done' ? 'var(--ok)' : s === 'error' ? 'var(--danger)' : 'var(--warn)');
+
+/** Скоупы с переводом описания — для неизвестных (будущих) прав показываем id без подписи. */
+const KNOWN_SCOPES = new Set(API_SCOPES_FALLBACK);
+
+/** Под-навигация страницы: 4 вкладки, hash-часть URL = id вкладки
+ *  (#keys/#usage/#docs/#plan). Неизвестный/пустой hash → первая вкладка. */
+const API_TABS = ['keys', 'usage', 'docs', 'plan'] as const;
+type ApiTab = (typeof API_TABS)[number];
+const tabFromHash = (): ApiTab => {
+  const h = window.location.hash.replace(/^#/, '');
+  return (API_TABS as readonly string[]).includes(h) ? (h as ApiTab) : 'keys';
+};
 
 /** Последние 30 дней с нулями (сервер отдаёт агрегаты за 30 дней, только дни
  *  с вызовами) — окно совпадает с подписью «за последние 30 дней». */
@@ -121,21 +135,61 @@ function CodeBlock({ code, onCopied, onFailed }: { code: string; onCopied: () =>
 export function ApiPage() {
   const { t, lang } = useI18n();
   const navigate = useNavigate();
+  const location = useLocation();
   const pushToast = useUIStore((s) => s.pushToast);
   usePageTitle(t('api.title'));
   const headReveal = useReveal(0.1);
 
+  // Активная вкладка синхронизирована с hash ЧЕРЕЗ РОУТЕР (react-router владеет
+  // историей — прямой history.replaceState расходился бы с ним): пишем через
+  // navigate({hash}, replace), а читаем из location.hash. Это ловит и deep-link,
+  // и back/forward, и переход на /developer из меню (сброс на первую вкладку).
+  const [tab, setTab] = useState<ApiTab>(tabFromHash);
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  useEffect(() => {
+    setTab(tabFromHash()); // location.hash в react-router всегда актуален
+  }, [location.hash]);
+  const selectTab = (next: ApiTab) => {
+    setTab(next); // мгновенный отклик; navigate синхронизирует URL/роутер
+    navigate({ hash: `#${next}` }, { replace: true });
+  };
+  const onTabKeyDown = (e: React.KeyboardEvent, idx: number) => {
+    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+    e.preventDefault();
+    const dir = e.key === 'ArrowRight' ? 1 : -1;
+    const nextIdx = (idx + dir + API_TABS.length) % API_TABS.length;
+    selectTab(API_TABS[nextIdx]);
+    tabRefs.current[nextIdx]?.focus();
+  };
+  const tabLabels: Record<ApiTab, string> = {
+    keys: t('api.keys'),
+    usage: t('api.usage'),
+    docs: t('api.docs'),
+    plan: t('api.tabPlan'),
+  };
+
   const keysState = useAsync<Gated<ApiKeyInfo[]>>((signal) => gated(() => apiKeysApi.list(signal)), []);
   const usageState = useAsync<Gated<ApiUsage>>((signal) => gated(() => apiKeysApi.usage(signal)), []);
+  // Каталог прав — с фолбэком, чтобы модалка работала и до/без ответа сервера.
+  const scopesState = useAsync<string[]>((signal) => apiKeysApi.scopes(signal), []);
+  const allScopes = scopesState.data && scopesState.data.length > 0 ? scopesState.data : API_SCOPES_FALLBACK;
 
-  // Создание ключа: модалка label → показ секрета один раз.
+  // Создание ключа: модалка label+права+срок → показ секрета один раз.
   const [createOpen, setCreateOpen] = useState(false);
   const [label, setLabel] = useState('');
   const [creating, setCreating] = useState(false);
   const [createdKey, setCreatedKey] = useState<ApiKeyCreated | null>(null);
+  const [selScopes, setSelScopes] = useState<string[]>([]);
+  const [expiry, setExpiry] = useState(''); // '' = бессрочно, иначе дни строкой
+  // Ротация показывает секрет в той же модалке — флаг меняет только заголовок.
+  const [wasRotated, setWasRotated] = useState(false);
   // Отзыв: модалка подтверждения.
   const [revokeFor, setRevokeFor] = useState<ApiKeyInfo | null>(null);
   const [revoking, setRevoking] = useState(false);
+  // Ротация: модалка подтверждения (+необязательный срок нового ключа).
+  const [rotateFor, setRotateFor] = useState<ApiKeyInfo | null>(null);
+  const [rotating, setRotating] = useState(false);
+  const [rotateExpiry, setRotateExpiry] = useState('');
 
   const locked = keysState.data?.locked === true;
   const keys = keysState.data && !keysState.data.locked ? keysState.data.data : [];
@@ -152,10 +206,14 @@ export function ApiPage() {
     new Date(iso).toLocaleDateString(localeFor(lang), { day: 'numeric', month: 'short', year: 'numeric' });
 
   // Открыть модалку создания — с чистого листа (иначе показался бы секрет
-  // предыдущего ключа, «протёкший» из прошлого создания).
+  // предыдущего ключа, «протёкший» из прошлого создания). По умолчанию отмечены
+  // ВСЕ права (= полный доступ, старое поведение) и срок «бессрочно».
   const openCreate = () => {
     setCreatedKey(null);
+    setWasRotated(false);
     setLabel('');
+    setSelScopes(allScopes);
+    setExpiry('');
     setCreateOpen(true);
   };
   // Закрыть модалку — запрещено, пока идёт создание (иначе await осиротел бы и
@@ -166,11 +224,16 @@ export function ApiPage() {
     setCreatedKey(null);
   };
 
+  const toggleScope = (s: string) =>
+    setSelScopes((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
+
   const createKey = async () => {
-    if (!label.trim() || creating) return;
+    if (!label.trim() || creating || selScopes.length === 0) return;
     setCreating(true);
     try {
-      const created = await apiKeysApi.create(label.trim());
+      // Отмечены все права → scopes: [] (= полный доступ, как раньше).
+      const scopes = selScopes.length === allScopes.length ? [] : allScopes.filter((s) => selScopes.includes(s));
+      const created = await apiKeysApi.create(label.trim(), scopes, expiry === '' ? null : Number(expiry));
       setCreatedKey(created);
       setLabel('');
       keysState.reload();
@@ -181,6 +244,34 @@ export function ApiPage() {
       setCreating(false);
     }
   };
+
+  // Ротация: старый ключ отзывается, новый секрет показываем тем же
+  // одноразовым механизмом, что и при создании (та же модалка).
+  const rotateKey = async () => {
+    if (!rotateFor || rotating) return;
+    setRotating(true);
+    try {
+      const rotated = await apiKeysApi.rotate(rotateFor.id, rotateExpiry === '' ? null : Number(rotateExpiry));
+      setRotateFor(null);
+      setWasRotated(true);
+      setLabel('');
+      setCreatedKey(rotated);
+      setCreateOpen(true);
+      keysState.reload();
+      usageState.reload();
+    } catch (err) {
+      pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
+    } finally {
+      setRotating(false);
+    }
+  };
+
+  const expiryOptions = [
+    { value: '', label: t('api.expiryNone') },
+    { value: '30', label: t('api.expiryDays', { days: 30 }) },
+    { value: '90', label: t('api.expiryDays', { days: 90 }) },
+    { value: '365', label: t('api.expiryDays', { days: 365 }) },
+  ];
 
   const revokeKey = async () => {
     if (!revokeFor || revoking) return;
@@ -215,6 +306,49 @@ curl -X POST ${apiBase}/analyses \\
 #     "citation": "…", "verified": true }] }`;
   const curlUsage = `curl ${apiBase}/usage -H "Authorization: Bearer YOUR_API_KEY"
 # → { "month": "2026-08", "used": 137, "limit": ${monthLimit === null ? 'null' : monthLimit}, "remaining": ${monthLimit === null ? 'null' : Math.max(monthLimit - 137, 0)} }`;
+  const curlDraft = `curl -X POST ${apiBase}/drafts \\
+  -H "Authorization: Bearer YOUR_API_KEY" -H "Content-Type: application/json" \\
+  -d '{"prompt": "Mutual NDA between Acme and Globex", "jurisdiction": "UK law"}'
+# → 202 { "id": "apireq_…", "status": "processing" }
+curl ${apiBase}/drafts/apireq_XXXXXXXX -H "Authorization: Bearer YOUR_API_KEY"
+# → { "status": "done", "title": "…", "summary": "…", "document": [ … ] }`;
+  const curlCompare = `curl -X POST ${apiBase}/compares \\
+  -H "Authorization: Bearer YOUR_API_KEY" -H "Content-Type: application/json" \\
+  -d '{"textA": "VERSION A…", "textB": "VERSION B…"}'
+# файлы: -F "fileA=@v1.docx" -F "fileB=@v2.docx"
+curl ${apiBase}/compares/apireq_XXXXXXXX -H "Authorization: Bearer YOUR_API_KEY"
+# → { "status": "done", "summary": "…", "changes": [{ "heading": "…",
+#     "kind": "modified", "severity": "High", "before": "…", "after": "…" }] }`;
+  const curlTemplate = `curl ${apiBase}/templates -H "Authorization: Bearer YOUR_API_KEY"
+# → { "items": [{ "id": "t1", "name": "Mutual NDA", "category": "…" }, … ] }
+curl -X POST ${apiBase}/templates/t1/generate \\
+  -H "Authorization: Bearer YOUR_API_KEY" -H "Content-Type: application/json" \\
+  -d '{"partyA": "Acme Ltd", "partyB": "Globex Inc", "details": "Pilot NDA"}'
+# → 202 { "id": "apireq_…" }  →  GET ${apiBase}/templates/requests/apireq_…
+#    → { "status": "done", "title": "…", "content": "…full contract…" }`;
+  const curlWebhook = `# Регистрируем вебхук — секрет подписи вернётся ОДИН раз:
+curl -X POST ${apiBase}/webhooks \\
+  -H "Authorization: Bearer YOUR_API_KEY" -H "Content-Type: application/json" \\
+  -d '{"url": "https://your-app.com/lexab-callback"}'
+# → { "id": "whep_…", "signingSecret": "whsec_…", "events": ["*"] }
+
+# Когда задание готово, Lexab POST'ит на ваш URL:
+#   X-Lexab-Signature: HMAC-SHA256(тело, signingSecret)  ← проверьте на своей стороне
+#   тело: { "event":"analysis.done", "id":"apireq_…", "kind":"analysis", "status":"done" }
+
+# Ссылка на страницу-отчёт (для показа человеку):
+curl "${apiBase}/analyses/apireq_XXXXXXXX?report=1" -H "Authorization: Bearer YOUR_API_KEY"
+# → { …, "reportUrl": "${window.location.origin}/share/…" }`;
+  const curlIdem = `curl -X POST ${apiBase}/analyses \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Idempotency-Key: your-unique-id" \\
+  -H "Content-Type: application/json" \\
+  -d '{"text": "FULL CONTRACT TEXT…", "fileName": "msa.txt"}'
+# повтор с тем же Idempotency-Key → тот же ответ, без дубля и списания юнита
+# a retry with the same Idempotency-Key → same response, no duplicate, no unit spent
+
+# ключ без нужного права / a key lacking the required scope:
+# → 403 { "error": { "code": "insufficient_scope", "message": "…" } }`;
 
   return (
     <div className={styles.page}>
@@ -242,9 +376,33 @@ curl -X POST ${apiBase}/analyses \\
               }
             />
           ) : (
-            <div className={styles.settingsGrid}>
+            <>
+              <div className={styles.apiTabs} role="tablist" aria-label={t('api.tabsAria')}>
+                {API_TABS.map((id, i) => (
+                  <button
+                    key={id}
+                    ref={(el) => {
+                      tabRefs.current[i] = el;
+                    }}
+                    type="button"
+                    role="tab"
+                    id={`api-tab-${id}`}
+                    aria-selected={tab === id}
+                    aria-controls={tab === id ? `api-panel-${id}` : undefined}
+                    tabIndex={tab === id ? 0 : -1}
+                    className={`${styles.apiTab} ${tab === id ? styles.apiTabActive : ''}`}
+                    onClick={() => selectTab(id)}
+                    onKeyDown={(e) => onTabKeyDown(e, i)}
+                  >
+                    {tabLabels[id]}
+                  </button>
+                ))}
+              </div>
+
+              <div className={styles.settingsGrid}>
               {/* Ключи ------------------------------------------------------ */}
-              <section className={styles.section}>
+              {tab === 'keys' && (
+              <section className={styles.section} role="tabpanel" id="api-panel-keys" aria-labelledby="api-tab-keys">
                 <div className={styles.apiSectionHead}>
                   <div>
                     <h2 className={styles.sectionTitle}>{t('api.keys')}</h2>
@@ -270,18 +428,47 @@ curl -X POST ${apiBase}/analyses \\
                             {k.keyPrefix} · {t('api.created')} {fmtDate(k.createdAt)} · {t('api.lastUsed')}:{' '}
                             {k.lastUsedAt ? fmtDate(k.lastUsedAt) : t('api.neverUsed')}
                           </span>
+                          <span className={styles.apiKeyMeta}>
+                            {k.expired ? <Badge color="High">{t('api.expiredBadge')}</Badge> : null}
+                            <span>{k.expiresAt ? t('api.expiresOn', { date: fmtDate(k.expiresAt) }) : t('api.noExpiry')}</span>
+                            {k.createdBy ? <span>· {t('api.createdByLabel', { name: k.createdBy })}</span> : null}
+                            <span>·</span>
+                            {k.scopes.length === 0 ? (
+                              <span>{t('api.fullAccess')}</span>
+                            ) : (
+                              k.scopes.map((s) => (
+                                <span key={s} className={styles.apiScopeChip}>
+                                  {s}
+                                </span>
+                              ))
+                            )}
+                          </span>
                         </div>
-                        <Button size="sm" variant="ghost" className={styles.integrBtn} onClick={() => setRevokeFor(k)}>
-                          {t('api.revoke')}
-                        </Button>
+                        <span style={{ display: 'inline-flex', gap: 8 }}>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => {
+                              setRotateExpiry('');
+                              setRotateFor(k);
+                            }}
+                          >
+                            {t('api.rotate')}
+                          </Button>
+                          <Button size="sm" variant="ghost" onClick={() => setRevokeFor(k)}>
+                            {t('api.revoke')}
+                          </Button>
+                        </span>
                       </div>
                     ))}
                   </div>
                 )}
               </section>
+              )}
 
               {/* Использование ---------------------------------------------- */}
-              <section className={styles.section}>
+              {tab === 'usage' && (
+              <section className={styles.section} role="tabpanel" id="api-panel-usage" aria-labelledby="api-tab-usage">
                 <h2 className={styles.sectionTitle}>{t('api.usage')}</h2>
                 <p className={styles.sectionSub}>{t('api.usageSub')}</p>
 
@@ -351,11 +538,21 @@ curl -X POST ${apiBase}/analyses \\
                   <ErrorState message={usageState.error} onRetry={usageState.reload} />
                 ) : null}
               </section>
+              )}
 
               {/* Документация ----------------------------------------------- */}
-              <section className={styles.section}>
-                <h2 className={styles.sectionTitle}>{t('api.docs')}</h2>
-                <p className={styles.sectionSub}>{t('api.docsSub')}</p>
+              {tab === 'docs' && (
+              <section className={styles.section} role="tabpanel" id="api-panel-docs" aria-labelledby="api-tab-docs">
+                <div className={styles.apiSectionHead}>
+                  <div>
+                    <h2 className={styles.sectionTitle}>{t('api.docs')}</h2>
+                    <p className={styles.sectionSub}>{t('api.docsSub')}</p>
+                  </div>
+                  {/* Полный интерактивный справочник по OpenAPI-спеке. */}
+                  <Button size="sm" variant="secondary" iconRight="chevron" onClick={() => navigate('/developer/docs')}>
+                    {t('api.docsPage.open')}
+                  </Button>
+                </div>
 
                 <h3 className={styles.apiSubTitle}>{t('api.docsAuth')}</h3>
                 <p className={styles.apiDocText}>{t('api.docsAuthBody')}</p>
@@ -372,12 +569,37 @@ curl -X POST ${apiBase}/analyses \\
                 <p className={styles.apiDocText}>{t('api.docsUsageBody', { limit: limitLabel })}</p>
                 <CodeBlock code={curlUsage} onCopied={() => pushToast(t('api.copiedCmd'), 'success')} onFailed={() => pushToast(t('api.copyFail'), 'error')} />
 
+                <h3 className={styles.apiSubTitle}>{t('api.docsMore')}</h3>
+                <p className={styles.apiDocText}>{t('api.docsMoreBody')}</p>
+                <p className={styles.apiDocText}>
+                  <strong>{t('api.docsDraft')}</strong>
+                </p>
+                <CodeBlock code={curlDraft} onCopied={() => pushToast(t('api.copiedCmd'), 'success')} onFailed={() => pushToast(t('api.copyFail'), 'error')} />
+                <p className={styles.apiDocText}>
+                  <strong>{t('api.docsCompare')}</strong>
+                </p>
+                <CodeBlock code={curlCompare} onCopied={() => pushToast(t('api.copiedCmd'), 'success')} onFailed={() => pushToast(t('api.copyFail'), 'error')} />
+                <p className={styles.apiDocText}>
+                  <strong>{t('api.docsTemplate')}</strong>
+                </p>
+                <CodeBlock code={curlTemplate} onCopied={() => pushToast(t('api.copiedCmd'), 'success')} onFailed={() => pushToast(t('api.copyFail'), 'error')} />
+
+                <h3 className={styles.apiSubTitle}>{t('api.docsWebhooks')}</h3>
+                <p className={styles.apiDocText}>{t('api.docsWebhooksBody')}</p>
+                <CodeBlock code={curlWebhook} onCopied={() => pushToast(t('api.copiedCmd'), 'success')} onFailed={() => pushToast(t('api.copyFail'), 'error')} />
+
+                <h3 className={styles.apiSubTitle}>{t('api.docsIdem')}</h3>
+                <p className={styles.apiDocText}>{t('api.docsIdemBody')}</p>
+                <CodeBlock code={curlIdem} onCopied={() => pushToast(t('api.copiedCmd'), 'success')} onFailed={() => pushToast(t('api.copyFail'), 'error')} />
+
                 <h3 className={styles.apiSubTitle}>{t('api.docsErrors')}</h3>
                 <p className={styles.apiDocText}>{t('api.docsErrorsBody')}</p>
               </section>
+              )}
 
               {/* Тариф и оплата --------------------------------------------- */}
-              <section className={styles.section}>
+              {tab === 'plan' && (
+              <section className={styles.section} role="tabpanel" id="api-panel-plan" aria-labelledby="api-tab-plan">
                 <h2 className={styles.sectionTitle}>{t('api.plan')}</h2>
                 <p className={styles.sectionSub}>{t('api.planSub')}</p>
                 <div className={styles.planLine}>
@@ -395,21 +617,23 @@ curl -X POST ${apiBase}/analyses \\
                   </span>
                 </div>
               </section>
-            </div>
+              )}
+              </div>
+            </>
           )}
         </div>
       </div>
 
-      {/* Создание ключа: label → секрет один раз. */}
+      {/* Создание ключа: label+права+срок → секрет один раз (и после ротации). */}
       <Modal
         open={createOpen}
-        title={createdKey ? t('api.keyCreated') : t('api.createKey')}
+        title={createdKey ? (wasRotated ? t('api.rotated') : t('api.keyCreated')) : t('api.createKey')}
         onClose={closeCreate}
         footer={
           createdKey ? (
             <Button onClick={closeCreate}>{t('api.done')}</Button>
           ) : (
-            <Button onClick={() => void createKey()} disabled={creating || !label.trim()}>
+            <Button onClick={() => void createKey()} disabled={creating || !label.trim() || selScopes.length === 0}>
               {creating ? t('common.loading') : t('api.createKey')}
             </Button>
           )
@@ -448,6 +672,23 @@ curl -X POST ${apiBase}/analyses \\
               }}
             />
             <p className={styles.apiDocText}>{t('api.keyLabelHint')}</p>
+
+            <span className={styles.label}>{t('api.scopesTitle')}</span>
+            <div className={styles.apiScopeList}>
+              {allScopes.map((s) => (
+                <label key={s} className={styles.apiScopeCheck}>
+                  <input type="checkbox" className={styles.wfCheck} checked={selScopes.includes(s)} onChange={() => toggleScope(s)} />
+                  <span className={styles.apiScopeCode}>{s}</span>
+                  {KNOWN_SCOPES.has(s) ? <span className={styles.apiScopeDesc}>{t(`api.scope.${s}`)}</span> : null}
+                </label>
+              ))}
+            </div>
+            <p className={styles.apiDocText}>{selScopes.length === 0 ? t('api.scopesNone') : t('api.scopesHint')}</p>
+
+            <span className={styles.label}>{t('api.expiryTitle')}</span>
+            <div className={styles.apiExpirySelect}>
+              <SelectMenu ariaLabel={t('api.expiryTitle')} value={expiry} onChange={setExpiry} options={expiryOptions} />
+            </div>
           </>
         )}
       </Modal>
@@ -464,6 +705,25 @@ curl -X POST ${apiBase}/analyses \\
         }
       >
         <p className={styles.apiDocText}>{t('api.revokeConfirm', { label: revokeFor?.label ?? '' })}</p>
+      </Modal>
+
+      {/* Подтверждение ротации: тот же confirm-паттерн, что и отзыв,
+          плюс необязательный срок действия нового ключа. */}
+      <Modal
+        open={rotateFor !== null}
+        title={t('api.rotate')}
+        onClose={() => setRotateFor(null)}
+        footer={
+          <Button onClick={() => void rotateKey()} disabled={rotating}>
+            {rotating ? t('common.loading') : t('api.rotate')}
+          </Button>
+        }
+      >
+        <p className={styles.apiDocText}>{t('api.rotateConfirm', { label: rotateFor?.label ?? '' })}</p>
+        <span className={styles.label}>{t('api.expiryTitle')}</span>
+        <div className={styles.apiExpirySelect}>
+          <SelectMenu ariaLabel={t('api.expiryTitle')} value={rotateExpiry} onChange={setRotateExpiry} options={expiryOptions} />
+        </div>
       </Modal>
     </div>
   );

@@ -58,6 +58,9 @@ interface DocumentViewerProps {
   topBar?: ReactNode;
   /** Draft mode: the name/badge header duplicates the draft action bar — hide it. */
   hideHeader?: boolean;
+  /** «Весь договор»: принудительно чистый финальный текст (пометки правок
+   *  скрыты независимо от переключателя showEdits) — режим чтения целиком. */
+  forceClean?: boolean;
   children?: ReactNode; // floating toolbar slot
 }
 
@@ -136,11 +139,13 @@ function BlockEditor({
 /** The right-hand paper view: renders the contract with inline AI redlines and
  *  a rich contentEditable editor driven by the top toolbar. */
 export const DocumentViewer = forwardRef<DocEditorHandle, DocumentViewerProps>(function DocumentViewer(
-  { analysis, pendingCount, canEdit, onChange, onActiveChange, anchor, topBar, hideHeader, children },
+  { analysis, pendingCount, canEdit, onChange, onActiveChange, anchor, topBar, hideHeader, forceClean, children },
   ref,
 ) {
   const { t } = useI18n();
-  const showEdits = useChatStore((s) => s.showEdits);
+  // «Весь договор» (forceClean) перекрывает переключатель пометок: всегда
+  // чистый финальный текст.
+  const showEdits = useChatStore((s) => s.showEdits) && !forceClean;
   const pushToast = useUIStore((s) => s.pushToast);
   const redlineById = new Map(analysis.redlines.map((r) => [r.id, r]));
   const [editIdx, setEditIdx] = useState<number | null>(null);

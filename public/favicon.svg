@@ -1,15 +1,19 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
-  <rect width="64" height="64" rx="14" fill="#151517"/>
+  <defs>
+    <linearGradient id="lx-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#16181d"/>
+      <stop offset="1" stop-color="#0b0c10"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#lx-bg)"/>
   <g fill="none" stroke-linecap="round" stroke-linejoin="round">
     <path d="M16 10.7v38.9h34.1" stroke="#FFFFFF" stroke-width="8.5"/>
-    <g stroke="#B9B9BD" stroke-width="5.6">
+    <g stroke="#C9CCD2" stroke-opacity="0.85" stroke-width="6.2">
       <path d="M28.8 17.1h22.9"/>
       <path d="M28.8 25.6h17.6"/>
       <path d="M28.8 34.1h7"/>
     </g>
-    <g stroke="#FFFFFF" stroke-width="2.7">
-      <circle cx="46.9" cy="37.1" r="9.1"/>
-      <path d="m42.7 37.3 3.2 3.2 5.9-7.5"/>
-    </g>
+    <circle cx="46.9" cy="37.6" r="10" fill="#101116" stroke="#FFFFFF" stroke-width="3.6"/>
+    <path d="m42.3 38 3.3 3.3 6.6-8.3" stroke="#FFFFFF" stroke-width="3.6"/>
   </g>
 </svg>

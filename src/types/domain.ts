@@ -149,6 +149,18 @@ export interface ContractDocument {
   canEdit?: boolean;
   /** Current viewer owns it. */
   mine?: boolean;
+  /** Проект (дело), в котором лежит документ; null/undefined — общий список. */
+  projectId?: string | null;
+}
+
+/** Проект (дело юриста): папка с договорами одного клиента/спора. */
+export interface Project {
+  id: string;
+  name: string;
+  createdAt: string; // ISO
+  updatedAt: string; // ISO
+  /** Живых документов внутри (считает сервер). */
+  docsCount: number;
 }
 
 export interface Template {

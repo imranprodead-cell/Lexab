@@ -19,6 +19,10 @@ const GEOMETRY: Record<string, ReactNode> = {
       <path d="M13.5 3.5V9H19M9 13h6M9 16.5h6" />
     </>
   ),
+  /* Папка (раздел «Проекты» — дела юриста): стиль остальных stroke-глифов. */
+  folder: (
+    <path d="M3.5 7a2 2 0 0 1 2-2h3.6a2 2 0 0 1 1.6.8l.9 1.2a2 2 0 0 0 1.6.8h5.3a2 2 0 0 1 2 2v7.2a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2Z" />
+  ),
   layout: (
     <>
       <rect x="4" y="4.5" width="16" height="6" rx="1.8" />
@@ -378,6 +382,15 @@ const GEOMETRY: Record<string, ReactNode> = {
     <>
       <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
       <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+    </>
+  ),
+  share: (
+    <>
+      <circle cx="18" cy="5" r="3" />
+      <circle cx="6" cy="12" r="3" />
+      <circle cx="18" cy="19" r="3" />
+      <path d="m8.7 13.4 6.6 3.8" />
+      <path d="M15.3 6.8 8.7 10.6" />
     </>
   ),
   undo: (

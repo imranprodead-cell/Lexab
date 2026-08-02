@@ -26,6 +26,8 @@ const loaders = {
   WorkspacePage: () => import('@/pages/WorkspacePage'),
   DocumentsPage: () => import('@/pages/DocumentsPage'),
   DocumentDetailPage: () => import('@/pages/DocumentDetailPage'),
+  ProjectsPage: () => import('@/pages/ProjectsPage'),
+  ProjectDetailPage: () => import('@/pages/ProjectDetailPage'),
   TemplatesPage: () => import('@/pages/TemplatesPage'),
   PlaybooksPage: () => import('@/pages/PlaybooksPage'),
   ContractsPage: () => import('@/pages/ContractsPage'),
@@ -37,6 +39,7 @@ const loaders = {
   ComparePage: () => import('@/pages/ComparePage'),
   ArchivePage: () => import('@/pages/ArchivePage'),
   ApiPage: () => import('@/pages/ApiPage'),
+  ApiDocsPage: () => import('@/pages/ApiDocsPage'),
   SettingsPage: () => import('@/pages/SettingsPage'),
   NotFoundPage: () => import('@/pages/NotFoundPage'),
 };
@@ -159,6 +162,15 @@ const appRoutes: RouteObject[] = [
             lazy: async () => ({ Component: (await loaders.DocumentDetailPage()).DocumentDetailPage }),
           },
           {
+            // Проекты (дела юристов): папки с договорами. Доступно всем тарифам.
+            path: 'projects',
+            lazy: async () => ({ Component: (await loaders.ProjectsPage()).ProjectsPage }),
+          },
+          {
+            path: 'projects/:id',
+            lazy: async () => ({ Component: (await loaders.ProjectDetailPage()).ProjectDetailPage }),
+          },
+          {
             path: 'templates',
             lazy: async () => ({ Component: (await loaders.TemplatesPage()).TemplatesPage }),
           },
@@ -202,6 +214,11 @@ const appRoutes: RouteObject[] = [
             // Раздел «API» (Business). Путь /developer — /api занят бэкендом.
             path: 'developer',
             lazy: async () => ({ Component: (await loaders.ApiPage()).ApiPage }),
+          },
+          {
+            // Интерактивная документация публичного API (рендер OpenAPI-спеки).
+            path: 'developer/docs',
+            lazy: async () => ({ Component: (await loaders.ApiDocsPage()).ApiDocsPage }),
           },
           {
             path: 'settings',

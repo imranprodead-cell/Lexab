@@ -8,6 +8,8 @@ export interface DocumentQuery {
   search?: string;
   status?: string;
   risk?: string;
+  /** Фильтр по проекту (делу): id проекта или 'none' — документы вне проектов. */
+  project?: string;
 }
 
 export const documentsApi = {
@@ -29,12 +31,18 @@ export const documentsApi = {
       if (query.risk && query.risk !== 'All') {
         rows = rows.filter((d) => d.risk === query.risk);
       }
+      if (query.project === 'none') {
+        rows = rows.filter((d) => !d.projectId);
+      } else if (query.project) {
+        rows = rows.filter((d) => d.projectId === query.project);
+      }
       return rows;
     }
     const base = new URLSearchParams();
     if (query.search) base.set('search', query.search);
     if (query.status) base.set('status', query.status);
     if (query.risk) base.set('risk', query.risk);
+    if (query.project) base.set('project', query.project);
     // The server paginates only the caller's OWN documents (pageSize capped at
     // 200 server-side) and appends the team-shared documents to EVERY page. So
     // one request can never see past the first 200 owned docs: a user with more
@@ -95,6 +103,18 @@ export const documentsApi = {
       return clone(doc);
     }
     return http<ContractDocument>(`/documents/${id}`, { method: 'PATCH', body: { teamShared } });
+  },
+
+  /** Owner: move the document into a project (дело) or back out (null). */
+  async assignProject(id: string, projectId: string | null): Promise<ContractDocument> {
+    if (USE_MOCK) {
+      await delay(120);
+      const doc = db.documents.find((d) => d.id === id);
+      if (!doc) throw new ApiError('Document not found', 404);
+      doc.projectId = projectId;
+      return clone(doc);
+    }
+    return http<ContractDocument>(`/documents/${id}`, { method: 'PATCH', body: { projectId } });
   },
 
   /** Owner: delete the document with its analyses, versions and uploads. */

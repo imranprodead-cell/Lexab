@@ -4,6 +4,7 @@ export { analyticsApi, versionsApi, userApi } from './analytics.api';
 export { chatsApi } from './chats.api';
 export { documentsApi } from './documents.api';
 export type { DocumentQuery } from './documents.api';
+export { projectsApi, PENDING_PROJECT_KEY, setPendingProject, consumePendingProject, clearPendingProject } from './projects.api';
 export { signaturesApi } from './signatures.api';
 export type { SendSignatureInput } from './signatures.api';
 export { billingApi } from './billing.api';

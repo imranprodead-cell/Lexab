@@ -5,6 +5,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('@/api', () => ({
   USE_MOCK: false,
   analysisApi: { get: vi.fn(), saveDocument: vi.fn().mockResolvedValue(undefined), analyze: vi.fn() },
+  // Флоу «новый договор в деле»: в этих тестах ключа нет — потребление даёт null,
+  // documentsApi не дёргается (adoptDocIntoProject выходит на пустом projectId).
+  consumePendingProject: () => null,
+  documentsApi: { assignProject: vi.fn().mockResolvedValue(undefined) },
 }));
 vi.mock('@/api/chats.api', () => ({
   chatsApi: {

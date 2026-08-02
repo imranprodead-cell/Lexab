@@ -22,6 +22,7 @@ interface NavEntry {
 const NAV: NavEntry[] = [
   { to: '/chat', icon: 'chat', key: 'nav.chat' },
   { to: '/documents', icon: 'docs', key: 'nav.documents' },
+  { to: '/projects', icon: 'folder', key: 'nav.projects' },
   { to: '/templates', icon: 'layout', key: 'nav.templates' },
   { to: '/playbooks', icon: 'shield', key: 'nav.playbooks' },
   { to: '/contracts', icon: 'calendar', key: 'nav.contracts' },

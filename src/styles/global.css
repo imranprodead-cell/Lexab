@@ -71,6 +71,10 @@
   --glass-bg: rgba(255, 255, 255, 0.55);
   --glass-bg-solid: rgba(255, 255, 255, 0.92);
   --glass-bg-strong: rgba(255, 255, 255, 0.78);
+  /* Полотно модалок и всплывающих панелей — белое матовое стекло: высокая доля
+   *  белого (читается как белый, не серый) + blur+saturate дают «жидкое стекло». */
+  --glass-pop-bg: rgba(255, 255, 255, 0.86);
+  --glass-pop-blur: blur(30px) saturate(1.5);
   --glass-nav-bg: rgba(255, 255, 255, 0.4);
   --glass-nav-bg-scrolled: rgba(255, 255, 255, 0.6);
   --glass-edge: rgba(35, 33, 32, 0.08);
@@ -151,6 +155,10 @@ html.dark {
   --glass-bg: rgba(18, 17, 16, 0.55);
   --glass-bg-solid: rgba(18, 17, 16, 0.92);
   --glass-bg-strong: rgba(28, 27, 26, 0.7);
+  /* Тёмная тема: матовое стекло тёмное (белая модалка слепила бы в темноте) —
+   *  тот же «жидкий» эффект blur+saturate, но на тёмном полотне. */
+  --glass-pop-bg: rgba(26, 25, 24, 0.82);
+  --glass-pop-blur: blur(30px) saturate(1.5);
   --glass-nav-bg: rgba(18, 17, 16, 0.4);
   --glass-nav-bg-scrolled: rgba(28, 27, 26, 0.6);
   --glass-edge: rgba(255, 255, 255, 0.1);
