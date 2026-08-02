@@ -11,7 +11,9 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { config } from '../config.ts';
 import type { Db } from '../db.ts';
-import { unauthorized } from '../lib/errors.ts';
+import { findLiveKey, touchLastUsed } from '../lib/apiKeys.ts';
+import { HttpError, unauthorized } from '../lib/errors.ts';
+import { planFor, planHasFeature } from '../lib/limits.ts';
 import type { UserProfile } from '../types.ts';
 
 export interface UserRow {
@@ -40,9 +42,15 @@ declare module 'fastify' {
      *  ≤30 с — осознанный компромисс: ущерб ограничен rate-limit озвучки и
      *  дневным потолком символов. */
     authenticateTts: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    /** Публичный API: аутентификация по API-ключу (`lxb_…`) вместо JWT.
+     *  Валидный живой ключ владельца с фичей apiAccess (Business+) →
+     *  req.currentUser = владелец ключа, req.apiKeyId = id ключа. */
+    authenticateApiKey: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
   interface FastifyRequest {
     currentUser: UserRow;
+    /** id строки api_keys, когда запрос пришёл по публичному API-ключу. */
+    apiKeyId?: string;
   }
 }
 
@@ -91,6 +99,7 @@ export async function getUserByEmail(db: Db, email: string): Promise<(UserRow & 
 
 export function registerAuth(app: FastifyInstance, db: Db): void {
   app.decorateRequest('currentUser');
+  app.decorateRequest('apiKeyId');
 
   /** Resolve a verified JWT to its user, or null. */
   async function resolveToken(req: FastifyRequest): Promise<UserRow | null> {
@@ -137,6 +146,34 @@ export function registerAuth(app: FastifyInstance, db: Db): void {
     const user = await resolveToken(req);
     if (!user) throw unauthorized('Войдите в аккаунт, чтобы использовать ИИ');
     req.currentUser = user;
+  });
+
+  // Публичный API: ключ в `Authorization: Bearer lxb_…` или `X-API-Key`.
+  // Сообщения об ошибках на английском (аудитория — внешние разработчики),
+  // с машиночитаемым code для ветвления на их стороне.
+  app.decorate('authenticateApiKey', async (req: FastifyRequest) => {
+    const header = req.headers.authorization ?? '';
+    const xKey = req.headers['x-api-key'];
+    const raw =
+      typeof xKey === 'string' && xKey
+        ? xKey.trim()
+        : header.startsWith('Bearer ')
+          ? header.slice(7).trim()
+          : '';
+    if (!raw.startsWith('lxb_')) {
+      throw new HttpError(401, 'Missing API key. Pass it as "Authorization: Bearer lxb_…" or "X-API-Key".', 'missing_api_key');
+    }
+    const found = await findLiveKey(db, raw);
+    if (!found) throw new HttpError(401, 'Invalid or revoked API key.', 'invalid_api_key');
+    // Тариф проверяется на КАЖДЫЙ вызов: даунгрейд с Business мгновенно
+    // выключает все ключи аккаунта без отдельной инвалидации.
+    const plan = await planFor(db, found.user.id);
+    if (!planHasFeature(plan, 'apiAccess')) {
+      throw new HttpError(403, 'API access is available on the Business plan. Upgrade to use the API.', 'plan_required');
+    }
+    req.currentUser = found.user;
+    req.apiKeyId = found.keyId;
+    void touchLastUsed(db, found.keyId);
   });
 
   // Кэширующий вариант для озвучки (см. комментарий в декларации типа).

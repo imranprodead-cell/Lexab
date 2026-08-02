@@ -6,6 +6,7 @@ import { checkAuditRetention } from './routes/audit.routes.ts';
 import { checkContractDeadlines } from './routes/contracts.routes.ts';
 import { checkRetention } from './routes/documents.routes.ts';
 import { resumeBatchJobs } from './routes/batch.routes.ts';
+import { failInterruptedApiRequests, pruneApiRequests } from './routes/public-api.routes.ts';
 import { failInterruptedWorkflows } from './routes/workflows.routes.ts';
 import { pruneStaleSessions } from './routes/security.routes.ts';
 import { checkSignatureReminders } from './routes/signatures.routes.ts';
@@ -45,6 +46,8 @@ const JOB_KEYS = {
   workflowsFail: 71008,
   signReminders: 71009,
   weeklyDigest: 71010,
+  apiRequestsFail: 71011,
+  apiRequestsPrune: 71012,
 } as const;
 // Задачи выполняются ПО ОДНОЙ через внутрипроцессную очередь: параллельные
 // tryJobLock-клиенты + их собственные запросы через пул при PG_POOL_MAX<=8
@@ -112,6 +115,15 @@ if (config.batchAutostart) {
 // периодически — упавший ПОСЛЕ нашего старта инстанс иначе оставил бы висяки.
 runExclusive(JOB_KEYS.workflowsFail, () => failInterruptedWorkflows(db));
 setInterval(() => runExclusive(JOB_KEYS.workflowsFail, () => failInterruptedWorkflows(db)), 5 * 60 * 1000);
+
+// Осиротевшие задания публичного API (инстанс умер посреди анализа) — честная
+// ошибка interrupted + возврат месячного юнита, вместо вечного processing.
+runExclusive(JOB_KEYS.apiRequestsFail, () => failInterruptedApiRequests(db));
+setInterval(() => runExclusive(JOB_KEYS.apiRequestsFail, () => failInterruptedApiRequests(db)), 5 * 60 * 1000);
+
+// Ретеншен журнала API: терминальные строки старше 90 дней, раз в сутки.
+runExclusive(JOB_KEYS.apiRequestsPrune, () => pruneApiRequests(db));
+setInterval(() => runExclusive(JOB_KEYS.apiRequestsPrune, () => pruneApiRequests(db)), 24 * 60 * 60 * 1000);
 
 // Журнал сессий: чистка строк старше окна жизни сессии, раз в сутки.
 runExclusive(JOB_KEYS.sessions, () => pruneStaleSessions(db));

@@ -319,6 +319,7 @@ const PLANS: LandingPlan[] = [
       { ru: 'Управление ролями и правами доступа', en: 'Roles & access management', de: 'Rollen- und Rechteverwaltung', ar: 'إدارة الأدوار وصلاحيات الوصول', kk: 'Рөлдер мен қол жеткізу құқықтарын басқару', uz: 'Rollar va kirish huquqlarini boshqarish' },
       { ru: 'Совместная работа над документами', en: 'Document collaboration', de: 'Gemeinsames Arbeiten an Dokumenten', ar: 'العمل التعاوني على المستندات', kk: 'Құжаттармен бірлескен жұмыс', uz: 'Hujjatlar ustida hamkorlikda ishlash' },
       { ru: 'Audit Log', en: 'Audit log', de: 'Audit Log', ar: 'سجل التدقيق (Audit Log)', kk: 'Audit Log', uz: 'Audit Log' },
+      { ru: 'API-доступ (1000 анализов/мес)', en: 'API access (1,000 analyses/mo)', de: 'API-Zugang (1.000 Analysen/Mon.)', ar: 'وصول API (‏1000 تحليل شهرياً)', kk: 'API-қолжетімділік (айына 1000 талдау)', uz: 'API kirish (oyiga 1000 tahlil)' },
       { ru: 'Расширенная аналитика', en: 'Advanced analytics', de: 'Erweiterte Analysen', ar: 'تحليلات متقدمة', kk: 'Кеңейтілген аналитика', uz: 'Kengaytirilgan analitika' },
       { ru: 'SSO (Single Sign-On)', en: 'SSO (Single Sign-On)', de: 'SSO (Single Sign-On)', ar: 'SSO (تسجيل الدخول الموحّد)', kk: 'SSO (Single Sign-On)', uz: 'SSO (Single Sign-On)' },
       { ru: '1 TB защищённого хранилища', en: '1 TB secure storage', de: '1 TB geschützter Speicherplatz', ar: '‏1 TB من التخزين الآمن', kk: '1 TB қорғалған қойма', uz: '1 TB himoyalangan xotira' },

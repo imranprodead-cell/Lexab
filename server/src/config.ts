@@ -174,6 +174,10 @@ export const config = {
    *  BATCH_AUTOSTART=0 and drive runBatch() deterministically instead (the
    *  single-connection PGlite adapter must not race a fire-and-forget loop). */
   batchAutostart: env('BATCH_AUTOSTART') !== '0',
+  /** Месячный потолок вызовов публичного API на аккаунт Business (Enterprise —
+   *  безлимит). Каждый API-анализ жжёт токены модели, поэтому потолок обязателен:
+   *  чужой глючный интегратор не должен накручивать счёт владельцу магазина. */
+  apiMonthlyLimit: Math.max(1, Number(env('API_MONTHLY_LIMIT', '1000')) || 1000),
 
   anthropicApiKey: env('ANTHROPIC_API_KEY'),
   anthropicModel: env('ANTHROPIC_MODEL', 'claude-opus-4-8'),

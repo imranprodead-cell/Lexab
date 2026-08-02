@@ -114,6 +114,7 @@ const PLANS: Plan[] = [
       { ru: 'Управление ролями и правами доступа', en: 'Roles & access management' },
       { ru: 'Совместная работа над документами', en: 'Document collaboration' },
       { ru: 'Audit Log', en: 'Audit log' },
+      { ru: 'API-доступ (1000 анализов/мес)', en: 'API access (1,000 analyses/mo)' },
       { ru: 'Расширенная аналитика', en: 'Advanced analytics' },
       { ru: 'SSO (Single Sign-On)', en: 'SSO (Single Sign-On)' },
       { ru: '1 TB защищённого хранилища', en: '1 TB secure storage' },

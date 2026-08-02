@@ -4,6 +4,7 @@
  * does NOT free up quota. AI endpoints call the assert* helpers BEFORE doing
  * any work, and bump* helpers after the work is persisted.
  */
+import { config } from '../config.ts';
 import type { Db, Queryable } from '../db.ts';
 import { HttpError } from './errors.ts';
 import { activeTeamOwnerFor } from './teamAccess.ts';
@@ -82,7 +83,8 @@ export type PlanFeature =
   | 'playbooks'
   | 'clm'
   | 'batch'
-  | 'workflows';
+  | 'workflows'
+  | 'apiAccess';
 
 const FEATURE_MIN_PLAN: Record<PlanFeature, string[]> = {
   docxExport: ['Standard', 'Pro', 'Business', 'Enterprise'],
@@ -98,6 +100,7 @@ const FEATURE_MIN_PLAN: Record<PlanFeature, string[]> = {
   clm: ['Pro', 'Business', 'Enterprise'],
   batch: ['Pro', 'Business', 'Enterprise'],
   workflows: ['Pro', 'Business', 'Enterprise'],
+  apiAccess: ['Business', 'Enterprise'],
 };
 
 const FEATURE_LABEL: Record<PlanFeature, { ru: string; en: string; plans: string }> = {
@@ -114,6 +117,7 @@ const FEATURE_LABEL: Record<PlanFeature, { ru: string; en: string; plans: string
   clm: { ru: 'Сроки и обязательства договоров (CLM)', en: 'Contract lifecycle (CLM)', plans: 'Pro и Business' },
   batch: { ru: 'Массовый разбор пачки договоров', en: 'Batch contract review', plans: 'Pro и Business' },
   workflows: { ru: 'Агентные воркфлоу (сценарии)', en: 'Agentic workflows', plans: 'Pro и Business' },
+  apiAccess: { ru: 'API-доступ для интеграций', en: 'API access', plans: 'Business' },
 };
 
 export function planHasFeature(plan: string, feature: PlanFeature): boolean {
@@ -204,6 +208,73 @@ export async function withAiRequest<T>(db: Db, userId: string, work: (plan: stri
     if (reserved) await releaseAiRequest(db, userId);
     throw err;
   }
+}
+
+/** Месячный потолок вызовов публичного API (Business; Enterprise — безлимит). */
+export function apiMonthlyLimitFor(plan: string): number | null {
+  return plan === 'Enterprise' ? null : config.apiMonthlyLimit;
+}
+
+/** Текущее использование публичного API за месяц + потолок плана. */
+export async function apiMonthlyUsage(db: Db, userId: string): Promise<{ plan: string; used: number; limit: number | null }> {
+  const plan = await planFor(db, userId);
+  const res = await db.query<{ api_requests: number | string }>(
+    `SELECT api_requests FROM usage_counters
+     WHERE user_id = $1 AND month = date_trunc('month', now())::date`,
+    [userId],
+  );
+  return { plan, used: Number(res.rows[0]?.api_requests ?? 0), limit: apiMonthlyLimitFor(plan) };
+}
+
+/**
+ * Атомарно зарезервировать ОДИН вызов публичного API за месяц (зеркало
+ * reserveDocument): инкремент-если-меньше-лимита одним UPDATE, без TOCTOU.
+ * Превышение → 429 monthly_limit_exceeded (не 402: тариф уже включает API,
+ * исчерпан именно месячный потолок вызовов). Принимает Queryable, чтобы резерв
+ * и INSERT строки-задания шли в ОДНОЙ транзакции — тогда откат (INSERT упал)
+ * отменяет и резерв, и юнит нельзя вернуть дважды.
+ */
+export async function reserveApiRequest(db: Queryable, userId: string): Promise<{ plan: string; reserved: boolean }> {
+  const plan = (await db.query<{ plan: string }>('SELECT plan FROM subscriptions WHERE user_id = $1', [userId])).rows[0]?.plan ?? 'Free';
+  const limit = apiMonthlyLimitFor(plan);
+  if (limit === null) {
+    // Безлимит (Enterprise): гейта нет, но счётчик ведём — чтобы /usage и кабинет
+    // показывали честное «used», а release при провале был симметричен платному
+    // пути (иначе Enterprise всегда показывал бы 0 использований).
+    await db.query(
+      `INSERT INTO usage_counters (user_id, month, ai_requests, docs_created, api_requests)
+       VALUES ($1, date_trunc('month', now())::date, 0, 0, 1)
+       ON CONFLICT (user_id, month) DO UPDATE SET api_requests = usage_counters.api_requests + 1`,
+      [userId],
+    );
+    return { plan, reserved: true };
+  }
+  const res = await db.query<{ api_requests: number | string }>(
+    `INSERT INTO usage_counters (user_id, month, ai_requests, docs_created, api_requests)
+     VALUES ($1, date_trunc('month', now())::date, 0, 0, 1)
+     ON CONFLICT (user_id, month)
+     DO UPDATE SET api_requests = usage_counters.api_requests + 1
+       WHERE usage_counters.api_requests < $2
+     RETURNING api_requests`,
+    [userId, limit],
+  );
+  if (res.rows.length === 0) {
+    throw new HttpError(
+      429,
+      `Monthly API limit reached (${limit}/${limit} analyses this month). The counter resets on the 1st.`,
+      'monthly_limit_exceeded',
+    );
+  }
+  return { plan, reserved: true };
+}
+
+/** Вернуть зарезервированный API-юнит при провале работы (не ниже нуля). */
+export async function releaseApiRequest(db: Db, userId: string): Promise<void> {
+  await db.query(
+    `UPDATE usage_counters SET api_requests = GREATEST(api_requests - 1, 0)
+     WHERE user_id = $1 AND month = date_trunc('month', now())::date`,
+    [userId],
+  );
 }
 
 /** 402 when creating one more document would exceed the monthly quota. */

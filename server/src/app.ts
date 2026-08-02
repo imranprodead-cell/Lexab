@@ -11,6 +11,8 @@ import type { Db } from './db.ts';
 import { HttpError } from './lib/errors.ts';
 import { registerAuth } from './plugins/auth.ts';
 import { analysisRoutes } from './routes/analysis.routes.ts';
+import { apiKeyRoutes } from './routes/apikeys.routes.ts';
+import { publicApiRoutes } from './routes/public-api.routes.ts';
 import { approvalRoutes } from './routes/approvals.routes.ts';
 import { analyticsRoutes } from './routes/analytics.routes.ts';
 import { authRoutes } from './routes/auth.routes.ts';
@@ -79,7 +81,7 @@ export async function buildApp(db: Db): Promise<FastifyInstance> {
   await app.register(cors, {
     origin: (origin, cb) => cb(null, !origin || isOriginAllowed(origin)),
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-API-Key'],
     exposedHeaders: ['X-Total-Count', 'Content-Disposition'],
   });
   await app.register(jwt, { secret: config.jwtSecret });
@@ -99,12 +101,20 @@ export async function buildApp(db: Db): Promise<FastifyInstance> {
     // the per-IP brute-force limit on /auth/login etc.
     keyGenerator: (req) => {
       const auth = req.headers.authorization;
+      // Валидный JWT — бакет по ВЕРИФИЦИРОВАННОМУ user id (одна NAT-сеть не душит
+      // всех, ротация IP не множит бюджет аккаунта). Публичный API-ключ (lxb_…) —
+      // НЕ отдельный неймспейс: `Bearer lxb_…` не пройдёт jwt.verify и провалится
+      // в общий IP-бакет ниже, `X-API-Key: lxb_…` (без Bearer) — тоже в IP. Так
+      // все lxb_-запросы с одного хоста делят один per-IP бакет (поток случайных
+      // ключей упирается в 60/мин на /v1, findLiveKey не молотит БД), и при этом
+      // подставной lxb_-заголовок НЕ может отколоть себе второй бакет на /auth/*
+      // и удвоить бёрст-бюджет брутфорса.
       if (auth?.startsWith('Bearer ')) {
         try {
           const payload = app.jwt.verify<{ sub?: string }>(auth.slice(7));
           if (payload.sub) return `u:${payload.sub}`;
         } catch {
-          /* invalid/expired token — fall through to IP */
+          /* invalid/expired token (в т.ч. lxb_-ключ) — fall through to IP */
         }
       }
       return req.ip;
@@ -195,6 +205,8 @@ export async function buildApp(db: Db): Promise<FastifyInstance> {
       lawRoutes(api, db);
       shareRoutes(api, db);
       webhookSettingsRoutes(api, db);
+      apiKeyRoutes(api, db);
+      publicApiRoutes(api, db); // /api/v1/* — публичный API по ключам (Business)
     },
     { prefix: config.apiPrefix },
   );

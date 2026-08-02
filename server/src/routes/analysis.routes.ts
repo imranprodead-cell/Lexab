@@ -216,7 +216,8 @@ async function resolveUploadedContent(db: Db, userId: string, fileName: string):
   return { text, pdf, sizeBytes: Number(row.size_bytes), uploadId: row.id };
 }
 
-async function readSource(db: Db, req: FastifyRequest): Promise<AnalysisSource> {
+/** Exported for the public API (multipart branch is reused verbatim there). */
+export async function readSource(db: Db, req: FastifyRequest): Promise<AnalysisSource> {
   if (req.isMultipart()) {
     const part = await req.file({ limits: { fileSize: MAX_UPLOAD_BYTES } });
     if (!part) throw badRequest('Expected a multipart "file" field');
@@ -313,6 +314,14 @@ export async function persistAnalysis(
   // null + actorLabel (email отправителя).
   req: FastifyRequest | null = null,
   actorLabel?: string,
+  // Опции публичного API:
+  //  - skipDocQuota: документы API не гейтятся интерактивным docs-лимитом плана
+  //    (у API своя месячная квота api_requests) и НЕ бампают docs_created.
+  //  - skipNotify: не слать владельцу in-app уведомления «Анализ готов»/«Высокий
+  //    риск» на каждый программный API-вызов (иначе колокольчик спамится).
+  //  - apiRequestId: пометить строку api_requests как done ВНУТРИ той же
+  //    транзакции, что и сам анализ — атомарно, без окна refund-on-success.
+  opts: { skipDocQuota?: boolean; skipNotify?: boolean; apiRequestId?: string } = {},
 ): Promise<AnalysisResult> {
   // Пост-калибровка: после валидации цитат (демоция непроверенных в Low) балл
   // риска не может превышать потолок фактической максимальной severity.
@@ -405,7 +414,12 @@ export async function persistAnalysis(
       );
       // Atomic doc-quota reservation inside this tx — a 402 rolls back the new
       // document too, and concurrent creates can't both slip past the limit.
-      await reserveDocument(tx, userId);
+      // Публичный API НЕ трогает docs-счётчик вовсе: его квота — своя (api_requests,
+      // 1000/мес). Если бы API бампал docs_created, он бы съедал интерактивный
+      // docs-лимит плана (Business 700) и после 700 API-вызовов блокировал ручное
+      // создание документов пользователем. Документ создаётся (строка выше), но
+      // не учитывается в docs_created.
+      if (!opts.skipDocQuota) await reserveDocument(tx, userId);
       await tx.query(
         `INSERT INTO document_versions (id, document_id, label, author, note)
          VALUES ($1, $2, 'v1 — original', 'Upload', 'Initial draft received.')`,
@@ -522,25 +536,39 @@ export async function persistAnalysis(
       [chargeUserId, bump.High, bump.Medium, bump.Low],
     );
     // AI usage is counted by the caller's reservation (reserveAiRequest), not here.
+
+    // Публичный API: пометка задания done идёт В ЭТОЙ ЖЕ транзакции, что и анализ.
+    // Так done фиксируется атомарно с сохранёнными строками — исключено окно, где
+    // отдельный UPDATE падает после коммита анализа и квота возвращается за
+    // фактически успешный анализ. Гард status='processing' уважает recovery.
+    if (opts.apiRequestId) {
+      await tx.query(
+        "UPDATE api_requests SET status = 'done', analysis_id = $2, updated_at = now() WHERE id = $1 AND status = 'processing'",
+        [opts.apiRequestId, analysisId],
+      );
+    }
   });
 
   // Best-effort AFTER the commit: the analysis is already saved, so a failed
   // notification must not bubble up — the caller would refund the quota and
   // return an error, and the client's retry would then DUPLICATE the analysis.
-  void (async () => {
-    await notify(db, userId, 'check', 'Анализ готов', 'Analysis ready', {
-      bodyRu: source.fileName,
-      bodyEn: source.fileName,
-      action: { kind: 'open', data: '/documents' },
-    });
-    if (gen.riskLevel === 'High') {
-      await notify(db, userId, 'alert', 'Найден высокий риск', 'High risk found', {
+  // skipNotify: программные API-вызовы не спамят колокольчик владельца.
+  if (!opts.skipNotify) {
+    void (async () => {
+      await notify(db, userId, 'check', 'Анализ готов', 'Analysis ready', {
         bodyRu: source.fileName,
         bodyEn: source.fileName,
         action: { kind: 'open', data: '/documents' },
       });
-    }
-  })().catch((err) => console.warn(`[analysis] notify failed (analysis saved): ${(err as Error).message}`));
+      if (gen.riskLevel === 'High') {
+        await notify(db, userId, 'alert', 'Найден высокий риск', 'High risk found', {
+          bodyRu: source.fileName,
+          bodyEn: source.fileName,
+          action: { kind: 'open', data: '/documents' },
+        });
+      }
+    })().catch((err) => console.warn(`[analysis] notify failed (analysis saved): ${(err as Error).message}`));
+  }
 
   // Audit: who ran an analysis (scoped to the document owner's team). NEVER the
   // contract text — only { feature, ok } per the Privacy Policy.

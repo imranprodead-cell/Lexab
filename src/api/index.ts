@@ -16,6 +16,8 @@ export type { CreatePlaybookInput, UpdatePlaybookInput } from './playbooks.api';
 export { contractsApi } from './contracts.api';
 export { batchApi } from './batch.api';
 export { workflowsApi } from './workflows.api';
+export { apiKeysApi } from './apiKeys.api';
+export type { ApiKeyInfo, ApiKeyCreated, ApiUsage } from './apiKeys.api';
 export { securityApi } from './security.api';
 export type { TwoFactorStatus, TwoFactorSetup, SessionInfo, AccessReviewRow } from './security.api';
 export { ttsApi } from './tts.api';

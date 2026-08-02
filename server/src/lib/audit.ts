@@ -87,6 +87,10 @@ export type AuditEventType =
   | 'workflow.step'
   | 'workflow.completed'
   | 'workflow.failed'
+  // публичный API (тариф Business): жизненный цикл ключей. Сами вызовы
+  // анализа журналируются как ai.analysis с actorLabel «api:<keyId>».
+  | 'apikey.created'
+  | 'apikey.revoked'
   // billing
   | 'billing.checkout'
   | 'billing.canceled'

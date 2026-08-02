@@ -99,3 +99,23 @@ checkout for the Plans page.
 ---
 
 
+
+## Public API (Business plan) — `/api/v1/*`
+
+Machine-to-machine API for Business customers, authenticated by API key
+(`Authorization: Bearer lxb_…` or `X-API-Key`), managed in the dashboard's
+**API** section (`/developer`). Errors use `{ "error": { "code", "message" } }`.
+Limits: `API_MONTHLY_LIMIT` (default 1000) analyses/month per account, and a
+60 requests/min burst limit (bucketed per source IP; requires `TRUST_PROXY`
+behind a reverse proxy so `req.ip` is the real client).
+
+| Method | Path                | Body                                          | Returns                              |
+| ------ | ------------------- | --------------------------------------------- | ------------------------------------ |
+| POST   | `/v1/analyses`      | `{ text, fileName?, jurisdiction? }` or multipart `file` | `202 { id, status: 'processing' }` |
+| GET    | `/v1/analyses/:id`  | —                                             | status + result (findings, riskScore, verified citations) |
+| GET    | `/v1/analyses`      | `?limit&offset`                               | `{ items, limit, offset }`           |
+| GET    | `/v1/usage`         | —                                             | `{ month, used, limit, remaining }`  |
+
+Dashboard-side management (JWT session, 402 unless the plan includes
+`apiAccess`): `GET/POST /api-keys`, `DELETE /api-keys/:id`,
+`GET /api-keys/usage`.

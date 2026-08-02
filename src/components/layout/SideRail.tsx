@@ -31,6 +31,11 @@ const NAV: NavEntry[] = [
   { to: '/team', icon: 'users', key: 'nav.team' },
 ];
 
+/** Раздел «API» видят только Business/Enterprise (требование продукта: другим
+ *  тарифам пункт не показывается вовсе; прямой URL гейтится сервером — 402). */
+const API_NAV: NavEntry = { to: '/developer', icon: 'key', key: 'nav.api' };
+const API_PLANS = ['Business', 'Enterprise'];
+
 /** Group chat sessions into Today / Yesterday / Previous 7 days buckets. */
 function groupSessions(sessions: ChatSession[], labels: { today: string; yesterday: string; prev: string }) {
   const startOfToday = new Date();
@@ -281,7 +286,7 @@ export function SideRail({ sessions, user, onNewReview }: SideRailProps) {
         </button>
 
         <div className={styles.navGroup}>
-          {NAV.map((n) => (
+          {(API_PLANS.includes(limits?.plan ?? '') ? [...NAV, API_NAV] : NAV).map((n) => (
             <NavLink
               key={n.to}
               to={n.to}

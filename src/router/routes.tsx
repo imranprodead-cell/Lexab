@@ -36,6 +36,7 @@ const loaders = {
   TeamPage: () => import('@/pages/TeamPage'),
   ComparePage: () => import('@/pages/ComparePage'),
   ArchivePage: () => import('@/pages/ArchivePage'),
+  ApiPage: () => import('@/pages/ApiPage'),
   SettingsPage: () => import('@/pages/SettingsPage'),
   NotFoundPage: () => import('@/pages/NotFoundPage'),
 };
@@ -196,6 +197,11 @@ const appRoutes: RouteObject[] = [
           {
             path: 'archive',
             lazy: async () => ({ Component: (await loaders.ArchivePage()).ArchivePage }),
+          },
+          {
+            // Раздел «API» (Business). Путь /developer — /api занят бэкендом.
+            path: 'developer',
+            lazy: async () => ({ Component: (await loaders.ApiPage()).ApiPage }),
           },
           {
             path: 'settings',

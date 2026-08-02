@@ -3108,3 +3108,88 @@
   font-family: var(--font-label);
   white-space: nowrap;
 }
+
+/* API section (Business) --------------------------------------------------- */
+.apiSectionHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.apiSectionHead .sectionSub {
+  margin-bottom: 0;
+}
+.apiSubTitle {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 18px 0 6px;
+}
+.apiDocText {
+  font-size: 13.5px;
+  color: var(--dim);
+  line-height: 1.55;
+  margin: 0 0 10px;
+}
+.apiEmptyHint {
+  font-size: 13.5px;
+  color: var(--mut);
+  margin: 8px 0 0;
+}
+.apiCodeWrap {
+  position: relative;
+  margin: 0 0 6px;
+}
+.apiCode {
+  font-family: var(--font-label);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text);
+  background: var(--panel-2);
+  border: 1px solid var(--panel-edge);
+  border-radius: var(--r-md);
+  padding: 12px 40px 12px 14px;
+  overflow-x: auto;
+  white-space: pre;
+  margin: 0;
+}
+.apiCodeCopy {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--panel-edge);
+  border-radius: var(--r-sm);
+  background: var(--panel);
+  color: var(--dim);
+  cursor: pointer;
+}
+.apiCodeCopy:hover {
+  color: var(--text);
+}
+.apiKeyBox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--panel-edge);
+  border-radius: var(--r-md);
+  padding: 12px 14px;
+}
+.apiKeyValue {
+  font-family: var(--font-label);
+  font-size: 13px;
+  word-break: break-all;
+  flex: 1;
+  user-select: all;
+}
+.apiStatusDot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: none;
+  margin: 0 6px;
+}
