@@ -21,6 +21,7 @@ export interface DocumentRowFull {
   size_bytes: number;
   updated_at: Date | string;
   team_shared: boolean;
+  project_id?: string | null;
 }
 
 export interface DocumentAccess {
@@ -34,8 +35,12 @@ export interface DocumentAccess {
 /** Владелец команды, в которой пользователь состоит АКТИВНЫМ участником,
  *  или null (сам себе команда). Единая точка для «чьи плейбуки/фичи применяются». */
 export async function activeTeamOwnerFor(db: Db, userId: string): Promise<string | null> {
+  // ORDER BY created_at: пользователь может быть активным участником нескольких
+  // команд (уникальность — по owner+email, не по участнику). Без порядка LIMIT 1
+  // был бы недетерминирован; берём самое РАННЕЕ членство — стабильно и совпадает
+  // с выбором в team.routes.ts (чтобы «чьи фичи/ключи» резолвились одинаково).
   const res = await db.query<{ owner_user_id: string }>(
-    "SELECT owner_user_id FROM team_members WHERE member_user_id = $1 AND status = 'active' AND owner_user_id <> $1 LIMIT 1",
+    "SELECT owner_user_id FROM team_members WHERE member_user_id = $1 AND status = 'active' AND owner_user_id <> $1 ORDER BY created_at LIMIT 1",
     [userId],
   );
   return res.rows[0]?.owner_user_id ?? null;
@@ -55,7 +60,7 @@ export async function teamRoleFor(db: Db, viewerId: string, ownerId: string): Pr
 /** Owner or team member (for shared docs) — otherwise 404. */
 export async function resolveDocumentAccess(db: Db, userId: string, docId: string): Promise<DocumentAccess> {
   const res = await db.query<DocumentRowFull>(
-    `SELECT id, user_id, name, counterparty, status, risk, jurisdiction, size_bytes, updated_at, team_shared
+    `SELECT id, user_id, name, counterparty, status, risk, jurisdiction, size_bytes, updated_at, team_shared, project_id
      FROM documents WHERE id = $1 AND deleted_at IS NULL`,
     [docId],
   );

@@ -105,6 +105,8 @@ export interface ContractDocument {
   canEdit?: boolean;
   /** The viewer owns this document. */
   mine?: boolean;
+  /** Проект (дело), в котором лежит документ; null/отсутствует = вне проектов. */
+  projectId?: string | null;
 }
 
 export interface Template {

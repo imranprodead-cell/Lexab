@@ -7,6 +7,7 @@ import { checkContractDeadlines } from './routes/contracts.routes.ts';
 import { checkRetention } from './routes/documents.routes.ts';
 import { resumeBatchJobs } from './routes/batch.routes.ts';
 import { failInterruptedApiRequests, pruneApiRequests } from './routes/public-api.routes.ts';
+import { pruneWebhookDeliveries, runWebhookDeliveries } from './lib/apiWebhooks.ts';
 import { failInterruptedWorkflows } from './routes/workflows.routes.ts';
 import { pruneStaleSessions } from './routes/security.routes.ts';
 import { checkSignatureReminders } from './routes/signatures.routes.ts';
@@ -48,6 +49,8 @@ const JOB_KEYS = {
   weeklyDigest: 71010,
   apiRequestsFail: 71011,
   apiRequestsPrune: 71012,
+  webhookDeliver: 71013,
+  webhookPrune: 71014,
 } as const;
 // Задачи выполняются ПО ОДНОЙ через внутрипроцессную очередь: параллельные
 // tryJobLock-клиенты + их собственные запросы через пул при PG_POOL_MAX<=8
@@ -124,6 +127,13 @@ setInterval(() => runExclusive(JOB_KEYS.apiRequestsFail, () => failInterruptedAp
 // Ретеншен журнала API: терминальные строки старше 90 дней, раз в сутки.
 runExclusive(JOB_KEYS.apiRequestsPrune, () => pruneApiRequests(db));
 setInterval(() => runExclusive(JOB_KEYS.apiRequestsPrune, () => pruneApiRequests(db)), 24 * 60 * 60 * 1000);
+
+// Доставка callback-вебхуков: дозревшие ретраи, раз в минуту под кластер-локом.
+runExclusive(JOB_KEYS.webhookDeliver, () => runWebhookDeliveries(db));
+setInterval(() => runExclusive(JOB_KEYS.webhookDeliver, () => runWebhookDeliveries(db)), 60 * 1000);
+// Ретеншен журнала доставок: терминальные старше 30 дней, раз в сутки.
+runExclusive(JOB_KEYS.webhookPrune, () => pruneWebhookDeliveries(db));
+setInterval(() => runExclusive(JOB_KEYS.webhookPrune, () => pruneWebhookDeliveries(db)), 24 * 60 * 60 * 1000);
 
 // Журнал сессий: чистка строк старше окна жизни сессии, раз в сутки.
 runExclusive(JOB_KEYS.sessions, () => pruneStaleSessions(db));

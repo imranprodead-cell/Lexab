@@ -321,7 +321,10 @@ export async function persistAnalysis(
   //    риск» на каждый программный API-вызов (иначе колокольчик спамится).
   //  - apiRequestId: пометить строку api_requests как done ВНУТРИ той же
   //    транзакции, что и сам анализ — атомарно, без окна refund-on-success.
-  opts: { skipDocQuota?: boolean; skipNotify?: boolean; apiRequestId?: string } = {},
+  //  - skipReviewStats: НЕ писать ревью-аналитику (review_events + user_stats
+  //    hours_saved) — для потоков ГЕНЕРАЦИИ (черновик): это не проверка договора,
+  //    и массовая генерация не должна накручивать «проверено N / сэкономлено X ч».
+  opts: { skipDocQuota?: boolean; skipNotify?: boolean; apiRequestId?: string; skipReviewStats?: boolean } = {},
 ): Promise<AnalysisResult> {
   // Пост-калибровка: после валидации цитат (демоция непроверенных в Low) балл
   // риска не может превышать потолок фактической максимальной severity.
@@ -522,19 +525,23 @@ export async function persistAnalysis(
 
     // Analytics + usage are attributed to whoever ran the review (the requester
     // for shared team documents) — their allowance was checked, their stats move.
-    await tx.query('INSERT INTO review_events (id, user_id, risk_score, analysis_id) VALUES ($1, $2, $3, $4)', [
-      newId('re'),
-      chargeUserId,
-      gen.riskScore,
-      analysisId,
-    ]);
-    const bump = { High: 0, Medium: 0, Low: 0 };
-    for (const f of gen.findings) bump[f.severity]++;
-    await tx.query(
-      `UPDATE user_stats SET findings_high = findings_high + $2, findings_medium = findings_medium + $3,
-       findings_low = findings_low + $4, hours_saved_minutes = hours_saved_minutes + 90 WHERE user_id = $1`,
-      [chargeUserId, bump.High, bump.Medium, bump.Low],
-    );
+    // Потоки генерации (черновик) это ПРОПУСКАЮТ: черновик — не проверка договора,
+    // и не должен считаться как «проверено N / сэкономлено X часов».
+    if (!opts.skipReviewStats) {
+      await tx.query('INSERT INTO review_events (id, user_id, risk_score, analysis_id) VALUES ($1, $2, $3, $4)', [
+        newId('re'),
+        chargeUserId,
+        gen.riskScore,
+        analysisId,
+      ]);
+      const bump = { High: 0, Medium: 0, Low: 0 };
+      for (const f of gen.findings) bump[f.severity]++;
+      await tx.query(
+        `UPDATE user_stats SET findings_high = findings_high + $2, findings_medium = findings_medium + $3,
+         findings_low = findings_low + $4, hours_saved_minutes = hours_saved_minutes + 90 WHERE user_id = $1`,
+        [chargeUserId, bump.High, bump.Medium, bump.Low],
+      );
+    }
     // AI usage is counted by the caller's reservation (reserveAiRequest), not here.
 
     // Публичный API: пометка задания done идёт В ЭТОЙ ЖЕ транзакции, что и анализ.

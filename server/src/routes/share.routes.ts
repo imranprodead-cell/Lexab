@@ -20,6 +20,22 @@ import { assertCanEdit, resolveAnalysisAccess } from '../lib/teamAccess.ts';
 
 const RATE = { rateLimit: { max: 30, timeWindow: '1 minute' } };
 
+/** Переиспользовать живую или создать новую публичную ссылку-отчёт для анализа
+ *  ВЛАДЕЛЬЦА (без проверки доступа — вызывающий уже подтвердил владение, напр.
+ *  публичный API по api_requests.user_id). Возвращает полный URL /share/:token. */
+export async function ensureAnalysisShareUrl(db: Db, userId: string, analysisId: string): Promise<string> {
+  const live = await db.query<{ token: string }>(
+    'SELECT token FROM analysis_shares WHERE analysis_id = $1 AND revoked_at IS NULL LIMIT 1',
+    [analysisId],
+  );
+  let token = live.rows[0]?.token;
+  if (!token) {
+    token = crypto.randomBytes(24).toString('base64url');
+    await db.query('INSERT INTO analysis_shares (token, analysis_id, user_id) VALUES ($1, $2, $3)', [token, analysisId, userId]);
+  }
+  return `${config.appBaseUrl}/share/${token}`;
+}
+
 export function shareRoutes(app: FastifyInstance, db: Db): void {
   app.post('/analysis/:id/share', { preHandler: [app.authenticate], config: RATE }, async (req, reply) => {
     const { id } = req.params as { id: string };

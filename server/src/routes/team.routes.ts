@@ -315,6 +315,25 @@ export function teamRoutes(app: FastifyInstance, db: Db): void {
     );
     const row = res.rows[0];
     if (!row) throw notFound('Участник не найден / Member not found');
+    // Оффбординг: секреты, выданные этому участнику, должны умереть вместе с
+    // доступом. Командные ключи, которые он создал, живут под user_id владельца
+    // (raw lxb_ показан ему один раз) — оставить их значит дать ушедшему живой
+    // ключ к аккаунту владельца; его вебхуки продолжали бы слать наружу. Отзываем
+    // ключи участника под этим владельцем и завязанные на них вебхук-эндпоинты.
+    if (row.member_user_id) {
+      await db.withTx(async (tx) => {
+        const revoked = await tx.query<{ id: string }>(
+          'UPDATE api_keys SET revoked_at = now() WHERE created_by = $1 AND user_id = $2 AND revoked_at IS NULL RETURNING id',
+          [row.member_user_id, req.currentUser.id],
+        );
+        if (revoked.rows.length) {
+          await tx.query(
+            'UPDATE api_webhook_endpoints SET revoked_at = now() WHERE user_id = $1 AND key_id = ANY($2::text[]) AND revoked_at IS NULL',
+            [req.currentUser.id, revoked.rows.map((r) => r.id)],
+          );
+        }
+      });
+    }
     await audit(db, req, {
       type: 'team.member_removed',
       teamOwnerId: req.currentUser.id,

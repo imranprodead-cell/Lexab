@@ -20,6 +20,7 @@ import { billingRoutes } from './routes/billing.routes.ts';
 import { chatRoutes } from './routes/chats.routes.ts';
 import { compareRoutes } from './routes/compare.routes.ts';
 import { documentRoutes } from './routes/documents.routes.ts';
+import { projectRoutes } from './routes/projects.routes.ts';
 import { feedbackRoutes } from './routes/feedback.routes.ts';
 import { googleRoutes } from './routes/google.routes.ts';
 import { inboundRoutes } from './routes/inbound.routes.ts';
@@ -81,8 +82,10 @@ export async function buildApp(db: Db): Promise<FastifyInstance> {
   await app.register(cors, {
     origin: (origin, cb) => cb(null, !origin || isOriginAllowed(origin)),
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-API-Key'],
-    exposedHeaders: ['X-Total-Count', 'Content-Disposition'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-API-Key', 'Idempotency-Key'],
+    // x-ratelimit-*/retry-after эмитит @fastify/rate-limit — экспонируем их,
+    // чтобы браузерные SDK интеграторов видели остаток бёрст-лимита.
+    exposedHeaders: ['X-Total-Count', 'Content-Disposition', 'X-RateLimit-Limit', 'X-RateLimit-Remaining', 'X-RateLimit-Reset', 'Retry-After'],
   });
   await app.register(jwt, { secret: config.jwtSecret });
   // Cookies are used only for the short-lived OAuth anti-CSRF nonce (httpOnly,
@@ -184,6 +187,7 @@ export async function buildApp(db: Db): Promise<FastifyInstance> {
       inboundRoutes(api, db);
       uploadRoutes(api, db);
       documentRoutes(api, db);
+      projectRoutes(api, db);
       signRoutes(api, db);
       approvalRoutes(api, db);
       templateRoutes(api, db);

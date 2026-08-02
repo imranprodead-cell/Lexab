@@ -49,14 +49,19 @@ export type AuditEventType =
   | 'document.exported'
   | 'document.renamed' // reserved
   | 'document.version_restored' // reserved
-  | 'document.moved_to_folder' // reserved
+  | 'document.moved_to_folder'
   | 'document.archived' // reserved
   | 'document.template_created'
+  // projects (дела)
+  | 'project.created'
+  | 'project.renamed'
+  | 'project.deleted'
   // ai
   | 'ai.analysis'
   | 'ai.chat'
   | 'ai.draft'
   | 'ai.compare'
+  | 'ai.template'
   // публичные ссылки на отчёт, вебхуки
   | 'analysis.share_created'
   | 'analysis.share_revoked'

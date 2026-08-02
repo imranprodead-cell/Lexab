@@ -51,6 +51,9 @@ declare module 'fastify' {
     currentUser: UserRow;
     /** id строки api_keys, когда запрос пришёл по публичному API-ключу. */
     apiKeyId?: string;
+    /** Права ключа (пустой массив = без ограничений). Заполняется
+     *  authenticateApiKey; per-route гвард requireScope сверяется с ними. */
+    apiKeyScopes?: string[];
   }
 }
 
@@ -100,6 +103,7 @@ export async function getUserByEmail(db: Db, email: string): Promise<(UserRow & 
 export function registerAuth(app: FastifyInstance, db: Db): void {
   app.decorateRequest('currentUser');
   app.decorateRequest('apiKeyId');
+  app.decorateRequest('apiKeyScopes');
 
   /** Resolve a verified JWT to its user, or null. */
   async function resolveToken(req: FastifyRequest): Promise<UserRow | null> {
@@ -173,6 +177,7 @@ export function registerAuth(app: FastifyInstance, db: Db): void {
     }
     req.currentUser = found.user;
     req.apiKeyId = found.keyId;
+    req.apiKeyScopes = found.scopes;
     void touchLastUsed(db, found.keyId);
   });
 

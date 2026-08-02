@@ -30,6 +30,7 @@ interface DocumentRow {
   updated_at: Date | string;
   team_shared?: boolean;
   shared_by?: string | null;
+  project_id?: string | null;
 }
 
 function toDocument(row: DocumentRow): ContractDocument {
@@ -44,6 +45,7 @@ function toDocument(row: DocumentRow): ContractDocument {
     updatedAt: toIso(row.updated_at),
     teamShared: Boolean(row.team_shared),
     ...(row.shared_by ? { sharedBy: row.shared_by } : {}),
+    projectId: row.project_id ?? null,
   };
 }
 
@@ -186,6 +188,14 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
       params.push(q.risk);
       where.push(`risk = $${params.length}`);
     }
+    // Фильтр по проекту (делу): ?project=proj_… — документы дела;
+    // ?project=none — вне проектов (общий список без разложенных по делам).
+    if (q.project === 'none') {
+      where.push('project_id IS NULL');
+    } else if (q.project?.trim()) {
+      params.push(q.project.trim());
+      where.push(`project_id = $${params.length}`);
+    }
 
     let sort = q.sort ?? '-updatedAt';
     let dir = 'ASC';
@@ -205,7 +215,7 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
       params,
     );
     const rowsQ = db.query<DocumentRow>(
-      `SELECT id, name, counterparty, status, risk, jurisdiction, size_bytes, updated_at, team_shared
+      `SELECT id, name, counterparty, status, risk, jurisdiction, size_bytes, updated_at, team_shared, project_id
        FROM documents WHERE ${whereSql}
        ORDER BY ${column} ${dir}
        LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`,
@@ -254,31 +264,71 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
   app.get('/documents/:id', { preHandler: [app.authenticate] }, async (req): Promise<ContractDocument> => {
     const { id } = req.params as { id: string };
     const { doc, access, ownerName } = await resolveDocumentAccess(db, req.currentUser.id, id);
+    const isOwner = access === 'owner';
     return {
       ...toDocument(doc as unknown as DocumentRow),
+      // project_id — приватная организация дел ВЛАДЕЛЬЦА: участнику команды
+      // (team-shared доступ) его не раскрываем, иначе по совпадениям id можно
+      // восстановить, какие договоры владелец свёл в одно дело. Список уже его
+      // не отдаёт в shared-ветке — единичная выдача должна вести себя так же.
+      ...(isOwner ? {} : { projectId: null }),
       ...(access !== 'owner' && ownerName ? { sharedBy: ownerName } : {}),
       canEdit: canEdit(access),
-      mine: access === 'owner',
+      mine: isOwner,
     };
   });
 
-  // Owner shares / unshares a document with their team.
+  // Owner shares / unshares a document with their team, and/or moves it into a
+  // project (дело). Оба поля необязательны, но хотя бы одно должно быть.
   app.patch('/documents/:id', { preHandler: [app.authenticate] }, async (req): Promise<ContractDocument> => {
     const { id } = req.params as { id: string };
     const body = asObject(req.body);
-    if (typeof body.teamShared !== 'boolean') throw badRequest('Field "teamShared" must be a boolean');
-    if (body.teamShared) await assertFeature(db, req.currentUser.id, 'team');
+    const hasShared = typeof body.teamShared === 'boolean';
+    const hasProject = 'projectId' in body;
+    if (!hasShared && !hasProject) throw badRequest('Field "teamShared" (boolean) or "projectId" (string|null) is required');
+    if (hasShared && typeof body.teamShared !== 'boolean') throw badRequest('Field "teamShared" must be a boolean');
+    if (hasShared && body.teamShared) await assertFeature(db, req.currentUser.id, 'team');
+
+    let projectId: string | null | undefined;
+    if (hasProject) {
+      if (body.projectId !== null && typeof body.projectId !== 'string') throw badRequest('Field "projectId" must be a string or null');
+      // Пустая/пробельная строка = «убрать из дела» (null), а не id='' — иначе
+      // FK-нарушение уронило бы запрос в 500 вместо чистого поведения.
+      const trimmed = body.projectId === null ? null : String(body.projectId).trim();
+      projectId = trimmed ? trimmed : null;
+      if (projectId) {
+        // Проект должен существовать и принадлежать пользователю — чужой id = 404.
+        const proj = await db.query('SELECT 1 FROM projects WHERE id = $1 AND user_id = $2', [projectId, req.currentUser.id]);
+        if (!proj.rows[0]) throw notFound('Проект не найден / Project not found');
+      }
+    }
+
+    const sets: string[] = [];
+    const params: unknown[] = [id, req.currentUser.id];
+    if (hasShared) {
+      params.push(body.teamShared);
+      sets.push(`team_shared = $${params.length}`);
+    }
+    if (hasProject) {
+      params.push(projectId);
+      sets.push(`project_id = $${params.length}`);
+    }
     const res = await db.query<DocumentRow>(
-      `UPDATE documents SET team_shared = $3 WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
-       RETURNING id, name, counterparty, status, risk, jurisdiction, size_bytes, updated_at, team_shared`,
-      [id, req.currentUser.id, body.teamShared],
+      `UPDATE documents SET ${sets.join(', ')} WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
+       RETURNING id, name, counterparty, status, risk, jurisdiction, size_bytes, updated_at, team_shared, project_id`,
+      params,
     );
     const row = res.rows[0];
     if (!row) throw notFound('Document not found');
-    await audit(db, req, {
-      type: body.teamShared ? 'document.shared' : 'document.unshared',
-      target: { type: 'document', id, label: row.name },
-    });
+    if (hasShared) {
+      await audit(db, req, {
+        type: body.teamShared ? 'document.shared' : 'document.unshared',
+        target: { type: 'document', id, label: row.name },
+      });
+    }
+    if (hasProject) {
+      await audit(db, req, { type: 'document.moved_to_folder', target: { type: 'document', id, label: row.name }, metadata: { projectId } });
+    }
     return { ...toDocument(row), canEdit: true, mine: true };
   });
 

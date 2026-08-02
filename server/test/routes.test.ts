@@ -2544,3 +2544,99 @@ describe('tts (озвучка ответов)', () => {
     }
   });
 });
+
+describe('projects (дела юристов)', () => {
+  it('CRUD проекта доступен Free-пользователю; чужой проект = 404', async () => {
+    const u = await makeUser(); // Free — проекты для всех
+    const created = await app.inject({ method: 'POST', url: '/api/projects', headers: auth(u.token), payload: { name: 'Дело: ООО «Ромашка»' } });
+    assert.equal(created.statusCode, 201, created.body);
+    const proj = JSON.parse(created.body);
+    assert.equal(proj.name, 'Дело: ООО «Ромашка»');
+    assert.equal(proj.docsCount, 0);
+
+    const list = JSON.parse((await app.inject({ method: 'GET', url: '/api/projects', headers: auth(u.token) })).body);
+    assert.equal(list.length, 1);
+
+    const renamed = await app.inject({ method: 'PATCH', url: `/api/projects/${proj.id}`, headers: auth(u.token), payload: { name: 'Дело: аренда' } });
+    assert.equal(renamed.statusCode, 200, renamed.body);
+    assert.equal(JSON.parse(renamed.body).name, 'Дело: аренда');
+
+    // Чужой пользователь проект не видит и не правит.
+    const stranger = await makeUser();
+    const foreign = await app.inject({ method: 'PATCH', url: `/api/projects/${proj.id}`, headers: auth(stranger.token), payload: { name: 'x' } });
+    assert.equal(foreign.statusCode, 404);
+    const foreignDel = await app.inject({ method: 'DELETE', url: `/api/projects/${proj.id}`, headers: auth(stranger.token) });
+    assert.equal(foreignDel.statusCode, 404);
+
+    const del = await app.inject({ method: 'DELETE', url: `/api/projects/${proj.id}`, headers: auth(u.token) });
+    assert.equal(del.statusCode, 204);
+    assert.equal(JSON.parse((await app.inject({ method: 'GET', url: '/api/projects', headers: auth(u.token) })).body).length, 0);
+  });
+
+  it('документ переносится в проект, фильтруется по нему, а удаление проекта возвращает документ в общий список', async () => {
+    const u = await makeUser();
+    const proj = JSON.parse((await app.inject({ method: 'POST', url: '/api/projects', headers: auth(u.token), payload: { name: 'Дело' } })).body);
+    // Документ напрямую в БД (как в других тестах — без полного цикла анализа).
+    const docId = `doc_proj_${Date.now()}`;
+    await db.query(
+      "INSERT INTO documents (id, user_id, name, status, risk) VALUES ($1, $2, 'proj-doc.pdf', 'Reviewed', 'Low')",
+      [docId, u.id],
+    );
+    // Перенос в проект.
+    const moved = await app.inject({ method: 'PATCH', url: `/api/documents/${docId}`, headers: auth(u.token), payload: { projectId: proj.id } });
+    assert.equal(moved.statusCode, 200, moved.body);
+    assert.equal(JSON.parse(moved.body).projectId, proj.id);
+    // Чужой проект в projectId → 404, документ не трогается.
+    const stranger = await makeUser();
+    const strangerProj = JSON.parse((await app.inject({ method: 'POST', url: '/api/projects', headers: auth(stranger.token), payload: { name: 'Чужое' } })).body);
+    const cross = await app.inject({ method: 'PATCH', url: `/api/documents/${docId}`, headers: auth(u.token), payload: { projectId: strangerProj.id } });
+    assert.equal(cross.statusCode, 404, 'чужой проект недоступен');
+    // Фильтры списка.
+    const inProj = JSON.parse((await app.inject({ method: 'GET', url: `/api/documents?project=${proj.id}`, headers: auth(u.token) })).body);
+    assert.equal(inProj.length, 1);
+    assert.equal(inProj[0].id, docId);
+    const outside = JSON.parse((await app.inject({ method: 'GET', url: '/api/documents?project=none', headers: auth(u.token) })).body);
+    assert.ok(!outside.some((d: { id: string }) => d.id === docId), 'внутри проекта — не в общем списке при project=none');
+    // Счётчик в списке проектов.
+    const plist = JSON.parse((await app.inject({ method: 'GET', url: '/api/projects', headers: auth(u.token) })).body);
+    assert.equal(plist.find((p: { id: string }) => p.id === proj.id)?.docsCount, 1);
+    // Удаление проекта возвращает документ в общий список (не удаляет его).
+    await app.inject({ method: 'DELETE', url: `/api/projects/${proj.id}`, headers: auth(u.token) });
+    const back = JSON.parse((await app.inject({ method: 'GET', url: '/api/documents?project=none', headers: auth(u.token) })).body);
+    assert.ok(back.some((d: { id: string }) => d.id === docId), 'документ жив и вернулся в общий список');
+    // Вынос из проекта значением null тоже работает.
+    const proj2 = JSON.parse((await app.inject({ method: 'POST', url: '/api/projects', headers: auth(u.token), payload: { name: 'Д2' } })).body);
+    await app.inject({ method: 'PATCH', url: `/api/documents/${docId}`, headers: auth(u.token), payload: { projectId: proj2.id } });
+    const unset = await app.inject({ method: 'PATCH', url: `/api/documents/${docId}`, headers: auth(u.token), payload: { projectId: null } });
+    assert.equal(unset.statusCode, 200);
+    assert.equal(JSON.parse(unset.body).projectId, null);
+    // Пустая/пробельная строка = вынос (null), а не FK-нарушение → 500.
+    await app.inject({ method: 'PATCH', url: `/api/documents/${docId}`, headers: auth(u.token), payload: { projectId: proj2.id } });
+    const empty = await app.inject({ method: 'PATCH', url: `/api/documents/${docId}`, headers: auth(u.token), payload: { projectId: '' } });
+    assert.equal(empty.statusCode, 200, empty.body);
+    assert.equal(JSON.parse(empty.body).projectId, null, 'пустая строка = убрать из дела');
+    const spaces = await app.inject({ method: 'PATCH', url: `/api/documents/${docId}`, headers: auth(u.token), payload: { projectId: '   ' } });
+    assert.equal(spaces.statusCode, 200, 'пробелы не роняют в 500');
+  });
+
+  it('project_id владельца НЕ утекает участнику команды через GET /documents/:id', async () => {
+    const owner = await makeUser();
+    await db.query("UPDATE subscriptions SET plan = 'Business' WHERE user_id = $1", [owner.id]); // team — Business
+    const proj = JSON.parse((await app.inject({ method: 'POST', url: '/api/projects', headers: auth(owner.token), payload: { name: 'Тайное дело' } })).body);
+    const docId = `doc_leak_${Date.now()}`;
+    await db.query("INSERT INTO documents (id, user_id, name, status, risk, team_shared) VALUES ($1,$2,'shared.pdf','Reviewed','Low', true)", [docId, owner.id]);
+    await app.inject({ method: 'PATCH', url: `/api/documents/${docId}`, headers: auth(owner.token), payload: { projectId: proj.id } });
+    // Участник команды (viewer) видит документ, но НЕ его project_id.
+    const member = await makeUser();
+    await db.query(
+      "INSERT INTO team_members (id, owner_user_id, member_user_id, name, email, role, status) VALUES ($1,$2,$3,'M',$4,'viewer','active')",
+      [`tm_leak_${counter++}`, owner.id, member.id, member.email],
+    );
+    const asMember = await app.inject({ method: 'GET', url: `/api/documents/${docId}`, headers: auth(member.token) });
+    assert.equal(asMember.statusCode, 200, asMember.body);
+    assert.equal(JSON.parse(asMember.body).projectId, null, 'project_id владельца скрыт от участника');
+    // Владелец своё дело видит.
+    const asOwner = await app.inject({ method: 'GET', url: `/api/documents/${docId}`, headers: auth(owner.token) });
+    assert.equal(JSON.parse(asOwner.body).projectId, proj.id, 'владелец видит своё дело');
+  });
+});

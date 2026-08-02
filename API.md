@@ -112,10 +112,44 @@ behind a reverse proxy so `req.ip` is the real client).
 | Method | Path                | Body                                          | Returns                              |
 | ------ | ------------------- | --------------------------------------------- | ------------------------------------ |
 | POST   | `/v1/analyses`      | `{ text, fileName?, jurisdiction? }` or multipart `file` | `202 { id, status: 'processing' }` |
-| GET    | `/v1/analyses/:id`  | —                                             | status + result (findings, riskScore, verified citations) |
+| GET    | `/v1/analyses/:id`  | `?report=1` → adds `reportUrl` (public `/share` page) | status + result (findings, riskScore, verified citations) |
 | GET    | `/v1/analyses`      | `?limit&offset`                               | `{ items, limit, offset }`           |
+| POST   | `/v1/drafts`        | `{ prompt, jurisdiction? }`                   | `202 { id, status: 'processing' }`   |
+| GET    | `/v1/drafts/:id`    | `?report=1` → adds `reportUrl`                | status + `{ title, summary, document }` |
+| POST   | `/v1/compares`      | `{ textA, textB, nameA?, nameB? }` or multipart `fileA`+`fileB` | `202 { id, status }`  |
+| GET    | `/v1/compares/:id`  | —                                             | status + `{ summary, changes }`      |
+| GET    | `/v1/templates`     | —                                             | `{ items }` (catalog, no AI)         |
+| POST   | `/v1/templates/:id/generate` | `{ partyA, partyB, details, jurisdiction?, term? }` | `202 { id, status }` |
+| GET    | `/v1/templates/requests/:id` | —                                    | status + `{ title, content }`        |
+| POST   | `/v1/webhooks`      | `{ url, events? }`                            | `201 { id, events, signingSecret }` (secret shown once) |
+| GET    | `/v1/webhooks`      | —                                             | `{ items }` (urls masked)            |
+| DELETE | `/v1/webhooks/:id`  | —                                             | `204`                                |
 | GET    | `/v1/usage`         | —                                             | `{ month, used, limit, remaining }`  |
 
+**Webhooks** (callback on job completion): payload is minimal
+(`{ event, id, kind, status[, error] }` — no contract text), signed with
+`X-Lexab-Signature` = HMAC-SHA256(rawBody, signingSecret). https-only, SSRF-guarded
+(public IPs only), retries with backoff (1m/5m/30m/2h/6h, 5 attempts).
+
+**Idempotency**: pass an `Idempotency-Key` header (≤256 chars) on any `POST /v1/*`
+job endpoint — a retry with the same key returns the previously created job and
+does not consume a second monthly unit. Reusing a key on a *different* endpoint
+returns `409 idempotency_key_reused`.
+
+**Key scopes** (Phase 3): a key may be restricted to a subset of
+`analyses:read`, `analyses:write`, `drafts:write`, `compares:write`,
+`templates:write`, `webhooks:manage`; empty scope list = unrestricted. A request
+outside the key's scopes returns `403 insufficient_scope`. Write scopes imply
+polling their own kind. Keys may carry an expiry (`expiresInDays` at creation);
+an expired key behaves as `401 invalid_api_key`.
+
+**Rate-limit headers**: `x-ratelimit-limit/remaining/reset` and `retry-after`
+are exposed via CORS for browser SDKs.
+
 Dashboard-side management (JWT session, 402 unless the plan includes
-`apiAccess`): `GET/POST /api-keys`, `DELETE /api-keys/:id`,
-`GET /api-keys/usage`.
+`apiAccess`): `GET/POST /api-keys` (create accepts `scopes`, `expiresInDays`),
+`GET /api-keys/scopes` (catalog), `POST /api-keys/:id/rotate` (revoke + reissue
+with same label/scopes, new secret shown once), `DELETE /api-keys/:id`,
+`GET /api-keys/usage`. Team accounts: keys belong to the team owner (owner's
+quota); the owner and active **admins** manage them (`created_by` shown in the
+list), editors/viewers get 403.
