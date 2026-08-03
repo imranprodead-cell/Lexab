@@ -46,6 +46,11 @@ export function ProjectDetailPage() {
 
   const docs = useAsync((signal) => documentsApi.list({ project: id }, signal), [id]);
 
+  // Хук вызывается на ВЕРХНЕМ уровне (не в ветке JSX): «дело не найдено» и
+  // обычный вид рендерят разные ветки, а порядок хуков между отрисовками должен
+  // совпадать — иначе React роняет страницу при переключении на 404.
+  const headReveal = useReveal();
+
   const timeAgo = (iso: string): string => {
     const days = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000);
     if (days <= 0) return t('docs.today');
@@ -180,7 +185,7 @@ export function ProjectDetailPage() {
             <>
               <div
                 className={styles.pageHead}
-                ref={useReveal()}
+                ref={headReveal}
                 style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 16, flexWrap: 'wrap' }}
               >
                 <div style={{ minWidth: 0 }}>
