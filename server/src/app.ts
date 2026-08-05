@@ -9,6 +9,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { config, isOriginAllowed } from './config.ts';
 import type { Db } from './db.ts';
 import { HttpError } from './lib/errors.ts';
+import { aiContext, setLlmUsageDb, type AiRequestContext } from './lib/aiUsage.ts';
 import { registerAuth } from './plugins/auth.ts';
 import { analysisRoutes } from './routes/analysis.routes.ts';
 import { apiKeyRoutes } from './routes/apikeys.routes.ts';
@@ -54,6 +55,9 @@ export async function buildApp(db: Db): Promise<FastifyInstance> {
     // Disable it and emit our own line with the token redacted (hook below).
     disableRequestLogging: true,
     bodyLimit: 12 * 1024 * 1024, // avatar data-URLs + JSON payloads
+    // Потолок на весь запрос: анализ договора идёт десятки секунд — минуты, но
+    // висеть бесконечно из-за подвисшего внешнего вызова он не должен.
+    requestTimeout: 180_000,
     // Behind a trusted reverse proxy/CDN, honour X-Forwarded-For so req.ip is
     // the real client. Off by default (direct exposure must not trust a
     // spoofable header); set TRUST_PROXY=true (or a hop count) in that deploy.
@@ -103,6 +107,15 @@ export async function buildApp(db: Db): Promise<FastifyInstance> {
     // an unverified `sub` would let an attacker rotate a forged claim to dodge
     // the per-IP brute-force limit on /auth/login etc.
     keyGenerator: (req) => {
+      // На НЕаутентифицированных /auth/*-роутах бакет ВСЕГДА по IP. Иначе
+      // брутфорс отвязывался от адреса тривиально: атакующий добавлял свой
+      // валидный JWT, получал персональный бакет `u:<его id>` и молотил чужие
+      // пароли, не тратя лимит своего IP (аудит 2026-08-03). Роуты, где сессия
+      // законна (logout/refresh), в список не входят — там бакет по пользователю
+      // остаётся правильным, иначе одна корпоративная сеть душила бы всех разом.
+      if (/\/auth\/(login|register|verify|reset|confirm-email)(\/[a-z-]+)?$/.test(req.routeOptions?.url ?? '')) {
+        return req.ip;
+      }
       const auth = req.headers.authorization;
       // Валидный JWT — бакет по ВЕРИФИЦИРОВАННОМУ user id (одна NAT-сеть не душит
       // всех, ротация IP не множит бюджет аккаунта). Публичный API-ключ (lxb_…) —
@@ -127,7 +140,11 @@ export async function buildApp(db: Db): Promise<FastifyInstance> {
   // Uniform error shape: non-2xx + { message } (what the frontend surfaces).
   app.setErrorHandler((err, req, reply) => {
     if (err instanceof HttpError) {
-      return reply.code(err.status).send(err.code ? { message: err.message, code: err.code } : { message: err.message });
+      return reply.code(err.status).send({
+        message: err.message,
+        ...(err.code ? { code: err.code } : {}),
+        ...(err.details ? { details: err.details } : {}),
+      });
     }
     const statusCode = (err as { statusCode?: number }).statusCode;
     if (statusCode === 429) {
@@ -150,9 +167,12 @@ export async function buildApp(db: Db): Promise<FastifyInstance> {
 
   // Redacted access log: never records the capability token in the path or the
   // OAuth code/state/token query params (CWE-532).
+  // share — публичная ссылка-отчёт, files — ключ объекта в хранилище: и то и
+  // другое равносильно предъявителю-паролю, поэтому в логах (и в Sentry, куда
+  // логи уезжают целиком) их быть не должно (аудит 2026-08-03).
   const redactUrl = (url: string): string =>
     url
-      .replace(/(\/(?:sign|approve|invite-info|tts\/stream)\/)[^/?#]+/g, '$1[redacted]')
+      .replace(/(\/(?:sign|approve|invite-info|share|files|tts\/stream)\/)[^/?#]+/g, '$1[redacted]')
       .replace(/([?&](?:code|token|state)=)[^&]+/gi, '$1[redacted]');
   app.addHook('onResponse', (req, reply, done) => {
     req.log.info(
@@ -162,19 +182,33 @@ export async function buildApp(db: Db): Promise<FastifyInstance> {
     done();
   });
 
+  // Учёт расхода токенов: контекст запроса заводится здесь, userId проставляет
+  // плагин аутентификации (см. lib/aiUsage.ts) — иначе его пришлось бы тащить
+  // параметром через все вызовы модели.
+  setLlmUsageDb(db);
+  app.addHook('onRequest', (req, _reply, done) => {
+    const store: AiRequestContext = { userId: null };
+    aiContext.run(store, () => {
+      (req as { aiStore?: AiRequestContext }).aiStore = store;
+      done();
+    });
+  });
+
   registerAuth(app, db);
 
   await app.register(
     async (api) => {
       // Живой readiness: без реального запроса к базе умершее соединение
       // выглядело бы «здоровым» и платформа продолжала бы слать трафик.
+      // Тип СУБД наружу не отдаём: публичный /health не должен подсказывать
+      // атакующему стек (аудит 2026-08-03) — платформе достаточно кода ответа.
       api.get('/health', async (_req, reply) => {
         try {
           await db.query('SELECT 1');
-          return { ok: true, db: db.kind };
+          return { ok: true };
         } catch {
           reply.code(503);
-          return { ok: false, db: db.kind };
+          return { ok: false };
         }
       });
       authRoutes(api, db);

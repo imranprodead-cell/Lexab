@@ -11,6 +11,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { config } from '../config.ts';
 import type { Db } from '../db.ts';
+import { aiContext } from '../lib/aiUsage.ts';
 import { findLiveKey, touchLastUsed } from '../lib/apiKeys.ts';
 import { HttpError, unauthorized } from '../lib/errors.ts';
 import { planFor, planHasFeature } from '../lib/limits.ts';
@@ -136,10 +137,18 @@ export function registerAuth(app: FastifyInstance, db: Db): void {
     return null;
   }
 
+  /** Кладёт пользователя в запрос И в контекст учёта расхода токенов
+   *  (lib/aiUsage.ts) — иначе журнал расхода не знал бы, кому его отнести. */
+  function setRequestUser(req: FastifyRequest, user: UserRow): void {
+    req.currentUser = user;
+    const store = aiContext.getStore();
+    if (store) store.userId = user.id;
+  }
+
   app.decorate('authenticate', async (req: FastifyRequest) => {
     const user = await resolveToken(req);
     if (user) {
-      req.currentUser = user;
+      setRequestUser(req, user);
       return;
     }
     throw unauthorized();
@@ -149,7 +158,7 @@ export function registerAuth(app: FastifyInstance, db: Db): void {
   app.decorate('authenticateReal', async (req: FastifyRequest) => {
     const user = await resolveToken(req);
     if (!user) throw unauthorized('Войдите в аккаунт, чтобы использовать ИИ');
-    req.currentUser = user;
+    setRequestUser(req, user);
   });
 
   // Публичный API: ключ в `Authorization: Bearer lxb_…` или `X-API-Key`.
@@ -175,7 +184,7 @@ export function registerAuth(app: FastifyInstance, db: Db): void {
     if (!planHasFeature(plan, 'apiAccess')) {
       throw new HttpError(403, 'API access is available on the Business plan. Upgrade to use the API.', 'plan_required');
     }
-    req.currentUser = found.user;
+    setRequestUser(req, found.user);
     req.apiKeyId = found.keyId;
     req.apiKeyScopes = found.scopes;
     void touchLastUsed(db, found.keyId);
@@ -188,13 +197,13 @@ export function registerAuth(app: FastifyInstance, db: Db): void {
     if (token) {
       const hit = ttsAuthCache.get(token);
       if (hit && hit.exp > Date.now()) {
-        req.currentUser = hit.user;
+        setRequestUser(req, hit.user);
         return;
       }
     }
     const user = await resolveToken(req);
     if (!user) throw unauthorized('Войдите в аккаунт, чтобы использовать ИИ');
-    req.currentUser = user;
+    setRequestUser(req, user);
     if (token) {
       if (ttsAuthCache.size > 500) {
         const now = Date.now();

@@ -15,7 +15,7 @@
  */
 import crypto from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
-import { config, isOriginAllowed } from '../config.ts';
+import { config, isRedirectAllowed } from '../config.ts';
 import type { Db } from '../db.ts';
 import { badRequest } from '../lib/errors.ts';
 import { newId } from '../lib/ids.ts';
@@ -59,13 +59,16 @@ function initialsOf(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-/** The frontend URL we may send the user back to (open-redirect protection). */
+/** The frontend URL we may send the user back to (open-redirect protection).
+ *  Сверка идёт с ОТДЕЛЬНЫМ списком адресов возврата (isRedirectAllowed), а не с
+ *  CORS: со звёздочкой в CORS_ORIGIN сюда проходил любой домен и получал
+ *  одноразовый код входа. */
 function validateRedirect(raw: string | undefined): string {
-  const fallback = `${config.corsOrigins[0] ?? 'http://localhost:5173'}/login`;
+  const fallback = `${config.appBaseUrl}/login`;
   if (!raw) return fallback;
   try {
     const url = new URL(raw);
-    if ((url.protocol === 'http:' || url.protocol === 'https:') && isOriginAllowed(url.origin)) {
+    if ((url.protocol === 'http:' || url.protocol === 'https:') && isRedirectAllowed(url.origin)) {
       return url.toString();
     }
   } catch {

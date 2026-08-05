@@ -18,6 +18,27 @@ function env(name: string, fallback = ''): string {
  */
 const allowInsecureSecrets = env('ALLOW_INSECURE_SECRETS') === '1';
 
+const LOCALHOST_URL = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i;
+
+/**
+ * «Боевой запуск» — то, чего в этом проекте раньше не умели определять.
+ *
+ * NODE_ENV здесь НИКОГДА не выставляется (см. start-скрипт), поэтому все
+ * старые guards, завязанные на него, были мертвы в проде. Признак деплоя —
+ * публичный адрес приложения: локальный запуск оставляет дефолтный
+ * http://localhost:5173, а любой реальный деплой обязан задать APP_BASE_URL.
+ * Дополнительно уважаем явные NODE_ENV=production и DEPLOY_ENV.
+ *
+ * Используется для fail-closed проверок ниже: отладочные переключатели
+ * (бесплатные тарифы, перенаправление всей почты на один ящик, мок ИИ)
+ * не должны молча доехать до боевого сервера.
+ */
+const appBaseUrl = env('APP_BASE_URL', 'http://localhost:5173');
+export const isProductionRun =
+  env('NODE_ENV') === 'production' ||
+  ['production', 'prod', 'staging'].includes(env('DEPLOY_ENV').toLowerCase()) ||
+  !LOCALHOST_URL.test(appBaseUrl);
+
 /**
  * Lemon Squeezy (Merchant of Record) — реальные платежи за подписки.
  * Включается только ПОЛНЫМ конфигом: ключ + store + webhook-secret + все 6
@@ -168,8 +189,10 @@ export const config = {
   dataEncryptionKey: resolveDataEncryptionKey(),
   /** Previous master key — decrypt-only, set during a key rotation window. */
   dataEncryptionKeyPrevious: env('DATA_ENCRYPTION_KEY_PREVIOUS'),
-  /** Password for the opt-in seeded demo account (only when SEED_DEMO_DATA=true). */
-  seedDemoPassword: env('SEED_DEMO_PASSWORD', 'lexab-demo'),
+  /** Пароль демо-аккаунта (только при SEED_DEMO_DATA=true). Дефолта НЕТ намеренно:
+   *  прежний 'lexab-demo' опубликован в README, и случайно включённый сид
+   *  создавал бы аккаунт с общеизвестным паролем и планом Pro. */
+  seedDemoPassword: env('SEED_DEMO_PASSWORD'),
   /** Batch review kicks off background processing from POST /batch. Tests set
    *  BATCH_AUTOSTART=0 and drive runBatch() deterministically instead (the
    *  single-connection PGlite adapter must not race a fire-and-forget loop). */
@@ -209,6 +232,11 @@ export const config = {
 
   /** Audit: failed logins per IP/email in 5 min above this fire a security alert. */
   authBruteforceThreshold: Math.max(3, Number(env('AUTH_BRUTEFORCE_ALERT_THRESHOLD', '10'))),
+  /** Неудачных входов за 15 минут (по IP ИЛИ по адресу), после которых вход
+   *  временно закрывается. Раньше детектор только слал письмо, но перебору не
+   *  мешал. Поднимается в тестовом сьюте, где десятки логинов идут с одного
+   *  loopback-адреса. */
+  authLockoutFailures: Math.max(5, Number(env('AUTH_LOCKOUT_FAILURES', '20')) || 20),
 
   /** Reject known-breached passwords at register/change via the HIBP k-anonymity
    *  range API (only a SHA-1 prefix is sent). Fail-open on any network error.
@@ -243,7 +271,14 @@ export const config = {
    * signed PDF). Empty = fall back to the in-app typed-name simulation.
    * DROPBOX_SIGN_TEST_MODE=1 uses the free sandbox (non-legally-binding). */
   dropboxSignApiKey: env('DROPBOX_SIGN_API_KEY'),
-  dropboxSignTestMode: env('DROPBOX_SIGN_TEST_MODE', '1') === '1',
+  /* Дефолт перевёрнут на БОЕВОЙ (было '1'): забытая переменная теперь даёт
+   * настоящие подписи, а не юридически ничтожные. Песочница — только явным '1'. */
+  dropboxSignTestMode: env('DROPBOX_SIGN_TEST_MODE', '0') === '1',
+  /** Раздел «Э-подписи» целиком выключен до подключения E-IMZO (решение
+   *  владельца, 2026-08-04): полурабочая подпись в юридическом продукте опаснее
+   *  выключенной. Сервер отвечает 503 на отправку, интерфейс показывает «скоро».
+   *  Включается явным ESIGN_ENABLED=1, когда появится боевой провайдер. */
+  esignEnabled: env('ESIGN_ENABLED', '0') === '1',
 
   /* Lemon Squeezy — реальные платежи за подписки (см. resolveLemonSqueezy). */
   lemonSqueezy,
@@ -288,7 +323,15 @@ export const config = {
   mailFrom: env('MAIL_FROM', 'Lexab <onboarding@resend.dev>'),
   /* Test mode without a verified domain: route ALL outgoing mail to this address. */
   mailRedirectTo: env('MAIL_REDIRECT_TO'),
-  appBaseUrl: env('APP_BASE_URL', 'http://localhost:5173'),
+  appBaseUrl,
+  /** Куда разрешено возвращать пользователя после входа (OAuth/SSO redirect).
+   *  ОТДЕЛЬНЫЙ список от CORS_ORIGIN: '*' в CORS не должен превращать
+   *  /auth/google?redirect= в открытый редирект с одноразовым login-кодом.
+   *  Пусто = разрешён только сам appBaseUrl (+ локалка вне прода). */
+  redirectOrigins: env('REDIRECT_ORIGINS')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean),
   /** Sentry error monitoring (empty = disabled). */
   sentryDsn: env('SENTRY_DSN'),
 
@@ -298,6 +341,68 @@ export const config = {
   s3PublicUrl: env('S3_PUBLIC_URL'),
 } as const;
 
+
+/**
+ * Fail-closed проверки боевого запуска (аудит 2026-08-03).
+ *
+ * Каждый переключатель ниже удобен на локальной машине и катастрофичен в проде:
+ * BILLING_FALLBACK=dev раздаёт платные тарифы бесплатно, MAIL_REDIRECT_TO уводит
+ * ВСЮ клиентскую почту (верификация, подписи, счета) на один ящик, LLM_FALLBACK=dev
+ * подменяет анализ заглушкой. Раньше их ничто не сторожило. Теперь боевой запуск
+ * с любым из них просто не стартует — это дешевле, чем обнаружить постфактум.
+ */
+function assertProductionSafety(): void {
+  if (!isProductionRun) return;
+  const problems: string[] = [];
+  if (config.billingFallback === 'dev') {
+    problems.push('BILLING_FALLBACK=dev — платные тарифы выдавались бы бесплатно всем желающим');
+  }
+  if (config.mailRedirectTo) {
+    problems.push(`MAIL_REDIRECT_TO=${config.mailRedirectTo} — вся почта клиентов уходила бы на один ящик`);
+  }
+  if (config.llmFallback === 'dev') {
+    problems.push('LLM_FALLBACK=dev — юридический анализ подменялся бы офлайн-заглушкой');
+  }
+  if (config.seedDemoData) {
+    problems.push('SEED_DEMO_DATA=true — в базу создавался бы демо-аккаунт с известным паролем');
+  }
+  if (config.dropboxSignTestMode && config.dropboxSignApiKey) {
+    problems.push('DROPBOX_SIGN_TEST_MODE=1 при заданном ключе — подписи были бы юридически ничтожными');
+  }
+  if (config.databaseTlsInsecure) {
+    problems.push('DATABASE_TLS_INSECURE=1 — соединение с базой не проверяло бы сертификат');
+  }
+  if (problems.length) {
+    throw new Error(
+      'Небезопасные настройки для боевого запуска (APP_BASE_URL не локальный):\n  - ' +
+        problems.join('\n  - ') +
+        '\nУберите их из окружения. Для локального запуска оставьте APP_BASE_URL по умолчанию (http://localhost:5173).',
+    );
+  }
+
+  // Не блокируем старт, но и не даём забыть: это настройки, отсутствие которых
+  // не ломает продукт немедленно, а проявляется потерянными письмами и
+  // непроверенными файлами.
+  if (!config.clamdHost) {
+    console.warn('[config] CLAMD_HOST не задан — загружаемые файлы НЕ проверяются антивирусом (остаётся только проверка сигнатуры формата).');
+  }
+  if (!config.contactEmail) {
+    console.warn('[config] CONTACT_EMAIL не задан — обращения из формы «связаться», отклики и уведомления о возвратах платежей никуда не уйдут.');
+  }
+}
+assertProductionSafety();
+
+/**
+ * CORS_ORIGIN='*' вместе с настроенным входом через Google/SSO — открытый
+ * редирект: /auth/google?redirect=<чужой домен> вернёт туда одноразовый
+ * login-код. Разрешаем '*' только если задан отдельный REDIRECT_ORIGINS.
+ */
+if (config.corsOrigins.includes('*') && (config.googleClientId || isProductionRun) && !config.redirectOrigins.length) {
+  throw new Error(
+    'CORS_ORIGIN=* нельзя сочетать со входом через Google/SSO: адрес возврата после входа стал бы открытым редиректом. ' +
+      'Перечислите домены в CORS_ORIGIN либо задайте отдельный REDIRECT_ORIGINS со списком разрешённых адресов возврата.',
+  );
+}
 
 const LOCALHOST_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 
@@ -310,5 +415,25 @@ const LOCALHOST_ORIGIN = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
 export function isOriginAllowed(origin: string): boolean {
   if (config.corsOrigins.includes('*') || config.corsOrigins.includes(origin)) return true;
   return !config.corsExplicit && LOCALHOST_ORIGIN.test(origin);
+}
+
+/**
+ * Куда МОЖНО вернуть пользователя после входа (OAuth/SSO redirect).
+ *
+ * Намеренно НЕ isOriginAllowed: CORS_ORIGIN='*' — рабочая настройка для
+ * публичного API, но со звёздочкой /auth/google?redirect=<чужой домен> отдавал
+ * бы одноразовый login-код на чужой сайт (аудит 2026-08-03). Список редиректов
+ * отдельный и звёздочку не понимает.
+ */
+export function isRedirectAllowed(origin: string): boolean {
+  if (config.redirectOrigins.length) return config.redirectOrigins.includes(origin);
+  try {
+    if (origin === new URL(config.appBaseUrl).origin) return true;
+  } catch {
+    /* некорректный APP_BASE_URL — падаем на проверки ниже */
+  }
+  // Явный список CORS (без '*') остаётся валидным источником адресов возврата.
+  if (config.corsExplicit && !config.corsOrigins.includes('*') && config.corsOrigins.includes(origin)) return true;
+  return !isProductionRun && LOCALHOST_ORIGIN.test(origin);
 }
 

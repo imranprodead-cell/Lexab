@@ -245,14 +245,16 @@ export function ChatPage() {
   };
 
   const setServerSession = useChatStore((s) => s.setServerSession);
+  const analysisStartedAt = useChatStore((s) => s.analysisStartedAt);
+  const cancelAnalysis = useChatStore((s) => s.cancelAnalysis);
 
-  const analyze = (file: { name: string; size: string }, rawFile?: File) => {
+  const analyze = (file: { name: string; size: string }, rawFile?: File, opts?: { uploadId?: string }) => {
     // Create the sidebar entry and tie it to this canvas, so follow-up
     // questions land in the same session instead of creating a second one.
     void addSession(file.name).then((session) => {
       if (session) setServerSession(session.id);
     });
-    void startAnalysis(file, rawFile);
+    void startAnalysis(file, rawFile, opts);
   };
 
   const handleFile = (file: File) => {
@@ -483,7 +485,13 @@ export function ChatPage() {
                     <ErrorState message={error ?? t('common.error')} onRetry={() => fileMessage?.file && void startAnalysis(fileMessage.file)} />
                   ) : (
                     <>
-                      <AnalysisCard steps={steps} activeStep={activeStep} done={phase === 'analyzed'} />
+                      <AnalysisCard
+                        steps={steps}
+                        activeStep={activeStep}
+                        done={phase === 'analyzed'}
+                        startedAt={analysisStartedAt}
+                        onCancel={cancelAnalysis}
+                      />
                       {phase === 'analyzed' && analysis ? (
                         <SummaryCard
                           analysis={analysis}
@@ -605,9 +613,9 @@ export function ChatPage() {
       <CloudImportModal
         open={cloudOpen}
         onClose={() => setCloudOpen(false)}
-        // The imported file already sits on the server as an upload, so the
-        // analysis pipeline picks it up by name — no re-upload needed.
-        onImported={(file) => analyze(file)}
+        // Файл уже лежит на сервере — передаём его id, чтобы анализ пошёл
+        // именно по нему (а не по совпадению имени) и без повторной отправки.
+        onImported={(file) => analyze({ name: file.name, size: file.size }, undefined, { uploadId: file.uploadId })}
       />
 
       {dragging ? (

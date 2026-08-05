@@ -16,7 +16,7 @@ import { config } from '../config.ts';
 import type { Db } from '../db.ts';
 import { badRequest, HttpError, notFound } from '../lib/errors.ts';
 import { audit } from '../lib/audit.ts';
-import { decJsonFromJsonb, decText } from '../lib/docCrypto.ts';
+import { decJsonFromJsonb, decText, encText } from '../lib/docCrypto.ts';
 import { toIso } from '../lib/format.ts';
 import { newId } from '../lib/ids.ts';
 import { assertFeature } from '../lib/limits.ts';
@@ -155,9 +155,13 @@ export async function startApprovalFlow(
   steps: ApprovalStepInput[],
 ): Promise<{ id: string; documentId: string; status: string; createdAt: string; steps: ReturnType<typeof toStep>[] }> {
   const flowId = newId('af');
+  // Замораживаем текст на момент запуска: согласующий увидит и одобрит именно
+  // эту редакцию, что бы владелец ни правил дальше.
+  const snapshot = await renderApprovalText(db, owner.id, document.name);
+  const storedSnapshot = snapshot === null ? null : await encText(db, owner.id, snapshot);
   await db.query(
-    `INSERT INTO approval_flows (id, document_id, owner_user_id, status) VALUES ($1, $2, $3, 'active')`,
-    [flowId, document.id, owner.id],
+    `INSERT INTO approval_flows (id, document_id, owner_user_id, status, content_snapshot) VALUES ($1, $2, $3, 'active', $4)`,
+    [flowId, document.id, owner.id, storedSnapshot],
   );
   for (let i = 0; i < steps.length; i++) {
     const s = steps[i];
@@ -183,6 +187,71 @@ export async function startApprovalFlow(
     createdAt: new Date().toISOString(),
     steps: created.map((s) => toStep(s, true)),
   };
+}
+
+/** Текст документа на момент вызова (правки применены) — для согласования.
+ *  Используется дважды: при СОЗДАНИИ маршрута (снимок замораживается) и как
+ *  запасной путь для маршрутов, созданных до появления снимков. */
+export async function renderApprovalText(db: Db, ownerId: string, fileName: string): Promise<string | null> {
+  const a = await db.query<{ id: string; document_blocks: unknown }>(
+    `SELECT id, document_blocks FROM analyses
+     WHERE user_id = $1 AND file_name = $2 ORDER BY created_at DESC LIMIT 1`,
+    [ownerId, fileName],
+  );
+  const row = a.rows[0];
+  if (!row) return null;
+  // Encrypted at rest — decrypt with the document owner's data key.
+  const blocks = (await decJsonFromJsonb(db, ownerId, row.document_blocks)) as
+    | { type: string; text?: string; segments?: (string | { redlineId: string })[] }[]
+    | null;
+  if (blocks === null) throw new HttpError(500, 'Document cannot be decrypted — data key mismatch');
+  const redlines = await db.query<{ id: string; del_text: string; ins_text: string; status: string }>(
+    'SELECT id, del_text, ins_text, status FROM redlines WHERE analysis_id = $1 ORDER BY ord',
+    [row.id],
+  );
+  const byId = new Map<string, { del_text: string; ins_text: string; status: string }>();
+  for (const r of redlines.rows) {
+    const delText = await decText(db, ownerId, r.del_text);
+    const insText = await decText(db, ownerId, r.ins_text);
+    if (delText === null || insText === null) throw new HttpError(500, 'Document cannot be decrypted — data key mismatch');
+    byId.set(r.id, { del_text: delText, ins_text: insText, status: r.status });
+  }
+  return blocks
+    .map((b) => {
+      if (b.type === 'heading') return `## ${b.text ?? ''}`;
+      return (b.segments ?? [])
+        .map((seg) => {
+          if (typeof seg === 'string') return seg;
+          const rl = byId.get(seg.redlineId);
+          return rl ? (rl.status === 'rejected' ? rl.del_text : rl.ins_text) : '';
+        })
+        .join('');
+    })
+    .join('\n\n');
+}
+
+/**
+ * Что видит согласующий: ЗАМОРОЖЕННЫЙ снимок текста на момент запуска маршрута.
+ *
+ * Раньше страница рендерила текущую редакцию: согласующий одобрял одну версию,
+ * а в журнале «одобрено» оставалось под другой — владелец мог править документ
+ * после решения, и доказать расхождение было нечем (аудит 2026-08-03). Тот же
+ * приём уже применён к подписям (signature_requests.content_snapshot).
+ *
+ * Маршруты, созданные ДО появления снимка, честно рендерятся вживую.
+ */
+async function approvalDocumentText(db: Db, row: { flow_id: string; owner_id: string; document_name: string }): Promise<string | null> {
+  const snap = await db.query<{ content_snapshot: string | null }>('SELECT content_snapshot FROM approval_flows WHERE id = $1', [row.flow_id]);
+  const stored = snap.rows[0]?.content_snapshot ?? null;
+  if (stored) {
+    const text = await decText(db, row.owner_id, stored);
+    // Нерасшифровавшийся снимок — это НЕ повод показать «живой» текст: пусть
+    // лучше страница честно упадёт, чем подсунет другую редакцию (fail-loud,
+    // как decTextStrict на странице подписи).
+    if (text === null) throw new HttpError(500, 'Снимок документа не расшифровывается — обратитесь к владельцу');
+    return text;
+  }
+  return renderApprovalText(db, row.owner_id, row.document_name);
 }
 
 export function approvalRoutes(app: FastifyInstance, db: Db): void {
@@ -304,45 +373,6 @@ export function approvalRoutes(app: FastifyInstance, db: Db): void {
     return res.rows[0] ?? null;
   }
 
-  /** Latest analysed text of the document (redlines applied), for review. */
-  async function documentText(ownerId: string, fileName: string): Promise<string | null> {
-    const a = await db.query<{ id: string; document_blocks: unknown }>(
-      `SELECT id, document_blocks FROM analyses
-       WHERE user_id = $1 AND file_name = $2 ORDER BY created_at DESC LIMIT 1`,
-      [ownerId, fileName],
-    );
-    const row = a.rows[0];
-    if (!row) return null;
-    // Encrypted at rest — decrypt with the document owner's data key.
-    const blocks = (await decJsonFromJsonb(db, ownerId, row.document_blocks)) as
-      | { type: string; text?: string; segments?: (string | { redlineId: string })[] }[]
-      | null;
-    if (blocks === null) throw new HttpError(500, 'Document cannot be decrypted — data key mismatch');
-    const redlines = await db.query<{ id: string; del_text: string; ins_text: string; status: string }>(
-      'SELECT id, del_text, ins_text, status FROM redlines WHERE analysis_id = $1 ORDER BY ord',
-      [row.id],
-    );
-    const byId = new Map<string, { del_text: string; ins_text: string; status: string }>();
-    for (const r of redlines.rows) {
-      const delText = await decText(db, ownerId, r.del_text);
-      const insText = await decText(db, ownerId, r.ins_text);
-      if (delText === null || insText === null) throw new HttpError(500, 'Document cannot be decrypted — data key mismatch');
-      byId.set(r.id, { del_text: delText, ins_text: insText, status: r.status });
-    }
-    return blocks
-      .map((b) => {
-        if (b.type === 'heading') return `## ${b.text ?? ''}`;
-        return (b.segments ?? [])
-          .map((seg) => {
-            if (typeof seg === 'string') return seg;
-            const rl = byId.get(seg.redlineId);
-            return rl ? (rl.status === 'rejected' ? rl.del_text : rl.ins_text) : '';
-          })
-          .join('');
-      })
-      .join('\n\n');
-  }
-
   app.get('/approve/:token', async (req) => {
     const { token } = req.params as { token: string };
     const row = await findStepByToken(token);
@@ -360,7 +390,7 @@ export function approvalRoutes(app: FastifyInstance, db: Db): void {
       flowStatus: row.flow_status,
       me: toStep(row, false),
       chain: steps.map((s) => toStep(s, false)),
-      documentText: await documentText(row.owner_id, row.document_name),
+      documentText: await approvalDocumentText(db, row),
     };
   });
 
@@ -487,8 +517,10 @@ export async function checkApprovalDeadlines(db: Db): Promise<void> {
      WHERE s.status = 'pending' AND s.reminded = false AND s.due_at IS NOT NULL AND s.due_at < now()`,
   );
   for (const s of res.rows) {
-    await db.query('UPDATE approval_steps SET reminded = true WHERE id = $1', [s.id]);
-    void sendMail({
+    // Флаг «напомнили» ставится ПОСЛЕ подтверждённой отправки: иначе сбой почты
+    // означал бы, что согласующий не узнал о просрочке никогда, а владельцу
+    // написали «напоминание отправлено» (аудит 2026-08-03).
+    const { sent } = await sendMail({
       to: s.approver_email,
       subject: biSubject('Напоминание: согласование просрочено', 'Reminder: approval overdue', s.document_name),
       html: mailLayout(
@@ -503,6 +535,11 @@ export async function checkApprovalDeadlines(db: Db): Promise<void> {
         `${config.appBaseUrl}/approve/${s.token}`,
       ),
     });
+    if (!sent) {
+      console.warn(`[approvals] напоминание согласующему не отправлено (${s.document_name}) — повторим в следующий такт`);
+      continue; // флаг не ставим → следующий такт попробует снова
+    }
+    await db.query('UPDATE approval_steps SET reminded = true WHERE id = $1', [s.id]);
     // Registered approver: the reminder also lands in their bell.
     const approverUser = await getUserByEmail(db, s.approver_email.toLowerCase());
     if (approverUser) {

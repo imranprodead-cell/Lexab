@@ -4,6 +4,7 @@ import { Button, IconButton } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { TextField } from '@/components/ui/TextField';
 import { signaturesApi } from '@/api';
+import { useFeatureFlags } from '@/hooks/useFeatureFlags';
 import { useI18n } from '@/i18n/I18nProvider';
 import styles from './workspace.module.css';
 
@@ -24,6 +25,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 /** Modal to collect recipients and dispatch an e-signature request (validated). */
 export function SendForSignatureModal({ open, documentName, onClose, onSent }: SendForSignatureModalProps) {
   const { t } = useI18n();
+  const features = useFeatureFlags();
   const [recipients, setRecipients] = useState<Recipient[]>([{ name: '', email: '' }]);
   const [errors, setErrors] = useState<Record<number, string>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -61,6 +63,30 @@ export function SendForSignatureModal({ open, documentName, onClose, onSent }: S
       setErrors({ 0: err instanceof Error && err.message ? err.message : t('sign.errSend') });
     }
   };
+
+  // Раздел закрыт до подключения E-IMZO: заполнять форму и получать 503 в конце
+  // хуже, чем сразу честно сказать «скоро» (аудит 2026-08-03).
+  if (!features.esign) {
+    return (
+      <Modal
+        open={open}
+        title={t('sign.title')}
+        onClose={onClose}
+        maxWidth={480}
+        footer={
+          <Button variant="primary" onClick={onClose}>
+            {t('common.close')}
+          </Button>
+        }
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12, padding: '8px 0 4px', textAlign: 'center' }}>
+          <Icon name="esign" size={28} />
+          <strong style={{ fontSize: 15 }}>{t('sig.soon')}</strong>
+          <p style={{ margin: 0, fontSize: 14, color: 'var(--dim)', maxWidth: 360 }}>{t('sig.soonBody')}</p>
+        </div>
+      </Modal>
+    );
+  }
 
   return (
     <Modal

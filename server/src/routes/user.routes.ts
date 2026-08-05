@@ -3,9 +3,12 @@ import type { FastifyInstance } from 'fastify';
 import { config } from '../config.ts';
 import type { Db } from '../db.ts';
 import { badRequest, HttpError } from '../lib/errors.ts';
+import { audit } from '../lib/audit.ts';
+import { verifyPassword } from '../lib/passwords.ts';
 import { asObject, optionalString } from '../lib/validate.ts';
-import { getUserById, toProfile, type UserRow } from '../plugins/auth.ts';
-import { sendVerificationMail } from './auth.routes.ts';
+import { getUserByEmail, getUserById, toProfile, type UserRow } from '../plugins/auth.ts';
+import { startEmailChange } from './auth.routes.ts';
+import { consumeBackupCode, verifyUserTotp } from './security.routes.ts';
 import { resolveTeamName } from './team.routes.ts';
 
 export function userRoutes(app: FastifyInstance, db: Db): void {
@@ -62,11 +65,32 @@ export function userRoutes(app: FastifyInstance, db: Db): void {
         // Clean 409 instead of a raw UNIQUE-violation 500 on a taken address.
         const taken = await db.query('SELECT 1 FROM users WHERE lower(email) = $1 AND id <> $2', [lower, req.currentUser.id]);
         if (taken.rows.length) throw new HttpError(409, 'Этот email уже занят / This email is already in use');
-        patch.email = lower;
-        // A new address is UNPROVEN until re-confirmed — otherwise a user could
-        // set their email to an address they don't own and keep "verified"
-        // (which gates team-invite acceptance).
-        patch.email_verified = false;
+
+        // Почта аккаунта — это ключ восстановления доступа, поэтому её смена
+        // требует того же уровня доказательств, что и отключение 2FA: пароль
+        // (+ второй фактор, если включён). Раньше хватало живого токена, и
+        // украденная сессия давала необратимый захват аккаунта.
+        const account = await getUserByEmail(db, req.currentUser.email);
+        if (!account) throw new HttpError(401, 'Не удалось подтвердить аккаунт / Could not verify the account');
+        if (account.google_sub && !account.password_hash) {
+          throw badRequest(
+            'Адрес аккаунта задаётся входом через Google — смените его в Google-аккаунте. / ' +
+              'Your account address comes from Google sign-in — change it in your Google account.',
+          );
+        }
+        const password = typeof body.currentPassword === 'string' ? body.currentPassword : '';
+        if (!password || !(await verifyPassword(password, account.password_hash))) {
+          throw new HttpError(401, 'Введите текущий пароль / Enter your current password', 'password_required');
+        }
+        const totp = await verifyUserTotp(db, req.currentUser.id, typeof body.code === 'string' ? body.code : undefined);
+        if (totp === 'required' || totp === 'replay') {
+          const backup = typeof body.backupCode === 'string' ? body.backupCode : undefined;
+          const used = backup ? await consumeBackupCode(db, req.currentUser.id, backup) : false;
+          if (!used) throw new HttpError(401, 'Нужен код двухфакторной аутентификации / Two-factor code required', 'totp_required');
+        }
+        // Адрес НЕ меняется здесь: он живёт в pending_email до подтверждения по
+        // ссылке из письма (POST /auth/confirm-email). Так владелец старого
+        // ящика успевает вмешаться, а не узнаёт о захвате по невозможности войти.
         emailChangedTo = lower;
       }
     }
@@ -96,10 +120,16 @@ export function userRoutes(app: FastifyInstance, db: Db): void {
       const sets = keys.map((k, i) => `${k} = $${i + 2}`).join(', ');
       await db.query(`UPDATE users SET ${sets} WHERE id = $1`, [req.currentUser.id, ...keys.map((k) => patch[k])]);
     }
-    // Send the confirmation letter to the NEW address after the row is updated.
+    // Смена почты: письмо-подтверждение на НОВЫЙ адрес и предупреждение на
+    // СТАРЫЙ (владелец должен узнать о попытке немедленно), плюс запись в аудит.
     if (emailChangedTo) {
       const displayName = typeof patch.name === 'string' ? patch.name : req.currentUser.name;
-      await sendVerificationMail(db, req.currentUser.id, emailChangedTo, displayName);
+      await startEmailChange(db, req.currentUser.id, req.currentUser.email, emailChangedTo, displayName);
+      await audit(db, req, {
+        type: 'user.email_change_requested',
+        teamOwnerId: req.currentUser.id,
+        target: { type: 'user', id: req.currentUser.id, label: emailChangedTo },
+      });
     }
     const user = (await getUserById(db, req.currentUser.id)) as UserRow;
     return { ...toProfile(user), teamName: await resolveTeamName(db, req.currentUser.id) };

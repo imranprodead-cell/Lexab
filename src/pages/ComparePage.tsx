@@ -9,6 +9,9 @@ import { compareApi, type CompareResult } from '@/api/compare.api';
 import { useUIStore } from '@/store/useUIStore';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { useReveal } from '@/hooks/useReveal';
+import { apiErrorMessage } from '@/i18n/apiError';
+import { useFeatureFlags } from '@/hooks/useFeatureFlags';
+import { planAllows, plansLabel } from '@/lib/planFeatures';
 import { useI18n } from '@/i18n/I18nProvider';
 import styles from './compare.module.css';
 
@@ -110,6 +113,11 @@ export function ComparePage() {
   const pushToast = useUIStore((s) => s.pushToast);
   usePageTitle(t('cmp.title'));
 
+  // Гейт по тарифу ДО работы: раньше человек выбирал два файла, ждал загрузку
+  // и получал отказ «доступно на Pro» только в конце (аудит 2026-08-03).
+  const { plan } = useFeatureFlags();
+  const locked = plan !== null && !planAllows(plan, 'compare');
+
   const [fileA, setFileA] = useState<File | null>(null);
   const [fileB, setFileB] = useState<File | null>(null);
   const [busy, setBusy] = useState(false);
@@ -126,7 +134,7 @@ export function ComparePage() {
     try {
       setResult(await compareApi.run(fileA, fileB));
     } catch (err) {
-      pushToast(err instanceof Error ? err.message : t('common.error'), 'error');
+      pushToast(apiErrorMessage(err, t), 'error');
     } finally {
       setBusy(false);
     }
@@ -152,6 +160,19 @@ export function ComparePage() {
             {result ? <Badge color="accent">{t('cmp.changes', { n: result.changes.length })}</Badge> : null}
           </div>
 
+          {locked ? (
+            <EmptyState
+              icon="shield"
+              title={t('plan.upsellTitle')}
+              body={t('limits.featureLocked', { feature: t('cmp.title'), plans: plansLabel('compare'), plan: plan ?? '' })}
+              action={
+                <Button variant="primary" icon="diamond" onClick={() => navigate('/plans')}>
+                  {t('top.upgrade')}
+                </Button>
+              }
+            />
+          ) : (
+            <>
           <div className={styles.pickRow} ref={pickRef}>
             <FilePick label={t('cmp.uploadA')} file={fileA} onPick={setFileA} pickLabel={t('cmp.pick')} />
             <FilePick label={t('cmp.uploadB')} file={fileB} onPick={setFileB} pickLabel={t('cmp.pick')} />
@@ -237,6 +258,8 @@ export function ComparePage() {
                   </div>
                 );
               })}
+            </>
+          )}
             </>
           )}
         </div>

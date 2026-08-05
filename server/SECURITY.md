@@ -16,7 +16,7 @@ personnel security) are **not** code and are tracked separately.
 | Email verification before first session | `src/routes/auth.routes.ts` |
 | Account-enumeration resistance (identical timing + response on register/login) | `src/routes/auth.routes.ts` (`dummyHash`, `LOGIN_FAILED`) |
 | Brute-force detection + deduped alert (email + in-app + audit) | `src/routes/auth.routes.ts`, `src/lib/audit.ts` |
-| Session revocation en masse (`token_version` bump on logout / password change / "sign out everywhere") | `src/plugins/auth.ts`, `src/routes/security.routes.ts` |
+| Per-session revocation (`sid` in the JWT + a `user_sessions` row; logout ends only that device) **and** mass revocation (`token_version` bump on password change, email change and "sign out everywhere") | `src/plugins/auth.ts`, `src/routes/security.routes.ts` |
 | Active-sessions visibility (device / IP / last-seen) | `user_sessions`, `GET /me/sessions` |
 | RBAC for shared documents (owner / admin / editor / viewer) | `src/lib/teamAccess.ts` |
 | SSO enforcement (org may require SSO; password login blocked, owner exempt) | `src/routes/sso.routes.ts` |
@@ -27,12 +27,14 @@ personnel security) are **not** code and are tracked separately.
 | Control | Where |
 |---|---|
 | Document content encrypted at rest (AES-256-GCM, per-user DEK wrapped by master KEK) | `src/lib/docCrypto.ts` |
+| **What stays in clear text (be honest in questionnaires):** document/file names, counterparty, and finding titles + citations. They are indexed and sorted in SQL, which ciphertext cannot support. The contract text itself, the summary, the clause blocks and the redlines ARE encrypted. | `migrations/001_init.sql`, `src/routes/analysis.routes.ts` |
 | At-rest secrets sealing decoupled from JWT_SECRET (dedicated `SECRETS_ENCRYPTION_KEY`, legacy-key fallback) | `src/lib/secrets.ts`, `src/config.ts` |
 | KEK rotation runbook (re-wrap per-user keys; current→previous file reads) | `scripts/rotate-kek.ts`, `.env.example` |
 | Full 16-byte GCM tag enforced (rejects truncated-tag forgery, DEP0182) | `src/lib/docCrypto.ts`, `src/lib/secrets.ts` |
 | TLS + security headers (HSTS, CSP, nosniff, frame lock) | `@fastify/helmet` in `src/app.ts` |
 | Fail-closed secrets (server refuses to start on weak JWT/KEK unless explicitly opted out) | `src/config.ts` |
 | Provider URLs never returned (byte-serving goes through authorising endpoints) | `src/routes/uploads.routes.ts` |
+| Row Level Security enabled on EVERY table + no grants for the public PostgREST roles (`anon`, `authenticated`) — the database is unreachable from the internet even with the anon key | `migrations/053_rls_all_tables.sql`, checked by `scripts/verify-db.ts` and `test/rls.test.ts` |
 
 ## Audit logging (CC7)
 
@@ -76,9 +78,12 @@ See `.env.example`. Compliance-relevant keys: `JWT_SECRET`,
   `team.ownership_transferred` correspond to features that do not exist yet —
   they will start emitting the day those features ship, никаких пробелов в
   trail для существующих действий нет).
-- **Session revocation.** The sessions list supports per-user "sign out
-  everywhere" (token_version bump). Per-single-session revocation is not
-  implemented — sessions are short-lived JWTs; scope this honestly in
+- **Session revocation.** Two mechanisms exist and both are real: logging out
+  ends exactly that session (the JWT carries a `sid` matched against a
+  `user_sessions` row), and password change / email change / "sign out
+  everywhere" bump `token_version`, which invalidates every issued token at
+  once. The honest gap: there is no UI button to terminate ONE OTHER listed
+  session — `GET /me/sessions` only shows them. Scope it that way in
   questionnaires.
 - **Malware scanning.** ClamAV hook (uploads + inbound mail) активируется
   переменной CLAMD_HOST; без него остаётся magic-byte валидация. Заражённые

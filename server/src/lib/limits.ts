@@ -9,13 +9,31 @@ import type { Db, Queryable } from '../db.ts';
 import { HttpError } from './errors.ts';
 import { activeTeamOwnerFor } from './teamAccess.ts';
 
-/** null = unlimited. Mirrors the Plans page. */
+/**
+ * null = unlimited. Mirrors the Plans page.
+ *
+ * ai — месячный потолок обращений к модели. До 2026-08-04 у Pro/Business/
+ * Enterprise он был null: ни одного ограничителя расходов на ИИ во всём
+ * продукте, один пользователь мог сжечь любую сумму (аудит 2026-08-03).
+ * Значения заданы владельцем: Free 20, Standard 100, Pro 500, Business 10000.
+ * Enterprise — договорный тариф, здесь стоит страховочный потолок: он на
+ * порядок выше Business и защищает от зацикленного интегратора, а не от клиента.
+ */
 export const PLAN_LIMITS: Record<string, { ai: number | null; docs: number | null; storageMb: number | null }> = {
-  Free: { ai: 10, docs: 3, storageMb: 100 },
+  Free: { ai: 20, docs: 3, storageMb: 100 },
   Standard: { ai: 100, docs: 20, storageMb: 2 * 1024 },
-  Pro: { ai: null, docs: 80, storageMb: 50 * 1024 },
-  Business: { ai: null, docs: 700, storageMb: 1024 * 1024 },
-  Enterprise: { ai: null, docs: null, storageMb: null },
+  Pro: { ai: 500, docs: 80, storageMb: 50 * 1024 },
+  Business: { ai: 10_000, docs: 700, storageMb: 1024 * 1024 },
+  Enterprise: { ai: 50_000, docs: null, storageMb: null },
+};
+
+/** Мест в команде: null = без ограничения (Enterprise, как обещает тариф). */
+export const PLAN_SEATS: Record<string, number | null> = {
+  Free: 1,
+  Standard: 1,
+  Pro: 1,
+  Business: 5,
+  Enterprise: null,
 };
 
 export async function planFor(db: Db, userId: string): Promise<string> {
@@ -132,6 +150,8 @@ export async function assertFeature(db: Db, userId: string, feature: PlanFeature
   throw new HttpError(
     402,
     `«${f.ru}» доступно на планах ${f.plans} (у вас ${plan}). ${upgradeHint}`,
+    'feature_locked',
+    { feature, plan, plans: f.plans },
   );
 }
 
@@ -178,6 +198,8 @@ export async function reserveAiRequest(db: Db, userId: string): Promise<{ plan: 
     throw new HttpError(
       402,
       `Лимит ИИ-запросов тарифа ${plan} исчерпан (${limit}/${limit} в этом месяце). ${upgradeHint}`,
+      'ai_limit',
+      { plan, limit, used: limit },
     );
   }
   return { plan, reserved: true };
@@ -287,6 +309,8 @@ export async function assertDocumentAllowance(db: Db, userId: string): Promise<v
     throw new HttpError(
       402,
       `Лимит документов тарифа ${plan} исчерпан (${docsCreated}/${limit} в этом месяце). ${upgradeHint}`,
+      'docs_limit',
+      { plan, limit, used: docsCreated },
     );
   }
 }
@@ -304,6 +328,8 @@ export async function assertStorageAllowance(db: Db, userId: string, incomingByt
     throw new HttpError(
       402,
       `Хранилище тарифа ${plan} заполнено (${usedMb} из ${limitMb} МБ). ${upgradeHint}`,
+      'storage_limit',
+      { plan, limit: limitMb, used: usedMb },
     );
   }
 }
@@ -340,7 +366,11 @@ export async function withStorageReservation(
         );
         if (used + incomingBytes > limitMb * 1024 * 1024) {
           const usedMb = Math.round(used / (1024 * 1024));
-          throw new HttpError(402, `Хранилище тарифа ${plan} заполнено (${usedMb} из ${limitMb} МБ). ${upgradeHint}`);
+          throw new HttpError(402, `Хранилище тарифа ${plan} заполнено (${usedMb} из ${limitMb} МБ). ${upgradeHint}`, 'storage_limit', {
+            plan,
+            limit: limitMb,
+            used: usedMb,
+          });
         }
       }
       await insert(tx);
@@ -376,6 +406,10 @@ export async function reserveDocument(tx: Queryable, userId: string): Promise<vo
     [userId, limit],
   );
   if (res.rows.length === 0) {
-    throw new HttpError(402, `Лимит документов тарифа ${plan} исчерпан (${limit}/${limit} в этом месяце). ${upgradeHint}`);
+    throw new HttpError(402, `Лимит документов тарифа ${plan} исчерпан (${limit}/${limit} в этом месяце). ${upgradeHint}`, 'docs_limit', {
+      plan,
+      limit,
+      used: limit,
+    });
   }
 }

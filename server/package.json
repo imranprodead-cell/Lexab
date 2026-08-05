@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Lexab backend — Fastify + Postgres + JWT + S3 + Claude. Implements the API contract in ../BACKEND_HANDOFF.md.",
   "engines": {
-    "node": ">=23.6"
+    "node": ">=24.0.0 <25"
   },
   "scripts": {
     "dev": "node --env-file-if-exists=.env --watch src/index.ts",
@@ -25,7 +25,10 @@
     "rag:ingest:ae": "node --env-file-if-exists=.env src/rag/ingest/run-ingest-ae.ts",
     "rag:index": "node --env-file-if-exists=.env src/rag/build-index.ts",
     "rag:embed": "node --env-file-if-exists=.env src/rag/build-index.ts --embed-only",
-    "eval": "node --env-file-if-exists=.env evals/run-eval.ts"
+    "eval": "node --env-file-if-exists=.env evals/run-eval.ts",
+    "lint": "eslint . --ext ts",
+    "verify:db": "node --env-file-if-exists=.env scripts/verify-db.ts",
+    "check-deps": "node scripts/check-deps.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.110.0",
@@ -54,6 +57,9 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/pg": "^8.11.0",
+    "@typescript-eslint/eslint-plugin": "^8.8.0",
+    "@typescript-eslint/parser": "^8.8.0",
+    "eslint": "^8.57.1",
     "typescript": "^5.6.2"
   }
 }

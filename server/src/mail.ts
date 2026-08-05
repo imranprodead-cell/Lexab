@@ -91,6 +91,11 @@ export async function sendMail(input: MailInput): Promise<{ sent: boolean }> {
   try {
     const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
+      // Единственный исходящий fetch без таймаута во всём сервере: часть писем
+      // отправляется с ожиданием (await) прямо в HTTP-обработчике, и зависший
+      // провайдер держал запрос пользователя до дефолтных ~5 минут Node
+      // (аудит 2026-08-03).
+      signal: AbortSignal.timeout(10_000),
       headers: {
         Authorization: `Bearer ${config.resendApiKey}`,
         'Content-Type': 'application/json',

@@ -21,13 +21,13 @@
 import crypto from 'node:crypto';
 import dns from 'node:dns/promises';
 import type { FastifyInstance } from 'fastify';
-import { config, isOriginAllowed } from '../config.ts';
+import { config, isRedirectAllowed } from '../config.ts';
 import type { Db } from '../db.ts';
 import { badRequest, HttpError } from '../lib/errors.ts';
 import { newId } from '../lib/ids.ts';
 import { hashPassword } from '../lib/passwords.ts';
 import { asObject, requireEmail, requireString } from '../lib/validate.ts';
-import { assertFeature, planFor, planHasFeature } from '../lib/limits.ts';
+import { assertFeature, planFor, planHasFeature, PLAN_SEATS } from '../lib/limits.ts';
 import { sealSecret, openSecret } from '../lib/secrets.ts';
 import { audit } from '../lib/audit.ts';
 import { invalidateTtsAuthCache, getUserById, type UserRow } from '../plugins/auth.ts';
@@ -74,7 +74,24 @@ async function activeConfigForDomain(db: Db, domain: string): Promise<SsoConfigR
   const cfg = res.rows[0];
   if (!cfg || !cfg.enabled || !cfg.domain_verified) return null;
   const plan = await planFor(db, cfg.owner_user_id);
-  if (!planHasFeature(plan, 'sso')) return null; // owner's plan lapsed below Business → fail-open
+  if (!planHasFeature(plan, 'sso')) return null; // тариф ниже Business → SSO как способ ВХОДА недоступен
+  return cfg;
+}
+
+/**
+ * Требование «входить только через SSO» — отдельно от возможности им входить.
+ *
+ * Раньше просрочка подписки владельца молча снимала enforcement: политика
+ * безопасности организации отключалась побочным эффектом биллинга, и вход по
+ * паролю снова открывался, никого не уведомив (аудит 2026-08-03). Теперь
+ * enforcement переживает лапс плана; недоступной становится только сама
+ * возможность конфигурировать SSO. Break-glass для владельца остаётся.
+ */
+async function enforcedConfigForDomain(db: Db, domain: string): Promise<SsoConfigRow | null> {
+  if (!domain) return null;
+  const res = await db.query<SsoConfigRow>('SELECT * FROM team_sso_config WHERE email_domain = $1', [domain]);
+  const cfg = res.rows[0];
+  if (!cfg || !cfg.enabled || !cfg.domain_verified || !cfg.enforce_sso) return null;
   return cfg;
 }
 
@@ -82,11 +99,11 @@ async function activeConfigForDomain(db: Db, domain: string): Promise<SsoConfigR
  * Enforcement guard for every token-issuing endpoint. Throws 403 when the
  * email's domain has SSO ENFORCED and the user is an active team member — but
  * the team OWNER is always exempt (break-glass, so a broken IdP can't lock the
- * whole team out). Fail-open when the owner's plan has lapsed.
+ * whole team out). Требование НЕ снимается просрочкой тарифа владельца.
  */
 export async function assertSsoNotRequired(db: Db, user: { id: string; email: string }): Promise<void> {
-  const cfg = await activeConfigForDomain(db, domainOf(user.email));
-  if (!cfg || !cfg.enforce_sso) return;
+  const cfg = await enforcedConfigForDomain(db, domainOf(user.email));
+  if (!cfg) return;
   if (cfg.owner_user_id === user.id) return; // owner break-glass
   const member = await db.query(
     "SELECT 1 FROM team_members WHERE owner_user_id = $1 AND member_user_id = $2 AND status = 'active'",
@@ -249,7 +266,8 @@ export function ssoRoutes(app: FastifyInstance, db: Db): void {
     try {
       if (redirect) {
         const u = new URL(redirect);
-        if ((u.protocol === 'http:' || u.protocol === 'https:') && isOriginAllowed(u.origin)) backTo = u.toString();
+        // Список адресов возврата отдельный от CORS — см. isRedirectAllowed.
+        if ((u.protocol === 'http:' || u.protocol === 'https:') && isRedirectAllowed(u.origin)) backTo = u.toString();
       }
     } catch {
       /* keep fallback */
@@ -392,8 +410,13 @@ async function jitProvision(db: Db, cfg: SsoConfigRow, email: string, name: stri
       name,
     ]);
   } else if (!existingRow && userId !== cfg.owner_user_id) {
-    const count = await db.query<{ n: string | number }>("SELECT count(*) AS n FROM team_members WHERE owner_user_id = $1 AND status = 'active'", [cfg.owner_user_id]);
-    if (Number(count.rows[0]?.n ?? 0) >= 5) return 'team_full';
+    // Мест — по тарифу владельца (Enterprise без ограничения), а не жёстко 5.
+    const ownerPlan = await planFor(db, cfg.owner_user_id);
+    const seats = PLAN_SEATS[ownerPlan] ?? PLAN_SEATS.Business;
+    if (seats !== null) {
+      const count = await db.query<{ n: string | number }>("SELECT count(*) AS n FROM team_members WHERE owner_user_id = $1 AND status = 'active'", [cfg.owner_user_id]);
+      if (Number(count.rows[0]?.n ?? 0) >= seats) return 'team_full';
+    }
     await db.query(
       `INSERT INTO team_members (id, owner_user_id, member_user_id, name, email, role, status)
        VALUES ($1, $2, $3, $4, $5, $6, 'active')

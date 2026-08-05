@@ -243,15 +243,23 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
       sharedParams.push(q.risk);
       sharedWhere.push(`documents.risk = $${sharedParams.length}`);
     }
-    const sharedQ = db.query<DocumentRow>(
-      `SELECT documents.id, documents.name, documents.counterparty, documents.status, documents.risk,
-              documents.jurisdiction, documents.size_bytes, documents.updated_at,
-              documents.team_shared, u.name AS shared_by
-       FROM documents JOIN users u ON u.id = documents.user_id
-       WHERE ${sharedWhere.join(' AND ')}
-       ORDER BY documents.updated_at DESC LIMIT 100`,
-      sharedParams,
-    );
+    // Фильтр по делу (?project=) к командной ветке НЕ применялся, поэтому
+    // страница дела показывала вперемешку чужие расшаренные договоры, а счётчик
+    // документов не сходился (аудит 2026-08-03). Дела приватны для владельца
+    // (project_id чужого документа наружу вообще не отдаётся), поэтому при
+    // фильтре по делу командную ветку просто не выполняем.
+    const projectFilter = q.project === 'none' || Boolean(q.project?.trim());
+    const sharedQ = projectFilter
+      ? Promise.resolve({ rows: [] as DocumentRow[] })
+      : db.query<DocumentRow>(
+          `SELECT documents.id, documents.name, documents.counterparty, documents.status, documents.risk,
+                  documents.jurisdiction, documents.size_bytes, documents.updated_at,
+                  documents.team_shared, u.name AS shared_by
+           FROM documents JOIN users u ON u.id = documents.user_id
+           WHERE ${sharedWhere.join(' AND ')}
+           ORDER BY documents.updated_at DESC LIMIT 100`,
+          sharedParams,
+        );
     // One DB round-trip of latency instead of three (the pool runs them together).
     const [total, rows, shared] = await Promise.all([totalQ, rowsQ, sharedQ]);
 
@@ -349,6 +357,27 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
     // Активные согласования удаляемого документа отменяются: внешняя ссылка
     // /approve/:token перестаёт показывать текст, напоминания прекращаются.
     await db.query("UPDATE approval_flows SET status = 'cancelled' WHERE document_id = $1 AND status = 'active'", [id]);
+    // Публичная ссылка-отчёт: раньше переживала «удалить навсегда» и ещё 30
+    // дней показывала резюме и находки всему интернету, а кнопки отзыва уже не
+    // было — документ исчез вместе с ней (аудит 2026-08-03).
+    await db.query(
+      `UPDATE analysis_shares SET revoked_at = now()
+        WHERE revoked_at IS NULL AND analysis_id IN (SELECT id FROM analyses WHERE document_id = $1)`,
+      [id],
+    );
+    // Незавершённые запросы на подпись: ссылка /sign/:token давала посторонним
+    // полный текст договора и возможность поставить подпись под удалённым
+    // документом. Токены получателей стираем — ссылка перестаёт существовать.
+    const cancelled = await db.query<{ id: string }>(
+      `UPDATE signature_requests SET status = 'Declined'
+        WHERE document_id = $1 AND status NOT IN ('Completed', 'Declined') RETURNING id`,
+      [id],
+    );
+    if (cancelled.rows.length) {
+      await db.query('UPDATE signature_recipients SET token = NULL WHERE request_id = ANY($1::text[]) AND signed = false', [
+        cancelled.rows.map((r) => r.id),
+      ]);
+    }
     await audit(db, req, { type: 'document.deleted', target: { type: 'document', id, label: doc.name } });
     reply.code(204);
   });

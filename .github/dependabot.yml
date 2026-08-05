@@ -1,0 +1,33 @@
+# Автоматические обновления зависимостей.
+#
+# Зачем: до аудита 2026-08-03 в репозитории не было НИ ОДНОГО автоматического
+# механизма поставки безопасности — ни Dependabot, ни CodeQL, ни secret
+# scanning. Устаревание закрывалось только тем, что кто-то вручную запускал
+# `npm audit`, а серверная проверка CI при этом краснела 15 пушей подряд.
+#
+# Три экосистемы: фронтенд (корень), сервер и сами GitHub Actions.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: '/'
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # Мелкие обновления одной пачкой — меньше шума в списке PR.
+      minor-and-patch:
+        update-types: ['minor', 'patch']
+
+  - package-ecosystem: npm
+    directory: '/server'
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: ['minor', 'patch']
+
+  - package-ecosystem: github-actions
+    directory: '/'
+    schedule:
+      interval: weekly

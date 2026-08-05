@@ -12,7 +12,7 @@
  */
 import { createHash } from 'node:crypto';
 import { XMLParser } from 'fast-xml-parser';
-import type { LegalUnit, UnitType } from '../types.ts';
+import type { LegalUnit } from '../types.ts';
 
 const BASE = 'https://www.legislation.gov.uk';
 

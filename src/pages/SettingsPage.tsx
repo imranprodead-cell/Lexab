@@ -880,6 +880,7 @@ function TwoFactorSection() {
   const [code, setCode] = useState('');
   const [backupCodes, setBackupCodes] = useState<string[] | null>(null);
   const [disarming, setDisarming] = useState(false);
+  const [arming, setArming] = useState(false);
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -890,13 +891,19 @@ function TwoFactorSection() {
       .catch(() => undefined);
   };
 
+  // Пароль запрашивается ДО начала настройки: включение 2FA — необратимая для
+  // владельца операция, и тот, кто перехватил сессию, не должен привязать
+  // второй фактор к своему телефону (аудит 2026-08-03).
   const begin = async () => {
     setBusy(true);
     try {
-      setSetup(await securityApi.twofa.setup());
+      setSetup(await securityApi.twofa.setup(password));
+      setArming(false);
+      setPassword('');
       setCode('');
     } catch (err) {
-      pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
+      const wrong = err instanceof ApiError && err.status === 401;
+      pushToast(wrong ? t('sec.2fa.wrongPassword') : err instanceof Error && err.message ? err.message : t('common.error'), 'error');
     } finally {
       setBusy(false);
     }
@@ -1029,8 +1036,34 @@ function TwoFactorSection() {
             </Button>
           </div>
         </div>
+      ) : arming ? (
+        <div className={styles.secStack}>
+          <TextField
+            label={t('sec.2fa.passwordLabel')}
+            name="enable2faPassword"
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          <div className={styles.secActions}>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setArming(false);
+                setPassword('');
+              }}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button size="sm" variant="secondary" icon="shield" disabled={busy || !password} onClick={() => void begin()}>
+              {busy ? t('common.loading') : t('sec.2fa.enable')}
+            </Button>
+          </div>
+        </div>
       ) : (
-        <Button size="sm" variant="secondary" icon="shield" disabled={busy || status.loading} onClick={() => void begin()}>
+        <Button size="sm" variant="secondary" icon="shield" disabled={busy || status.loading} onClick={() => setArming(true)}>
           {busy ? t('common.loading') : t('sec.2fa.enable')}
         </Button>
       )}

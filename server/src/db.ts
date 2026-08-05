@@ -93,6 +93,13 @@ async function createDb(): Promise<Db> {
       // батч-скрипт (eval/ингест) с дефолтными max=10 вдвоём пробивают лимит
       // (EMAXCONNSESSION). Скрипты запускаются с PG_POOL_MAX=4.
       max: Math.max(1, Number(process.env.PG_POOL_MAX ?? 10) || 10),
+      // Без таймаута подключения зависший пулер держал бы запрос бесконечно:
+      // именно так одна фоновая задача останавливала всю очередь (аудит
+      // 2026-08-03). Плюс потолки на сам запрос и на «забытую» транзакцию —
+      // иначе одно подвисшее соединение выедает лимит сессий Supabase.
+      connectionTimeoutMillis: 5_000,
+      statement_timeout: 60_000,
+      idle_in_transaction_session_timeout: 30_000,
       ...(useSsl ? { ssl: resolveSslOptions() } : {}),
     });
     // An idle pooled connection can error at any time (network change, pooler

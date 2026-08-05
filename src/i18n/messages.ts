@@ -251,6 +251,39 @@ export const MESSAGES: Dict = {
   'sig.signed': { ru: '{a} / {b} подписано', en: '{a} / {b} signed' },
   'sig.empty': { ru: 'Пока нет запросов на подпись', en: 'No signature requests yet' },
   'sig.emptyBody': { ru: 'Откройте проверенный контракт и выберите «Отправить на подпись».', en: 'Open a reviewed contract and choose “Send for e-signature”.' },
+  // Названия функций для отказов по тарифу (см. i18n/apiError.ts) — остальные
+  // берутся из заголовков разделов, отдельные ключи нужны только тем, у кого
+  // своей страницы нет.
+  'feat.docxExport': { ru: 'Экспорт в DOCX', en: 'DOCX export' },
+  'feat.versions': { ru: 'История версий', en: 'Version history' },
+  'feat.sso': { ru: 'Единый вход (SSO)', en: 'Single Sign-On (SSO)' },
+  'feat.workflows': { ru: 'Агентные сценарии', en: 'Agentic workflows' },
+  'plan.upsellTitle': { ru: 'Функция старших тарифов', en: 'Available on higher plans' },
+  'limits.featureLocked': {
+    ru: '«{feature}» доступно на тарифах {plans} (у вас {plan}). Обновите тариф в разделе «Тарифы».',
+    en: '“{feature}” is available on {plans} (you are on {plan}). Upgrade on the Plans page.',
+  },
+  'limits.aiLimit': {
+    ru: 'Лимит ИИ-запросов тарифа {plan} исчерпан ({limit} в месяц). Счётчик обнулится 1-го числа.',
+    en: 'The {plan} plan\u2019s AI limit is used up ({limit} per month). The counter resets on the 1st.',
+  },
+  'limits.docsLimit': {
+    ru: 'Лимит документов тарифа {plan} исчерпан ({limit} в месяц). Счётчик обнулится 1-го числа.',
+    en: 'The {plan} plan\u2019s document limit is used up ({limit} per month). The counter resets on the 1st.',
+  },
+  'limits.storageLimit': {
+    ru: 'Хранилище тарифа {plan} заполнено ({used} из {limit} МБ). Удалите ненужные файлы или обновите тариф.',
+    en: 'The {plan} plan\u2019s storage is full ({used} of {limit} MB). Delete files or upgrade your plan.',
+  },
+  'limits.seatsLimit': {
+    ru: 'В команде тарифа {plan} не больше {limit} участников. Освободите место или напишите нам про Enterprise.',
+    en: 'The {plan} plan allows up to {limit} team members. Free a seat or contact us about Enterprise.',
+  },
+  'sig.soon': { ru: 'Электронные подписи скоро', en: 'E-signatures are coming soon' },
+  'sig.soonBody': {
+    ru: 'Мы подключаем E-IMZO — государственную электронную подпись. До этого раздел закрыт: подпись без юридической силы в договоре хуже, чем её отсутствие.',
+    en: 'We are integrating E-IMZO, the state e-signature service. Until then the section stays closed: a signature without legal force is worse than none at all.',
+  },
 
   // Analytics
   'an.title': { ru: 'Аналитика', en: 'Analytics' },
@@ -661,7 +694,10 @@ export const MESSAGES: Dict = {
   'chat.an.badgeWork': { ru: 'В работе', en: 'Working' },
   'chat.an.badgeDone': { ru: 'Готово', en: 'Complete' },
   'chat.an.step1': { ru: 'Разбираю структуру документа', en: 'Parsing document structure' },
-  'chat.an.step2': { ru: 'Сверяю с законодательством и практикой', en: 'Checking against statute & case law' },
+  // Судебной практики в корпусе НЕТ (только статуты) — обещать её нельзя
+  // (аудит 2026-08-03). Вернуть упоминание, когда заработает загрузчик
+  // caselaw.nationalarchives.gov.uk.
+  'chat.an.step2': { ru: 'Сверяю с базой законов', en: 'Checking against the statute corpus' },
   'chat.an.step3': { ru: 'Формирую отчёт о рисках', en: 'Building risk report' },
 
   // Chat · summary card
@@ -1032,9 +1068,14 @@ export const MESSAGES: Dict = {
   // Chat composer
   'chat.fileTypes': { ru: 'Поддерживаются файлы PDF, DOC/DOCX, TXT.', en: 'Supported files: PDF, DOC/DOCX, TXT.' },
   'chat.fileTooBig': { ru: 'Файл больше 10 МБ — загрузите файл поменьше.', en: 'File exceeds 10 MB — please upload a smaller one.' },
+  // Текст прямо противоречил коду: анализ в этом случае НЕ запускается вовсе
+  // (загрузка не удалась — конвейер обрывается). Аудит 2026-08-03.
+  'chat.an.elapsed': { ru: 'Идёт разбор · {time}', en: 'Reviewing · {time}' },
+  'chat.an.sec': { ru: 'с', en: 's' },
+  'chat.an.min': { ru: 'мин', en: 'min' },
   'chat.uploadFailed': {
-    ru: 'Не удалось передать содержимое файла — анализ выполнен только по названию.',
-    en: "Couldn't upload the file contents — the review used the file name only.",
+    ru: 'Файл не загрузился — анализ не выполнен. Попробуйте ещё раз.',
+    en: "The file didn't upload — no review was run. Please try again.",
   },
   'chat.micDenied': {
     ru: 'Разрешите доступ к микрофону в настройках браузера.',

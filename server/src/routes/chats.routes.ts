@@ -384,7 +384,11 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
     );
   });
 
-  app.post('/chats/:id/messages', { preHandler: [app.authenticateReal] }, async (req, reply) => {
+  // Главный вход в модель — с тем же лимитом, что и «призрачный» чат. Раньше
+  // единственной защитой здесь был общий потолок 300 запросов/мин, а месячного
+  // потолка у Pro/Business не было вовсе: один клиент мог сжечь любую сумму
+  // (аудит 2026-08-03).
+  app.post('/chats/:id/messages', { preHandler: [app.authenticateReal], config: RATE_LIMIT }, async (req, reply) => {
     const { id: sessionId } = req.params as { id: string };
     await requireSession(req.currentUser.id, sessionId);
     // Atomically reserve the AI unit up front (fail fast before persisting the

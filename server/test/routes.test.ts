@@ -40,11 +40,19 @@ process.env.GOOGLE_TTS_CREDENTIALS_JSON = JSON.stringify({
 // Many users register from one loopback IP in this suite — lift the per-minute
 // auth cap so the rate limiter (still 10/min in production) doesn't throttle it.
 process.env.AUTH_RATE_LIMIT_MAX = '1000';
+// Десятки логинов (в т.ч. намеренно неудачных) идут с одного loopback-адреса —
+// временная блокировка входа проверяется отдельным процессом: test/lockout.test.ts.
+process.env.AUTH_LOCKOUT_FAILURES = '100000';
 // Биллинг-тесты этого сьюта написаны под мгновенную активацию (pre-PSP).
 // С появлением Lemon Squeezy она живёт только за явным dev-флагом; сам LS
 // покрыт отдельным процессом test/lemonsqueezy.test.ts со своим env.
 // Амбиентные LEMONSQUEEZY_* из shell зануляем: частичный конфиг валит старт.
 process.env.BILLING_FALLBACK = 'dev';
+// Раздел э-подписей закрыт по умолчанию (ждём E-IMZO), но сам механизм —
+// заморозка текста, ссылки подписантов, сборка подписанного PDF — покрыт этим
+// сьютом и должен оставаться рабочим. Проверка «выключено по умолчанию» живёт
+// отдельным процессом: test/esign-disabled.test.ts.
+process.env.ESIGN_ENABLED = '1';
 for (const k of Object.keys(process.env)) if (k.startsWith('LEMONSQUEEZY_')) delete process.env[k];
 
 const { getDb, migrate } = await import('../src/db.ts');
@@ -170,13 +178,23 @@ describe('auth', () => {
 });
 
 describe('AI usage reservation (atomic limit)', () => {
-  it('usage never overshoots the Free cap under a burst of requests', async () => {
-    const { token } = await makeUser();
+  it('usage never overshoots the plan cap under a burst of requests', async () => {
+    const { PLAN_LIMITS } = await import('../src/lib/limits.ts');
+    const cap = PLAN_LIMITS.Free.ai as number;
+    const { token, id } = await makeUser();
+    // Подводим счётчик вплотную к потолку, чтобы сьют не зависел от конкретной
+    // цифры тарифа (она меняется вместе с ценами) и не упирался в лимит
+    // документов по дороге.
+    await db.query(
+      `INSERT INTO usage_counters (user_id, month, ai_requests, docs_created)
+       VALUES ($1, date_trunc('month', now())::date, $2, 0)
+       ON CONFLICT (user_id, month) DO UPDATE SET ai_requests = EXCLUDED.ai_requests`,
+      [id, cap - 1],
+    );
     let ok = 0;
     let rejected = 0; // 402 (over AI limit) or 429 (rate limit) — both are refusals
-    // Same fileName every time → reuses the one document, so the doc limit (3)
-    // is never hit and we isolate the AI counter.
-    for (let i = 0; i < 13; i++) {
+    // Same fileName every time → reuses the one document row.
+    for (let i = 0; i < 3; i++) {
       const res = await app.inject({
         method: 'POST',
         url: '/api/analysis',
@@ -186,21 +204,45 @@ describe('AI usage reservation (atomic limit)', () => {
       if (res.statusCode === 201) ok++;
       else if (res.statusCode === 402 || res.statusCode === 429) rejected++;
     }
-    assert.equal(ok, 10, 'at most 10 succeed');
-    assert.equal(rejected, 3, 'the rest are refused');
+    assert.equal(ok, 1, 'ровно один запрос помещается под потолок');
+    assert.equal(rejected, 2, 'the rest are refused');
     const limits = await app.inject({ method: 'GET', url: '/api/billing/limits', headers: auth(token) });
-    assert.equal(JSON.parse(limits.body).aiRequests.used, 10, 'usage never overshoots the cap');
+    assert.equal(JSON.parse(limits.body).aiRequests.used, cap, 'usage never overshoots the cap');
   });
 
-  it('reserveAiRequest is atomic: 12 concurrent reserves for a Free user grant exactly 10', async () => {
-    const { reserveAiRequest } = await import('../src/lib/limits.ts');
+  it('reserveAiRequest атомарен: параллельные резервы не перепрыгивают потолок', async () => {
+    const { reserveAiRequest, PLAN_LIMITS } = await import('../src/lib/limits.ts');
+    const cap = PLAN_LIMITS.Free.ai as number;
     const { id } = await makeUser();
-    // Fire concurrently — the check-then-increment must not let more than 10 through.
+    // Fire concurrently — the check-then-increment must not let more than the cap through.
     const outcomes = await Promise.all(
-      Array.from({ length: 12 }, () => reserveAiRequest(db, id).then(() => 'ok').catch(() => 'denied')),
+      Array.from({ length: cap + 2 }, () => reserveAiRequest(db, id).then(() => 'ok').catch(() => 'denied')),
     );
-    assert.equal(outcomes.filter((o) => o === 'ok').length, 10);
+    assert.equal(outcomes.filter((o) => o === 'ok').length, cap);
     assert.equal(outcomes.filter((o) => o === 'denied').length, 2);
+  });
+
+  it('квота документов НЕ обходится одинаковым именем файла', async () => {
+    // Раньше строка documents искалась по имени, и «Договор.pdf» можно было
+    // загружать бесконечно разным содержимым, не потратив ни одной единицы.
+    const { token, id } = await makeUser();
+    const docsCap = 3;
+    let created = 0;
+    for (let i = 0; i < docsCap + 2; i++) {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/analysis',
+        headers: auth(token),
+        payload: { fileName: 'Договор.pdf', fileSize: '10 KB', jurisdiction: 'GB' },
+      });
+      if (res.statusCode === 201) created++;
+    }
+    assert.equal(created, docsCap, 'после исчерпания месячной квоты новые разборы отклоняются');
+    const counter = await db.query<{ docs_created: number | string }>(
+      "SELECT docs_created FROM usage_counters WHERE user_id = $1 AND month = date_trunc('month', now())::date",
+      [id],
+    );
+    assert.equal(Number(counter.rows[0].docs_created), docsCap);
   });
 });
 
@@ -272,20 +314,65 @@ describe('Google one-time login code', () => {
   });
 });
 
-describe('changing email requires re-verification', () => {
-  it('flips email_verified to false and blocks a taken address', async () => {
+describe('changing email requires the password AND confirmation on the new address', () => {
+  // Раньше хватало живого токена, адрес менялся немедленно, письмо уходило
+  // только на новый ящик — украденная сессия давала необратимый захват
+  // аккаунта (аудит 2026-08-03). Проверяем весь новый порядок.
+  it('без пароля — 401, с паролем адрес лишь ОТЛОЖЕН, применяется по ссылке', async () => {
     const u = await makeUser();
     const other = await makeUser();
     const newEmail = `moved_${Date.now()}_${counter++}@test.local`;
-    const res = await app.inject({ method: 'PATCH', url: '/api/me', headers: auth(u.token), payload: { email: newEmail } });
-    assert.equal(res.statusCode, 200, res.body);
-    const row = await db.query<{ email: string; email_verified: boolean }>(
-      'SELECT email, email_verified FROM users WHERE id = $1',
+
+    const noPassword = await app.inject({ method: 'PATCH', url: '/api/me', headers: auth(u.token), payload: { email: newEmail } });
+    assert.equal(noPassword.statusCode, 401, noPassword.body);
+    assert.equal(JSON.parse(noPassword.body).code, 'password_required');
+
+    const wrongPassword = await app.inject({
+      method: 'PATCH',
+      url: '/api/me',
+      headers: auth(u.token),
+      payload: { email: newEmail, currentPassword: 'not-my-password' },
+    });
+    assert.equal(wrongPassword.statusCode, 401, wrongPassword.body);
+
+    const untouched = await db.query<{ email: string }>('SELECT email FROM users WHERE id = $1', [u.id]);
+    assert.equal(untouched.rows[0].email, u.email, 'до подтверждения адрес аккаунта не меняется');
+
+    const ok = await app.inject({
+      method: 'PATCH',
+      url: '/api/me',
+      headers: auth(u.token),
+      payload: { email: newEmail, currentPassword: 'Passw0rd!123' },
+    });
+    assert.equal(ok.statusCode, 200, ok.body);
+    const pending = await db.query<{ email: string; pending_email: string; pending_email_token: string }>(
+      'SELECT email, pending_email, pending_email_token FROM users WHERE id = $1',
       [u.id],
     );
-    assert.equal(row.rows[0].email, newEmail);
-    assert.equal(row.rows[0].email_verified, false, 'a new address must be unverified');
-    const clash = await app.inject({ method: 'PATCH', url: '/api/me', headers: auth(u.token), payload: { email: other.email } });
+    assert.equal(pending.rows[0].email, u.email, 'вход по старому адресу продолжает работать');
+    assert.equal(pending.rows[0].pending_email, newEmail);
+
+    // Ссылка из письма применяет адрес и обнуляет ВСЕ сессии, включая чужую.
+    const confirm = await app.inject({ method: 'POST', url: '/api/auth/confirm-email', payload: { token: pending.rows[0].pending_email_token } });
+    assert.equal(confirm.statusCode, 200, confirm.body);
+    const after = await db.query<{ email: string; email_verified: boolean; pending_email: string | null }>(
+      'SELECT email, email_verified, pending_email FROM users WHERE id = $1',
+      [u.id],
+    );
+    assert.equal(after.rows[0].email, newEmail);
+    assert.equal(after.rows[0].email_verified, true);
+    assert.equal(after.rows[0].pending_email, null);
+    const oldSession = await app.inject({ method: 'GET', url: '/api/me', headers: auth(u.token) });
+    assert.equal(oldSession.statusCode, 401, 'после смены адреса старые сессии недействительны');
+
+    const relogin = await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email: newEmail, password: 'Passw0rd!123' } });
+    assert.equal(relogin.statusCode, 200, relogin.body);
+    const clash = await app.inject({
+      method: 'PATCH',
+      url: '/api/me',
+      headers: auth(JSON.parse(relogin.body).token),
+      payload: { email: other.email, currentPassword: 'Passw0rd!123' },
+    });
     assert.equal(clash.statusCode, 409, 'cannot take another account\'s email');
   });
 });
@@ -1468,7 +1555,9 @@ describe('batch review', () => {
     await db.query("UPDATE batch_items SET status = 'processing' WHERE batch_id = $1 AND ord = 0", [jobId]);
     await db.query("UPDATE batch_jobs SET status = 'processing', updated_at = now() - interval '10 minutes' WHERE id = $1", [jobId]);
 
-    await resumeBatchJobs(db);
+    // awaitRuns: в проде свип запускает прогоны и сразу отдаёт такт (иначе он
+    // держал бы очередь фоновых задач часами), тесту нужен детерминированный итог.
+    await resumeBatchJobs(db, { awaitRuns: true });
     const after = JSON.parse((await app.inject({ method: 'GET', url: `/api/batch/${jobId}`, headers: auth(pro.token) })).body);
     assert.equal(after.status, 'done', 'job must be finalized, not stuck in processing');
     const interrupted = after.items.find((i: { fileName: string }) => i.fileName === 'r1.txt');
@@ -1589,8 +1678,11 @@ describe('2FA (TOTP)', () => {
     await app.inject({ method: 'POST', url: '/api/auth/verify', payload: { token: vrow.rows[0].verify_token } });
     const token = JSON.parse((await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email, password: 'Passw0rd!123' } })).body).token as string;
 
-    // Setup → get the secret.
-    const setup = await app.inject({ method: 'POST', url: '/api/me/2fa/setup', headers: auth(token) });
+    // Setup требует пароль (step-up): без него — 401, иначе перехваченная
+    // сессия позволяла бы привязать чужой второй фактор и запереть владельца.
+    const noPass = await app.inject({ method: 'POST', url: '/api/me/2fa/setup', headers: auth(token) });
+    assert.equal(noPass.statusCode, 401, noPass.body);
+    const setup = await app.inject({ method: 'POST', url: '/api/me/2fa/setup', headers: auth(token), payload: { password: 'Passw0rd!123' } });
     assert.equal(setup.statusCode, 200, setup.body);
     const { secret, otpauthUri } = JSON.parse(setup.body);
     assert.ok(secret && otpauthUri.includes('otpauth://totp/'));
@@ -1728,7 +1820,7 @@ describe('sessions, DSAR export, retention, access review', () => {
     const vrow = await db.query<{ id: string; verify_token: string }>('SELECT id, verify_token FROM users WHERE email = $1', [email]);
     await app.inject({ method: 'POST', url: '/api/auth/verify', payload: { token: vrow.rows[0].verify_token } });
     const token = JSON.parse((await app.inject({ method: 'POST', url: '/api/auth/login', payload: { email, password: 'Passw0rd!123' } })).body).token as string;
-    const { secret } = JSON.parse((await app.inject({ method: 'POST', url: '/api/me/2fa/setup', headers: auth(token) })).body);
+    const { secret } = JSON.parse((await app.inject({ method: 'POST', url: '/api/me/2fa/setup', headers: auth(token), payload: { password: 'Passw0rd!123' } })).body);
     await app.inject({ method: 'POST', url: '/api/me/2fa/enable', headers: auth(token), payload: { code: totpCode(secret) } });
 
     // Выпускаем reset-токен напрямую (в тестах письмо не приходит).

@@ -13,6 +13,7 @@ import { consumePendingProject, USE_MOCK, analysisApi, documentsApi } from '@/ap
 import { chatsApi } from '@/api/chats.api';
 import { uploadsApi } from '@/api/uploads.api';
 import { ApiError } from '@/api/util';
+import { apiErrorMessage } from '@/i18n/apiError';
 import { COUNTRIES } from '@/data/countries';
 import { ANALYSIS_STEPS } from '@/data/seed';
 import { tStandalone } from '@/i18n/messages';
@@ -56,6 +57,9 @@ export type ChatPhase = 'idle' | 'analyzing' | 'analyzed' | 'error';
 
 const STEP_INTERVAL = 1150;
 
+/** Контроллер текущего анализа — чтобы кнопка «Отменить» реально обрывала запрос. */
+let analysisAbort: AbortController | null = null;
+
 /** Mock assistant replies per slash command — replaced by a real chat endpoint. */
 function mockReply(text: string): string {
   const t = text.trim().toLowerCase();
@@ -70,6 +74,9 @@ interface ChatState {
   messages: ChatMessage[];
   analysis: AnalysisResult | null;
   activeStep: number; // -1 none, 0..2 in progress, steps.length = done
+  /** Когда начался текущий анализ (мс). Карточка показывает честное «идёт
+   *  разбор, 1 мин 20 с» вместо замершего на 66% индикатора. */
+  analysisStartedAt: number | null;
   error: string | null;
   steps: string[];
   /** Backend chat session id (created lazily on the first real-API message). */
@@ -97,7 +104,13 @@ interface ChatState {
 
   /** `opts.keepCanvas`: не обнулять текущий документ на время анализа — воркспейс
    *  остаётся открытым (черновик шаблона анализируется «на месте»). */
-  startAnalysis: (file: { name: string; size: string }, rawFile?: File, opts?: { keepCanvas?: boolean }) => Promise<void>;
+  startAnalysis: (
+    file: { name: string; size: string },
+    rawFile?: File,
+    opts?: { keepCanvas?: boolean; uploadId?: string },
+  ) => Promise<void>;
+  /** Отменить идущий анализ (кнопка «Отменить» на карточке). */
+  cancelAnalysis: () => void;
   sendMessage: (text: string) => void;
   reset: () => void;
   /** Real mode: hydrate the canvas from a server-side chat session. */
@@ -328,6 +341,7 @@ export const useChatStore = create<ChatState>((set, get) => {
   analysis: null,
   draftSource: null,
   activeStep: -1,
+  analysisStartedAt: null,
   error: null,
   steps: ANALYSIS_STEPS,
   serverSessionId: null,
@@ -411,6 +425,23 @@ export const useChatStore = create<ChatState>((set, get) => {
     });
   },
 
+  cancelAnalysis: () => {
+    // Раньше отменить анализ было нельзя вовсе: оставалось закрыть вкладку —
+    // и это стоило пользователю ИИ-запроса (аудит 2026-08-03).
+    analysisAbort?.abort();
+    analysisAbort = null;
+    clearStepTimers();
+    canvasEpoch++;
+    const deadSid = get().serverSessionId;
+    if (deadSid && !USE_MOCK) {
+      void chatsApi
+        .remove(deadSid)
+        .then(() => refreshHistory())
+        .catch(() => undefined);
+    }
+    set({ phase: 'idle', messages: [], activeStep: -1, analysisStartedAt: null, error: null, serverSessionId: null });
+  },
+
   startAnalysis: async (file, rawFile, opts) => {
     if (get().phase === 'analyzing' || get().ghost) return; // no files in ghost mode
     // «Повторить» с карточки ошибки приходит БЕЗ файла — переиспользуем
@@ -419,7 +450,11 @@ export const useChatStore = create<ChatState>((set, get) => {
     // устаревшую версию или вообще ничего (выдуманный «анализ»).
     if (rawFile) lastRawFile = rawFile;
     const effectiveRaw = rawFile ?? (lastRawFile && lastRawFile.name === file.name ? lastRawFile : null);
-    if (!effectiveRaw && !USE_MOCK) {
+    // opts.uploadId — файл уже НА СЕРВЕРЕ (импорт из Google Drive / OneDrive /
+    // Dropbox). Раньше этот гейт заворачивал такой запуск, и импорт из облака
+    // НИКОГДА не доходил до анализа: пользователь видел «прикрепите файл
+    // заново» после успешного импорта (аудит 2026-08-03).
+    if (!effectiveRaw && !opts?.uploadId && !USE_MOCK) {
       useUIStore.getState().pushToast(tStandalone('chat.retryNeedsFile'), 'error');
       return;
     }
@@ -443,17 +478,24 @@ export const useChatStore = create<ChatState>((set, get) => {
       // keepCanvas: черновик остаётся на экране, пока идёт анализ.
       analysis: opts?.keepCanvas ? get().analysis : null,
       activeStep: 0,
+      analysisStartedAt: Date.now(),
       error: null,
     });
 
     // Advance the visible progress steps while the request is in flight.
+    // Шаги — это ожидаемый ПОРЯДОК работ, а не измеренное время: реальный
+    // разбор занимает от десятков секунд до минут (замер 30,8 с на коротком
+    // договоре). Поэтому после последнего шага карточка не замирает на 66%, а
+    // показывает бегущее время (см. AnalysisCard).
     for (let i = 1; i < ANALYSIS_STEPS.length; i++) {
       stepTimers.push(setTimeout(() => set({ activeStep: i }), STEP_INTERVAL * i));
     }
+    const controller = typeof AbortController === 'undefined' ? null : new AbortController();
+    analysisAbort = controller;
 
     try {
       // Ship the file itself first — the AI reads the actual contract text.
-      if (effectiveRaw && !USE_MOCK) {
+      if (effectiveRaw && !opts?.uploadId && !USE_MOCK) {
         try {
           await uploadsApi.upload(effectiveRaw);
         } catch {
@@ -470,8 +512,11 @@ export const useChatStore = create<ChatState>((set, get) => {
       const result = await analysisApi.analyze({
         fileName: file.name,
         fileSize: file.size,
-        jurisdiction: defaultLaw(),
-      });
+          jurisdiction: defaultLaw(),
+          ...(opts?.uploadId ? { uploadId: opts.uploadId } : {}),
+        },
+        controller?.signal,
+      );
       // «Новый договор» из проекта: здесь фронт впервые узнаёт documentId —
       // переносим документ в дело (по локали, ключ уже погашен на старте) даже
       // если канвас переключили. Ошибка глотается в тост внутри хелпера.
@@ -509,6 +554,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       set({
         phase: 'analyzed',
         analysis: result,
+        analysisStartedAt: null,
         draftSource: null, // настоящий анализ заменил черновик шаблона
         activeStep: ANALYSIS_STEPS.length,
         docUndo: [], // история правок принадлежала предыдущему анализу
@@ -517,6 +563,8 @@ export const useChatStore = create<ChatState>((set, get) => {
       tryLinkAnalysis();
     } catch (err) {
       if (epoch !== canvasEpoch) return;
+      // Отмена пользователем — не ошибка: состояние уже сброшено в cancelAnalysis.
+      if (err instanceof DOMException && err.name === 'AbortError') return;
       clearStepTimers();
       // The sidebar session was created optimistically FOR this analysis. If
       // nothing was ever persisted into it (no text messages), remove it —
@@ -532,8 +580,11 @@ export const useChatStore = create<ChatState>((set, get) => {
       }
       set({
         phase: 'error',
-        error: err instanceof Error ? err.message : 'Analysis failed. Please try again.',
+        // Отказ по тарифу собирается на языке интерфейса (apiErrorMessage),
+        // остальное — сообщение сервера как есть.
+        error: apiErrorMessage(err, tStandalone),
         activeStep: -1,
+        analysisStartedAt: null,
       });
     }
   },
@@ -595,10 +646,10 @@ export const useChatStore = create<ChatState>((set, get) => {
     const failReply = (err: unknown) => {
       if (err instanceof ApiError && err.status === 402) {
         streamIn(assistantId, tStandalone('chat.limitReached'));
-        useUIStore.getState().pushToast(err.message, 'error');
+        useUIStore.getState().pushToast(apiErrorMessage(err, tStandalone), 'error');
         return;
       }
-      const message = err instanceof ApiError && err.message ? err.message : tStandalone('chat.error');
+      const message = apiErrorMessage(err, tStandalone);
       streamIn(assistantId, tStandalone('chat.error'));
       useUIStore.getState().pushToast(message, 'error');
     };

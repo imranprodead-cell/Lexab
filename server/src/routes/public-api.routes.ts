@@ -366,6 +366,10 @@ export async function pruneApiRequests(db: Db): Promise<void> {
   // Идемпотентные ключи короткоживущие: повтор запроса приходит в течение
   // минут/часов; 7 дней хватает с запасом, а таблица не растёт безгранично.
   await db.query("DELETE FROM api_idempotency WHERE created_at < now() - interval '7 days'");
+  // Журнал вебхуков платежей: тело уже затирается при обработке, но и сами
+  // строки не должны копиться вечно — ретраи LS приходят в пределах суток,
+  // 90 дней хватает на любой разбор инцидента (аудит 2026-08-03).
+  await db.query("DELETE FROM ls_webhook_events WHERE created_at < now() - interval '90 days'");
 }
 
 /**

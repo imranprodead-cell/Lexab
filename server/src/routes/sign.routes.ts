@@ -43,7 +43,13 @@ async function findByToken(db: Db, token: string): Promise<RecipientRow | null> 
      FROM signature_recipients r
      JOIN signature_requests q ON q.id = r.request_id
      JOIN users u ON u.id = q.user_id
-     WHERE r.token = $1 AND q.created_at > now() - interval '30 days'`,
+     LEFT JOIN documents d ON d.id = q.document_id
+     WHERE r.token = $1 AND q.created_at > now() - interval '30 days'
+       -- Отозванный/завершённый запрос и удалённый документ гасят ссылку:
+       -- раньше посторонний 30 дней читал полный текст договора и мог поставить
+       -- подпись под уже удалённым документом (аудит 2026-08-03).
+       AND q.status NOT IN ('Completed', 'Declined')
+       AND (d.id IS NULL OR d.deleted_at IS NULL)`,
     [token],
   );
   return res.rows[0] ?? null;

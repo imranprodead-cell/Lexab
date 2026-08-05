@@ -65,6 +65,31 @@ for (const table of ['users', 'documents', 'analyses', 'chunks', 'batch_jobs', '
   }
 }
 
+// 6. Row Level Security: НИ ОДНОЙ таблицы схемы public без RLS. Именно так
+//    (по одной забытой таблице на миграцию) база и оказалась открыта наружу —
+//    проверка обязана валить деплой, а не напоминать постфактум.
+const noRls = await db.query<{ relname: string }>(
+  `SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public' AND c.relkind = 'r' AND NOT c.relrowsecurity ORDER BY 1`,
+);
+ok(
+  'RLS включён на всех таблицах',
+  noRls.rows.length === 0,
+  noRls.rows.length ? `без RLS: ${noRls.rows.map((r) => r.relname).join(', ')}` : '',
+);
+
+// 7. Публичные роли Supabase (anon/authenticated) не имеют прав на таблицы —
+//    второй контур поверх RLS, не зависящий от политик.
+const grants = await db.query<{ grantee: string; count: string | number }>(
+  `SELECT grantee, count(*) AS count FROM information_schema.role_table_grants
+    WHERE table_schema = 'public' AND grantee IN ('anon', 'authenticated') GROUP BY grantee`,
+);
+ok(
+  'у anon/authenticated нет прав на таблицы',
+  grants.rows.length === 0,
+  grants.rows.map((r) => `${r.grantee}: ${r.count}`).join('; '),
+);
+
 await db.close();
 console.log(failed ? `\nПРОВЕРКА ПРОВАЛЕНА: ${failed} ✗` : '\nБАЗА ГОТОВА: все проверки ✓');
 process.exit(failed ? 1 : 0);

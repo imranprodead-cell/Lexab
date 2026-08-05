@@ -115,20 +115,25 @@ export function uploadRoutes(app: FastifyInstance, db: Db): void {
     // (or a teammate on a document shared from it). Without this, anyone holding
     // a (loggable, shareable) URL could download another tenant's contract.
     // Only 'local' storage is served here — S3/Supabase use provider signed URLs.
-    const found = await db.query<{ user_id: string; file_name: string }>(
-      `SELECT user_id, file_name FROM uploads WHERE storage = 'local' AND storage_key = $1`,
+    const found = await db.query<{ id: string; user_id: string; file_name: string }>(
+      `SELECT id, user_id, file_name FROM uploads WHERE storage = 'local' AND storage_key = $1`,
       [safe],
     );
     const upload = found.rows[0];
     if (!upload) throw notFound('File not found');
     if (upload.user_id !== req.currentUser.id) {
+      // Доступ участника команды — по ИДЕНТИЧНОСТИ загрузки (analyses.upload_id),
+      // а не по совпадению ИМЕНИ файла. Со сравнением имён участник, у которого
+      // есть доступ к расшаренному «Договор.pdf» владельца, скачивал ЛЮБОЙ
+      // приватный файл владельца с тем же именем (аудит 2026-08-03).
       const shared = await db.query(
-        `SELECT 1 FROM documents d
+        `SELECT 1 FROM analyses a
+           JOIN documents d ON d.id = a.document_id
            JOIN team_members tm
              ON tm.owner_user_id = d.user_id AND tm.member_user_id = $1 AND tm.status = 'active'
-          WHERE d.user_id = $2 AND d.team_shared = true AND d.name = $3 AND d.deleted_at IS NULL
+          WHERE a.upload_id = $2 AND d.team_shared = true AND d.deleted_at IS NULL
           LIMIT 1`,
-        [req.currentUser.id, upload.user_id, upload.file_name],
+        [req.currentUser.id, upload.id],
       );
       if (shared.rows.length === 0) throw notFound('File not found');
     }

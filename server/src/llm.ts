@@ -14,6 +14,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { config } from './config.ts';
 import { HttpError, serviceUnavailable } from './lib/errors.ts';
+import { recordLlmUsage } from './lib/aiUsage.ts';
 import {
   fallbackAnalysis,
   fallbackChatReply,
@@ -136,6 +137,13 @@ async function runDeepseek(call: DeepseekCall): Promise<string> {
     `[llm] ${call.op}: ${call.model} (DeepSeek), in ${u?.prompt_tokens ?? '?'} / out ${u?.completion_tokens ?? '?'} tokens` +
       (u?.prompt_cache_hit_tokens ? `, cache hit ${u.prompt_cache_hit_tokens}` : ''),
   );
+  recordLlmUsage({
+    op: call.op,
+    model: call.model,
+    inputTokens: u?.prompt_tokens ?? 0,
+    outputTokens: u?.completion_tokens ?? 0,
+    cacheReadTokens: u?.prompt_cache_hit_tokens ?? 0,
+  });
   if (call.failOnLength && res.choices[0]?.finish_reason === 'length') {
     throw new Error(`output truncated at max_tokens (${call.op})`);
   }
@@ -216,8 +224,24 @@ function textOf(message: Anthropic.Beta.BetaMessage): string {
 }
 
 /**
+ * Куда ретраить, если модель тарифа не ответила.
+ *
+ * Раньше ретрай ВСЕГДА уходил на config.anthropicModel — самую дорогую модель
+ * в конфиге. Сбой DeepSeek переводил ВЕСЬ бесплатный тариф на Opus, и для
+ * оператора это выглядело обычной работой (аудит 2026-08-03). Теперь запасная
+ * модель сопоставима по цене с основной: Free/Standard уходят на Haiku,
+ * платные — на Sonnet. Дороже основной ретрай не бывает.
+ */
+function fallbackModelFor(model: string): string {
+  if (isDeepSeekModel(model)) return 'claude-haiku-4-5';
+  if (/haiku/.test(model)) return 'claude-sonnet-5';
+  if (/sonnet/.test(model)) return 'claude-sonnet-5';
+  return config.anthropicModel;
+}
+
+/**
  * Run the request; when a plan-specific model fails (e.g. a document too large
- * for a smaller model's context), try once more on the default model before
+ * for a smaller model's context), try once more on a comparable model before
  * surfacing the error.
  */
 async function withModelRetry<T>(model: string, run: (model: string) => Promise<T>): Promise<T> {
@@ -227,9 +251,10 @@ async function withModelRetry<T>(model: string, run: (model: string) => Promise<
     // A deliberate user-facing error (e.g. scanned PDF on the DeepSeek path)
     // is not a model outage — surface it instead of retrying elsewhere.
     if (err instanceof HttpError) throw err;
-    if (model === config.anthropicModel) throw err;
-    console.warn(`[llm] ${model} failed (${(err as Error).message}); retrying on ${config.anthropicModel}`);
-    return run(config.anthropicModel);
+    const fallback = fallbackModelFor(model);
+    if (model === fallback) throw err;
+    console.warn(`[llm] ${model} failed (${(err as Error).message}); retrying on ${fallback}`);
+    return run(fallback);
   }
 }
 
@@ -245,6 +270,14 @@ function logUsage(op: string, requested: string, message: Anthropic.Beta.BetaMes
   console.log(
     `[llm] ${op}: ${served}${rescued ? ' (refusal rescued by fallback)' : ''}, in ${message.usage.input_tokens} / out ${message.usage.output_tokens} tokens${cached}`,
   );
+  // Тот же факт — в журнал расхода: строка в stdout исчезает, а деньги нет.
+  recordLlmUsage({
+    op,
+    model: message.model || requested,
+    inputTokens: message.usage.input_tokens ?? 0,
+    outputTokens: message.usage.output_tokens ?? 0,
+    cacheReadTokens: message.usage.cache_read_input_tokens ?? 0,
+  });
 }
 
 /** CLM (Этап 2): contract-management metadata extracted alongside the review.
@@ -805,9 +838,12 @@ export async function generateChatReply(
     try {
       return await runChat(primary);
     } catch (err) {
-      if (primary === config.anthropicModel || streamed) throw err;
-      console.warn(`[llm] ${primary} failed (${(err as Error).message}); retrying on ${config.anthropicModel}`);
-      return await runChat(config.anthropicModel);
+      // Тот же принцип, что в withModelRetry: запасная модель сопоставима по
+      // цене, а не «самая дорогая из конфига».
+      const fallback = fallbackModelFor(primary);
+      if (primary === fallback || streamed) throw err;
+      console.warn(`[llm] ${primary} failed (${(err as Error).message}); retrying on ${fallback}`);
+      return await runChat(fallback);
     }
   } catch (err) {
     if (!llmFallbackAllowed()) {

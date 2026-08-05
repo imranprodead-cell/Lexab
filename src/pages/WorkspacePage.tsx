@@ -24,6 +24,7 @@ import { useChatHistoryStore } from '@/store/useChatHistoryStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { usePageTitle } from '@/hooks/usePageTitle';
+import { apiErrorMessage } from '@/i18n/apiError';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { DocBlock } from '@/types/domain';
 import styles from '@/components/workspace/workspace.module.css';
@@ -168,7 +169,7 @@ export function WorkspacePage() {
     pushToast(t('ws.reanalyzing'), 'default');
     reanalyze()
       .then((r) => pushToast(t('ws.reanalyzed', { score: r.riskScore, n: r.redlines.length }), 'success'))
-      .catch((err) => pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error'))
+      .catch((err) => pushToast(apiErrorMessage(err, t), 'error'))
       .finally(() => setReanalyzing(false));
   };
 

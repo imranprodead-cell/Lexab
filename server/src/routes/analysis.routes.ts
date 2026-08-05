@@ -13,7 +13,7 @@ import { ALLOWED_EXTENSIONS, assertValidFileContent, extractText, fileExtension,
 import { badRequest, HttpError, notFound } from '../lib/errors.ts';
 import { assertDocumentAllowance, assertFeature, assertStorageAllowance, bumpUsage, planFor, planHasFeature, releaseAiRequest, reserveAiRequest, reserveDocument, withStorageReservation, withAiRequest } from '../lib/limits.ts';
 import { notify } from '../lib/notify.ts';
-import { assertCanEdit, resolveAnalysisAccess, resolveDocumentAccess } from '../lib/teamAccess.ts';
+import { activeTeamOwnerFor, resolveAnalysisAccess, resolveDocumentAccess } from '../lib/teamAccess.ts';
 import { attachmentDisposition, formatSize, looksRussian, looksUzbekCyrillic, looksUzbekLatin } from '../lib/format.ts';
 import { buildSimplePdf } from '../lib/pdf.ts';
 import { newId } from '../lib/ids.ts';
@@ -32,7 +32,8 @@ import type { AnalysisResult, DocBlock, Redline } from '../types.ts';
 
 const ANALYSIS_STEPS = [
   'Parsing document structure',
-  'Checking against UK statute & case law',
+  // Практики в корпусе нет — только статуты (аудит 2026-08-03).
+  'Checking against the statute corpus',
   'Building risk report',
 ];
 
@@ -188,12 +189,24 @@ export async function sourceFromAnalysis(db: Db, userId: string, analysisId: str
 }
 
 /** Resolve the contract content for JSON-mode requests from the uploads table. */
-async function resolveUploadedContent(db: Db, userId: string, fileName: string): Promise<{ text: string | null; pdf: Buffer | null; sizeBytes: number; uploadId: string | null }> {
-  const res = await db.query<{ id: string; storage: 's3' | 'local' | 'supabase'; storage_key: string; extracted_text: string | null; size_bytes: number }>(
-    `SELECT id, storage, storage_key, extracted_text, size_bytes FROM uploads
-     WHERE user_id = $1 AND file_name = $2 ORDER BY created_at DESC LIMIT 1`,
-    [userId, fileName],
-  );
+/** `uploadId` — точная загрузка (импорт из облака знает её id); иначе последняя
+ *  загрузка с таким ИМЕНЕМ (исторический путь для формы «прикрепить файл»). */
+async function resolveUploadedContent(
+  db: Db,
+  userId: string,
+  fileName: string,
+  uploadId?: string | null,
+): Promise<{ text: string | null; pdf: Buffer | null; sizeBytes: number; uploadId: string | null }> {
+  const res = uploadId
+    ? await db.query<{ id: string; storage: 's3' | 'local' | 'supabase'; storage_key: string; extracted_text: string | null; size_bytes: number }>(
+        'SELECT id, storage, storage_key, extracted_text, size_bytes FROM uploads WHERE id = $1 AND user_id = $2',
+        [uploadId, userId],
+      )
+    : await db.query<{ id: string; storage: 's3' | 'local' | 'supabase'; storage_key: string; extracted_text: string | null; size_bytes: number }>(
+        `SELECT id, storage, storage_key, extracted_text, size_bytes FROM uploads
+         WHERE user_id = $1 AND file_name = $2 ORDER BY created_at DESC LIMIT 1`,
+        [userId, fileName],
+      );
   const row = res.rows[0];
   if (!row) return { text: null, pdf: null, sizeBytes: 0, uploadId: null };
   let pdf: Buffer | null = null;
@@ -296,7 +309,10 @@ export async function readSource(db: Db, req: FastifyRequest): Promise<AnalysisS
 
   const fileName = requireString(body, 'fileName', { min: 1, max: 300 });
   const fileSizeLabel = requireString(body, 'fileSize', { min: 1, max: 50 });
-  const uploaded = await resolveUploadedContent(db, req.currentUser.id, fileName);
+  // uploadId приходит с импорта из облака: файл уже лежит на сервере, и
+  // разрешать его по ИМЕНИ незачем (при двух одноимённых взяли бы не тот).
+  const requestedUploadId = optionalString(body, 'uploadId', { max: 60 }) ?? null;
+  const uploaded = await resolveUploadedContent(db, req.currentUser.id, fileName, requestedUploadId);
   return { fileName, fileSizeLabel, sizeBytes: uploaded.sizeBytes, text: uploaded.text, pdf: uploaded.pdf, jurisdiction, uploadId: uploaded.uploadId };
 }
 
@@ -408,6 +424,19 @@ export async function persistAnalysis(
                 updated_at = now() WHERE id = $1`,
         [documentId, gen.riskLevel, source.sizeBytes, source.jurisdiction ?? null, gen.counterparty ?? null],
       );
+      // Квота считалась ТОЛЬКО при создании новой строки documents, а строка
+      // ищется ПО ИМЕНИ — поэтому «Договор.pdf» можно было загружать бесконечно
+      // разным содержимым и не потратить ни одной единицы месячного лимита
+      // (аудит 2026-08-03). Теперь единица не списывается лишь тогда, когда
+      // разбирается ТОТ ЖЕ самый файл (совпал upload_id) — повторный прогон
+      // своего договора по-прежнему бесплатен, а новый файл под старым именем
+      // честно считается.
+      if (!opts.skipDocQuota) {
+        const sameFile = source.uploadId
+          ? await tx.query('SELECT 1 FROM analyses WHERE document_id = $1 AND upload_id = $2 LIMIT 1', [documentId, source.uploadId])
+          : { rows: [] as unknown[] };
+        if (!sameFile.rows.length) await reserveDocument(tx, userId);
+      }
     } else {
       documentId = newId('d');
       await tx.query(
@@ -606,11 +635,11 @@ export async function persistAnalysis(
 /** The account whose playbook applies when `userId` runs a review: their team's
  *  owner when they are an active member, otherwise themselves. */
 async function resolvePlaybookOwner(db: Db, userId: string): Promise<string> {
-  const res = await db.query<{ owner_user_id: string }>(
-    "SELECT owner_user_id FROM team_members WHERE member_user_id = $1 AND status = 'active' AND owner_user_id <> $1 LIMIT 1",
-    [userId],
-  );
-  return res.rows[0]?.owner_user_id ?? userId;
+  // Единый резолвер команды (lib/teamAccess.ts) с ORDER BY created_at. Локальная
+  // копия здесь брала LIMIT 1 БЕЗ порядка: у человека, состоящего в двух
+  // командах, база возвращала произвольного владельца — и в анализ договора
+  // фирмы А могли попасть конфиденциальные позиции фирмы Б (аудит 2026-08-03).
+  return (await activeTeamOwnerFor(db, userId)) ?? userId;
 }
 
 /** Load the active playbook's rules as one prompt-ready text block for the given
@@ -753,11 +782,23 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
     // a teammate's shared document is falsely blocked by the REQUESTER's personal
     // document limit even though no new document row is created.
     const docOwnerId = source.ownerUserId ?? req.currentUser.id;
-    const existingDoc = await db.query(
-      'SELECT 1 FROM documents WHERE user_id = $1 AND name = $2 AND deleted_at IS NULL LIMIT 1',
+    const existingDoc = await db.query<{ id: string }>(
+      'SELECT id FROM documents WHERE user_id = $1 AND name = $2 AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1',
       [docOwnerId, source.fileName],
     );
-    if (!existingDoc.rows[0]) await assertDocumentAllowance(db, req.currentUser.id);
+    // Единица квоты не тратится только на повторный разбор ТОГО ЖЕ файла
+    // (см. persistAnalysis). Проверяем это ДО обращения к модели, чтобы отказ
+    // не стоил пользователю зря сожжённого ИИ-запроса.
+    const reanalysisOfSameFile =
+      Boolean(existingDoc.rows[0]) &&
+      Boolean(source.uploadId) &&
+      (
+        await db.query('SELECT 1 FROM analyses WHERE document_id = $1 AND upload_id = $2 LIMIT 1', [
+          existingDoc.rows[0].id,
+          source.uploadId,
+        ])
+      ).rows.length > 0;
+    if (!reanalysisOfSameFile) await assertDocumentAllowance(db, req.currentUser.id);
 
     // Reserve one AI request atomically (402 if over limit); released below if
     // the model fails, and counted post-hoc only for unlimited plans.

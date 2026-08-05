@@ -5,6 +5,13 @@
  * ciphertext — while the AI keeps receiving byte-identical plaintext, so
  * answers cannot change (decryption happens BEFORE any prompt building).
  *
+ * ЧТО ОСТАЁТСЯ ОТКРЫТЫМ (честная граница, аудит 2026-08-03): имя документа,
+ * контрагент и заголовки/цитаты находок (findings.title, findings.citation).
+ * По ним идут поиск, сортировка и фильтры в SQL, чего шифротекст не позволяет.
+ * Зашифрованы: текст договора, резюме анализа, блоки документа и правки.
+ * Формулировка в SECURITY.md приведена в соответствие — не пишите «дамп отдаёт
+ * ТОЛЬКО шифротекст», это неправда для перечисленных полей.
+ *
  * Scheme:
  *  - per-user data key (DEK, 32 random bytes) stored in `data_keys`, wrapped
  *    by the master key (KEK) from DATA_ENCRYPTION_KEY — AES-256-GCM everywhere;

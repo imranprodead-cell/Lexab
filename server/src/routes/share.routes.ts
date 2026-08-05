@@ -20,18 +20,27 @@ import { assertCanEdit, resolveAnalysisAccess } from '../lib/teamAccess.ts';
 
 const RATE = { rateLimit: { max: 30, timeWindow: '1 minute' } };
 
+/** Сколько живёт публичная ссылка-отчёт. Столько же, сколько ссылка на подпись:
+ *  бессрочная ссылка на содержание чужого договора — это утечка с отложенным
+ *  сроком, а не удобство. */
+const SHARE_TTL_DAYS = 90;
+
 /** Переиспользовать живую или создать новую публичную ссылку-отчёт для анализа
  *  ВЛАДЕЛЬЦА (без проверки доступа — вызывающий уже подтвердил владение, напр.
  *  публичный API по api_requests.user_id). Возвращает полный URL /share/:token. */
 export async function ensureAnalysisShareUrl(db: Db, userId: string, analysisId: string): Promise<string> {
   const live = await db.query<{ token: string }>(
-    'SELECT token FROM analysis_shares WHERE analysis_id = $1 AND revoked_at IS NULL LIMIT 1',
+    'SELECT token FROM analysis_shares WHERE analysis_id = $1 AND revoked_at IS NULL AND expires_at > now() LIMIT 1',
     [analysisId],
   );
   let token = live.rows[0]?.token;
   if (!token) {
     token = crypto.randomBytes(24).toString('base64url');
-    await db.query('INSERT INTO analysis_shares (token, analysis_id, user_id) VALUES ($1, $2, $3)', [token, analysisId, userId]);
+    await db.query(
+      `INSERT INTO analysis_shares (token, analysis_id, user_id, expires_at)
+       VALUES ($1, $2, $3, now() + ($4 || ' days')::interval)`,
+      [token, analysisId, userId, String(SHARE_TTL_DAYS)],
+    );
   }
   return `${config.appBaseUrl}/share/${token}`;
 }
@@ -44,17 +53,17 @@ export function shareRoutes(app: FastifyInstance, db: Db): void {
     assertCanEdit(access.access);
 
     const live = await db.query<{ token: string }>(
-      'SELECT token FROM analysis_shares WHERE analysis_id = $1 AND revoked_at IS NULL LIMIT 1',
+      'SELECT token FROM analysis_shares WHERE analysis_id = $1 AND revoked_at IS NULL AND expires_at > now() LIMIT 1',
       [id],
     );
     let token = live.rows[0]?.token;
     if (!token) {
       token = crypto.randomBytes(24).toString('base64url');
-      await db.query('INSERT INTO analysis_shares (token, analysis_id, user_id) VALUES ($1, $2, $3)', [
-        token,
-        id,
-        req.currentUser.id,
-      ]);
+      await db.query(
+        `INSERT INTO analysis_shares (token, analysis_id, user_id, expires_at)
+         VALUES ($1, $2, $3, now() + ($4 || ' days')::interval)`,
+        [token, id, req.currentUser.id, String(SHARE_TTL_DAYS)],
+      );
       await audit(db, req, { type: 'analysis.share_created', teamOwnerId: access.analysisUserId, target: { type: 'analysis', id } });
     }
     reply.code(201);
@@ -74,8 +83,14 @@ export function shareRoutes(app: FastifyInstance, db: Db): void {
   // ответ не раскрывает, была ли ссылка когда-то живой.
   app.get('/share/:token', { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async (req) => {
     const { token } = req.params as { token: string };
+    // Второй контур поверх отзыва: истёкший срок и удалённый документ гасят
+    // ссылку, даже если её забыли отозвать явно (аудит 2026-08-03).
     const share = await db.query<{ analysis_id: string; user_id: string }>(
-      'SELECT analysis_id, user_id FROM analysis_shares WHERE token = $1 AND revoked_at IS NULL',
+      `SELECT s.analysis_id, s.user_id FROM analysis_shares s
+         JOIN analyses a ON a.id = s.analysis_id
+         LEFT JOIN documents d ON d.id = a.document_id
+        WHERE s.token = $1 AND s.revoked_at IS NULL AND s.expires_at > now()
+          AND (d.id IS NULL OR d.deleted_at IS NULL)`,
       [String(token).slice(0, 100)],
     );
     const row = share.rows[0];

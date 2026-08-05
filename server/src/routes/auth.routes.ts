@@ -19,10 +19,15 @@ import { cancelSubscription, lemonSqueezyEnabled } from '../lib/lemonsqueezy.ts'
 import { recordBillingEvent, TERMS_VERSION } from '../lib/billing.ts';
 import { audit, countRecent } from '../lib/audit.ts';
 import { assertSsoNotRequired } from './sso.routes.ts';
-import { deleteFile } from '../storage.ts';
+import { activeStorageBackend, deleteFile } from '../storage.ts';
 import { invalidateTtsAuthCache, getUserByEmail, getUserById, signToken, toProfile, type UserRow } from '../plugins/auth.ts';
 
 const RATE_LIMIT = { rateLimit: { max: config.authRateLimitMax, timeWindow: '1 minute' } };
+
+/** Окно и порог временной блокировки входа (см. /auth/login). Порог заведомо
+ *  выше числа опечаток живого человека, но на порядки ниже перебора. */
+const LOCKOUT_MINUTES = 15;
+const LOCKOUT_FAILURES = config.authLockoutFailures;
 
 function initialsOf(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
@@ -75,6 +80,53 @@ export async function sendVerificationMail(db: Db, userId: string, email: string
       ),
       biLine('Подтвердить почту', 'Confirm email'),
       url,
+    ),
+  });
+}
+
+/**
+ * Начало смены почты аккаунта: адрес кладётся в pending_email, ссылка уходит на
+ * НОВЫЙ адрес, а на СТАРЫЙ — предупреждение. Сам users.email не меняется до
+ * подтверждения (POST /auth/confirm-email), поэтому вход и восстановление
+ * пароля у владельца продолжают работать всё это время.
+ */
+export async function startEmailChange(db: Db, userId: string, oldEmail: string, newEmail: string, name: string): Promise<void> {
+  const token = newToken();
+  await db.query(
+    `UPDATE users SET pending_email = $2, pending_email_token = $3, pending_email_expires = now() + interval '2 hours' WHERE id = $1`,
+    [userId, newEmail, token],
+  );
+  const url = `${config.appBaseUrl}/confirm-email?token=${token}`;
+  void sendMail({
+    to: newEmail,
+    subject: biSubject('Подтвердите новый адрес в Lexab', 'Confirm your new Lexab address'),
+    html: mailLayout(
+      biLine('Подтвердите новый адрес', 'Confirm your new address'),
+      biBody(
+        `<p>Здравствуйте, <strong>${escapeMailHtml(name)}</strong>!</p>
+       <p>Вы просили перенести аккаунт Lexab на адрес <strong>${escapeMailHtml(newEmail)}</strong>. Нажмите кнопку, чтобы подтвердить. Ссылка действует <strong>2 часа</strong>. После подтверждения вход во все устройства придётся выполнить заново.</p>`,
+        `<p>Hello <strong>${escapeMailHtml(name)}</strong>,</p>
+       <p>You asked to move your Lexab account to <strong>${escapeMailHtml(newEmail)}</strong>. Click the button to confirm. The link is valid for <strong>2 hours</strong>. After confirming, you will need to sign in again on all devices.</p>`,
+      ),
+      biLine('Подтвердить адрес', 'Confirm address'),
+      url,
+    ),
+  });
+  // Письмо-тревога на СТАРЫЙ адрес — единственный способ для владельца узнать о
+  // захвате вовремя. Ссылки на подтверждение здесь нет намеренно.
+  void sendMail({
+    to: oldEmail,
+    subject: biSubject('Запрошена смена почты аккаунта Lexab', 'A Lexab email change was requested'),
+    html: mailLayout(
+      biLine('Кто-то меняет адрес вашего аккаунта', 'Someone is changing your account address'),
+      biBody(
+        `<p>Поступил запрос перенести аккаунт Lexab с <strong>${escapeMailHtml(oldEmail)}</strong> на <strong>${escapeMailHtml(newEmail)}</strong>.</p>
+       <p><strong>Если это не вы</strong> — немедленно смените пароль: это отключит все чужие сессии и отменит смену адреса. Пока вы не подтвердите переход по ссылке из письма на новый адрес, аккаунт остаётся на текущей почте.</p>`,
+        `<p>We received a request to move your Lexab account from <strong>${escapeMailHtml(oldEmail)}</strong> to <strong>${escapeMailHtml(newEmail)}</strong>.</p>
+       <p><strong>If this wasn't you</strong>, change your password right away — that ends every other session and cancels the address change. Until the link sent to the new address is confirmed, the account stays on the current email.</p>`,
+      ),
+      biLine('Сменить пароль', 'Change password'),
+      `${config.appBaseUrl}/login`,
     ),
   });
 }
@@ -190,6 +242,16 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
     const row = found.rows[0];
     if (!row) throw badRequest('Ссылка недействительна, истекла или уже использована — запросите письмо ещё раз');
     await assertSsoNotRequired(db, { id: row.id, email: row.email });
+    // 2FA: подтверждение почты выдаёт полноценную 30-дневную сессию, поэтому
+    // оно не должно обходить второй фактор — иначе доступ к письму равен входу
+    // в аккаунт (ровно эту дыру уже закрыли в /auth/reset/confirm). Челлендж
+    // ДО мутации: verify_token не сгорает, пользователь повторяет с кодом.
+    const totp = await verifyUserTotp(db, row.id, typeof body.code === 'string' ? body.code : undefined);
+    if (totp === 'required' || totp === 'replay') {
+      const backup = typeof body.backupCode === 'string' ? body.backupCode : undefined;
+      const used = backup ? await consumeBackupCode(db, row.id, backup) : false;
+      if (!used) throw new HttpError(401, 'Нужен код двухфакторной аутентификации / Two-factor code required', 'totp_required');
+    }
     // Only now consume the token and mark the mailbox proven.
     await db.query(
       `UPDATE users SET email_verified = true, verify_token = NULL, verify_expires = NULL WHERE id = $1`,
@@ -199,6 +261,46 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
     const user = (await getUserById(db, row.id)) as UserRow;
     const sid = await recordSession(db, user.id, req.ip, req.headers['user-agent']);
     return { ok: true, token: signToken(app, user, undefined, sid), user: toProfile(user) };
+  });
+
+  /**
+   * Подтверждение НОВОГО адреса аккаунта (ссылка из письма, публичный роут).
+   * Применяет pending_email и поднимает token_version: все сессии — и владельца,
+   * и возможного захватчика — обнуляются, войти можно только зная пароль.
+   * Сессию здесь НЕ выдаём намеренно: обладание письмом не должно заменять вход.
+   */
+  app.post('/auth/confirm-email', { config: RATE_LIMIT }, async (req) => {
+    const body = asObject(req.body);
+    const token = requireString(body, 'token', { min: 10, max: 100 });
+    const found = await db.query<{ id: string; email: string; pending_email: string }>(
+      `SELECT id, email, pending_email FROM users
+        WHERE pending_email_token = $1 AND pending_email_expires > now() AND pending_email IS NOT NULL`,
+      [token],
+    );
+    const row = found.rows[0];
+    if (!row) throw badRequest('Ссылка недействительна или истекла — запросите смену адреса ещё раз');
+    // Адрес мог быть занят, пока письмо лежало в ящике.
+    const taken = await db.query('SELECT 1 FROM users WHERE lower(email) = $1 AND id <> $2', [row.pending_email.toLowerCase(), row.id]);
+    if (taken.rows.length) {
+      await db.query('UPDATE users SET pending_email = NULL, pending_email_token = NULL, pending_email_expires = NULL WHERE id = $1', [row.id]);
+      throw new HttpError(409, 'Этот email уже занят / This email is already in use');
+    }
+    await db.query(
+      `UPDATE users SET email = pending_email, email_verified = true,
+         pending_email = NULL, pending_email_token = NULL, pending_email_expires = NULL,
+         verify_token = NULL, verify_expires = NULL, token_version = token_version + 1
+       WHERE id = $1`,
+      [row.id],
+    );
+    invalidateTtsAuthCache(row.id);
+    await audit(db, req, {
+      type: 'user.email_changed',
+      actorId: row.id,
+      actorLabel: row.pending_email,
+      teamOwnerId: row.id,
+      target: { type: 'user', id: row.id, label: `${row.email} → ${row.pending_email}` },
+    });
+    return { ok: true, email: row.pending_email };
   });
 
   // Logged-in user asks for the letter again.
@@ -250,6 +352,28 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
         }
       }
     };
+
+    // Временная блокировка: детектор брутфорса раньше только СЛАЛ письмо, но
+    // не мешал перебору — 10/мин × сколько угодно минут. Теперь после
+    // LOCKOUT_FAILURES неудач за 15 минут по этому IP или по этому адресу вход
+    // закрывается на LOCKOUT_MINUTES. Считается по обеим осям, поэтому ни смена
+    // IP, ни перебор адресов не обнуляют счётчик. Владелец разблокируется
+    // сбросом пароля (тот проверяет владение почтой) или ожиданием.
+    const [byEmail, byIp] = await Promise.all([
+      countRecent(db, 'auth.login_failed', LOCKOUT_MINUTES, null, email),
+      countRecent(db, 'auth.login_failed', LOCKOUT_MINUTES, req.ip, null),
+    ]);
+    // Порог по адресу — жёсткий (перебор пароля одного аккаунта), по IP — в пять
+    // раз выше: за одним корпоративным адресом сидит целый офис, и опечатки
+    // коллег не должны запирать всех разом.
+    if (byEmail >= LOCKOUT_FAILURES || byIp >= LOCKOUT_FAILURES * 5) {
+      throw new HttpError(
+        429,
+        `Слишком много неудачных попыток входа — подождите ${LOCKOUT_MINUTES} минут или восстановите пароль. / ` +
+          `Too many failed sign-in attempts — wait ${LOCKOUT_MINUTES} minutes or reset your password.`,
+        'locked_out',
+      );
+    }
 
     const user = await getUserByEmail(db, email);
     if (!user) {
@@ -423,8 +547,11 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
 
     const passwordHash = await hashPassword(password);
     await db.query(
+      // Смена пароля отменяет незавершённую смену адреса — ровно то, что
+      // обещает письмо-тревога владельцу («смените пароль, это отменит перенос»).
       `UPDATE users SET password_hash = $2, reset_token = NULL, reset_expires = NULL,
-        email_verified = true, verify_token = NULL, verify_expires = NULL, token_version = token_version + 1
+        email_verified = true, verify_token = NULL, verify_expires = NULL, token_version = token_version + 1,
+        pending_email = NULL, pending_email_token = NULL, pending_email_expires = NULL
        WHERE id = $1`,
       [row.id, passwordHash],
     );
@@ -450,10 +577,12 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
     }
     const passwordHash = await hashPassword(newPassword);
     invalidateTtsAuthCache(req.currentUser.id);
-    await db.query('UPDATE users SET password_hash = $2, token_version = token_version + 1 WHERE id = $1', [
-      user.id,
-      passwordHash,
-    ]);
+    await db.query(
+      `UPDATE users SET password_hash = $2, token_version = token_version + 1,
+         pending_email = NULL, pending_email_token = NULL, pending_email_expires = NULL
+       WHERE id = $1`,
+      [user.id, passwordHash],
+    );
     const fresh = (await getUserById(db, user.id)) as UserRow;
     await audit(db, req, { type: 'auth.password_changed', teamOwnerId: user.id });
     const sid = await recordSession(db, fresh.id, req.ip, req.headers['user-agent']);
@@ -469,10 +598,26 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
       throw new HttpError(400, 'Подтверждение не совпадает с email аккаунта');
     }
     // Remember where the uploaded bytes live BEFORE the CASCADE wipes the rows.
-    const files = await db.query<{ storage: 's3' | 'local' | 'supabase'; storage_key: string }>(
+    // Подписанные провайдером PDF (исполненные договоры) лежат ОТДЕЛЬНО от
+    // uploads и раньше не удалялись НИКОГДА — ни при удалении документа, ни при
+    // удалении аккаунта: право на забвение оставалось невыполненным, а в
+    // хранилище копились сироты (аудит 2026-08-03).
+    const uploaded = await db.query<{ storage: 's3' | 'local' | 'supabase'; storage_key: string }>(
       'SELECT storage, storage_key FROM uploads WHERE user_id = $1',
       [req.currentUser.id],
     );
+    const signedPdfs = await db.query<{ storage_key: string }>(
+      'SELECT signed_file_key AS storage_key FROM signature_requests WHERE user_id = $1 AND signed_file_key IS NOT NULL',
+      [req.currentUser.id],
+    );
+    const files = {
+      rows: [
+        ...uploaded.rows,
+        // Подписанные PDF пишутся текущим бэкендом хранилища (saveFile без
+        // явного драйвера), поэтому и удаляются им же.
+        ...signedPdfs.rows.map((r) => ({ storage: activeStorageBackend(), storage_key: r.storage_key })),
+      ],
+    };
     // Log before the CASCADE removes the user (and their own audit rows).
     // If this user is a member of someone ELSE's team, attribute the deletion to
     // that team OWNER: audit_events.team_owner_id → the owner, who is NOT being
@@ -511,6 +656,10 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
       }
     }
     invalidateTtsAuthCache(req.currentUser.id);
+    // Журнал вебхуков платежей не связан с users внешним ключом и CASCADE его
+    // не трогает — обезличиваем вручную (право на забвение). billing_events
+    // остаются намеренно: это юридическое доказательство оплаты (миграция 029).
+    await db.query("UPDATE ls_webhook_events SET payload = '{}'::jsonb, user_id = NULL WHERE user_id = $1", [req.currentUser.id]);
     await db.query('DELETE FROM users WHERE id = $1', [req.currentUser.id]);
     // Повторно ПОСЛЕ удаления: параллельный authenticateTts мог перезаписать
     // кэш в окне между первой инвалидацией и коммитом DELETE (находка аудита).

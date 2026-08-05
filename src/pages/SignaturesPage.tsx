@@ -6,6 +6,7 @@ import { Button, IconButton } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { EmptyState, ErrorState, SkeletonRows } from '@/components/ui/States';
 import { useAsync } from '@/hooks/useAsync';
+import { useFeatureFlags } from '@/hooks/useFeatureFlags';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { useReveal } from '@/hooks/useReveal';
@@ -50,6 +51,7 @@ export function SignaturesPage() {
     }
   };
   const isMobile = useMediaQuery('(max-width: 700px)');
+  const features = useFeatureFlags();
   const { data, loading, error, reload } = useAsync((signal) => signaturesApi.list(signal), []);
   const rows = data ?? [];
   const [selected, setSelected] = useState<SignatureRequest | null>(null);
@@ -91,7 +93,12 @@ export function SignaturesPage() {
             <p className={styles.pageSub}>{t('sig.sub')}</p>
           </div>
 
-          {loading ? (
+          {!features.esign ? (
+            /* Раздел закрыт до подключения E-IMZO: подпись через песочницу
+               провайдера юридически ничтожна, и показывать её как настоящую
+               в юридическом продукте нельзя (аудит 2026-08-03). */
+            <EmptyState icon="esign" title={t('sig.soon')} body={t('sig.soonBody')} />
+          ) : loading ? (
             <SkeletonRows rows={5} height={52} />
           ) : error ? (
             <ErrorState message={error} onRetry={reload} />

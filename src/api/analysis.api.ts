@@ -16,6 +16,9 @@ export interface AnalyzeInput {
   fileSize: string;
   /** Default law context from the country selector (e.g. "German law"). */
   jurisdiction?: string;
+  /** Точная загрузка на сервере (импорт из облака знает её id). Без него сервер
+   *  ищет последний файл с таким ИМЕНЕМ — при двух одноимённых взял бы не тот. */
+  uploadId?: string;
 }
 
 async function analyzeMock(_input: AnalyzeInput): Promise<AnalysisResult> {

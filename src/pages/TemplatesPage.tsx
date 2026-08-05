@@ -18,6 +18,9 @@ import { COUNTRIES, flagUrl } from '@/data/countries';
 import { useChatStore } from '@/store/useChatStore';
 import { useUIStore } from '@/store/useUIStore';
 import { usePageTitle } from '@/hooks/usePageTitle';
+import { useFeatureFlags } from '@/hooks/useFeatureFlags';
+import { planAllows, plansLabel } from '@/lib/planFeatures';
+import { apiErrorMessage } from '@/i18n/apiError';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { SavedTemplate, Template } from '@/types/domain';
 import styles from './pages.module.css';
@@ -162,6 +165,9 @@ export function TemplatesPage() {
   } = useAsync((signal) => templatesApi.listSaved(signal), []);
   const saved = useMemo(() => savedData ?? [], [savedData]);
   const navigate = useNavigate();
+  // Тариф: генератор договоров входит в Standard и выше.
+  const { plan } = useFeatureFlags();
+  const locked = plan !== null && !planAllows(plan, 'templates');
   const adoptDraft = useChatStore((s) => s.adoptDraft);
   // Свой шаблон открывается сразу в рабочем пространстве (не модалкой):
   // документ справа, кнопка «Анализ рисков ИИ» — сверху.
@@ -216,7 +222,7 @@ export function TemplatesPage() {
         }),
       );
     } catch (err) {
-      pushToast(err instanceof Error ? err.message : t('common.error'), 'error');
+      pushToast(apiErrorMessage(err, t), 'error');
     } finally {
       setBusy(false);
     }
@@ -283,7 +289,20 @@ export function TemplatesPage() {
             <p className={styles.pageSub}>{t('tpl.sub')}</p>
           </div>
 
-          {savedLoading ? null : savedError ? (
+          {/* Гейт по тарифу ДО работы: раньше человек заполнял всю форму и
+              получал отказ «доступно на Standard+» только в конце. */}
+          {locked ? (
+            <EmptyState
+              icon="shield"
+              title={t('plan.upsellTitle')}
+              body={t('limits.featureLocked', { feature: t('tpl.title'), plans: plansLabel('templates'), plan: plan ?? '' })}
+              action={
+                <Button variant="primary" icon="diamond" onClick={() => navigate('/plans')}>
+                  {t('top.upgrade')}
+                </Button>
+              }
+            />
+          ) : savedLoading ? null : savedError ? (
             <div style={{ marginBottom: 28 }}>
               <h2 className={styles.sectionTitle}>{t('tpl.mySaved')}</h2>
               <ErrorState message={savedError} onRetry={reloadSaved} />

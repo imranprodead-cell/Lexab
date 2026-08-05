@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url';
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { config } from '../src/config.ts';
-import { getDb, migrate, type Db } from '../src/db.ts';
+import { getDb, migrate } from '../src/db.ts';
 import { extractJsonObject, isDeepSeekModel } from '../src/llm.ts';
 import { resolveCitationText, retrieveLegalContext } from '../src/rag/retrieve.ts';
 import { validateFindings } from '../src/rag/validate-citations.ts';

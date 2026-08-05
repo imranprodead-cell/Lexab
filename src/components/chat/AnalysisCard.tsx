@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Icon } from '@/components/icons/Icon';
 import { Badge } from '@/components/ui/Badge';
 import { GlassCard } from '@/components/ui/GlassCard';
@@ -9,11 +10,37 @@ interface AnalysisCardProps {
   /** -1 none, 0..n-1 in progress, n = complete. */
   activeStep: number;
   done: boolean;
+  /** Когда начался разбор (мс) — карточка показывает бегущее время. */
+  startedAt?: number | null;
+  /** Кнопка «Отменить»; не передана — кнопки нет. */
+  onCancel?: () => void;
+}
+
+/** «1 мин 20 с» / «45 с» — без библиотек и без лишних зависимостей. */
+function formatElapsed(ms: number, secLabel: string, minLabel: string): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const min = Math.floor(total / 60);
+  const sec = total % 60;
+  return min ? `${min} ${minLabel} ${sec} ${secLabel}` : `${sec} ${secLabel}`;
 }
 
 /** Animated progress card shown while (and after) the contract is analyzed. */
-export function AnalysisCard({ steps, activeStep, done }: AnalysisCardProps) {
+export function AnalysisCard({ steps, activeStep, done, startedAt, onCancel }: AnalysisCardProps) {
   const { t } = useI18n();
+  // Тикаем раз в секунду, пока идёт разбор: раньше индикатор замирал на 66% и
+  // молчал минутами — человек не понимал, работает ли что-то (аудит 2026-08-03).
+  const [now, setNow] = useState(() => Date.now());
+  const running = !done && Boolean(startedAt);
+  useEffect(() => {
+    if (!running) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [running]);
+
+  const lastStepReached = activeStep >= steps.length - 1;
+  const elapsed = startedAt ? now - startedAt : 0;
+  // Пока идут расписанные шаги — привычная шкала. Дальше честнее показать
+  // «работаю» бегущей полосой, чем врать процентами, которых мы не знаем.
   const pct = done ? 100 : Math.max(4, (activeStep / steps.length) * 100);
   // Step captions live in the dictionary; the array only sets the count.
   const stepLabel = (i: number) => t(`chat.an.step${i + 1}`);
@@ -68,8 +95,24 @@ export function AnalysisCard({ steps, activeStep, done }: AnalysisCardProps) {
       )}
 
       <div className={styles.progressTrack} style={{ marginTop: done ? 14 : 0 }}>
-        <div className={styles.progressFill} style={{ width: `${pct}%` }} />
+        <div
+          className={`${styles.progressFill} ${running && lastStepReached ? styles.progressIndeterminate : ''}`}
+          style={running && lastStepReached ? undefined : { width: `${pct}%` }}
+        />
       </div>
+
+      {running ? (
+        <div className={styles.progressFoot}>
+          <span className={styles.progressElapsed}>
+            {t('chat.an.elapsed', { time: formatElapsed(elapsed, t('chat.an.sec'), t('chat.an.min')) })}
+          </span>
+          {onCancel ? (
+            <button type="button" className={styles.progressCancel} onClick={onCancel}>
+              {t('common.cancel')}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </GlassCard>
   );
 }

@@ -45,11 +45,22 @@ const loaders = {
 };
 
 /**
- * Warm every page chunk during browser idle time, right after first paint.
- * Navigations then resolve from the module cache instantly — code-splitting
- * keeps the first load small without making later page opens pay for it.
+ * Warm page chunks during browser idle time, right after first paint.
+ *
+ * ВАЖНО: анониму (страница входа, оферта, публичный отчёт) греть всё приложение
+ * незачем — он всё равно никуда не пойдёт, пока не войдёт. Замер на боевой
+ * сборке показал 61 JS-файл и 81 запрос у неавторизованного посетителя
+ * (аудит 2026-08-03). Теперь без сессии прогрев не запускается вовсе, а после
+ * входа греется всё как прежде — навигация внутри приложения остаётся мгновенной.
  */
 export function prefetchAllPages() {
+  let signedIn = false;
+  try {
+    signedIn = Boolean(localStorage.getItem('lexai.auth'));
+  } catch {
+    /* приватный режим Safari — считаем, что сессии нет */
+  }
+  if (!signedIn) return;
   const warm = () => {
     for (const load of Object.values(loaders)) void load().catch(() => undefined);
   };

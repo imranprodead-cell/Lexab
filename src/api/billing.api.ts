@@ -8,11 +8,18 @@ export interface UsageMetric {
   limit: number | null;
 }
 
+/** Рантайм-флаги разделов, приходящие с сервера (см. useFeatureFlags). */
+export interface FeatureFlags {
+  /** Э-подписи закрыты до подключения E-IMZO — интерфейс показывает «скоро». */
+  esign: boolean;
+}
+
 export interface PlanLimits {
   plan: string;
   aiRequests: UsageMetric;
   documents: UsageMetric;
   storageMb: UsageMetric;
+  features?: FeatureFlags;
 }
 
 export type BillingPeriod = 'monthly' | 'yearly';
@@ -48,9 +55,10 @@ export const billingApi = {
       await delay(40);
       return {
         plan: 'Pro',
-        aiRequests: { used: 37, limit: null },
+        aiRequests: { used: 37, limit: 500 },
         documents: { used: 7, limit: 80 },
         storageMb: { used: 840, limit: 50 * 1024 },
+        features: { esign: false },
       };
     }
     return http<PlanLimits>('/billing/limits', { signal });

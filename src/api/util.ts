@@ -20,6 +20,10 @@ export class ApiError extends Error {
     message: string,
     public readonly status: number = 500,
     public readonly code?: string,
+    /** Поля для локализации отказа на клиенте: какая фича, какой тариф, лимит,
+     *  расход. Сообщение сервера — двуязычный фолбэк, а интерфейс на немецком/
+     *  казахском/узбекском/арабском собирает свой текст (см. describeApiError). */
+    public readonly details?: Record<string, string | number | null>,
   ) {
     super(message);
     this.name = 'ApiError';

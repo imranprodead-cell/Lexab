@@ -81,12 +81,13 @@ export const securityApi = {
       return http<TwoFactorStatus>('/me/2fa', { signal });
     },
 
-    async setup(): Promise<TwoFactorSetup> {
+    /** Пароль — step-up re-auth: включение 2FA с чужой сессии запирает владельца. */
+    async setup(password: string): Promise<TwoFactorSetup> {
       if (USE_MOCK) {
         await delay(150);
         return { secret: 'JBSWY3DPEHPK3PXP', otpauthUri: 'otpauth://totp/Lexab:you@example.com?secret=JBSWY3DPEHPK3PXP&issuer=Lexab' };
       }
-      return http<TwoFactorSetup>('/me/2fa/setup', { method: 'POST' });
+      return http<TwoFactorSetup>('/me/2fa/setup', { method: 'POST', body: { password } });
     },
 
     async enable(code: string): Promise<TwoFactorEnableResult> {

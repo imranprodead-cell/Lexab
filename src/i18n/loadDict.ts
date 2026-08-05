@@ -41,5 +41,15 @@ export function ensureDict(lang: Language): Promise<void> {
  * языка в меню остаётся мгновенным, как при статической сборке.
  */
 export function prefetchDicts(): void {
+  // Аноним получает словарь ТОЛЬКО своего языка: качать все четыре ради
+  // мгновенного переключения имеет смысл внутри приложения, а не на странице
+  // входа (аудит 2026-08-03 — лишний вес первой загрузки).
+  let signedIn = false;
+  try {
+    signedIn = Boolean(localStorage.getItem('lexai.auth'));
+  } catch {
+    /* приватный режим — считаем, что сессии нет */
+  }
+  if (!signedIn) return;
   for (const lang of Object.keys(LOADERS) as Language[]) void ensureDict(lang).catch(() => undefined);
 }

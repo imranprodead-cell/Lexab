@@ -252,7 +252,10 @@ export async function checkContractDeadlines(db: Db): Promise<void> {
       bodyEn: `${row.name} · until ${when} (${daysLeft} days left)`,
       action: { kind: 'open', data: '/contracts' },
     });
-    void sendMail({
+    // Письмо — второй канал: уведомление в колокольчик уже доставлено выше,
+    // поэтому флаг «напомнили» остаётся, но провал письма пишется в лог, а не
+    // теряется молча (аудит 2026-08-03).
+    const { sent } = await sendMail({
       to: row.owner_email,
       subject: biSubject(`Срок договора истекает ${when}`, `Contract expires on ${when}`, row.name),
       html: mailLayout(
@@ -267,6 +270,7 @@ export async function checkContractDeadlines(db: Db): Promise<void> {
         `${config.appBaseUrl}/contracts`,
       ),
     });
+    if (!sent) console.warn(`[contracts] письмо о сроке договора не отправлено (${row.name}) — уведомление осталось только в колокольчике`);
   }
 
   // 2) Автопродление: дедлайн уведомления о непродлении (≤14 дней до него).

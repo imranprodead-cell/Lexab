@@ -138,7 +138,7 @@ export async function buildSimplePdf(title: string, sections: Section[]): Promis
       // тире и кавычки — всегда латинским шрифтом (в NotoNaskhArabic их
       // глифов нет: тофу с нулевой шириной → каскад наложений).
       if (last && (last.ar === ar || /[\s.,:;!?%'-]/.test(ch))) last.text += ch;
-      else segs.push({ text: ch, ar: /[()\[\]{}<>«»"„“”—–…]/.test(ch) ? false : ar });
+      else segs.push({ text: ch, ar: /[()[\]{}<>«»"„“”—–…]/.test(ch) ? false : ar });
     }
     return segs;
   };

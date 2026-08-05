@@ -19,7 +19,9 @@ interface CloudImportModalProps {
   open: boolean;
   onClose: () => void;
   /** The picked file is already on the server as an upload — analyse away. */
-  onImported: (file: { name: string; size: string }) => void;
+  /** uploadId — файл УЖЕ загружен на сервер: анализ запускается по нему, без
+   *  повторной отправки байтов из браузера. */
+  onImported: (file: { name: string; size: string; uploadId: string }) => void;
 }
 
 /** Browse a connected cloud drive and pull a contract into Lexab. */
@@ -89,7 +91,7 @@ export function CloudImportModal({ open, onClose, onImported }: CloudImportModal
       const name = picked.mimeType === GDOC_MIME && !/\.docx$/i.test(picked.name) ? `${picked.name}.docx` : picked.name;
       const res = await integrationsApi.importFile('google-drive', picked.id, name);
       onClose();
-      onImported({ name: res.fileName, size: res.fileSize });
+      onImported({ name: res.fileName, size: res.fileSize, uploadId: res.id });
     } catch (err) {
       pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
     } finally {
@@ -107,7 +109,7 @@ export function CloudImportModal({ open, onClose, onImported }: CloudImportModal
       const res = await integrationsApi.importByLink(url);
       setDriveLink('');
       onClose();
-      onImported({ name: res.fileName, size: res.fileSize });
+      onImported({ name: res.fileName, size: res.fileSize, uploadId: res.id });
     } catch (err) {
       pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
     } finally {
@@ -121,7 +123,7 @@ export function CloudImportModal({ open, onClose, onImported }: CloudImportModal
     try {
       const res = await integrationsApi.importFile(active, file.id, file.name);
       onClose();
-      onImported({ name: res.fileName, size: res.fileSize });
+      onImported({ name: res.fileName, size: res.fileSize, uploadId: res.id });
     } catch (err) {
       pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
     } finally {

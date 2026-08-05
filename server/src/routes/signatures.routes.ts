@@ -4,7 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { config } from '../config.ts';
 import type { Db } from '../db.ts';
 import { biBody, biLine, biSubject, escapeMailHtml, mailLayout, sendMail } from '../mail.ts';
-import { badRequest, notFound } from '../lib/errors.ts';
+import { badRequest, notFound, serviceUnavailable } from '../lib/errors.ts';
 import { audit } from '../lib/audit.ts';
 import { encText } from '../lib/docCrypto.ts';
 import { attachmentDisposition, toIso } from '../lib/format.ts';
@@ -87,7 +87,44 @@ export function signatureRoutes(app: FastifyInstance, db: Db): void {
     }));
   });
 
+  /**
+   * Отзыв запроса на подпись владельцем. Раньше отозвать ссылку было НЕЛЬЗЯ
+   * вообще: разосланный /sign/:token жил 30 дней, показывал полный текст
+   * договора и принимал юридически значимую подпись (аудит 2026-08-03).
+   * Работает и при выключенном разделе — гасить уже разосланное нужно всегда.
+   */
+  app.delete('/signatures/:id', { preHandler: [app.authenticate] }, async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const row = await db.query<{ document_name: string; status: string }>(
+      'SELECT document_name, status FROM signature_requests WHERE id = $1 AND user_id = $2',
+      [id, req.currentUser.id],
+    );
+    const sr = row.rows[0];
+    if (!sr) throw notFound('Запрос на подпись не найден / Signature request not found');
+    if (sr.status === 'Completed') throw badRequest('Запрос уже завершён — отзывать нечего / Already completed');
+    await db.query("UPDATE signature_requests SET status = 'Declined' WHERE id = $1", [id]);
+    // Токены неподписавших стираем: ссылка перестаёт существовать, а не просто
+    // отдавать 404 по статусу.
+    await db.query('UPDATE signature_recipients SET token = NULL WHERE request_id = $1 AND signed = false', [id]);
+    await audit(db, req, {
+      type: 'signature.revoked',
+      teamOwnerId: req.currentUser.id,
+      target: { type: 'signature', id, label: sr.document_name },
+    });
+    reply.code(204);
+  });
+
   app.post('/signatures', { preHandler: [app.authenticate] }, async (req, reply): Promise<SignatureRequest> => {
+    // Раздел выключен до подключения E-IMZO: подпись через песочницу провайдера
+    // юридически ничтожна, а встроенная «подпись именем» — тем более. Отдавать
+    // клиенту недействительный документ, оформленный как действительный, —
+    // худший из возможных отказов в юридическом продукте (аудит 2026-08-03).
+    if (!config.esignEnabled) {
+      throw serviceUnavailable(
+        'Электронные подписи временно недоступны — раздел откроется после подключения E-IMZO. / ' +
+          'E-signatures are temporarily unavailable — the feature will open once E-IMZO is connected.',
+      );
+    }
     await assertFeature(db, req.currentUser.id, 'signatures');
     const body = asObject(req.body);
     const documentName = requireString(body, 'documentName', { min: 1, max: 300 });
@@ -380,8 +417,11 @@ export async function checkSignatureReminders(db: Db): Promise<void> {
        AND COALESCE(q.sent_at, q.created_at) < now() - interval '3 days'`,
   );
   for (const s of res.rows) {
-    await db.query('UPDATE signature_recipients SET reminded = true WHERE request_id = $1 AND ord = $2', [s.request_id, s.ord]);
-    void sendMail({
+    // Флаг ставится ТОЛЬКО после подтверждённой отправки. Раньше он ставился ДО
+    // (а письмо уходило без ожидания), поэтому сбой почты означал: напоминание
+    // не ушло, повтора не будет никогда, а владельцу написали «напоминание
+    // отправлено» (аудит 2026-08-03).
+    const { sent } = await sendMail({
       to: s.email,
       subject: biSubject('Напоминание: документ ждёт вашей подписи', 'Reminder: a document is awaiting your signature', s.document_name),
       html: mailLayout(
@@ -396,6 +436,11 @@ export async function checkSignatureReminders(db: Db): Promise<void> {
         `${config.appBaseUrl}/sign/${s.token}`,
       ),
     });
+    if (!sent) {
+      console.warn(`[signatures] напоминание подписанту не отправлено (${s.document_name}) — повторим в следующий такт`);
+      continue; // флаг не ставим → следующий такт попробует снова
+    }
+    await db.query('UPDATE signature_recipients SET reminded = true WHERE request_id = $1 AND ord = $2', [s.request_id, s.ord]);
     await notify(db, s.owner_id, 'esign', 'Подпись задерживается', 'Signature is stalled', {
       bodyRu: `${s.document_name} · ${s.name} — напоминание отправлено`,
       bodyEn: `${s.document_name} · ${s.name} — reminder sent`,

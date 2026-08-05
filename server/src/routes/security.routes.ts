@@ -14,7 +14,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../db.ts';
 import { config } from '../config.ts';
-import { badRequest, HttpError, notFound, unauthorized } from '../lib/errors.ts';
+import { badRequest, HttpError, unauthorized } from '../lib/errors.ts';
 import { audit } from '../lib/audit.ts';
 import { decText } from '../lib/docCrypto.ts';
 import { renderExportHtml } from '../lib/exportHtml.ts';
@@ -205,9 +205,20 @@ export function securityRoutes(app: FastifyInstance, db: Db): void {
   });
 
   // Begin enrolment: mint a secret, seal it, store as pending (enabled=false).
+  // Требует пароль — симметрично /me/2fa/disable: иначе тот, кто перехватил
+  // чужую сессию, включает 2FA на СВОЁМ телефоне и навсегда запирает владельца
+  // (аудит 2026-08-03). Google-аккаунты без пароля проходят по факту входа.
   app.post('/me/2fa/setup', { preHandler: [app.authenticateReal], config: RATE }, async (req) => {
     const existing = await db.query<{ enabled: boolean }>('SELECT enabled FROM user_totp WHERE user_id = $1', [req.currentUser.id]);
     if (existing.rows[0]?.enabled) throw badRequest('Двухфакторная аутентификация уже включена');
+    const account = await getUserByEmail(db, req.currentUser.email);
+    if (account?.password_hash) {
+      const body = req.body === undefined || req.body === null ? {} : asObject(req.body);
+      const password = typeof body.password === 'string' ? body.password : '';
+      if (!password || !(await verifyPassword(password, account.password_hash))) {
+        throw new HttpError(401, 'Введите текущий пароль / Enter your current password', 'password_required');
+      }
+    }
     const secret = generateTotpSecret();
     const sealed = sealSecret(secret);
     await db.query(

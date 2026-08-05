@@ -96,6 +96,9 @@ export function billingRoutes(app: FastifyInstance, db: Db): void {
       aiRequests: { used: usage.aiRequests, limit: limits.ai },
       documents: { used: usage.docsCreated, limit: limits.docs },
       storageMb: { used: Math.round((storageBytes / (1024 * 1024)) * 10) / 10, limit: limits.storageMb },
+      // Рантайм-флаги разделов: интерфейс не должен предлагать то, что сервер
+      // всё равно отклонит. Э-подписи закрыты до подключения E-IMZO.
+      features: { esign: config.esignEnabled },
     };
   });
 
@@ -622,6 +625,15 @@ async function handleLemonSqueezyEvent(db: Db, eventName: string, payload: Recor
       // Возврат НЕ отзывает доступ автоматически (политика оператора), но и
       // молчать нельзя: возврат при живом платном плане = бесплатный доступ.
       const cur = await db.query<{ plan: string }>('SELECT plan FROM subscriptions WHERE user_id = $1', [user.id]);
+      // Возврат при живом платном тарифе = бесплатный доступ. Раньше всё
+      // уведомление висело на непустом CONTACT_EMAIL — с пустым (а он пуст)
+      // событие исчезало БЕССЛЕДНО (аудит 2026-08-03). Громкий лог пишем всегда.
+      if (cur.rows[0] && cur.rows[0].plan !== 'Free') {
+        console.error(
+          `[billing] ВОЗВРАТ ПЛАТЕЖА при активном платном тарифе: ${eventName} · ${user.email} · план ${cur.rows[0].plan}` +
+            (config.contactEmail ? '' : ' · CONTACT_EMAIL не задан, письмо не отправлено'),
+        );
+      }
       if (cur.rows[0] && cur.rows[0].plan !== 'Free' && config.contactEmail) {
         void sendMail({
           to: config.contactEmail,
@@ -726,8 +738,13 @@ function registerLemonSqueezyWebhook(app: FastifyInstance, db: Db): void {
 
       try {
         const outcome = await handleLemonSqueezyEvent(db, eventName, payload);
+        // Сырое тело вебхука (имя, адрес, страна, последние цифры карты, суммы)
+        // затирается сразу после успешной обработки: для дедупа достаточно
+        // body_sha256, для разбора инцидентов — event_name и статус. Раньше оно
+        // хранилось открыто, бессрочно и переживало удаление аккаунта.
         await db.query(
-          `UPDATE ls_webhook_events SET status = $2, error = NULL, user_id = $3, ls_subscription_id = $4 WHERE id = $1`,
+          `UPDATE ls_webhook_events SET status = $2, error = NULL, user_id = $3, ls_subscription_id = $4,
+             payload = '{}'::jsonb WHERE id = $1`,
           [journalId, outcome.status, outcome.userId ?? null, outcome.lsSubscriptionId ?? null],
         );
         return { ok: true, status: outcome.status, ...(outcome.note ? { note: outcome.note } : {}) };

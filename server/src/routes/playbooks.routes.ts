@@ -15,7 +15,7 @@ import { decText, encText } from '../lib/docCrypto.ts';
 import { toIso } from '../lib/format.ts';
 import { newId } from '../lib/ids.ts';
 import { assertFeature } from '../lib/limits.ts';
-import { teamRoleFor } from '../lib/teamAccess.ts';
+import { activeTeamOwnerFor, teamRoleFor } from '../lib/teamAccess.ts';
 import { asObject, optionalString, requireString } from '../lib/validate.ts';
 import { PLAYBOOK_PACKS } from '../data/playbookPacks.ts';
 
@@ -35,11 +35,11 @@ interface Playbook {
 /** The account whose playbooks apply to `userId`: their team owner when an
  *  active member, otherwise themselves. */
 async function playbookOwner(db: Db, userId: string): Promise<string> {
-  const res = await db.query<{ owner_user_id: string }>(
-    "SELECT owner_user_id FROM team_members WHERE member_user_id = $1 AND status = 'active' AND owner_user_id <> $1 LIMIT 1",
-    [userId],
-  );
-  return res.rows[0]?.owner_user_id ?? userId;
+  // Единый резолвер команды (lib/teamAccess.ts) с ORDER BY created_at. Локальная
+  // копия здесь брала LIMIT 1 БЕЗ порядка: у человека, состоящего в двух
+  // командах, база возвращала произвольного владельца — и в анализ договора
+  // фирмы А могли попасть конфиденциальные позиции фирмы Б (аудит 2026-08-03).
+  return (await activeTeamOwnerFor(db, userId)) ?? userId;
 }
 
 /** Гейт фичи считается по плану ВЛАДЕЛЬЦА команды (Business купил владелец —

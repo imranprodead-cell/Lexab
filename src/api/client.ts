@@ -101,14 +101,20 @@ export async function http<T>(path: string, options: HttpOptions = {}): Promise<
         noteUnauthorized(path, response.status, authH.Authorization);
         let message = `Request failed (${response.status})`;
         let code: string | undefined;
+        let details: Record<string, string | number | null> | undefined;
         try {
-          const data = (await response.json()) as { message?: string; code?: string };
+          const data = (await response.json()) as {
+            message?: string;
+            code?: string;
+            details?: Record<string, string | number | null>;
+          };
           if (data?.message) message = data.message;
           if (data?.code) code = data.code;
+          if (data?.details) details = data.details;
         } catch {
           /* non-JSON error body — keep default message */
         }
-        throw new ApiError(message, response.status, code);
+        throw new ApiError(message, response.status, code, details);
       }
 
       if (response.status === 204) return undefined as T;

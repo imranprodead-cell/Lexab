@@ -21,7 +21,22 @@ import { seedIfEmpty } from './seed-data.ts';
 // Error monitoring — enabled only when SENTRY_DSN is set.
 if (config.sentryDsn) {
   const Sentry = await import('@sentry/node');
-  Sentry.init({ dsn: config.sentryDsn, tracesSampleRate: 0.1 });
+  Sentry.init({
+    dsn: config.sentryDsn,
+    tracesSampleRate: 0.1,
+    // Токены-предъявители (ссылка на подпись, на согласование, публичный отчёт,
+    // ключ файла в хранилище, OAuth-код) не должны уезжать во внешний сервис
+    // вместе с URL ошибки — та же редакция, что в лог доступа (app.ts).
+    beforeSend(event) {
+      const redact = (url: string): string =>
+        url
+          .replace(/(\/(?:sign|approve|invite-info|share|files|tts\/stream)\/)[^/?#]+/g, '$1[redacted]')
+          .replace(/([?&](?:code|token|state)=)[^&]+/gi, '$1[redacted]');
+      if (event.request?.url) event.request.url = redact(event.request.url);
+      if (typeof event.request?.query_string === 'string') event.request.query_string = redact(event.request.query_string);
+      return event;
+    },
+  });
   console.log('[sentry] error monitoring enabled');
 }
 
@@ -58,18 +73,53 @@ const JOB_KEYS = {
 // 0/8 задач при пуле 8, все API-запросы висят). Очередь держит максимум
 // 1 лок-клиент + запросы одной задачи — работает даже при PG_POOL_MAX=2.
 let jobQueue: Promise<void> = Promise.resolve();
+
+/** Имя задачи по её ключу — для внятного лога вместо голого числа. */
+const JOB_NAME = new Map<number, string>(Object.entries(JOB_KEYS).map(([name, key]) => [key, name]));
+
+/**
+ * Жёсткий потолок на такт одной задачи. Все 14 задач стоят в ОДНОЙ
+ * последовательной очереди, поэтому одна зависшая (медленный внешний вызов,
+ * подвисшее соединение с базой) раньше останавливала и биллинг, и напоминания
+ * подписантам, и crypto-shred — навсегда и молча (аудит 2026-08-03).
+ */
+const JOB_TIMEOUT_MS = 5 * 60 * 1000;
+
+function withTimeout<T>(name: string, work: Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`задача «${name}» не уложилась в ${JOB_TIMEOUT_MS / 1000} с`)), JOB_TIMEOUT_MS);
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err: unknown) => {
+        clearTimeout(timer);
+        reject(err instanceof Error ? err : new Error(String(err)));
+      },
+    );
+  });
+}
+
 function runExclusive(key: number, fn: () => Promise<unknown>): void {
+  const name = JOB_NAME.get(key) ?? String(key);
   jobQueue = jobQueue.then(async () => {
     try {
       if (db.tryJobLock) {
         await db.tryJobLock(key, async () => {
-          await fn();
+          await withTimeout(name, Promise.resolve().then(fn));
         });
       } else {
-        await fn();
+        await withTimeout(name, Promise.resolve().then(fn));
       }
-    } catch {
-      /* фоновая задача не должна ронять процесс */
+    } catch (err) {
+      // Раньше здесь стоял ПУСТОЙ catch: падение любой из 14 задач не оставляло
+      // ни строки в логе, ни события в Sentry — тихо умирали биллинг,
+      // напоминания подписантам и стирание удалённых документов.
+      console.error(`[jobs] задача «${name}» упала: ${err instanceof Error ? err.message : String(err)}`);
+      if (config.sentryDsn) {
+        void import('@sentry/node').then((Sentry) => Sentry.captureException(err, { tags: { job: name } })).catch(() => undefined);
+      }
     }
   });
 }

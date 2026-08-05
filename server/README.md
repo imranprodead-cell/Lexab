@@ -19,7 +19,7 @@ Anthropic Claude for contract analysis and chat.
 cd server
 npm install
 cp .env.example .env          # defaults work out of the box (embedded DB, demo auth)
-npm run dev                   # migrates + seeds automatically, listens on :8080
+npm run dev                   # applies migrations, listens on :8080
 
 # 2. Frontend (repo root, separate terminal)
 cd ..
@@ -28,16 +28,13 @@ printf 'VITE_USE_MOCK_API=false\nVITE_API_BASE_URL=http://localhost:8080/api\n' 
 npm run dev                   # http://localhost:5173
 ```
 
-Log in with any well-formed credentials (the shipped frontend still uses its
-mock auth store) — with `AUTH_MODE=demo` (the default) the API attributes
-requests to the seeded demo account, so all pages load the seeded data:
+Authentication is strict everywhere — there is no demo mode. Register a real
+account via the UI (or `POST /api/auth/register`); `src/api/client.ts` sends
+`Authorization: Bearer <token>` from the persisted session.
 
-- **Demo account:** `a.rahman@freshfields.com` / `lexab-demo`
-  (change via `SEED_DEMO_PASSWORD`)
-- Real auth is fully implemented — `POST /api/auth/register` and
-  `/api/auth/login` return `{ token, user }`, and `src/api/client.ts` already
-  sends `Authorization: Bearer <token>` from the persisted session. Set
-  `AUTH_MODE=required` in production.
+- **Demo data is opt-in and dev-only.** `npm run seed` refuses to run unless
+  BOTH `SEED_DEMO_DATA=true` and a non-empty `SEED_DEMO_PASSWORD` are set —
+  it creates an account on the Pro plan, so it must never run in production.
 
 Without an `ANTHROPIC_API_KEY`, `/analysis` and chat replies use
 deterministic fallbacks so the app still works end-to-end. Set the key to get
@@ -49,7 +46,7 @@ real Claude-generated analyses and chat.
 cd server
 docker compose up -d db
 echo 'DATABASE_URL=postgres://lexai:lexai@localhost:5432/lexai' >> .env
-npm run migrate && npm run seed
+npm run migrate               # NO seeding: demo data is dev-only (see below)
 npm start
 ```
 
@@ -131,7 +128,7 @@ See [`migrations/001_init.sql`](./migrations/001_init.sql): `users`,
 `uploads`, `review_events`, `user_stats`. Migrations are plain SQL applied in
 filename order and tracked in `schema_migrations` (`npm run migrate`).
 
-`npm run seed` (also automatic on first boot when the DB is empty) loads the
+`npm run seed` (dev-only: requires `SEED_DEMO_DATA=true` + `SEED_DEMO_PASSWORD`) loads the
 same demo content as the frontend mock: the demo user, 7 chat sessions, the
 canonical `an_employment_v3` analysis with its 3 redlines, 7 documents with
 version history, 6 templates, 2 signature requests, 3 notifications, the team

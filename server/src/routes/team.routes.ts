@@ -18,7 +18,7 @@ import { config } from '../config.ts';
 import type { Db } from '../db.ts';
 import { badRequest, HttpError, notFound } from '../lib/errors.ts';
 import { newId } from '../lib/ids.ts';
-import { assertFeature } from '../lib/limits.ts';
+import { assertFeature, planFor, PLAN_SEATS } from '../lib/limits.ts';
 import { notify } from '../lib/notify.ts';
 import { asObject, optionalString, requireEmail, requireString } from '../lib/validate.ts';
 import { biBody, biLine, biSubject, escapeMailHtml, mailLayout, sendMail } from '../mail.ts';
@@ -190,13 +190,24 @@ export function teamRoutes(app: FastifyInstance, db: Db): void {
 
   app.post('/team/invite', { preHandler: [app.authenticate] }, async (req, reply): Promise<Member> => {
     await assertFeature(db, req.currentUser.id, 'team');
-    // Business plan promises "up to 5 users" — count existing + pending.
-    const size = await db.query<{ count: string | number }>(
-      'SELECT count(*) AS count FROM team_members WHERE owner_user_id = $1',
-      [req.currentUser.id],
-    );
-    if (Number(size.rows[0]?.count ?? 0) >= 5) {
-      throw new HttpError(402, 'Лимит команды — 5 участников (план Business). Удалите кого-то или свяжитесь с нами для Enterprise.');
+    // Мест в команде — по ТАРИФУ, а не жёстко 5: карточка Enterprise обещает
+    // «без ограничения по пользователям», а код запирал и его на пяти
+    // (аудит 2026-08-03). Считаем существующих + приглашённых.
+    const ownerPlan = await planFor(db, req.currentUser.id);
+    const seats = PLAN_SEATS[ownerPlan] ?? PLAN_SEATS.Business;
+    if (seats !== null) {
+      const size = await db.query<{ count: string | number }>(
+        'SELECT count(*) AS count FROM team_members WHERE owner_user_id = $1',
+        [req.currentUser.id],
+      );
+      if (Number(size.rows[0]?.count ?? 0) >= seats) {
+        throw new HttpError(
+          402,
+          `Лимит команды — ${seats} участников (план ${ownerPlan}). Удалите кого-то или свяжитесь с нами для Enterprise.`,
+          'seats_limit',
+          { plan: ownerPlan, limit: seats },
+        );
+      }
     }
     const body = asObject(req.body);
     const email = requireEmail(body);
@@ -350,7 +361,10 @@ export function teamRoutes(app: FastifyInstance, db: Db): void {
   });
 
   // PUBLIC: invite details for the login-page banner (no auth).
-  app.get('/team/invite-info/:token', async (req) => {
+  // Публичная ручка отдаёт email приглашённого — свой лимит обязателен, иначе
+  // перебор токенов собирает адреса пачками (аудит 2026-08-03: 30 запросов за
+  // 58 мс без единого 429, ручка шла только под общим потолком 300/мин).
+  app.get('/team/invite-info/:token', { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (req) => {
     const { token } = req.params as { token: string };
     const res = await db.query<{ email: string; role: string; title_label: string | null; inviter_name: string; inviter_firm: string }>(
       `SELECT tm.email, tm.role, tm.title_label, u.name AS inviter_name, u.firm AS inviter_firm

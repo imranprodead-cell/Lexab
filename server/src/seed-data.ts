@@ -15,7 +15,22 @@ import { hashPassword } from './lib/passwords.ts';
 const DAY = 86_400_000;
 const HOUR = 3_600_000;
 
+/**
+ * Гейт живёт ЗДЕСЬ, а не в точке вызова: `npm run seed` раньше обходил проверку
+ * SEED_DEMO_DATA (её делал только старт сервера) и создавал аккаунт с планом Pro
+ * и паролем из публичного README. Теперь защита не зависит от того, кто зовёт.
+ */
+function assertSeedingAllowed(): void {
+  if (!config.seedDemoData) {
+    throw new Error('SEED_DEMO_DATA не включён — сидинг демо-данных отменён (демо-аккаунт создаётся только явным согласием).');
+  }
+  if (!config.seedDemoPassword) {
+    throw new Error('SEED_DEMO_PASSWORD не задан — сидинг отменён: демо-аккаунт не должен получать общеизвестный пароль.');
+  }
+}
+
 export async function seedIfEmpty(db: Db): Promise<boolean> {
+  assertSeedingAllowed();
   const res = await db.query<{ count: string | number }>('SELECT count(*) AS count FROM users');
   if (Number(res.rows[0]?.count ?? 0) > 0) return false;
   await seedDatabase(db);

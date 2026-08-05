@@ -226,7 +226,11 @@ export async function runBatch(db: Db, jobId: string): Promise<void> {
  * расход ИИ). Осиротевший элемент честно получает ошибку «прервано», хвост
  * очереди дорабатывается, syncJob финализирует статус.
  */
-export async function resumeBatchJobs(db: Db): Promise<void> {
+/** Сколько осиротевших заданий поднимаем за один такт — чтобы перезапуск
+ *  сервера не выстрелил десятком параллельных ИИ-прогонов разом. */
+const MAX_RESUMED_BATCHES = 3;
+
+export async function resumeBatchJobs(db: Db, opts: { awaitRuns?: boolean } = {}): Promise<void> {
   await db.query(
     `UPDATE batch_items SET status = 'error', error = 'Прервано перезапуском сервера'
      WHERE status = 'processing'
@@ -237,8 +241,16 @@ export async function resumeBatchJobs(db: Db): Promise<void> {
      WHERE status = 'queued'
         OR (status = 'processing' AND updated_at < now() - interval '3 minutes')`,
   );
-  for (const job of jobs.rows) {
-    await runBatch(db, job.id).catch(() => undefined);
+  // ВАЖНО: не ждём завершения. runBatch прогоняет полные ИИ-анализы (часы на
+  // большом батче), а свип живёт в общей последовательной очереди фоновых задач
+  // под кластерным локом — раньше он держал очередь и лок всё это время, из-за
+  // чего вставали биллинг, напоминания и стирание удалённых документов
+  // (аудит 2026-08-03). Запускаем и сразу отдаём такт.
+  const started = jobs.rows.slice(0, MAX_RESUMED_BATCHES).map((job) => runBatch(db, job.id).catch(() => undefined));
+  // opts.awaitRuns — только для тестов, которым нужен детерминированный итог.
+  if (opts.awaitRuns) await Promise.all(started);
+  if (jobs.rows.length > MAX_RESUMED_BATCHES) {
+    console.warn(`[batch] к восстановлению ${jobs.rows.length} заданий — за такт запущено ${MAX_RESUMED_BATCHES}, остальные подхватит следующий такт (через 5 минут).`);
   }
 }
 

@@ -5,9 +5,15 @@
 name: CI
 
 on:
+  # Раньше стояло `branches: [main]` — на рабочих ветках CI не запускался вовсе,
+  # и красные проверки обнаруживались уже после вливания (аудит 2026-08-03).
   push:
-    branches: [main]
+    branches: ['**']
   pull_request:
+
+# Минимальные права: работам нужен только доступ на чтение репозитория.
+permissions:
+  contents: read
 
 jobs:
   frontend:
@@ -17,7 +23,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          # Версия берётся из .nvmrc — CI и деплой не могут разъехаться.
+          node-version-file: .nvmrc
           cache: npm
       - run: npm ci
       # Gate on lint ERRORS (real problems); pre-existing HMR warnings don't block.
@@ -25,8 +32,15 @@ jobs:
       - run: npx tsc --noEmit
       - run: npm test
       - run: npm run build
-      # Fail the build on a known high/critical vulnerability in prod deps.
+      # Блокирующий гейт: реальные уязвимости в ПРОДАКШЕН-зависимостях.
       - run: npm audit --omit=dev --audit-level=high
+      # Неблокирующий обзор всего дерева (включая сборочные инструменты): держит
+      # проблему на виду, но не роняет сборку из-за dev-only advisory.
+      # ИЗВЕСТНОЕ: react-router 6.x — 2 moderate, закрываются только мажором 7.x
+      # (отдельная задача). До миграции не принимать код, где navigate() или
+      # <Link to> получают путь из внешних данных.
+      - run: npm audit --audit-level=moderate
+        continue-on-error: true
 
   server:
     name: Server (lint · typecheck · tests)
@@ -34,14 +48,43 @@ jobs:
     defaults:
       run:
         working-directory: server
+    # Настоящий Postgres с pgvector: раньше серверные тесты шли ТОЛЬКО на PGlite,
+    # и Postgres-специфичные пути (advisory-локи, векторный поиск, генерируемая
+    # колонка tsv) не выполнялись в CI ни разу (аудит 2026-08-03).
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: lexai
+          POSTGRES_PASSWORD: lexai
+          POSTGRES_DB: lexai
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lexai"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: server/package-lock.json
       - run: npm ci
+      # Незаявленная зависимость резолвится из node_modules ФРОНТА и локально
+      # невидима — именно так `undici` доехал до прода (аудит 2026-08-03).
+      - run: npm run check-deps
+      - run: npm run lint
       - run: npm run typecheck
+      # 1) Быстрый прогон на PGlite (как раньше).
       - run: npm test
+      # 2) Миграции и санити-проверки движка на НАСТОЯЩЕМ Postgres — включая
+      #    «RLS на всех таблицах» и права публичных ролей.
+      - run: npm run verify:db
+        env:
+          DATABASE_URL: postgres://lexai:lexai@localhost:5432/lexai
+          PG_POOL_MAX: '4'
+          ALLOW_INSECURE_SECRETS: '1'
       - run: npm audit --omit=dev --audit-level=high

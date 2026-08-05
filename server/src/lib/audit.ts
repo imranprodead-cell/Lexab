@@ -30,6 +30,10 @@ export type AuditEventType =
   | 'auth.totp_disabled'
   | 'auth.sessions_revoked'
   | 'user.data_exported'
+  // смена адреса аккаунта: запрос и фактическое применение — разные события,
+  // между ними живёт подтверждение по ссылке (см. startEmailChange)
+  | 'user.email_change_requested'
+  | 'user.email_changed'
   | 'document.retention_purged'
   | 'security.bruteforce_alert'
   // team / users (some reserved for features not built yet)
@@ -84,6 +88,7 @@ export type AuditEventType =
   // signatures / approvals
   | 'signature.requested'
   | 'signature.completed'
+  | 'signature.revoked'
   | 'approval.started'
   | 'approval.decided'
   | 'approval.cancelled'
