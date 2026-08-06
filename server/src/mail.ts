@@ -160,7 +160,7 @@ export function mailLayout(title: string, bodyHtml: string, ctaLabel?: string, c
       <div style="border-top:1px solid #e6e3f2;margin:28px 10px 0;font-size:0;line-height:0;">&nbsp;</div>
       <p style="text-align:center;font-size:12px;line-height:1.8;color:#9b95b3;margin:14px 0 0;">
         Lexab — интеллектуальный анализ контрактов · AI contract intelligence<br/>
-        <a href="https://lexai.app/terms" style="color:#8b7cf6;text-decoration:none;">Условия / Terms</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="https://lexai.app/privacy" style="color:#8b7cf6;text-decoration:none;">Конфиденциальность / Privacy</a><br/>
+        <a href="${config.appBaseUrl}/terms" style="color:#8b7cf6;text-decoration:none;">Условия / Terms</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="${config.appBaseUrl}/privacy" style="color:#8b7cf6;text-decoration:none;">Конфиденциальность / Privacy</a><br/>
         © 2026 Lexab
       </p>
     </div>

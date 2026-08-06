@@ -13,6 +13,16 @@ import { fileURLToPath, URL } from 'node:url';
  * beaconing it to any non-self, non-Google host.
  */
 function cspPlugin(): Plugin {
+  /**
+   * Значения переменных берём из РАЗОБРАННОГО конфига Vite (то есть из .env),
+   * а не только из process.env. Раньше читался лишь process.env — и сборка на
+   * машине, где адрес API живёт в .env, а не в переменных окружения, молча
+   * получала политику без адреса API. Итог: собранное приложение открывается,
+   * но ни один запрос к серверу не проходит («Refused to connect»). Проверено
+   * на боевой сборке 2026-08-05.
+   */
+  let env: Record<string, string> = {};
+
   const originOf = (v: string | undefined): string | null => {
     if (!v || !/^https?:\/\//.test(v)) return null;
     try {
@@ -24,6 +34,9 @@ function cspPlugin(): Plugin {
   return {
     name: 'lexab-csp',
     apply: 'build',
+    configResolved(resolved) {
+      env = resolved.env as Record<string, string>;
+    },
     transformIndexHtml: {
       order: 'post',
       handler(html) {
@@ -45,8 +58,8 @@ function cspPlugin(): Plugin {
           handlerHashes.push(`'sha256-${crypto.createHash('sha256').update(code, 'utf8').digest('base64')}'`);
         }
 
-        const apiOrigin = originOf(process.env.VITE_API_BASE_URL);
-        const sentryOrigin = originOf(process.env.VITE_SENTRY_DSN);
+        const apiOrigin = originOf(env.VITE_API_BASE_URL || process.env.VITE_API_BASE_URL);
+        const sentryOrigin = originOf(env.VITE_SENTRY_DSN || process.env.VITE_SENTRY_DSN);
         const connect = ["'self'", 'https://*.googleapis.com', 'https://*.google.com', apiOrigin, sentryOrigin].filter(
           Boolean,
         );
@@ -92,6 +105,12 @@ export default defineConfig({
         // НЕ добавлять: она затянула бы ленивые react-markdown/remark из
         // чанка MarkdownMessage в первую загрузку.
         manualChunks(id: string) {
+          // ОТДЕЛЬНЫЙ ЧАНК ДЛЯ ОБОЛОЧКИ САЙТА (src/components/public/**) НЕ
+          // ЗАДАВАТЬ: проверено 2026-08-05 — Rollup складывает в такую ручную
+          // группу ядро приложения целиком (главный чанк усох до 8.9 КБ, а
+          // «оболочка» распухла до 50.6 КБ и стала грузиться на всех страницах,
+          // включая кабинет). Шапку и подвал Rollup вынесет в общий чанк сам,
+          // когда страниц-разделов станет больше одной.
           if (!id.includes('node_modules')) return undefined;
           if (/[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id)) return 'react-vendor';
           if (/[\\/]node_modules[\\/](react-router|react-router-dom|@remix-run[\\/]router)[\\/]/.test(id)) return 'router';

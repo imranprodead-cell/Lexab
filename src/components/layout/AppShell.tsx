@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { motion } from 'motion/react';
+import { MotionConfig, motion } from 'motion/react';
 import { EASE } from '@/lib/motion';
 import { SideRail } from './SideRail';
 import { CommandPalette } from './CommandPalette';
@@ -62,6 +62,11 @@ export function AppShell() {
   };
 
   return (
+    // Эталон ThemeProvider.tsx: все анимации приложения уважают системный
+    // prefers-reduced-motion. Обёртка стоит здесь, а не в корне App.tsx:
+    // в корне она затягивала библиотеку анимаций в первую загрузку публичных
+    // страниц сайта, где анимаций нет вовсе.
+    <MotionConfig reducedMotion="user">
     <div className={styles.shell}>
       {/* Скип-линк (WCAG): первый Tab даёт клавиатурным пользователям прыжок
           мимо навигации сразу к содержимому. Виден только при фокусе. */}
@@ -105,5 +110,6 @@ export function AppShell() {
       <CommandPalette />
       <OnboardingModal />
     </div>
+    </MotionConfig>
   );
 }

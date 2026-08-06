@@ -67,7 +67,7 @@ export const userApi = {
   async intake(signal?: AbortSignal): Promise<{ enabled: boolean; address: string | null }> {
     if (USE_MOCK) {
       await delay(30);
-      return { enabled: true, address: 'intake@lexab.app' };
+      return { enabled: true, address: 'intake@lexabai.com' };
     }
     return http<{ enabled: boolean; address: string | null }>('/me/intake', { signal });
   },

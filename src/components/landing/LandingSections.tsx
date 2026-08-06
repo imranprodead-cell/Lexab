@@ -7,8 +7,22 @@ import { Avatar } from '@/components/ui/Avatar';
 import { useI18n } from '@/i18n/I18nProvider';
 import { pickText } from '@/i18n/messages';
 import { prefersReducedMotion, scrollBehavior } from '@/lib/scroll';
+import { FOOTER_COLUMNS, HEADER_NAV } from '@/content/site/nav';
+import type { Text6 } from '@/content/types';
+import { PUBLIC_SLUGS } from '@/pages/public/registry';
+import { publicPath } from '@/router/publicPaths';
 import { LandingDemo, DEMO_NOTE } from './LandingDemo';
 import styles from './landing.module.css';
+
+/**
+ * Карта разделов сайта берётся из ОБЩЕГО меню (src/content/site/nav.ts) и
+ * фильтруется по реестру существующих страниц: главная не может показать
+ * ссылку на раздел, которого нет, и не может забыть про новый раздел.
+ */
+const SITE_MAP = FOOTER_COLUMNS.map((col) => ({
+  title: col.title,
+  items: col.items.flatMap((item) => (item.kind === 'route' && PUBLIC_SLUGS.includes(item.slug) ? [item] : [])),
+})).filter((col) => col.items.length > 0);
 
 /** Bilingual copy lives next to the markup (same idiom as PlansPage.PLANS). */
 type Text2 = { ru: string; en: string; de?: string; ar?: string; kk?: string; uz?: string };
@@ -242,6 +256,12 @@ interface LandingPlan {
   dot: string;
   /** Monthly price in USD; yearly billing shows it with the 15% discount. */
   monthly: number;
+  /** Фактическая ГОДОВАЯ цена у платёжного провайдера, если она не равна
+   *  monthly*12*(1−15%): у Lemon Squeezy потолок цены $5000 — годовой
+   *  Business стоит ровно $5000 ($417/мес), а не расчётные $5088 ($424/мес).
+   *  То же поле и та же формула — в PlansPage.tsx, иначе лендинг и страница
+   *  тарифов показывают разные числа. */
+  yearlyTotal?: number;
   popular?: boolean;
   tagline: Text2;
   /** "Everything in X, plus:" line shown above the feature list. */
@@ -253,6 +273,15 @@ interface LandingPlan {
  *  gates — so the descriptions stay identical on the landing and inside the app. */
 const YEARLY_DISCOUNT = 0.15;
 
+/** Месячный эквивалент годовой цены: из фактической цены провайдера, если она
+ *  задана (Business: $5000/год → $417/мес), иначе −15% от месячной.
+ *  Копия расчёта из PlansPage.tsx — числа обязаны совпадать. */
+function monthlyEqYearly(p: LandingPlan): number {
+  return p.yearlyTotal !== undefined
+    ? Math.round(p.yearlyTotal / 12)
+    : Math.round(p.monthly * (1 - YEARLY_DISCOUNT));
+}
+
 const PLANS: LandingPlan[] = [
   {
     name: 'Free',
@@ -260,8 +289,9 @@ const PLANS: LandingPlan[] = [
     monthly: 0,
     tagline: { ru: 'Узнайте, что Lexab может сделать для вас', en: 'See what Lexab can do for you', de: 'Erfahren Sie, was Lexab für Sie tun kann', ar: 'اكتشف ما يمكن أن يقدّمه لك Lexab', kk: 'Lexab сіз үшін не істей алатынын біліңіз', uz: 'Lexab siz uchun nimalar qila olishini bilib oling' },
     features: [
-      { ru: '10 AI-запросов в месяц', en: '10 AI requests per month', de: '10 KI-Anfragen pro Monat', ar: '10 طلبات ذكاء اصطناعي شهرياً', kk: 'Айына 10 AI-сұрау', uz: 'Oyiga 10 ta AI soʻrov' },
+      { ru: '20 обращений к ИИ в месяц', en: '20 AI requests per month', de: '20 KI-Anfragen pro Monat', ar: '20 طلب ذكاء اصطناعي شهرياً', kk: 'Айына 20 AI-сұрау', uz: 'Oyiga 20 ta AI soʻrov' },
       { ru: 'До 3 документов', en: 'Up to 3 documents', de: 'Bis zu 3 Dokumente', ar: 'حتى 3 مستندات', kk: '3 құжатқа дейін', uz: '3 tagacha hujjat' },
+      { ru: '100 МБ хранилища', en: '100 MB storage', de: '100 MB Speicherplatz', ar: '100 ميغابايت من التخزين', kk: '100 МБ қойма', uz: '100 MB xotira' },
       { ru: 'AI Chat с документами', en: 'AI Chat with documents', de: 'AI Chat mit Dokumenten', ar: 'محادثة AI Chat مع المستندات', kk: 'Құжаттармен AI Chat', uz: 'Hujjatlar bilan AI Chat' },
       { ru: 'AI Summary', en: 'AI Summary', de: 'AI Summary', ar: 'ملخص AI Summary', kk: 'AI Summary', uz: 'AI Summary' },
       { ru: 'Экспорт в PDF', en: 'PDF export', de: 'PDF-Export', ar: 'تصدير إلى PDF', kk: 'PDF форматына экспорт', uz: 'PDFga eksport' },
@@ -277,7 +307,6 @@ const PLANS: LandingPlan[] = [
       { ru: 'До 20 документов в месяц', en: 'Up to 20 documents per month', de: 'Bis zu 20 Dokumente pro Monat', ar: 'حتى 20 مستنداً شهرياً', kk: 'Айына 20 құжатқа дейін', uz: 'Oyiga 20 tagacha hujjat' },
       { ru: 'AI Chat с документами', en: 'AI Chat with documents', de: 'AI Chat mit Dokumenten', ar: 'محادثة AI Chat مع المستندات', kk: 'Құжаттармен AI Chat', uz: 'Hujjatlar bilan AI Chat' },
       { ru: 'AI Contract Generator', en: 'AI Contract Generator', de: 'AI Contract Generator', ar: 'مولّد العقود AI Contract Generator', kk: 'AI Contract Generator', uz: 'AI Contract Generator' },
-      { ru: 'AI Risk Analysis', en: 'AI Risk Analysis', de: 'AI Risk Analysis', ar: 'تحليل المخاطر AI Risk Analysis', kk: 'AI Risk Analysis', uz: 'AI Risk Analysis' },
       { ru: 'AI Summary', en: 'AI Summary', de: 'AI Summary', ar: 'ملخص AI Summary', kk: 'AI Summary', uz: 'AI Summary' },
       { ru: 'Экспорт в PDF и DOCX', en: 'PDF & DOCX export', de: 'Export als PDF und DOCX', ar: 'تصدير إلى PDF وDOCX', kk: 'PDF және DOCX форматына экспорт', uz: 'PDF va DOCXga eksport' },
       { ru: '2 GB защищённого хранилища', en: '2 GB secure storage', de: '2 GB geschützter Speicherplatz', ar: '‏2 GB من التخزين الآمن', kk: '2 GB қорғалған қойма', uz: '2 GB himoyalangan xotira' },
@@ -292,14 +321,15 @@ const PLANS: LandingPlan[] = [
     tagline: { ru: 'Для юристов и малого бизнеса', en: 'For lawyers and small businesses', de: 'Für Juristen und kleine Unternehmen', ar: 'للمحامين والأعمال الصغيرة', kk: 'Заңгерлер мен шағын бизнеске арналған', uz: 'Yuristlar va kichik biznes uchun' },
     inherits: { ru: 'Всё из Standard, плюс:', en: 'Everything in Standard, plus:', de: 'Alles aus Standard, plus:', ar: 'كل ما في Standard، بالإضافة إلى:', kk: 'Standard тарифіндегінің бәрі, оған қоса:', uz: 'Standard tarifidagi hammasi, qoʻshimcha:' },
     features: [
-      { ru: 'Безлимитные AI-чаты', en: 'Unlimited AI chats', de: 'Unbegrenzte AI-Chats', ar: 'محادثات ذكاء اصطناعي غير محدودة', kk: 'Шексіз AI-чаттар', uz: 'Cheklanmagan AI chatlar' },
+      { ru: 'До 500 обращений к ИИ в месяц', en: 'Up to 500 AI requests per month', de: 'Bis zu 500 KI-Anfragen pro Monat', ar: 'حتى 500 طلب ذكاء اصطناعي شهرياً', kk: 'Айына 500 AI-сұрауға дейін', uz: 'Oyiga 500 tagacha AI soʻrov' },
       { ru: 'До 80 документов в месяц', en: 'Up to 80 documents per month', de: 'Bis zu 80 Dokumente pro Monat', ar: 'حتى 80 مستنداً شهرياً', kk: 'Айына 80 құжатқа дейін', uz: 'Oyiga 80 tagacha hujjat' },
       { ru: 'Redline (сравнение версий)', en: 'Redline (version compare)', de: 'Redline (Versionsvergleich)', ar: 'Redline (مقارنة الإصدارات)', kk: 'Redline (нұсқаларды салыстыру)', uz: 'Redline (versiyalarni solishtirish)' },
-      { ru: 'AI Contract Review', en: 'AI Contract Review', de: 'AI Contract Review', ar: 'مراجعة العقود AI Contract Review', kk: 'AI Contract Review', uz: 'AI Contract Review' },
-      { ru: 'AI Clause Suggestions', en: 'AI Clause Suggestions', de: 'AI Clause Suggestions', ar: 'اقتراحات البنود AI Clause Suggestions', kk: 'AI Clause Suggestions', uz: 'AI Clause Suggestions' },
       { ru: 'Version History', en: 'Version History', de: 'Version History', ar: 'سجل الإصدارات (Version History)', kk: 'Version History', uz: 'Version History' },
-      { ru: 'Электронная подпись', en: 'E-signature', de: 'Elektronische Signatur', ar: 'التوقيع الإلكتروني', kk: 'Электрондық қолтаңба', uz: 'Elektron imzo' },
       { ru: 'Маршруты согласования (цепочки утверждения с дедлайнами)', en: 'Approval workflows (multi-step sign-off with deadlines)', de: 'Freigabe-Workflows (mehrstufige Genehmigungsketten mit Fristen)', ar: 'مسارات الموافقة (سلاسل اعتماد متعددة الخطوات بمواعيد نهائية)', kk: 'Келісу маршруттары (дедлайндары бар бекіту тізбектері)', uz: 'Kelishuv marshrutlari (muddatlar bilan tasdiqlash zanjirlari)' },
+      { ru: 'Правила по пунктам (плейбуки)', en: 'Clause playbooks', de: 'Klausel-Playbooks', ar: 'أدلة البنود (Playbooks)', kk: 'Тармақтар бойынша ережелер (плейбуктер)', uz: 'Bandlar boʻyicha qoidalar (pleybuklar)' },
+      { ru: 'Пакетная проверка договоров', en: 'Bulk contract review', de: 'Stapelprüfung von Verträgen', ar: 'مراجعة العقود دفعةً واحدة', kk: 'Шарттарды топтап тексеру', uz: 'Shartnomalarni paketli tekshirish' },
+      { ru: 'Обязательства и сроки по договору (CLM)', en: 'Contract obligations and deadlines (CLM)', de: 'Vertragspflichten und Fristen (CLM)', ar: 'الالتزامات والمواعيد التعاقدية (CLM)', kk: 'Шарт бойынша міндеттемелер мен мерзімдер (CLM)', uz: 'Shartnoma boʻyicha majburiyatlar va muddatlar (CLM)' },
+      { ru: 'Сценарии обработки', en: 'Processing workflows', de: 'Verarbeitungs-Workflows', ar: 'سيناريوهات المعالجة', kk: 'Өңдеу сценарийлері', uz: 'Ishlov berish stsenariylari' },
       { ru: '50 GB защищённого хранилища', en: '50 GB secure storage', de: '50 GB geschützter Speicherplatz', ar: '‏50 GB من التخزين الآمن', kk: '50 GB қорғалған қойма', uz: '50 GB himoyalangan xotira' },
       { ru: 'Приоритетная поддержка', en: 'Priority support', de: 'Priorisierter Support', ar: 'دعم ذو أولوية', kk: 'Приоритетті қолдау', uz: 'Ustuvor qoʻllab-quvvatlash' },
       { ru: 'Ранний доступ к новым функциям', en: 'Early access to new features', de: 'Früher Zugriff auf neue Funktionen', ar: 'وصول مبكر إلى الميزات الجديدة', kk: 'Жаңа функцияларға ерте қол жеткізу', uz: 'Yangi funksiyalarga erta kirish' },
@@ -309,18 +339,21 @@ const PLANS: LandingPlan[] = [
     name: 'Business',
     dot: '#8B7CF6',
     monthly: 499,
+    yearlyTotal: 5000,
     tagline: { ru: 'Для юридических фирм и компаний', en: 'For law firms and companies', de: 'Für Kanzleien und Unternehmen', ar: 'لمكاتب المحاماة والشركات', kk: 'Заң фирмалары мен компанияларға арналған', uz: 'Yuridik firmalar va kompaniyalar uchun' },
     inherits: { ru: 'Всё из Pro, плюс:', en: 'Everything in Pro, plus:', de: 'Alles aus Pro, plus:', ar: 'كل ما في Pro، بالإضافة إلى:', kk: 'Pro тарифіндегінің бәрі, оған қоса:', uz: 'Pro tarifidagi hammasi, qoʻshimcha:' },
     features: [
       { ru: 'Доступ к самым мощным AI-моделям', en: 'Access to the most capable AI models', de: 'Zugriff auf die leistungsstärksten KI-Modelle', ar: 'الوصول إلى أقوى نماذج الذكاء الاصطناعي', kk: 'Ең қуатты AI-модельдерге қол жеткізу', uz: 'Eng kuchli AI modellaridan foydalanish' },
-      { ru: 'До 5 пользователей', en: 'Up to 5 users', de: 'Bis zu 5 Nutzer', ar: 'حتى 5 مستخدمين', kk: '5 пайдаланушыға дейін', uz: '5 tagacha foydalanuvchi' },
+      { ru: '5 приглашённых участников плюс владелец', en: '5 invited members plus the owner', de: '5 eingeladene Mitglieder plus Inhaber', ar: '5 أعضاء مدعوين إضافةً إلى المالك', kk: '5 шақырылған қатысушы және иесі', uz: '5 ta taklif qilingan ishtirokchi va egasi' },
       { ru: 'До 700 документов в месяц', en: 'Up to 700 documents per month', de: 'Bis zu 700 Dokumente pro Monat', ar: 'حتى 700 مستند شهرياً', kk: 'Айына 700 құжатқа дейін', uz: 'Oyiga 700 tagacha hujjat' },
       { ru: 'Общие Workspaces', en: 'Shared workspaces', de: 'Gemeinsame Workspaces', ar: 'مساحات عمل مشتركة (Workspaces)', kk: 'Ортақ Workspaces', uz: 'Umumiy Workspaces' },
       { ru: 'Управление ролями и правами доступа', en: 'Roles & access management', de: 'Rollen- und Rechteverwaltung', ar: 'إدارة الأدوار وصلاحيات الوصول', kk: 'Рөлдер мен қол жеткізу құқықтарын басқару', uz: 'Rollar va kirish huquqlarini boshqarish' },
       { ru: 'Совместная работа над документами', en: 'Document collaboration', de: 'Gemeinsames Arbeiten an Dokumenten', ar: 'العمل التعاوني على المستندات', kk: 'Құжаттармен бірлескен жұмыс', uz: 'Hujjatlar ustida hamkorlikda ishlash' },
       { ru: 'Audit Log', en: 'Audit log', de: 'Audit Log', ar: 'سجل التدقيق (Audit Log)', kk: 'Audit Log', uz: 'Audit Log' },
-      { ru: 'API-доступ (1000 анализов/мес)', en: 'API access (1,000 analyses/mo)', de: 'API-Zugang (1.000 Analysen/Mon.)', ar: 'وصول API (‏1000 تحليل شهرياً)', kk: 'API-қолжетімділік (айына 1000 талдау)', uz: 'API kirish (oyiga 1000 tahlil)' },
-      { ru: 'Расширенная аналитика', en: 'Advanced analytics', de: 'Erweiterte Analysen', ar: 'تحليلات متقدمة', kk: 'Кеңейтілген аналитика', uz: 'Kengaytirilgan analitika' },
+      // 1000 — config.apiMonthlyLimit (server/src/config.ts:203, переменная
+      // API_MONTHLY_LIMIT не задана → действует значение по умолчанию).
+      // У Enterprise потолка запросов к API нет (apiMonthlyLimitFor → null).
+      { ru: 'Программный доступ по API (1000 запросов в месяц)', en: 'Programmatic API access (1,000 requests/mo)', de: 'Programmatischer API-Zugang (1.000 Anfragen/Mon.)', ar: 'وصول برمجي عبر API (1000 طلب شهريًا)', kk: 'API арқылы бағдарламалық қолжетімділік (айына 1000 сұрау)', uz: 'API orqali dasturiy kirish (oyiga 1000 soʻrov)' },
       { ru: 'SSO (Single Sign-On)', en: 'SSO (Single Sign-On)', de: 'SSO (Single Sign-On)', ar: 'SSO (تسجيل الدخول الموحّد)', kk: 'SSO (Single Sign-On)', uz: 'SSO (Single Sign-On)' },
       { ru: '1 TB защищённого хранилища', en: '1 TB secure storage', de: '1 TB geschützter Speicherplatz', ar: '‏1 TB من التخزين الآمن', kk: '1 TB қорғалған қойма', uz: '1 TB himoyalangan xotira' },
       { ru: 'Выделенный Customer Success Manager', en: 'Dedicated Customer Success Manager', de: 'Dedizierter Customer Success Manager', ar: 'مدير مخصص لنجاح العملاء (Customer Success Manager)', kk: 'Арнайы бекітілген Customer Success Manager', uz: 'Shaxsiy Customer Success Manager' },
@@ -430,8 +463,8 @@ const FAQ_GROUPS: { title: Text2; items: FaqItem[] }[] = [
       {
         q: { ru: 'Как начать? Нужна ли карта?', en: 'How do I start? Do I need a card?', de: 'Wie starte ich? Brauche ich eine Kreditkarte?', ar: 'كيف أبدأ؟ وهل أحتاج إلى بطاقة؟', kk: 'Қалай бастауға болады? Карта қажет пе?', uz: 'Qanday boshlash mumkin? Karta kerakmi?' },
         a: {
-          ru: 'Зарегистрируйтесь по email или через Google — тариф Free включает 10 AI-запросов и 3 документа в месяц. Банковская карта не нужна.',
-          en: 'Sign up with email or Google — the Free plan includes 10 AI requests and 3 documents per month. No bank card required.', de: 'Registrieren Sie sich per E-Mail oder über Google – der Free-Tarif umfasst 10 KI-Anfragen und 3 Dokumente pro Monat. Eine Bankkarte ist nicht erforderlich.', ar: 'سجّل بالبريد الإلكتروني أو عبر Google — تتضمن باقة Free عشرة طلبات ذكاء اصطناعي و3 مستندات شهرياً. ولا حاجة إلى بطاقة بنكية.', kk: 'Email немесе Google арқылы тіркеліңіз — Free тарифіне айына 10 AI-сұрау мен 3 құжат кіреді. Банк картасы қажет емес.', uz: 'Email yoki Google orqali roʻyxatdan oʻting — Free tarifi oyiga 10 ta AI soʻrov va 3 ta hujjatni oʻz ichiga oladi. Bank kartasi kerak emas.',
+          ru: 'Зарегистрируйтесь по email или через Google — тариф Free включает 20 обращений к ИИ и 3 документа в месяц. Банковская карта не нужна.',
+          en: 'Sign up with email or Google — the Free plan includes 20 AI requests and 3 documents per month. No bank card required.', de: 'Registrieren Sie sich per E-Mail oder über Google – der Free-Tarif umfasst 20 KI-Anfragen und 3 Dokumente pro Monat. Eine Bankkarte ist nicht erforderlich.', ar: 'سجّل بالبريد الإلكتروني أو عبر Google — تتضمن باقة Free 20 طلب ذكاء اصطناعي و3 مستندات شهرياً. ولا حاجة إلى بطاقة بنكية.', kk: 'Email немесе Google арқылы тіркеліңіз — Free тарифіне айына 20 AI-сұрау мен 3 құжат кіреді. Банк картасы қажет емес.', uz: 'Email yoki Google orqali roʻyxatdan oʻting — Free tarifi oyiga 20 ta AI soʻrov va 3 ta hujjatni oʻz ichiga oladi. Bank kartasi kerak emas.',
         },
       },
       {
@@ -443,6 +476,58 @@ const FAQ_GROUPS: { title: Text2; items: FaqItem[] }[] = [
         link: { id: 'plans', label: { ru: 'Открыть тарифы', en: 'See pricing', de: 'Preise ansehen', ar: 'عرض الأسعار', kk: 'Тарифтерді ашу', uz: 'Tariflarni koʻrish' } },
       },
     ],
+  },
+];
+
+/**
+ * «Чего Lexab не делает» — блок стоит ВЫШЕ тарифов намеренно: юрист, увидевший
+ * честный список границ до цены, читает цену с доверием. Каждый пункт — факт
+ * из кода, а не осторожная оговорка (см. страницы /legal-base и /security).
+ */
+const NOT_DOING: { title: Text6; text: Text6 }[] = [
+  {
+    title: { ru: 'Не заменяет юриста', en: 'Does not replace a lawyer', de: 'Ersetzt keine Anwältin', ar: 'لا يحل محل المحامي', kk: 'Заңгерді алмастырмайды', uz: 'Yuristni almashtirmaydi' },
+    text: {
+      ru: 'Разбор и ссылка на норму — основание для вашего решения, а не решение. Отвечает тот, кто подписывает документ.',
+      en: 'A review and a citation are grounds for your decision, not the decision. The person who signs the document answers for it.',
+      de: 'Prüfung und Fundstelle sind Grundlage Ihrer Entscheidung, nicht die Entscheidung. Verantwortlich ist, wer unterschreibt.',
+      ar: 'المراجعة والإحالة أساس لقرارك لا القرار نفسه. والمسؤول هو من يوقّع المستند.',
+      kk: 'Талдау мен нормаға сілтеме — шешіміңіздің негізі, шешімнің өзі емес. Жауап беретін — құжатқа қол қоятын адам.',
+      uz: 'Tahlil va normaga havola — qaroringiz uchun asos, qarorning oʻzi emas. Javob beradigan — hujjatga imzo chekadigan odam.',
+    },
+  },
+  {
+    title: { ru: 'Не ищет судебную практику', en: 'Does not search case law', de: 'Sucht keine Rechtsprechung', ar: 'لا يبحث في السوابق', kk: 'Сот практикасын іздемейді', uz: 'Sud amaliyotini qidirmaydi' },
+    text: {
+      ru: 'В корпусе только тексты законов с государственных порталов: судебных решений там нет вовсе.',
+      en: 'The corpus holds only statutory texts from government portals: there are no court decisions in it at all.',
+      de: 'Der Korpus enthält nur Gesetzestexte von staatlichen Portalen: Gerichtsentscheidungen gibt es dort gar nicht.',
+      ar: 'تضم القاعدة نصوص القوانين من البوابات الحكومية فقط: ولا توجد فيها أحكام قضائية إطلاقًا.',
+      kk: 'Корпуста тек мемлекеттік порталдардан алынған заң мәтіндері: сот шешімдері мүлде жоқ.',
+      uz: 'Korpusda faqat davlat portallaridan olingan qonun matnlari: sud qarorlari umuman yoʻq.',
+    },
+  },
+  {
+    title: { ru: 'Не показывает редакцию на прошедшую дату', en: 'Shows no point-in-time version of the law', de: 'Zeigt keine Fassung zu einem Stichtag', ar: 'لا يعرض نسخة القانون بتاريخ سابق', kk: 'Өткен күнгі редакцияны көрсетпейді', uz: 'Oʻtgan sanadagi tahrirni koʻrsatmaydi' },
+    text: {
+      ru: 'Хранится снимок действующей редакции. Вопрос «как эта статья выглядела три года назад» пока без ответа.',
+      en: 'A snapshot of the version in force is stored. “How did this article read three years ago” has no answer yet.',
+      de: 'Gespeichert ist die geltende Fassung. „Wie lautete der Paragraf vor drei Jahren“ bleibt vorerst offen.',
+      ar: 'تُخزَّن النسخة النافذة. وسؤال «كيف كانت هذه المادة قبل ثلاث سنوات» بلا إجابة بعد.',
+      kk: 'Қолданыстағы редакцияның суреті сақталады. «Бұл бап үш жыл бұрын қалай еді» деген сұрақ әзірге жауапсыз.',
+      uz: 'Amaldagi tahrir surati saqlanadi. «Bu modda uch yil oldin qanday edi» degan savol hozircha javobsiz.',
+    },
+  },
+  {
+    title: { ru: 'Не подписывает документы', en: 'Does not sign documents', de: 'Unterschreibt keine Dokumente', ar: 'لا يوقّع المستندات', kk: 'Құжаттарға қол қоймайды', uz: 'Hujjatlarga imzo chekmaydi' },
+    text: {
+      ru: 'Согласование внутри команды есть, а электронной подписи в продукте нет — подписывайте привычным способом.',
+      en: 'Internal approvals exist, but there is no e-signature in the product — sign the way you normally do.',
+      de: 'Interne Freigaben gibt es, eine elektronische Signatur nicht — unterschreiben Sie wie gewohnt.',
+      ar: 'الموافقات الداخلية موجودة، أما التوقيع الإلكتروني فغير موجود — وقّع بطريقتك المعتادة.',
+      kk: 'Команда ішінде келісу бар, ал электрондық қолтаңба өнімде жоқ — әдеттегі тәсілмен қол қойыңыз.',
+      uz: 'Jamoa ichida kelishuv bor, elektron imzo esa mahsulotda yoʻq — odatdagi usulda imzolang.',
+    },
   },
 ];
 
@@ -462,10 +547,20 @@ const FOOTER_COLS: {
     ],
   },
   {
-    title: { ru: 'Безопасность', en: 'Security', de: 'Sicherheit', ar: 'الأمان', kk: 'Қауіпсіздік', uz: 'Xavfsizlik' },
-    links: [
-      { label: { ru: 'Как мы храним данные', en: 'How we store data', de: 'Wie wir Daten speichern', ar: 'كيف نخزّن البيانات', kk: 'Деректерді қалай сақтаймыз', uz: 'Maʼlumotlarni qanday saqlaymiz' }, anchor: 'security' },
-    ],
+    // Раньше в этой колонке была одна ссылка-якорь на секцию главной. Теперь —
+    // подробные разделы сайта: из подвала главной в них попадают и человек,
+    // и поисковый робот.
+    //
+    // Ссылки СТРОЯТСЯ ИЗ ОБЩЕГО МЕНЮ и фильтруются по реестру существующих
+    // страниц — как и карта разделов выше. Первая версия была списком из пяти
+    // литералов при таком же комментарии: аудит 06.08.2026 справедливо указал,
+    // что комментарий описывал не то, что делает код.
+    title: { ru: 'Разделы', en: 'Sections', de: 'Bereiche', ar: 'الأقسام', kk: 'Бөлімдер', uz: 'Boʻlimlar' },
+    links: HEADER_NAV.flatMap((item) =>
+      item.kind === 'route' && PUBLIC_SLUGS.includes(item.slug)
+        ? [{ label: item.label, to: publicPath(item.slug) }]
+        : [],
+    ),
   },
   {
     title: { ru: 'Контакты', en: 'Contacts', de: 'Kontakt', ar: 'للتواصل', kk: 'Байланыс', uz: 'Aloqa' },
@@ -684,6 +779,48 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
         </div>
       </section>
 
+      {/* ── Карта разделов: витрина, ведущая вглубь сайта ────────────────── */}
+      <section id="sections" className={styles.section}>
+        <div className={styles.inner}>
+          <Reveal className={styles.plansHead}>
+            <div className={styles.eyebrow}>
+              {pickText({ ru: 'Разделы', en: 'Sections', de: 'Bereiche', ar: 'الأقسام', kk: 'Бөлімдер', uz: 'Boʻlimlar' }, lang)}
+            </div>
+            <h2 className={styles.plansSectionTitle}>
+              {pickText(
+                {
+                  ru: 'Подробно о каждой части продукта',
+                  en: 'Every part of the product, in detail',
+                  de: 'Jeder Teil des Produkts im Detail',
+                  ar: 'كل جزء من المنتج بالتفصيل',
+                  kk: 'Өнімнің әр бөлігі туралы толық',
+                  uz: 'Mahsulotning har bir qismi haqida batafsil',
+                },
+                lang,
+              )}
+            </h2>
+          </Reveal>
+          <div className={styles.mapGrid}>
+            {SITE_MAP.map((col, i) => (
+              <Reveal key={col.title.en} delay={i * 0.08}>
+                <nav className={styles.card} aria-label={pickText(col.title, lang)}>
+                  <div className={styles.mapGroupTitle}>{pickText(col.title, lang)}</div>
+                  <div className={styles.mapLinks}>
+                    {col.items.map((item) =>
+                      item.kind === 'route' ? (
+                        <Link key={item.slug} to={publicPath(item.slug)} className={styles.mapLink}>
+                          {pickText(item.label, lang)}
+                        </Link>
+                      ) : null,
+                    )}
+                  </div>
+                </nav>
+              </Reveal>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* ── Как это работает ─────────────────────────────────────────────── */}
       <section id="how-it-works" className={`${styles.section} ${styles.sectionAlt}`}>
         <div className={styles.inner}>
@@ -773,6 +910,41 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
 
       {/* ── Карусель сценариев (эталон UseCases) — после «Безопасности» ──── */}
       <UseCasesCarousel />
+
+      {/* ── Границы: что продукт НЕ делает. Стоит ВЫШЕ тарифов намеренно —
+             честный список до цены делает цену убедительнее. ──────────────── */}
+      <section id="limits" className={styles.section}>
+        <div className={styles.inner}>
+          <Reveal className={styles.plansHead}>
+            <div className={styles.eyebrow}>
+              {pickText({ ru: 'Границы', en: 'Boundaries', de: 'Grenzen', ar: 'الحدود', kk: 'Шекаралар', uz: 'Chegaralar' }, lang)}
+            </div>
+            <h2 className={styles.plansSectionTitle}>
+              {pickText(
+                {
+                  ru: 'Чего Lexab не делает',
+                  en: 'What Lexab does not do',
+                  de: 'Was Lexab nicht tut',
+                  ar: 'ما لا يفعله Lexab',
+                  kk: 'Lexab не істемейді',
+                  uz: 'Lexab nima qilmaydi',
+                },
+                lang,
+              )}
+            </h2>
+          </Reveal>
+          <div className={styles.limitsGrid}>
+            {NOT_DOING.map((item, i) => (
+              <Reveal key={item.title.en} delay={i * 0.06}>
+                <div className={styles.limitItem}>
+                  <h3 className={styles.limitTitle}>{pickText(item.title, lang)}</h3>
+                  <p className={styles.limitText}>{pickText(item.text, lang)}</p>
+                </div>
+              </Reveal>
+            ))}
+          </div>
+        </div>
+      </section>
 
       {/* ── Тарифы ───────────────────────────────────────────────────────── */}
       <section id="plans" className={styles.section}>
@@ -864,7 +1036,7 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
                       exit={{ opacity: 0, y: -12 }}
                       transition={{ duration: 0.25, ease: 'easeOut' }}
                     >
-                      ${yearly ? Math.round(p.monthly * (1 - YEARLY_DISCOUNT)) : p.monthly}
+                      ${yearly ? monthlyEqYearly(p) : p.monthly}
                     </motion.span>
                   </AnimatePresence>
                   <span className={styles.planPer}>{pickText({ ru: '/мес', en: '/mo', de: '/Mon.', ar: '/شهر', kk: '/ай', uz: '/oy' }, lang)}</span>

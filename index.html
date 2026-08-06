@@ -13,33 +13,23 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png?v=2" />
     <link rel="icon" sizes="any" href="/favicon.ico?v=2" />
-    <link rel="canonical" href="https://lexai.app/" />
-    <link rel="alternate" hreflang="x-default" href="https://lexai.app/" />
-    <script>
-      // SPA: одна index.html на все маршруты — подставляем канонический URL
-      // текущей страницы (краулеры, исполняющие JS, увидят правильный).
-      (function () {
-        try {
-          var href = 'https://lexai.app' + (location.pathname === '/' ? '/' : location.pathname);
-          var c = document.querySelector('link[rel="canonical"]');
-          if (c) c.setAttribute('href', href);
-          var og = document.querySelector('meta[property="og:url"]');
-          if (og) og.setAttribute('content', href);
-        } catch (e) {}
-      })();
-    </script>
+    <!-- Домен живёт в ОДНОЙ переменной VITE_SITE_ORIGIN (.env) — Vite
+         подставляет её сюда на сборке. Менять адрес сайта = менять одну строку
+         в .env, а не двенадцать мест в этом файле. -->
+    <link rel="canonical" href="%VITE_SITE_ORIGIN%/" />
+    <link rel="alternate" hreflang="x-default" href="%VITE_SITE_ORIGIN%/" />
     <link rel="manifest" href="/site.webmanifest" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=2" />
     <!-- Social preview card (Open Graph + Twitter) -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Lexab" />
-    <meta property="og:url" content="https://lexai.app/" />
+    <meta property="og:url" content="%VITE_SITE_ORIGIN%/" />
     <meta property="og:title" content="Lexab — AI contract intelligence" />
     <meta
       property="og:description"
       content="Risk review, tracked redlines and clause Q&A for your contracts — in minutes, not hours."
     />
-    <meta property="og:image" content="https://lexai.app/og.png" />
+    <meta property="og:image" content="%VITE_SITE_ORIGIN%/og.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta
@@ -54,11 +44,33 @@
       name="twitter:description"
       content="Risk review, tracked redlines and clause Q&A for your contracts — in minutes, not hours."
     />
-    <meta name="twitter:image" content="https://lexai.app/og.png" />
+    <meta name="twitter:image" content="%VITE_SITE_ORIGIN%/og.png" />
     <meta
       name="twitter:image:alt"
       content="Lexab — contract analysis with verifiable citations to the law"
     />
+    <script>
+      // SPA: одна index.html на все маршруты — подставляем канонический адрес
+      // текущей страницы (краулеры, исполняющие JS, увидят правильный).
+      // СТОИТ ИМЕННО ЗДЕСЬ, ниже og:url: в <head> скрипт выполняется в момент
+      // разбора, и выше по документу тега og:url ещё не существует — прежняя
+      // версия молча правила только canonical.
+      // Домен НЕ вписан в сам скрипт: он хешируется в CSP, и подстановка домена
+      // внутрь означала бы, что смена домена меняет хеш. Промах хеша — не
+      // «ошибка в консоли», а полностью белый сайт (анти-кликджекинг-стиль
+      // снимается именно инлайн-скриптом). Домен берём из тега canonical: на
+      // превью-хостах канонический адрес остаётся боевым, а не адресом превью.
+      (function () {
+        try {
+          var c = document.querySelector('link[rel="canonical"]');
+          var origin = c ? new URL(c.href).origin : location.origin;
+          var href = origin + (location.pathname === '/' ? '/' : location.pathname);
+          if (c) c.setAttribute('href', href);
+          var og = document.querySelector('meta[property="og:url"]');
+          if (og) og.setAttribute('content', href);
+        } catch (e) {}
+      })();
+    </script>
     <!-- Structured data for search engines (Organization + app + site). -->
     <script type="application/ld+json">
       {
@@ -66,21 +78,21 @@
         "@graph": [
           {
             "@type": "Organization",
-            "@id": "https://lexai.app/#organization",
+            "@id": "%VITE_SITE_ORIGIN%/#organization",
             "name": "Lexab",
-            "url": "https://lexai.app/",
-            "logo": "https://lexai.app/favicon.svg",
+            "url": "%VITE_SITE_ORIGIN%/",
+            "logo": "%VITE_SITE_ORIGIN%/favicon.svg",
             "sameAs": ["https://t.me/MANAGER_CIVIS"]
           },
           {
             "@type": "SoftwareApplication",
-            "@id": "https://lexai.app/#app",
+            "@id": "%VITE_SITE_ORIGIN%/#app",
             "name": "Lexab",
-            "url": "https://lexai.app/",
+            "url": "%VITE_SITE_ORIGIN%/",
             "applicationCategory": "BusinessApplication",
             "operatingSystem": "Web",
             "description": "AI contract analysis with verifiable citations to legislation (UK and Uzbekistan): risk review, tracked redlines and clause Q&A.",
-            "publisher": { "@id": "https://lexai.app/#organization" },
+            "publisher": { "@id": "%VITE_SITE_ORIGIN%/#organization" },
             "offers": [
               {
                 "@type": "Offer",
@@ -134,11 +146,11 @@
           },
           {
             "@type": "WebSite",
-            "@id": "https://lexai.app/#website",
+            "@id": "%VITE_SITE_ORIGIN%/#website",
             "name": "Lexab",
-            "url": "https://lexai.app/",
+            "url": "%VITE_SITE_ORIGIN%/",
             "inLanguage": ["ru", "en"],
-            "publisher": { "@id": "https://lexai.app/#organization" }
+            "publisher": { "@id": "%VITE_SITE_ORIGIN%/#organization" }
           }
         ]
       }

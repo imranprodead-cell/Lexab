@@ -5,7 +5,7 @@ The frontend is backend-agnostic. Implement these endpoints and flip
 [`src/types/domain.ts`](./src/types/domain.ts) — the mock in `src/api/mock/`
 mirrors them exactly, so treat that file as the schema.
 
-Base URL comes from `VITE_API_BASE_URL` (e.g. `https://api.lexai.app`).
+Base URL comes from `VITE_API_BASE_URL` (e.g. `https://api.lexabai.com`).
 All bodies and responses are JSON. Errors should return a non-2xx status with
 `{ "message": string }`; the client surfaces `message` to the user.
 

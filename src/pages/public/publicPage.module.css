@@ -1,0 +1,427 @@
+/**
+ * Стили публичных страниц-разделов.
+ *
+ * ПРАВИЛА (нарушение ломает арабский или тёмную тему):
+ *  - только логические свойства: margin-inline, padding-inline, text-align:start,
+ *    inset-inline. Никаких left/right — при dir=rtl они не зеркалятся;
+ *  - цвета ТОЛЬКО через переменные темы (--text, --dim, --mut, --border,
+ *    --panel, --accent). Ни одного литерального hex: снимок пререндера
+ *    снимается в светлой теме и обязан краситься сам при .dark;
+ *  - никаких направленных глифов (→, ←) в псевдоэлементах.
+ */
+
+/**
+ * СТРАНИЦА — СВОЙ КОНТЕЙНЕР ПРОКРУТКИ, и это обязательно.
+ *
+ * `#root` в global.css задан как `height: 100dvh; overflow: hidden` — прокрутки
+ * у документа нет вовсе, её обязана давать сама страница (так устроены и
+ * лендинг, и кабинет). Пока здесь стоял только `min-height`, содержимое
+ * вылезало за обрезанный корень: страница открывалась и «замирала» — читалась
+ * как картинка, ничего не листалось. Проверять это надо ИМЕННО прокруткой
+ * (scrollTop меняется), а не измерением ширины: горизонтального переполнения
+ * при такой поломке нет.
+ */
+.page {
+  height: 100vh;
+  height: 100dvh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: var(--bg);
+  color: var(--text);
+  /* Импульс прокрутки как у остальных экранов приложения. */
+  -webkit-overflow-scrolling: touch;
+  /* Якоря внутри страницы не должны уезжать под липкую шапку. */
+  scroll-padding-top: 72px;
+}
+
+.inner {
+  max-width: 880px;
+  margin-inline: auto;
+  padding-inline: 20px;
+  padding-block: 56px 96px;
+}
+
+/* ── Первый экран ─────────────────────────────────────────────────────────── */
+
+.hero {
+  padding-block-end: 8px;
+  border-block-end: 1px solid var(--border);
+  margin-block-end: 40px;
+}
+
+.h1 {
+  margin: 0 0 16px;
+  font-size: clamp(30px, 5vw, 44px);
+  line-height: 1.15;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+
+.lead {
+  margin: 0 0 18px;
+  font-size: 17px;
+  line-height: 1.6;
+  color: var(--dim);
+  max-width: 62ch;
+}
+
+.planNote {
+  margin: 0 0 22px;
+  font-size: 13px;
+  color: var(--mut);
+}
+
+/* ── Секции и типографика ─────────────────────────────────────────────────── */
+
+.section {
+  margin-block-end: 44px;
+}
+
+.h2 {
+  margin: 0 0 14px;
+  font-size: 22px;
+  line-height: 1.3;
+  font-weight: 620;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+
+.p {
+  margin: 0 0 12px;
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--dim);
+  max-width: 68ch;
+}
+
+/* ── Полоса фактов ────────────────────────────────────────────────────────── */
+
+.factGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.fact {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--panel);
+}
+
+.factValue {
+  font-size: 24px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.factLabel {
+  margin-block-start: 4px;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.factProof {
+  margin-block-start: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--mut);
+}
+
+/* ── Шаги ─────────────────────────────────────────────────────────────────── */
+
+.steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  counter-reset: step;
+}
+
+.step {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.stepNum {
+  flex: 0 0 auto;
+  inline-size: 26px;
+  block-size: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--on-accent);
+  background: var(--accent);
+}
+
+.stepTitle {
+  font-size: 15px;
+  font-weight: 600;
+  margin-block-end: 3px;
+}
+
+.stepBody {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--dim);
+  max-width: 62ch;
+}
+
+/* ── Списки ───────────────────────────────────────────────────────────────── */
+
+.list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.listItem {
+  font-size: 15px;
+  line-height: 1.6;
+  padding-inline-start: 18px;
+  position: relative;
+  max-width: 68ch;
+}
+
+/* Маркер — точка, а не стрелка: направленный глиф пришлось бы зеркалить. */
+.listItem::before {
+  content: '';
+  position: absolute;
+  inset-inline-start: 0;
+  inset-block-start: 0.62em;
+  inline-size: 5px;
+  block-size: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.listTitle {
+  font-weight: 560;
+}
+
+.listBody {
+  color: var(--dim);
+}
+
+/* Блок «чего модуль не делает»: приглушённый, но не тревожный. */
+.limits .listItem::before {
+  background: var(--mut);
+}
+
+.limits .listTitle {
+  font-weight: 520;
+}
+
+/* ── Таблица ──────────────────────────────────────────────────────────────── */
+
+.tableWrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--panel);
+}
+
+.table {
+  inline-size: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.table th,
+.table td {
+  padding: 10px 14px;
+  text-align: start;
+  border-block-end: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.table thead th {
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  background: var(--panel-2);
+}
+
+.table tbody th {
+  font-weight: 560;
+  white-space: nowrap;
+}
+
+.table tbody td {
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.table tbody tr:last-child th,
+.table tbody tr:last-child td {
+  border-block-end: 0;
+}
+
+.tableNote {
+  margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--mut);
+}
+
+/* ── Примечание ───────────────────────────────────────────────────────────── */
+
+.note {
+  padding: 14px 16px;
+  border-radius: var(--r-lg);
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.noteTitle {
+  display: block;
+  font-size: 14px;
+  margin-block-end: 6px;
+}
+
+.noteBody {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--dim);
+  max-width: 68ch;
+}
+
+/* ── Вопросы и ответы ─────────────────────────────────────────────────────── */
+
+.faq {
+  display: flex;
+  flex-direction: column;
+  border-block-start: 1px solid var(--border);
+}
+
+.faqItem {
+  border-block-end: 1px solid var(--border);
+}
+
+.faqQ {
+  padding-block: 14px;
+  font-size: 15px;
+  font-weight: 560;
+  cursor: pointer;
+  list-style: none;
+}
+
+.faqQ::-webkit-details-marker {
+  display: none;
+}
+
+.faqQ:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+.faqA {
+  margin: 0;
+  padding-block-end: 14px;
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--dim);
+  max-width: 68ch;
+}
+
+/* ── Связанные разделы ────────────────────────────────────────────────────── */
+
+.relatedGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.relatedCard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--panel);
+  text-decoration: none;
+  color: inherit;
+  transition: border-color var(--dur-fast, 0.15s) ease;
+}
+
+.relatedCard:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+}
+
+.relatedTitle {
+  font-size: 15px;
+  font-weight: 580;
+}
+
+.relatedBody {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--dim);
+}
+
+/* ── Призыв к действию ────────────────────────────────────────────────────── */
+
+.ctaBlock {
+  padding: 24px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  background: var(--panel);
+}
+
+.ctaRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-block-start: 16px;
+}
+
+.cta {
+  display: inline-flex;
+  align-items: center;
+  padding: 10px 18px;
+  border-radius: var(--r-md);
+  font-size: 14px;
+  font-weight: 560;
+  text-decoration: none;
+  border: 1px solid transparent;
+}
+
+.ctaPrimary {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.ctaSecondary {
+  background: transparent;
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.cta:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 700px) {
+  .inner {
+    padding-block: 36px 64px;
+  }
+
+  .section {
+    margin-block-end: 36px;
+  }
+}

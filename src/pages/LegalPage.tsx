@@ -204,8 +204,8 @@ const TERMS: Section[] = [
     h: { ru: '14. Контакты', en: '14. Contact' },
     p: [
       {
-        ru: 'По вопросам, связанным с этими условиями, напишите нам в Telegram @MANAGER_CIVIS или на privacy@lexai.app.',
-        en: 'For questions about these terms, contact us on Telegram @MANAGER_CIVIS or at privacy@lexai.app.',
+        ru: 'По вопросам, связанным с этими условиями, напишите нам в Telegram @MANAGER_CIVIS или на privacy@lexabai.com.',
+        en: 'For questions about these terms, contact us on Telegram @MANAGER_CIVIS or at privacy@lexabai.com.',
       },
     ],
   },
@@ -287,8 +287,8 @@ const PRIVACY: Section[] = [
         en: 'The text of your documents is sent to the AI model provider only to perform the analysis. On paid plans, under the provider’s terms, data submitted via the API is not used to train models.',
       },
       {
-        ru: 'На бесплатном тарифе запросы к ИИ могут обрабатываться дополнительным сторонним поставщиком ИИ-инфраструктуры, в том числе на серверах за пределами вашей юрисдикции, и по его условиям могут использоваться для улучшения его сервисов. Если для ваших документов это критично, используйте платные тарифы. Актуальный перечень категорий субобработчиков предоставляется по запросу на privacy@lexai.app.',
-        en: 'On the Free plan, AI requests may be processed by an additional third-party AI infrastructure provider, including on servers outside your jurisdiction, and under its terms may be used to improve its services. If this matters for your documents, use a paid plan. The current list of subprocessor categories is available on request at privacy@lexai.app.',
+        ru: 'На бесплатном тарифе запросы к ИИ могут обрабатываться дополнительным сторонним поставщиком ИИ-инфраструктуры, в том числе на серверах за пределами вашей юрисдикции, и по его условиям могут использоваться для улучшения его сервисов. Если для ваших документов это критично, используйте платные тарифы. Актуальный перечень категорий субобработчиков предоставляется по запросу на privacy@lexabai.com.',
+        en: 'On the Free plan, AI requests may be processed by an additional third-party AI infrastructure provider, including on servers outside your jurisdiction, and under its terms may be used to improve its services. If this matters for your documents, use a paid plan. The current list of subprocessor categories is available on request at privacy@lexabai.com.',
       },
       {
         ru: 'Отдельный сервис векторного поиска применяется для индексации базы официальных текстов законов и поиска по ней: при анализе договора фрагмент его текста может передаваться этому сервису как поисковый запрос для подбора релевантных норм. Целые документы туда не загружаются и не хранятся там.',
@@ -321,8 +321,8 @@ const PRIVACY: Section[] = [
     h: { ru: '9. Ваши права', en: '9. Your rights' },
     p: [
       {
-        ru: 'Вы можете получить доступ к своим данным, исправить их, удалить их или запросить экспорт. Профиль редактируется в Настройках, документы выгружаются из кабинета, удаление документа или аккаунта доступно самостоятельно. По запросу на экспорт или иным вопросам о данных напишите на privacy@lexai.app.',
-        en: 'You can access your data, correct it, delete it or request an export. The profile is editable in Settings, documents can be downloaded from your workspace, and deletion of a document or the account is available self-service. For export requests or other data questions, write to privacy@lexai.app.',
+        ru: 'Вы можете получить доступ к своим данным, исправить их, удалить их или запросить экспорт. Профиль редактируется в Настройках, документы выгружаются из кабинета, удаление документа или аккаунта доступно самостоятельно. По запросу на экспорт или иным вопросам о данных напишите на privacy@lexabai.com.',
+        en: 'You can access your data, correct it, delete it or request an export. The profile is editable in Settings, documents can be downloaded from your workspace, and deletion of a document or the account is available self-service. For export requests or other data questions, write to privacy@lexabai.com.',
       },
     ],
   },
@@ -361,8 +361,8 @@ const PRIVACY: Section[] = [
     h: { ru: '13. Контакт', en: '13. Contact' },
     p: [
       {
-        ru: 'По вопросам обработки данных напишите нам: privacy@lexai.app.',
-        en: 'For privacy questions, contact us at privacy@lexai.app.',
+        ru: 'По вопросам обработки данных напишите нам: privacy@lexabai.com.',
+        en: 'For privacy questions, contact us at privacy@lexabai.com.',
       },
     ],
   },
@@ -403,7 +403,8 @@ export function LegalPage({ kind }: { kind: 'terms' | 'privacy' }) {
   usePageTitle(title);
 
   return (
-    <div className={styles.legalPage}>
+    // data-prerender-ready — единый признак готовности для scripts/prerender.mjs.
+    <div className={styles.legalPage} data-prerender-ready="true">
       <main className={styles.legalInner}>
         <div className={styles.legalTop}>
           <Link to="/" className={styles.legalBrand}>

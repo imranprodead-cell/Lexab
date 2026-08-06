@@ -1,9 +1,9 @@
-import { useState, type ReactElement } from 'react';
+import { lazy, Suspense, useState, type ReactElement } from 'react';
 import { createBrowserRouter, Navigate, useRouteError, type RouteObject } from 'react-router-dom';
-import { AppShell } from '@/components/layout/AppShell';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { RequireAuth } from './RequireAuth';
 import { useAuthStore } from '@/store/useAuthStore';
+import { PUBLIC_PAGES } from '@/pages/public/registry';
 
 /**
  * Pages are code-split: each route pulls its chunk on demand instead of
@@ -13,8 +13,26 @@ import { useAuthStore } from '@/store/useAuthStore';
  *
  * One loader per page module — reused by both the route definitions and the
  * idle-time prefetch below, so the two can never drift apart.
+ *
+ * НЕ ДОБАВЛЯТЬ СЮДА ПУБЛИЧНЫЕ СТРАНИЦЫ САЙТА. Всё, что попало в этот объект,
+ * прогревается в простое у ВОШЕДШЕГО пользователя (prefetchAllPages ниже);
+ * маркетинговые разделы качались бы фоном у каждого работающего юриста. Их
+ * ленивые импорты живут в src/pages/public/registry.ts.
  */
+/**
+ * Оболочка приложения (боковая панель, палитра команд, онбординг) — ЛЕНИВО.
+ * Жёсткий импорт клал её и всю её ветку, включая библиотеку анимаций
+ * (48.7 КБ gzip), в главный чанк — то есть в первую загрузку КАЖДОГО
+ * посетителя, даже того, кто просто читает страницу-раздел сайта и никогда
+ * не увидит боковую панель. Вошедшему пользователю чанк греется вместе с
+ * остальными (loaders ниже), поэтому лишнего ожидания у него не появляется.
+ */
+const AppShellLazy = lazy(() =>
+  import('@/components/layout/AppShell').then((m) => ({ default: m.AppShell })),
+);
+
 const loaders = {
+  AppShell: () => import('@/components/layout/AppShell'),
   AuthPage: () => import('@/pages/AuthPage'),
   SignPage: () => import('@/pages/SignPage'),
   SharePage: () => import('@/pages/SharePage'),
@@ -83,6 +101,23 @@ function RouteErrorRethrow(): ReactElement {
   throw error instanceof Error ? error : new Error(String(error));
 }
 
+/**
+ * Маршруты публичных страниц. `prefix` — задел под языковые адреса: сегодня
+ * пустой, включение /en/… станет вызовом makePublicRoutes('/en') рядом.
+ */
+function makePublicRoutes(prefix = ''): RouteObject[] {
+  return PUBLIC_PAGES.map(({ slug, Component }) => ({
+    path: `${prefix}/${slug}`,
+    element: (
+      // Ленивый чанк страницы: пока он летит, показываем пустой экран нужной
+      // высоты — прыжка вёрстки нет, а пререндер ждёт [data-prerender-ready].
+      <Suspense fallback={<div style={{ minHeight: '100vh' }} />}>
+        <Component />
+      </Suspense>
+    ),
+  }));
+}
+
 const appRoutes: RouteObject[] = [
   {
     path: '/login',
@@ -109,6 +144,10 @@ const appRoutes: RouteObject[] = [
     path: '/reset-password',
     lazy: async () => ({ Component: (await loaders.ResetPasswordPage()).ResetPasswordPage }),
   },
+  // Публичные страницы-разделы: маршруты собираются из реестра, поэтому новая
+  // страница добавляется одним файлом контента и одной строкой в реестре.
+  // Префикс пока пустой — задел под языковые адреса (/en/…) на будущее.
+  ...makePublicRoutes(),
   {
     path: '/terms',
     lazy: async () => {
@@ -144,7 +183,9 @@ const appRoutes: RouteObject[] = [
       {
         element: (
           <RequireAuth>
-            <AppShell />
+            <Suspense fallback={<div style={{ minHeight: '100vh' }} />}>
+              <AppShellLazy />
+            </Suspense>
           </RequireAuth>
         ),
         children: [

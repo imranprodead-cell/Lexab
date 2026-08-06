@@ -1,0 +1,252 @@
+/**
+ * Шапка и подвал публичных страниц-разделов.
+ *
+ * ПРАВИЛА (те же, что у publicPage.module.css — нарушение ломает арабскую
+ * версию или тёмную тему):
+ *  - только логические свойства: margin-inline, padding-inline, inset-inline,
+ *    text-align: start. Никаких left/right — при dir=rtl они не зеркалятся;
+ *  - цвета ТОЛЬКО через переменные темы: снимок пререндера снимается в светлой
+ *    теме и обязан перекраситься сам, когда на <html> появляется класс .dark.
+ */
+
+/* ── Шапка ────────────────────────────────────────────────────────────────── */
+
+.bar {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 80;
+}
+
+.barInner {
+  max-width: 1120px;
+  margin-inline: auto;
+  padding: 10px 20px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  text-decoration: none;
+  color: var(--text);
+}
+
+.brandName {
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.navLink {
+  padding: 7px 11px;
+  border: none;
+  background: transparent;
+  border-radius: 999px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--dim);
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.2s ease, background 0.2s ease;
+}
+
+.navLink:hover {
+  color: var(--text);
+  background: var(--hover);
+}
+
+/* Полоска под пунктом меню должна быть ОДНА — та, что рисует .nav-link::after.
+   Вторую добавлял глобальный `a:hover { text-decoration: underline }`: на
+   лендинге пункты меню — кнопки, и там это незаметно, а здесь они ссылки. */
+.navLink:hover,
+.navLink:focus-visible {
+  text-decoration: none;
+}
+
+.navLinkActive {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.controls {
+  margin-inline-start: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.iconBtn {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+
+.iconBtn:hover,
+.iconBtn:focus-visible {
+  border-color: var(--border);
+  color: var(--text);
+}
+
+/* Сенсорные экраны: цель нажатия не меньше 44px (Apple HIG). */
+@media (pointer: coarse) {
+  .iconBtn {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+.headerCta {
+  display: inline-flex;
+  align-items: center;
+  padding: 9px 16px;
+  border-radius: var(--r-md);
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 14px;
+  font-weight: 560;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.headerCta:focus-visible,
+.navLink:focus-visible,
+.brand:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Телефон: меню разделов прячем — остаются знак, язык, тема и целевая кнопка.
+   Разделы доступны из подвала, который на телефоне и читают. */
+@media (max-width: 860px) {
+  .nav {
+    display: none;
+  }
+
+  .barInner {
+    gap: 10px;
+    padding-inline: 14px;
+  }
+}
+
+@media (max-width: 420px) {
+  .brandName {
+    display: none;
+  }
+}
+
+/* ── Подвал ───────────────────────────────────────────────────────────────── */
+
+.footer {
+  border-block-start: 1px solid var(--border);
+  background: var(--panel);
+}
+
+.footerInner {
+  max-width: 1120px;
+  margin-inline: auto;
+  padding: 44px 20px 28px;
+}
+
+.footerTop {
+  display: grid;
+  grid-template-columns: minmax(200px, 1.3fr) repeat(auto-fit, minmax(150px, 1fr));
+  gap: 28px 24px;
+}
+
+.footerBrandCol {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.footerTagline {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--mut);
+  max-width: 34ch;
+}
+
+.footerCol {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.footerColTitle {
+  font-size: 12px;
+  font-weight: 620;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--mut);
+}
+
+.footerLink {
+  font-size: 13.5px;
+  line-height: 1.4;
+  color: var(--dim);
+  text-decoration: none;
+}
+
+.footerLink:hover {
+  color: var(--text);
+}
+
+.footerLink:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.footerBottom {
+  margin-block-start: 32px;
+  padding-block-start: 18px;
+  border-block-start: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+}
+
+.footerCopy {
+  font-size: 12.5px;
+  color: var(--mut);
+}
+
+.footerLegal {
+  margin-inline-start: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+}
+
+@media (max-width: 700px) {
+  .footerInner {
+    padding: 32px 16px 24px;
+  }
+
+  .footerLegal {
+    margin-inline-start: 0;
+  }
+}

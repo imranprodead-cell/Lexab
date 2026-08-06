@@ -1,6 +1,5 @@
 import { useEffect } from 'react';
 import { RouterProvider } from 'react-router-dom';
-import { MotionConfig } from 'motion/react';
 import { I18nProvider } from '@/i18n/I18nProvider';
 import { prefetchDicts } from '@/i18n/loadDict';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
@@ -17,9 +16,12 @@ export default function App() {
 
   return (
     <ErrorBoundary>
-      {/* Эталон ThemeProvider.tsx: все motion-анимации уважают системный
-          prefers-reduced-motion. */}
-      <MotionConfig reducedMotion="user">
+      {/* MotionConfig НАМЕРЕННО НЕ ЗДЕСЬ. Обёртка в корне тянула библиотеку
+          анимаций (48.7 КБ gzip) в первую загрузку КАЖДОГО посетителя, включая
+          страницы-разделы сайта, где нет ни одной анимации. Она перенесена в
+          две ветки, которые действительно анимируют, — AppShell и AuthPage;
+          настройка reducedMotion="user" там та же. Добавляете анимации в новом
+          дереве — оберните это дерево своим MotionConfig, а не корень. */}
       <I18nProvider>
         <RouterProvider
           router={router}
@@ -31,7 +33,6 @@ export default function App() {
             routes too — AuthPage, reset-password, sign, etc. Portals to body. */}
         <ToastHost />
       </I18nProvider>
-      </MotionConfig>
     </ErrorBoundary>
   );
 }

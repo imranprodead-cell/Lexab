@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { AnimatePresence, motion, useMotionTemplate, useMotionValue, useReducedMotion, useSpring } from 'motion/react';
+import { AnimatePresence, MotionConfig, motion, useMotionTemplate, useMotionValue, useReducedMotion, useSpring } from 'motion/react';
 import { EASE } from '@/lib/motion';
 import { Avatar } from '@/components/ui/Avatar';
 import { Background } from '@/components/ui/Background';
@@ -20,6 +20,7 @@ import { useAuthStore } from '@/store/useAuthStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useResolvedDark } from '@/hooks/useResolvedDark';
 import { useI18n } from '@/i18n/I18nProvider';
+import { pickText } from '@/i18n/messages';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { scrollBehavior } from '@/lib/scroll';
 import styles from './auth.module.css';
@@ -61,9 +62,20 @@ function GoogleLogo() {
   );
 }
 
-/** Landing nav pill: section anchors rendered in the sticky top banner. */
+/**
+ * Landing nav pill: section anchors rendered in the sticky top banner.
+ *
+ * У пункта либо ключ словаря, либо готовая подпись на шести языках. Второй
+ * вариант — для новых пунктов: базовый словарь содержит только ru и en, а
+ * остальные языки живут в ленивых словарях, и новый ключ пришлось бы добавлять
+ * в пять файлов сразу, иначе четыре языка увидели бы сырой ключ.
+ */
 const NAV_SECTIONS = [
   { id: 'features', key: 'landing.nav.features' },
+  {
+    id: 'sections',
+    label: { ru: 'Разделы', en: 'Sections', de: 'Bereiche', ar: 'الأقسام', kk: 'Бөлімдер', uz: 'Boʻlimlar' },
+  },
   { id: 'solutions', key: 'landing.nav.solutions' },
   { id: 'security', key: 'landing.nav.security' },
   { id: 'plans', key: 'landing.nav.plans' },
@@ -74,7 +86,7 @@ const NAV_SECTIONS = [
 export function AuthPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   // На «/» (лендинг) оставляем маркетинговый тайтл по умолчанию — он совпадает
   // с пререндером и не портит сниппет в поиске; «Вход» — только на /login.
   usePageTitle(location.pathname === '/' ? undefined : t('auth.signInTitle'));
@@ -335,18 +347,26 @@ export function AuthPage() {
     rootRef.current?.scrollTo({ top: 0, behavior: scrollBehavior() });
   };
 
-  // Opening the site always starts at the top — the sign-in hero — never
-  // mid-page. A leftover section anchor (e.g. #features from an old link)
-  // is stripped so the browser can't jump there; the user scrolls himself.
-  // The Google OAuth return hash (#code=…) is left untouched.
+  // Обычный вход на сайт всегда начинается сверху — с первого экрана.
+  // Исключение — явный переход к секции («/#plans» из шапки или подвала
+  // страницы-раздела): туда мы прокручиваем САМИ. Нативный прыжок браузера
+  // здесь не работает, потому что прокрутка живёт в контейнере страницы, а не
+  // в окне, — раньше по этой причине якорь просто стирался и ссылка молча
+  // приводила на верх главной. Якорь всё так же убирается из адреса: перезагрузка
+  // и следующий визит открываются сверху. Хеш возврата Google (#code=…) не трогаем.
   useEffect(() => {
     if (finishing) return;
     const id = window.location.hash.slice(1);
-    if (id && NAV_SECTIONS.some((s) => s.id === id)) {
+    const toSection = Boolean(id) && NAV_SECTIONS.some((s) => s.id === id);
+    if (toSection) {
       window.history.replaceState(null, '', window.location.pathname + window.location.search);
     }
     requestAnimationFrame(() => {
-      rootRef.current?.scrollTo({ top: 0, behavior: 'auto' });
+      if (toSection) {
+        document.getElementById(id)?.scrollIntoView({ behavior: 'auto', block: 'start' });
+      } else {
+        rootRef.current?.scrollTo({ top: 0, behavior: 'auto' });
+      }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -450,7 +470,13 @@ export function AuthPage() {
   }
 
   return (
-    <div className={`${styles.auth} ${leaving ? styles.authLeaving : ''}`} ref={rootRef}>
+    // Эталон ThemeProvider.tsx: анимации лендинга уважают системный
+    // prefers-reduced-motion. Раньше обёртка стояла в корне App.tsx и тянула
+    // библиотеку анимаций даже на страницы, где её не используют.
+    <MotionConfig reducedMotion="user">
+    {/* data-prerender-ready — единый признак готовности для scripts/prerender.mjs:
+        снимок для поисковика снимается, когда страница действительно собрана. */}
+    <div className={`${styles.auth} ${leaving ? styles.authLeaving : ''}`} ref={rootRef} data-prerender-ready="true">
       {/* Scenery of the эталон: travelling blooms, masked grid, sparkles,
           noise — parallaxed against this page's own scroll container. */}
       <Background scrollRef={rootRef} />
@@ -489,7 +515,7 @@ export function AuthPage() {
                 aria-current={activeSection === s.id ? 'true' : undefined}
                 onClick={() => scrollToSection(s.id)}
               >
-                {t(s.key)}
+                {'label' in s ? pickText(s.label, lang) : t(s.key)}
               </button>
             ))}
           </nav>
@@ -1081,5 +1107,6 @@ export function AuthPage() {
 
       <TelegramWidget scrollRef={rootRef} hidden={leaving} />
     </div>
+    </MotionConfig>
   );
 }

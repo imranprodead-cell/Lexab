@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
 import { Icon } from '@/components/icons/Icon';
 import { useI18n } from '@/i18n/I18nProvider';
 import { LANGUAGES } from '@/i18n/messages';
@@ -9,6 +8,11 @@ import styles from './languageMenu.module.css';
  * Language switcher: a translate-glyph button that opens a small dropdown
  * with the available interface languages. Shared between the public landing
  * page and the in-app top bar so both use the same control.
+ *
+ * НАМЕРЕННО БЕЗ `motion`: этот переключатель стоит в шапке страниц-разделов
+ * сайта, а библиотека анимаций — 48.7 КБ gzip, вдвое больше самой страницы.
+ * Появление меню делает CSS-анимация (та же кривая 0.18s ease-out), уход —
+ * мгновенный: удержать элемент в DOM ради 0.18 с ухода того не стоит.
  */
 export function LanguageMenu({ className, showLabel = false }: { className?: string; showLabel?: boolean }) {
   const { t, lang, setLang } = useI18n();
@@ -52,19 +56,10 @@ export function LanguageMenu({ className, showLabel = false }: { className?: str
         ) : null}
       </button>
 
-      {/* Эталон LanguageSwitcher.tsx: AnimatePresence, scale .96 / y -4,
-          0.18s easeOut. */}
-      <AnimatePresence>
+      {/* Эталон LanguageSwitcher.tsx: scale .96 / y -4, 0.18s easeOut —
+          теперь ключевыми кадрами CSS (см. lxlangin в модуле стилей). */}
       {open ? (
-        <motion.div
-          initial={{ opacity: 0, scale: 0.96, y: -4 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.96, y: -4 }}
-          transition={{ duration: 0.18, ease: 'easeOut' }}
-          className={styles.menu}
-          role="menu"
-          aria-label={t('lang.switch')}
-        >
+        <div className={styles.menu} role="menu" aria-label={t('lang.switch')}>
           {LANGUAGES.map((l) => (
             <button
               key={l.code}
@@ -82,9 +77,8 @@ export function LanguageMenu({ className, showLabel = false }: { className?: str
               {lang === l.code ? <Icon name="check" size={14} className={styles.itemCheck} /> : null}
             </button>
           ))}
-        </motion.div>
+        </div>
       ) : null}
-      </AnimatePresence>
     </div>
   );
 }

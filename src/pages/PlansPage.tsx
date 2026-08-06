@@ -181,6 +181,11 @@ const PLANS: Plan[] = [
       uz: "Standard dagi hammasi, ustiga:",
       ar: "كل ما في Standard، بالإضافة إلى:",
     },
+    // Список идёт ПОСЛЕ «Всё из Standard, плюс:», поэтому каждая строка здесь —
+    // обещание «этого на Standard нет». «Разбор договора с правками» и
+    // «Предложения формулировок» такому обещанию не отвечали: в FEATURE_MIN_PLAN
+    // их нет вовсе, разбор с правками доступен даже на Free. Вместо них — то,
+    // что действительно открывается на Pro: playbooks, batch, clm, workflows.
     features: [
       {
         ru: "До 500 AI-запросов в месяц",
@@ -207,20 +212,36 @@ const PLANS: Plan[] = [
         ar: "مقارنة الإصدارات (Redline)",
       },
       {
-        ru: "Разбор договора с правками",
-        en: "Contract review with redlines",
-        de: "Vertragsprüfung mit Änderungen",
-        kk: "Түзетулермен шартты талдау",
-        uz: "Tuzatishlar bilan shartnoma tahlili",
-        ar: "مراجعة العقد مع التعديلات",
+        ru: "Правила по пунктам (плейбуки)",
+        en: "Clause playbooks",
+        de: "Klausel-Playbooks",
+        kk: "Тармақтар бойынша ережелер",
+        uz: "Bandlar boʻyicha qoidalar",
+        ar: "أدلة البنود",
       },
       {
-        ru: "Предложения формулировок",
-        en: "Clause suggestions",
-        de: "Klausel-Vorschläge",
-        kk: "Тармақ нұсқаларын ұсыну",
-        uz: "Band takliflari",
-        ar: "اقتراحات الصياغة",
+        ru: "Пакетная проверка договоров",
+        en: "Bulk contract review",
+        de: "Stapelprüfung von Verträgen",
+        kk: "Шарттарды топтап тексеру",
+        uz: "Shartnomalarni paketli tekshirish",
+        ar: "مراجعة عقود دفعية",
+      },
+      {
+        ru: "Сроки и обязательства по договорам",
+        en: "Contract deadlines and obligations",
+        de: "Fristen und Pflichten aus Verträgen",
+        kk: "Шарттар бойынша мерзімдер мен міндеттемелер",
+        uz: "Shartnomalar boʻyicha muddatlar va majburiyatlar",
+        ar: "مواعيد العقود والتزاماتها",
+      },
+      {
+        ru: "Агентные сценарии",
+        en: "Agentic workflows",
+        de: "Agenten-Workflows",
+        kk: "Агенттік сценарийлер",
+        uz: "Agent stsenariylari",
+        ar: "سير عمل الوكلاء",
       },
       { ru: "История версий", en: "Version history", de: "Versionsverlauf", kk: "Нұсқалар тарихы", uz: "Versiyalar tarixi", ar: "سجل الإصدارات" },
       {
@@ -297,12 +318,14 @@ const PLANS: Plan[] = [
         ar: "الوصول إلى أقوى نماذج الذكاء الاصطناعي",
       },
       {
-        ru: "До 5 пользователей",
-        en: "Up to 5 users",
-        de: "Bis zu 5 Nutzer",
-        kk: "5 пайдаланушыға дейін",
-        uz: "5 tagacha foydalanuvchi",
-        ar: "حتى 5 مستخدمين",
+        // PLAN_SEATS.Business = 5 — это строки в team_members, то есть
+        // ПРИГЛАШЁННЫЕ участники; владелец команды сверх этих пяти.
+        ru: "5 приглашённых участников плюс владелец",
+        en: "5 invited members plus the owner",
+        de: "5 eingeladene Mitglieder plus Inhaber",
+        kk: "5 шақырылған қатысушы және иесі",
+        uz: "5 ta taklif qilingan ishtirokchi va egasi",
+        ar: "5 أعضاء مدعوّين بالإضافة إلى المالك",
       },
       {
         ru: "До 10 000 AI-запросов в месяц",
@@ -346,21 +369,18 @@ const PLANS: Plan[] = [
       },
       { ru: "Журнал действий", en: "Audit log", de: "Audit-Log", kk: "Әрекеттер журналы", uz: "Amallar jurnali", ar: "سجل الإجراءات" },
       {
-        ru: "API-доступ (1000 анализов/мес)",
-        en: "API access (1,000 analyses/mo)",
-        de: "API-Zugang (1.000 Analysen/Monat)",
-        kk: "API қолжетімділігі (айына 1000 талдау)",
-        uz: "API kirish (oyiga 1000 tahlil)",
-        ar: "وصول API (1000 تحليل شهريًا)",
+        // Счётчик считает ЗАПРОСЫ к API, а не анализы: один анализ — это один
+        // запрос, но запросом является и чтение результата (config.apiMonthlyLimit).
+        ru: "API-доступ (1000 запросов/мес)",
+        en: "API access (1,000 requests/mo)",
+        de: "API-Zugang (1.000 Anfragen/Monat)",
+        kk: "API қолжетімділігі (айына 1000 сұрау)",
+        uz: "API kirish (oyiga 1000 soʻrov)",
+        ar: "وصول API (1000 طلب شهريًا)",
       },
-      {
-        ru: "Расширенная аналитика",
-        en: "Advanced analytics",
-        de: "Erweiterte Analysen",
-        kk: "Кеңейтілген аналитика",
-        uz: "Kengaytirilgan analitika",
-        ar: "تحليلات متقدمة",
-      },
+      // «Расширенная аналитика» здесь была неправдой: GET /analytics/summary
+      // не гейтится тарифом вообще (analytics.routes.ts) — раздел открыт
+      // любому авторизованному пользователю, эксклюзивом Business он не был.
       {
         ru: "Единый вход (SSO)",
         en: "Single Sign-On (SSO)",
