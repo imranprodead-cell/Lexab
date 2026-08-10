@@ -69,6 +69,7 @@
 | `JWT_SECRET` | из `server/.env` |
 | `DATA_ENCRYPTION_KEY` | из `server/.env` — **обязательно то же самое**, иначе уже загруженные договоры не расшифруются |
 | `APP_BASE_URL` | `https://lexabai.com` |
+| `API_BASE_URL` | `https://api.lexabai.com` — из него строятся адреса возврата для Google Диска, Dropbox и OneDrive. Без него они укажут на `localhost`, и подключение облака молча не сработает |
 | `CORS_ORIGIN` | `https://lexabai.com` |
 | `TRUST_PROXY` | `true` |
 | `API_PREFIX` | `/api` |
