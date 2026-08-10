@@ -129,6 +129,9 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['src/**/*.test.{ts,tsx}'],
+    // scripts/ — не приложение, но там живёт гейт «сайт по ссылке» и раздача
+    // сборки на хостинге: ошибка в них открывает закрытый сайт, поэтому они
+    // тоже под тестами и тоже гоняются в CI.
+    include: ['src/**/*.test.{ts,tsx}', 'scripts/**/*.test.mjs'],
   },
 });
