@@ -18,7 +18,7 @@ import { badRequest, HttpError, notFound } from '../lib/errors.ts';
 import { decTextStrict } from '../lib/docCrypto.ts';
 import { formatSize } from '../lib/format.ts';
 import { newId } from '../lib/ids.ts';
-import { assertFeatureTeamAware, withAiRequest } from '../lib/limits.ts';
+import { assertFeatureTeamAware, planFor } from '../lib/limits.ts';
 import { asObject } from '../lib/validate.ts';
 import { readFileBytes } from '../storage.ts';
 import { analyzeSource, persistAnalysis, type AnalysisSource } from './analysis.routes.ts';
@@ -188,12 +188,14 @@ export async function runBatch(db: Db, jobId: string): Promise<void> {
         jurisdiction: owner.jurisdiction,
         uploadId: item.upload_id,
       };
-      // One AI unit per file (same quota as the interactive path); a rejected
-      // reservation or a failed model releases it and surfaces here as an error.
-      const result = await withAiRequest(db, owner.user_id, async (plan) => {
-        const gen = await analyzeSource(db, owner.user_id, source, plan);
-        return persistAnalysis(db, owner.user_id, source, gen, owner.user_id);
-      });
+      // Массовый разбор списывает ПО ОДНОЙ единице лимита ДОКУМЕНТОВ за каждый
+      // договор в пачке (внутри persistAnalysis) — как обычный разбор, только
+      // столько раз, сколько файлов. Из лимита ИИ-запросов не берётся ничего:
+      // тот считает только переписку в чате. Исчерпанный лимит роняет ИМЕННО
+      // этот элемент пачки с понятной ошибкой, остальные продолжают идти.
+      const plan = await planFor(db, owner.user_id);
+      const gen = await analyzeSource(db, owner.user_id, source, plan);
+      const result = await persistAnalysis(db, owner.user_id, source, gen, owner.user_id);
       // Guard по статусу: если recovery-свип успел пометить элемент «прерван»,
       // поздний успех не должен молча перетирать это обратно в done.
       await db.query(

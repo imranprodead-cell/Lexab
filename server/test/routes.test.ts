@@ -178,36 +178,51 @@ describe('auth', () => {
 });
 
 describe('AI usage reservation (atomic limit)', () => {
-  it('usage never overshoots the plan cap under a burst of requests', async () => {
+  it('разбор договора списывает ДОКУМЕНТЫ и не трогает лимит чата', async () => {
+    // Правило владельца 2026-08-06: лимит ИИ-запросов — только переписка в
+    // чате. Разбор, сравнение, шаблоны, массовый разбор идут из лимита
+    // документов. Тест сторожит именно это разделение.
     const { PLAN_LIMITS } = await import('../src/lib/limits.ts');
-    const cap = PLAN_LIMITS.Free.ai as number;
+    const docsCap = PLAN_LIMITS.Free.docs as number;
     const { token, id } = await makeUser();
-    // Подводим счётчик вплотную к потолку, чтобы сьют не зависел от конкретной
-    // цифры тарифа (она меняется вместе с ценами) и не упирался в лимит
-    // документов по дороге.
+    // Подводим счётчик документов вплотную к потолку.
     await db.query(
       `INSERT INTO usage_counters (user_id, month, ai_requests, docs_created)
-       VALUES ($1, date_trunc('month', now())::date, $2, 0)
-       ON CONFLICT (user_id, month) DO UPDATE SET ai_requests = EXCLUDED.ai_requests`,
-      [id, cap - 1],
+       VALUES ($1, date_trunc('month', now())::date, 0, $2)
+       ON CONFLICT (user_id, month) DO UPDATE SET ai_requests = 0, docs_created = EXCLUDED.docs_created`,
+      [id, docsCap - 1],
     );
     let ok = 0;
-    let rejected = 0; // 402 (over AI limit) or 429 (rate limit) — both are refusals
-    // Same fileName every time → reuses the one document row.
+    let rejected = 0; // 402 (over limit) или 429 (rate limit) — оба отказ
+    // Каждый раз РАЗНОЕ имя → каждый раз новый документ.
     for (let i = 0; i < 3; i++) {
       const res = await app.inject({
         method: 'POST',
         url: '/api/analysis',
         headers: auth(token),
-        payload: { fileName: 'same.pdf', fileSize: '10 KB', jurisdiction: 'GB' },
+        payload: { fileName: `burst-${i}.pdf`, fileSize: '10 KB', jurisdiction: 'GB' },
       });
       if (res.statusCode === 201) ok++;
       else if (res.statusCode === 402 || res.statusCode === 429) rejected++;
     }
-    assert.equal(ok, 1, 'ровно один запрос помещается под потолок');
-    assert.equal(rejected, 2, 'the rest are refused');
-    const limits = await app.inject({ method: 'GET', url: '/api/billing/limits', headers: auth(token) });
-    assert.equal(JSON.parse(limits.body).aiRequests.used, cap, 'usage never overshoots the cap');
+    assert.equal(ok, 1, 'ровно один разбор помещается под потолок документов');
+    assert.equal(rejected, 2, 'остальные отклонены');
+    const limits = JSON.parse(
+      (await app.inject({ method: 'GET', url: '/api/billing/limits', headers: auth(token) })).body,
+    );
+    assert.equal(limits.documents.used, docsCap, 'счётчик документов не перепрыгнул потолок');
+    assert.equal(limits.aiRequests.used, 0, 'лимит чата разбором НЕ тронут');
+  });
+
+  it('стоимости операций отдаются клиенту и совпадают с сервером', async () => {
+    const { DOC_COST } = await import('../src/lib/limits.ts');
+    const { token } = await makeUser();
+    const body = JSON.parse(
+      (await app.inject({ method: 'GET', url: '/api/billing/limits', headers: auth(token) })).body,
+    );
+    assert.deepEqual(body.docCosts, { analysis: DOC_COST.analysis, draft: DOC_COST.draft, compare: DOC_COST.compare });
+    assert.equal(body.docCosts.compare, 5, 'сравнение версий — 5 единиц');
+    assert.equal(body.docCosts.draft, 2, 'создание договора — 2 единицы');
   });
 
   it('reserveAiRequest атомарен: параллельные резервы не перепрыгивают потолок', async () => {
@@ -926,36 +941,45 @@ describe('analytics summary (extended)', () => {
 });
 
 describe('billing lifecycle', () => {
-  it('checkout requires consent and rejects the Free loophole', async () => {
-    const { token } = await makeUser();
-    // Free is not purchasable (quota-reset loophole).
-    const free = await app.inject({ method: 'POST', url: '/api/billing/checkout', headers: auth(token), payload: { plan: 'Free', consent: true } });
-    assert.equal(free.statusCode, 400, 'Free checkout rejected');
-    // Consent is mandatory for a paid plan.
-    const noConsent = await app.inject({ method: 'POST', url: '/api/billing/checkout', headers: auth(token), payload: { plan: 'Standard' } });
-    assert.equal(noConsent.statusCode, 400, 'missing consent rejected');
-    // With consent → activated.
-    const ok = await app.inject({ method: 'POST', url: '/api/billing/checkout', headers: auth(token), payload: { plan: 'Standard', consent: true } });
-    assert.equal(ok.statusCode, 200, ok.body);
-    assert.equal(JSON.parse(ok.body).plan, 'Standard');
+  // Платёжного самообслуживания в продукте нет: тариф выдаёт только владелец
+  // из админ-панели. Ниже — что клиентский путь НИЧЕГО не выдаёт, и что
+  // выданный тариф корректно заканчивается по сроку.
+  async function grant(userId: string, plan: string): Promise<void> {
+    const { activatePlan } = await import('../src/lib/billing.ts');
+    const email = (await db.query<{ email: string }>('SELECT email FROM users WHERE id = $1', [userId])).rows[0].email;
+    await activatePlan(db, userId, email, plan, 'monthly', { grantedBy: 'test@admin', note: 'test' });
+  }
+
+  it('клиентский checkout НЕ выдаёт тариф ни при каких входных данных', async () => {
+    const { id, token } = await makeUser();
+    for (const payload of [
+      { plan: 'Standard', consent: true },
+      { plan: 'Business', consent: true, period: 'yearly' },
+      { plan: 'Free', consent: true },
+      {},
+    ]) {
+      const res = await app.inject({ method: 'POST', url: '/api/billing/checkout', headers: auth(token), payload });
+      assert.equal(res.statusCode, 402, `${JSON.stringify(payload)} → ${res.body}`);
+      assert.equal(JSON.parse(res.body).code, 'manual_billing');
+    }
+    const row = await db.query<{ plan: string }>('SELECT plan FROM subscriptions WHERE user_id = $1', [id]);
+    assert.equal(row.rows[0]?.plan ?? 'Free', 'Free', 'тариф остался бесплатным');
   });
 
-  it('records consent + terms evidence in the append-only billing_events', async () => {
-    const { id, token } = await makeUser();
-    await app.inject({ method: 'POST', url: '/api/billing/checkout', headers: auth(token), payload: { plan: 'Pro', consent: true } });
+  it('выдача пишется в append-only billing_events', async () => {
+    const { id } = await makeUser();
+    await grant(id, 'Pro');
     const events = await db.query<{ kind: string }>('SELECT kind FROM billing_events WHERE user_id = $1', [id]);
     const kinds = events.rows.map((r) => r.kind);
-    assert.ok(kinds.includes('terms_accepted'), 'signup recorded terms acceptance');
-    assert.ok(kinds.includes('consent_waiver'), 'checkout recorded the withdrawal waiver');
-    assert.ok(kinds.includes('checkout'), 'checkout recorded');
-    // Append-only: UPDATE and recent DELETE are blocked by the DB trigger.
+    assert.ok(kinds.includes('terms_accepted'), 'регистрация записала принятие условий');
+    assert.ok(kinds.includes('granted'), 'выдача записана');
     await assert.rejects(db.query("UPDATE billing_events SET kind = 'x' WHERE user_id = $1", [id]), /append-only/);
     await assert.rejects(db.query('DELETE FROM billing_events WHERE user_id = $1', [id]), /append-only/);
   });
 
   it('cancel schedules end-of-period downgrade and can be reverted', async () => {
-    const { token } = await makeUser();
-    await app.inject({ method: 'POST', url: '/api/billing/checkout', headers: auth(token), payload: { plan: 'Business', consent: true } });
+    const { id, token } = await makeUser();
+    await grant(id, 'Business');
     const cancel = await app.inject({ method: 'POST', url: '/api/billing/cancel', headers: auth(token), payload: {} });
     assert.equal(cancel.statusCode, 200, cancel.body);
     assert.equal(JSON.parse(cancel.body).cancelAtPeriodEnd, true);
@@ -966,18 +990,21 @@ describe('billing lifecycle', () => {
     assert.equal(JSON.parse(revert.body).cancelAtPeriodEnd, false);
   });
 
-  it('the lifecycle sweep is idempotent: expired paid sub → past_due, run twice is safe', async () => {
+  it('обход идемпотентен: истёкшая выдача → Free, второй прогон безопасен', async () => {
     const { checkBillingLifecycle } = await import('../src/lib/billing.ts');
-    const { id, token } = await makeUser();
-    await app.inject({ method: 'POST', url: '/api/billing/checkout', headers: auth(token), payload: { plan: 'Pro', consent: true } });
-    // Backdate the renewal so the sweep treats it as expired.
+    const { id } = await makeUser();
+    await grant(id, 'Pro');
     await db.query("UPDATE subscriptions SET renews_at = now() - interval '1 day' WHERE user_id = $1", [id]);
     await checkBillingLifecycle(db);
-    const after1 = await db.query<{ status: string; dunning_count: number }>('SELECT status, dunning_count FROM subscriptions WHERE user_id = $1', [id]);
-    assert.equal(after1.rows[0].status, 'past_due', 'moved to past_due');
-    await checkBillingLifecycle(db); // second run must not double-process
-    const after2 = await db.query<{ status: string; dunning_count: number }>('SELECT status, dunning_count FROM subscriptions WHERE user_id = $1', [id]);
-    assert.equal(after2.rows[0].status, 'past_due', 'still past_due (no churn)');
+    const after1 = await db.query<{ plan: string; status: string }>('SELECT plan, status FROM subscriptions WHERE user_id = $1', [id]);
+    assert.equal(after1.rows[0].plan, 'Free', 'срок истёк — вернули на Free');
+    assert.equal(after1.rows[0].status, 'active');
+    const downgrades = await db.query<{ n: string | number }>(
+      "SELECT count(*) AS n FROM billing_events WHERE user_id = $1 AND kind = 'downgraded'", [id]);
+    await checkBillingLifecycle(db); // второй прогон не должен повторить понижение
+    const after2 = await db.query<{ n: string | number }>(
+      "SELECT count(*) AS n FROM billing_events WHERE user_id = $1 AND kind = 'downgraded'", [id]);
+    assert.equal(Number(after2.rows[0].n), Number(downgrades.rows[0].n), 'понижение не повторилось');
   });
 });
 

@@ -394,6 +394,19 @@
   box-shadow: var(--shadow-pop);
   animation: lxdropin var(--dur-mid) var(--ease);
 }
+/* МОСТ ЧЕРЕЗ ЗАЗОР — не украшение, а условие того, что до панели вообще можно
+   доехать мышью. Панель отстоит от «Справки» на 10px, и по дороге курсор
+   попадал на пустое место: там уже не кнопка и ещё не панель, срабатывал
+   mouseleave — меню закрывалось ровно в момент, когда до него дотянулись.
+   Прозрачная полоса шириной с зазор входит в саму панель, поэтому переход
+   курсора считается движением ВНУТРИ подменю. */
+.userMenuSub::before {
+  content: '';
+  position: absolute;
+  inset-block: -6px;
+  inset-inline-start: -12px;
+  width: 12px;
+}
 /* Phones: no room to the right of the drawer — the flyout opens above. */
 @media (max-width: 700px) {
   .userMenuSub {
@@ -401,6 +414,13 @@
     inset-inline-end: auto;
     width: 100%;
     bottom: calc(100% + 6px);
+  }
+  /* Наверху зазор снизу от панели, а не сбоку — мост разворачиваем туда же. */
+  .userMenuSub::before {
+    inset-block: 100% auto;
+    inset-inline: 0;
+    width: auto;
+    height: 10px;
   }
 }
 .userText {

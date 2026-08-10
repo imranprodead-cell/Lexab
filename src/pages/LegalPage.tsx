@@ -204,8 +204,8 @@ const TERMS: Section[] = [
     h: { ru: '14. Контакты', en: '14. Contact' },
     p: [
       {
-        ru: 'По вопросам, связанным с этими условиями, напишите нам в Telegram @MANAGER_CIVIS или на privacy@lexabai.com.',
-        en: 'For questions about these terms, contact us on Telegram @MANAGER_CIVIS or at privacy@lexabai.com.',
+        ru: 'По вопросам, связанным с этими условиями, напишите нам в Telegram @MANAGER_Lexab или на privacy@lexabai.com.',
+        en: 'For questions about these terms, contact us on Telegram @MANAGER_Lexab or at privacy@lexabai.com.',
       },
     ],
   },

@@ -39,49 +39,6 @@ export const isProductionRun =
   ['production', 'prod', 'staging'].includes(env('DEPLOY_ENV').toLowerCase()) ||
   !LOCALHOST_URL.test(appBaseUrl);
 
-/**
- * Lemon Squeezy (Merchant of Record) — реальные платежи за подписки.
- * Включается только ПОЛНЫМ конфигом: ключ + store + webhook-secret + все 6
- * variant_id (Standard/Pro/Business × monthly/yearly). Частичный конфиг —
- * ошибка старта (fail-loud, как JWT_SECRET): полуработающий биллинг опаснее
- * выключенного. Целиком пусто = LS выключен: /billing/checkout отвечает 503,
- * если не включён явный dev-фолбэк BILLING_FALLBACK=dev (мгновенная бесплатная
- * активация — ТОЛЬКО для локалки и тестов, калька LLM_FALLBACK).
- */
-function resolveLemonSqueezy() {
-  const apiKey = env('LEMONSQUEEZY_API_KEY');
-  const storeId = env('LEMONSQUEEZY_STORE_ID');
-  const webhookSecret = env('LEMONSQUEEZY_WEBHOOK_SECRET');
-  const variants = {
-    Standard: { monthly: env('LEMONSQUEEZY_VARIANT_STANDARD_MONTHLY'), yearly: env('LEMONSQUEEZY_VARIANT_STANDARD_YEARLY') },
-    Pro: { monthly: env('LEMONSQUEEZY_VARIANT_PRO_MONTHLY'), yearly: env('LEMONSQUEEZY_VARIANT_PRO_YEARLY') },
-    Business: { monthly: env('LEMONSQUEEZY_VARIANT_BUSINESS_MONTHLY'), yearly: env('LEMONSQUEEZY_VARIANT_BUSINESS_YEARLY') },
-  } as const;
-  const variantIds = Object.values(variants).flatMap((v) => [v.monthly, v.yearly]);
-  const all = [apiKey, storeId, webhookSecret, ...variantIds];
-  const set = all.filter(Boolean).length;
-  if (set > 0 && set < all.length) {
-    throw new Error(
-      'Lemon Squeezy is PARTIALLY configured — set ALL of LEMONSQUEEZY_API_KEY, LEMONSQUEEZY_STORE_ID, ' +
-        'LEMONSQUEEZY_WEBHOOK_SECRET and the six LEMONSQUEEZY_VARIANT_{STANDARD|PRO|BUSINESS}_{MONTHLY|YEARLY} ids, or none.',
-    );
-  }
-  // Копипаст-опечатка в variant id тихо активировала бы НЕ ТОТ план после
-  // реальной оплаты (variantToPlan берёт первое совпадение) — fail-loud.
-  if (set === all.length && new Set(variantIds).size !== variantIds.length) {
-    throw new Error('Lemon Squeezy variant ids must be pairwise distinct — check the six LEMONSQUEEZY_VARIANT_* values.');
-  }
-  return {
-    enabled: set === all.length,
-    apiKey,
-    storeId,
-    webhookSecret,
-    variants: variants as Record<string, { monthly: string; yearly: string }>,
-    /** Принимать события с test_mode=true (Этап A). В проде НЕ выставлять. */
-    acceptTestEvents: env('LEMONSQUEEZY_TEST_MODE') === '1',
-  };
-}
-const lemonSqueezy = resolveLemonSqueezy();
 
 /**
  * Resolve a safe JWT signing secret. A weak/absent/default secret would let
@@ -199,8 +156,10 @@ export const config = {
   batchAutostart: env('BATCH_AUTOSTART') !== '0',
   /** Месячный потолок вызовов публичного API на аккаунт Business (Enterprise —
    *  безлимит). Каждый API-анализ жжёт токены модели, поэтому потолок обязателен:
-   *  чужой глючный интегратор не должен накручивать счёт владельцу магазина. */
-  apiMonthlyLimit: Math.max(1, Number(env('API_MONTHLY_LIMIT', '1000')) || 1000),
+   *  чужой глючный интегратор не должен накручивать счёт владельцу магазина.
+   *  Сверх пакета клиент докупает вызовы через менеджера (вкладка «API» →
+   *  «Пополнить баланс»), поэтому базовый пакет намеренно небольшой. */
+  apiMonthlyLimit: Math.max(1, Number(env('API_MONTHLY_LIMIT', '100')) || 100),
 
   anthropicApiKey: env('ANTHROPIC_API_KEY'),
   anthropicModel: env('ANTHROPIC_MODEL', 'claude-opus-4-8'),
@@ -222,7 +181,10 @@ export const config = {
   planModels: {
     Free: env('ANTHROPIC_MODEL_FREE', freeModel),
     Standard: env('ANTHROPIC_MODEL_STANDARD', 'claude-sonnet-5'),
-    Pro: env('ANTHROPIC_MODEL_PRO', 'claude-opus-4-8'),
+    // Pro намеренно на той же модели, что Standard: решение владельца
+    // 2026-08-06. Opus стоил впятеро дороже Sonnet при 500 запросах в месяц —
+    // тариф $50 не окупал модель (см. расчёт экономики того же дня).
+    Pro: env('ANTHROPIC_MODEL_PRO', 'claude-sonnet-5'),
     Business: env('ANTHROPIC_MODEL_BUSINESS', 'claude-fable-5'),
     Enterprise: env('ANTHROPIC_MODEL_ENTERPRISE', env('ANTHROPIC_MODEL_BUSINESS', 'claude-fable-5')),
   } as Record<string, string>,
@@ -281,11 +243,9 @@ export const config = {
   esignEnabled: env('ESIGN_ENABLED', '0') === '1',
 
   /* Lemon Squeezy — реальные платежи за подписки (см. resolveLemonSqueezy). */
-  lemonSqueezy,
   /** 'dev' = прежняя мгновенная бесплатная активация плана (локалка/тесты).
    *  Любое другое значение (включая дефолт) — checkout без LS отвечает 503:
    *  прод без платёжных ключей не должен раздавать планы бесплатно. */
-  billingFallback: env('BILLING_FALLBACK', 'off').toLowerCase(),
 
   supabaseUrl: env('SUPABASE_URL'),
   supabaseAnonKey: env('SUPABASE_ANON_KEY'),
@@ -332,6 +292,17 @@ export const config = {
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean),
+  /**
+   * Почты владельцев админ-панели (через запятую). НАМЕРЕННО НЕ В БАЗЕ:
+   * админство, хранящееся в таблице, назначается любым, кто дотянулся до базы
+   * или нашёл дыру в API, — а админ выдаёт платные тарифы и снимает лимиты.
+   * Список в окружении изменить из приложения нельзя ВООБЩЕ, только доступом
+   * к серверу. Пусто = админки нет ни у кого (безопасное состояние по умолчанию).
+   */
+  adminEmails: env('ADMIN_EMAILS')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean),
   /** Sentry error monitoring (empty = disabled). */
   sentryDsn: env('SENTRY_DSN'),
 
@@ -346,17 +317,18 @@ export const config = {
  * Fail-closed проверки боевого запуска (аудит 2026-08-03).
  *
  * Каждый переключатель ниже удобен на локальной машине и катастрофичен в проде:
- * BILLING_FALLBACK=dev раздаёт платные тарифы бесплатно, MAIL_REDIRECT_TO уводит
- * ВСЮ клиентскую почту (верификация, подписи, счета) на один ящик, LLM_FALLBACK=dev
- * подменяет анализ заглушкой. Раньше их ничто не сторожило. Теперь боевой запуск
- * с любым из них просто не стартует — это дешевле, чем обнаружить постфактум.
+ * MAIL_REDIRECT_TO уводит ВСЮ клиентскую почту (верификация, подписи, счета) на
+ * один ящик, LLM_FALLBACK=dev подменяет анализ заглушкой. Раньше их ничто не
+ * сторожило. Теперь боевой запуск с любым из них просто не стартует — это
+ * дешевле, чем обнаружить постфактум.
+ *
+ * BILLING_FALLBACK=dev, раздававший платные тарифы бесплатно, из проекта убран
+ * целиком вместе с платёжным самообслуживанием: тариф выдаёт только владелец
+ * из админ-панели, поэтому сторожить больше нечего.
  */
 function assertProductionSafety(): void {
   if (!isProductionRun) return;
   const problems: string[] = [];
-  if (config.billingFallback === 'dev') {
-    problems.push('BILLING_FALLBACK=dev — платные тарифы выдавались бы бесплатно всем желающим');
-  }
   if (config.mailRedirectTo) {
     problems.push(`MAIL_REDIRECT_TO=${config.mailRedirectTo} — вся почта клиентов уходила бы на один ящик`);
   }

@@ -11,7 +11,7 @@ import type { Db } from '../db.ts';
 import { ALLOWED_EXTENSIONS, assertValidFileContent, extractText, fileExtension, MAX_UPLOAD_BYTES } from '../extract.ts';
 import { badRequest } from '../lib/errors.ts';
 import { audit } from '../lib/audit.ts';
-import { assertFeature, withAiRequest } from '../lib/limits.ts';
+import { assertDocumentAllowance, assertFeature, DOC_COST, withDocumentUnits } from '../lib/limits.ts';
 import { generateCompare, type CompareResult } from '../llm.ts';
 
 const RATE_LIMIT = { rateLimit: { max: 10, timeWindow: '1 minute' } };
@@ -44,9 +44,13 @@ export function compareRoutes(app: FastifyInstance, db: Db): void {
       );
     }
 
-    // Atomic reservation right before the model call: it's released if the
-    // model fails, so a failed/unavailable model never consumes the allowance.
-    const result = await withAiRequest(db, req.currentUser.id, (plan) =>
+    // Сравнение — САМАЯ дорогая операция: через модель идут два ПОЛНЫХ текста в
+    // одном запросе, поэтому оно стоит 5 единиц лимита документов (DOC_COST).
+    // Из лимита ИИ-запросов не списывается ничего: тот считает только чат.
+    // Предпроверка до чтения файлов уже прошла бы впустую — проверяем здесь,
+    // но ДО обращения к модели, чтобы отказ не стоил сожжённых токенов.
+    await assertDocumentAllowance(db, req.currentUser.id, DOC_COST.compare);
+    const result = await withDocumentUnits(db, req.currentUser.id, DOC_COST.compare, (plan) =>
       generateCompare(textA, textB, a.name, b.name, plan),
     );
     await audit(db, req, {

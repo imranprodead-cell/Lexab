@@ -471,32 +471,6 @@ export function SettingsPage() {
                       {limits.data.plan}
                     </span>
                     <span style={{ display: 'inline-flex', gap: 8 }}>
-                      {sub.data?.provider === 'lemonsqueezy' ? (
-                        // Кабинет покупателя Lemon Squeezy: смена карты, чеки,
-                        // инвойсы. URL короткоживущий — запрашивается на клик.
-                        // Окно открывается СИНХРОННО в обработчике клика (пустое)
-                        // и получает адрес после ответа API — иначе Safari и
-                        // попап-блокеры молча гасят window.open из промиса, и
-                        // кнопка «не работает» ровно у past_due-пользователя.
-                        <Button
-                          size="sm"
-                          onClick={() => {
-                            const w = window.open('', '_blank');
-                            billingApi
-                              .portal()
-                              .then(({ url }) => {
-                                if (w) w.location.href = url;
-                                else window.location.assign(url);
-                              })
-                              .catch((e) => {
-                                w?.close();
-                                pushToast(e instanceof Error && e.message ? e.message : t('common.error'), 'error');
-                              });
-                          }}
-                        >
-                          {t('settings.managePayment')}
-                        </Button>
-                      ) : null}
                       <Button size="sm" iconRight="chevron" onClick={() => navigate('/plans')}>
                         {t('settings.changePlan')}
                       </Button>

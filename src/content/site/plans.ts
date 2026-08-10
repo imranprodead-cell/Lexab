@@ -50,7 +50,7 @@ export const SITE_PLANS: SitePlan[] = [
   {
     id: 'Free',
     monthlyUsd: 0,
-    limits: { ai: 20, docs: 3, storageMb: 100, seats: 1 },
+    limits: { ai: 20, docs: 3, storageMb: 50, seats: 1 },
     tagline: {
       ru: 'Посмотреть, что система находит в вашем договоре',
       en: 'See what the system finds in your contract',
@@ -63,7 +63,7 @@ export const SITE_PLANS: SitePlan[] = [
   {
     id: 'Standard',
     monthlyUsd: 15,
-    limits: { ai: 100, docs: 20, storageMb: 2 * 1024, seats: 1 },
+    limits: { ai: 100, docs: 20, storageMb: 250, seats: 1 },
     tagline: {
       ru: 'Постоянная работа с договорами в одиночку',
       en: 'Steady solo work with contracts',
@@ -76,7 +76,7 @@ export const SITE_PLANS: SitePlan[] = [
   {
     id: 'Pro',
     monthlyUsd: 50,
-    limits: { ai: 500, docs: 80, storageMb: 50 * 1024, seats: 1 },
+    limits: { ai: 500, docs: 80, storageMb: 500, seats: 1 },
     tagline: {
       ru: 'Сравнение редакций, правила фирмы, согласования, пакеты',
       en: 'Version compare, firm rules, approvals, batches',
@@ -89,7 +89,7 @@ export const SITE_PLANS: SitePlan[] = [
   {
     id: 'Business',
     monthlyUsd: 499,
-    limits: { ai: 10_000, docs: 700, storageMb: 1024 * 1024, seats: 5 },
+    limits: { ai: 10_000, docs: 500, storageMb: 1024, seats: 5 },
     tagline: {
       ru: 'Команда, единый вход, журнал действий и программный доступ',
       en: 'A team, single sign-on, audit log and API access',

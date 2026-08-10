@@ -282,7 +282,7 @@ export function signRoutes(app: FastifyInstance, db: Db): void {
     // Signer's copy: confirmation + the EXACT text they agreed to (the frozen
     // snapshot computed above, not a possibly-since-edited live render).
     const docHtml = text
-      ? `<div style="margin-top:14px;padding:16px 18px;border:1px solid #e6e3f2;border-radius:12px;background:#faf9fe;font-family:Georgia,serif;font-size:13px;line-height:1.7;white-space:pre-wrap;color:#3b3552;">${escapeMailHtml(text.slice(0, 20000))}</div>`
+      ? `<div class="lx-plate lx-body" style="margin-top:14px;padding:16px 18px;border:1px solid #e8e6e3;border-radius:12px;background:#f5f4f2;font-family:Georgia,'Times New Roman',serif;font-size:13px;line-height:1.7;white-space:pre-wrap;color:#3a3734;">${escapeMailHtml(text.slice(0, 20000))}</div>`
       : '';
     void sendMail({
       to: row.email,

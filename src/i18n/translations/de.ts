@@ -1152,6 +1152,12 @@ const de: Record<string, string> = {
   "projects.current": "Aktuell",
   "api.tabPlan": "Tarif",
   "api.tabsAria": "API-Bereiche",
+  'api.tabTopup': 'Guthaben aufladen',
+  'api.topup.title': 'API-Guthaben aufladen',
+  'api.topup.sub': 'Ihr Tarif enthält {limit} Aufrufe pro Monat. Wenn Sie mehr brauchen, schreiben Sie dem Manager – wir schalten weitere Aufrufe für Ihr Konto frei.',
+  'api.topup.button': 'Manager schreiben',
+  'api.topup.note': 'Der Zähler wird am 1. jedes Monats zurückgesetzt. Zugekaufte Aufrufe gelten bis zum Ende des laufenden Monats.',
+  'api.topup.unlimited': 'Ihr Tarif hat unbegrenzte API-Aufrufe – eine Aufladung ist nicht nötig.',
 };
 
 export default de;

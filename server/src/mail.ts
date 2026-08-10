@@ -45,10 +45,13 @@ export function biLine(ru: string, en: string): string {
   return `${ru} / ${en}`;
 }
 
-/** Тело письма: русские абзацы, тонкий разделитель, английский дубль. */
+/** Тело письма: русские абзацы, тонкий разделитель, английский дубль.
+ *  Класс lx-rule обязателен — в тёмной теме письма линия перекрашивается им;
+ *  захардкоженный светлый цвет здесь давал ослепительно белую черту поперёк
+ *  тёмного письма. */
 export function biBody(ruHtml: string, enHtml: string): string {
   return `${ruHtml}
-<div style="border-top:1px solid #eeecf7;margin:18px 0;font-size:0;line-height:0;">&nbsp;</div>
+<div class="lx-rule" style="border-top:1px solid #e8e6e3;margin:18px 0;font-size:0;line-height:0;">&#8203;</div>
 <div lang="en">${enHtml}</div>`;
 }
 
@@ -82,10 +85,12 @@ export async function sendMail(input: MailInput): Promise<{ sent: boolean }> {
   if (redirect && redirect.toLowerCase() !== input.to.toLowerCase()) {
     to = redirect;
     subject = `[для ${input.to}] ${input.subject}`;
-    const banner = `<div style="max-width:540px;margin:0 auto 14px;padding:10px 16px;border-radius:12px;background:#fdf6e3;border:1px solid #f0e2b6;font-family:-apple-system,'Segoe UI',Roboto,Arial,sans-serif;font-size:12px;line-height:1.5;color:#8a6d1a;">
+    const banner = `<div style="max-width:560px;margin:0 auto;padding:11px 16px;border-radius:12px;background:#fbf7ee;border:1px solid #ece0c8;font-family:${MAIL_FONT};font-size:12px;line-height:1.6;color:#7a6428;">
       Тестовый режим (домен ещё не подключён): это письмо предназначалось <strong>${escapeMailHtml(input.to)}</strong>. После подключения домена письма пойдут получателям напрямую.<br/>Test mode (domain not connected yet): this email was intended for the address above.
     </div>`;
-    html = html.replace(/<body[^>]*>/, (m) => `${m}\n<div style="padding-top:24px;">${banner}</div>`);
+    // Вставка сразу за <body> — оболочка mailLayout начинается с таблицы-фона,
+    // поэтому баннер остаётся над письмом и не ломает его ширину.
+    html = html.replace(/<body[^>]*>/, (m) => `${m}\n<div style="padding:24px 16px 0;">${banner}</div>`);
   }
 
   try {
@@ -124,47 +129,157 @@ export async function sendMail(input: MailInput): Promise<{ sent: boolean }> {
 }
 
 /**
- * Branded transactional-email shell matching the Lexab look: soft lavender
- * background, white rounded card, purple gradient accents. Table-based and
- * inline-styled so Gmail/Outlook/Apple Mail all render it correctly.
+ * Палитра писем = палитра приложения («тёплый графит», src/styles/global.css).
+ * Держим здесь именованными константами, а не россыпью hex по разметке: письмо
+ * уже один раз отстало от редизайна интерфейса на целую тему (фиолетовый
+ * градиент против графита) — человек получал письмо от как будто другого
+ * продукта. Меняются токены темы — правится этот блок, и всё.
+ */
+const M = {
+  bg: '#fafaf9', // --bg
+  card: '#ffffff', // --panel
+  plate: '#f5f4f2', // --panel-2
+  line: '#e8e6e3', // --border
+  ink: '#232120', // --text
+  body: '#3a3734', // между --text и --dim: длинный абзац мягче заголовка
+  dim: '#6f6b65', // --dim
+  mut: '#a3a09a', // --mut
+  onInk: '#fbfaf9', // --on-accent
+  // Тёмная тема — те же токены из .dark
+  dBg: '#0b0b0a',
+  dCard: '#121110',
+  dPlate: '#1a1918',
+  dLine: '#282623',
+  dInk: '#f8f7f5',
+  dBody: '#cbc7c1',
+  dDim: '#9c9892',
+  dMut: '#6e6a64',
+  dOnInk: '#161514',
+} as const;
+
+/** Стек шрифтов: сначала шрифт интерфейса, дальше — системные. Веб-шрифты в
+ *  письма не подключаем: Gmail вырезает @font-face, и подключение даёт только
+ *  вес и риск «прыжка» вёрстки. */
+const MAIL_FONT = `'Inter','Instrument Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif`;
+
+/**
+ * Оболочка транзакционного письма в фирменном виде Lexab.
+ *
+ * ПОЧЕМУ ИМЕННО ТАК (каждое решение — про то, что письмо читают в почте, а не
+ * в браузере; проверено на живой отправке в Gmail):
+ *  - таблицы, а не div'ы с max-width: Outlook (движок Word) max-width не знает
+ *    и растянул бы карточку во всю ширину окна;
+ *  - у кнопки ПЛОСКАЯ заливка и цвет продублирован атрибутом bgcolor: градиент
+ *    background-image Outlook выбрасывает — оставалась белая надпись на белом,
+ *    то есть невидимая кнопка в письме про подтверждение почты;
+ *  - <head> с charset=utf-8: без него часть клиентов читает кириллицу как
+ *    «Ð—Ð´Ñ€Ð°Ð²ÑÑ‚Ð²ÑƒÐ¹Ñ‚Ðµ»;
+ *  - логотип нарисован рамками, а не <svg> и не картинкой: Gmail вырезает SVG,
+ *    а внешняя картинка до подключения домена дала бы «сломанный файл» и режет
+ *    репутацию отправителя;
+ *  - тёмная тема задана явно через prefers-color-scheme: иначе Gmail и Apple
+ *    Mail инвертируют письмо сами и получается грязно-серый текст на сером.
  */
 export function mailLayout(title: string, bodyHtml: string, ctaLabel?: string, ctaUrl?: string): string {
   const button =
     ctaLabel && ctaUrl
-      ? `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:26px 0 4px;"><tr><td style="border-radius:12px;background:linear-gradient(135deg,#8b7cf6,#6a5ae0);box-shadow:0 6px 16px rgba(107,90,224,0.25);">
-           <a href="${ctaUrl}" style="display:inline-block;padding:13px 28px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;border-radius:12px;">${ctaLabel}</a>
-         </td></tr></table>
-         <p style="font-size:12px;line-height:1.5;color:#9a9aa6;margin:12px 0 0;word-break:break-all;">Если кнопка не работает, откройте ссылку / If the button doesn't work, open this link: <a href="${ctaUrl}" style="color:#8b7cf6;text-decoration:none;">${ctaUrl}</a></p>`
+      ? `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin:26px 0 0;"><tr>
+           <td class="lx-btn" align="center" bgcolor="${M.ink}" style="border-radius:10px;background:${M.ink};">
+             <a href="${ctaUrl}" style="display:inline-block;padding:13px 26px;font-family:${MAIL_FONT};font-size:15px;font-weight:600;line-height:1.2;color:${M.onInk};text-decoration:none;border-radius:10px;">${ctaLabel}</a>
+           </td>
+         </tr></table>
+         <p class="lx-dim" style="font-size:12px;line-height:1.6;color:${M.dim};margin:14px 0 0;">Не открывается кнопка — скопируйте ссылку / If the button does not work, copy this link:<br/><a class="lx-link" href="${ctaUrl}" style="color:${M.dim};text-decoration:underline;word-break:break-all;">${ctaUrl}</a></p>`
       : '';
   return `<!doctype html>
-<html lang="ru">
-<body style="margin:0;padding:0;background:#f4f2fb;">
-  <span style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#f4f2fb;opacity:0;">${title} — Lexab</span>
-  <div style="padding:36px 16px 44px;font-family:'Instrument Sans',-apple-system,'Segoe UI',Roboto,Arial,sans-serif;">
-    <div style="max-width:540px;margin:0 auto;">
+<html lang="ru" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="x-apple-disable-message-reformatting"/>
+<meta name="color-scheme" content="light dark"/>
+<meta name="supported-color-schemes" content="light dark"/>
+<title>${title} — Lexab</title>
+<!--[if mso]><xml><o:OfficeDocumentSettings><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml><![endif]-->
+<style>
+  /* Абзацы и списки тела письма приходят из вызывающего кода без стилей. */
+  .lx-body p { margin: 0 0 12px; }
+  .lx-body p:last-child { margin-bottom: 0; }
+  .lx-body ul, .lx-body ol { margin: 0 0 12px; padding-left: 20px; }
+  .lx-body li { margin: 0 0 6px; }
+  .lx-body strong { color: ${M.ink}; font-weight: 600; }
+  .lx-body a { color: ${M.ink}; }
+  @media (max-width: 600px) {
+    .lx-card { padding: 26px 22px !important; }
+    .lx-pad { padding: 26px 12px 34px !important; }
+    .lx-h1 { font-size: 20px !important; }
+  }
+  @media (prefers-color-scheme: dark) {
+    .lx-bg { background: ${M.dBg} !important; }
+    .lx-card { background: ${M.dCard} !important; border-color: ${M.dLine} !important; }
+    .lx-plate { background: ${M.dPlate} !important; border-color: ${M.dLine} !important; }
+    .lx-glyph { border-color: ${M.dInk} !important; }
+    .lx-ink, .lx-h1 { color: ${M.dInk} !important; }
+    .lx-body { color: ${M.dBody} !important; }
+    .lx-body strong, .lx-body a { color: ${M.dInk} !important; }
+    .lx-dim { color: ${M.dDim} !important; }
+    .lx-mut { color: ${M.dMut} !important; }
+    .lx-rule { border-color: ${M.dLine} !important; }
+    .lx-btn { background: ${M.dInk} !important; }
+    .lx-btn a { color: ${M.dOnInk} !important; }
+    .lx-link { color: ${M.dDim} !important; }
+  }
+</style>
+</head>
+<body class="lx-bg" style="margin:0;padding:0;width:100%;background:${M.bg};-webkit-font-smoothing:antialiased;">
+  <!-- Строка предпросмотра в списке писем. Хвост из невидимых символов не даёт
+       Gmail дотянуть в неё начало тела письма («Здравствуйте, Имя!»). -->
+  <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:${M.bg};opacity:0;">${title}&#8203;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;&#847;</div>
 
-      <table role="presentation" cellpadding="0" cellspacing="0" style="margin:0 auto 22px;"><tr>
-        <td style="width:42px;height:42px;border-radius:13px;background:linear-gradient(135deg,#8b7cf6,#5f4fd4);text-align:center;vertical-align:middle;font-size:19px;line-height:42px;color:#ffffff;">&#9670;</td>
-        <td style="padding-left:11px;">
-          <div style="font-size:18px;font-weight:700;letter-spacing:-0.01em;color:#221d35;line-height:1.1;">Lexab</div>
-          <div style="font-size:11px;color:#9b95b3;letter-spacing:0.03em;">AI contract intelligence</div>
-        </td>
-      </tr></table>
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" class="lx-bg" style="background:${M.bg};">
+    <tr>
+      <td class="lx-pad" align="center" style="padding:36px 16px 44px;font-family:${MAIL_FONT};">
+        <!--[if mso]><table role="presentation" width="560" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="560" style="width:100%;max-width:560px;">
 
-      <div style="background:#ffffff;border:1px solid #e9e6f4;border-radius:18px;padding:34px 36px;box-shadow:0 8px 26px rgba(107,90,224,0.06);">
-        <h1 style="margin:0 0 14px;font-size:22px;font-weight:700;letter-spacing:-0.01em;line-height:1.3;color:#221d35;">${title}</h1>
-        <div style="font-size:15px;line-height:1.6;color:#3a3a46;">${bodyHtml}</div>
-        ${button}
-      </div>
+          <!-- Знак и название -->
+          <tr><td style="padding:0 2px 20px;">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>
+              <td class="lx-plate" width="40" align="center" valign="middle" bgcolor="${M.plate}" style="width:40px;height:40px;background:${M.plate};border:1px solid ${M.line};border-radius:11px;">
+                <!-- Знак Lexab: «L» из двух рамок. Векторную графику Gmail не
+                     показывает, поэтому глиф собран средствами вёрстки. -->
+                <div class="lx-glyph" style="width:9px;height:13px;margin:0 auto;border-left:3px solid ${M.ink};border-bottom:3px solid ${M.ink};font-size:0;line-height:0;mso-line-height-rule:exactly;">&#8203;</div>
+              </td>
+              <td style="padding-left:12px;" valign="middle">
+                <div class="lx-ink" style="font-size:17px;font-weight:700;letter-spacing:-0.01em;color:${M.ink};line-height:1.15;">Lexab</div>
+                <div class="lx-mut" style="font-size:11px;color:${M.mut};letter-spacing:0.05em;line-height:1.4;text-transform:uppercase;">AI contract intelligence</div>
+              </td>
+            </tr></table>
+          </td></tr>
 
-      <div style="border-top:1px solid #e6e3f2;margin:28px 10px 0;font-size:0;line-height:0;">&nbsp;</div>
-      <p style="text-align:center;font-size:12px;line-height:1.8;color:#9b95b3;margin:14px 0 0;">
-        Lexab — интеллектуальный анализ контрактов · AI contract intelligence<br/>
-        <a href="${config.appBaseUrl}/terms" style="color:#8b7cf6;text-decoration:none;">Условия / Terms</a>&nbsp;&nbsp;·&nbsp;&nbsp;<a href="${config.appBaseUrl}/privacy" style="color:#8b7cf6;text-decoration:none;">Конфиденциальность / Privacy</a><br/>
-        © 2026 Lexab
-      </p>
-    </div>
-  </div>
+          <!-- Карточка письма -->
+          <tr><td class="lx-card" bgcolor="${M.card}" style="background:${M.card};border:1px solid ${M.line};border-radius:16px;padding:32px 34px;">
+            <h1 class="lx-h1" style="margin:0 0 14px;font-family:${MAIL_FONT};font-size:22px;font-weight:700;letter-spacing:-0.015em;line-height:1.3;color:${M.ink};">${title}</h1>
+            <div class="lx-body" style="font-family:${MAIL_FONT};font-size:15px;line-height:1.65;color:${M.body};">${bodyHtml}</div>
+            ${button}
+          </td></tr>
+
+          <!-- Подвал -->
+          <tr><td style="padding:26px 8px 0;font-size:0;line-height:0;mso-line-height-rule:exactly;">
+            <div class="lx-rule" style="border-top:1px solid ${M.line};font-size:0;line-height:0;">&#8203;</div>
+          </td></tr>
+          <tr><td align="center" style="padding:16px 8px 0;font-family:${MAIL_FONT};">
+            <p class="lx-dim" style="margin:0 0 6px;font-size:12px;line-height:1.6;color:${M.dim};">Lexab — интеллектуальный анализ договоров · AI contract intelligence</p>
+            <p class="lx-mut" style="margin:0;font-size:12px;line-height:1.7;color:${M.mut};">
+              <a class="lx-link" href="${config.appBaseUrl}/terms" style="color:${M.dim};text-decoration:none;">Условия / Terms</a>&nbsp; ·&nbsp; <a class="lx-link" href="${config.appBaseUrl}/privacy" style="color:${M.dim};text-decoration:none;">Конфиденциальность / Privacy</a><br/>
+              © ${new Date().getFullYear()} Lexab
+            </p>
+          </td></tr>
+
+        </table>
+        <!--[if mso]></td></tr></table><![endif]-->
+      </td>
+    </tr>
+  </table>
 </body>
 </html>`;
 }

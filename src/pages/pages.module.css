@@ -3580,3 +3580,51 @@
   color: var(--accent);
   border-bottom-color: var(--accent);
 }
+
+/* Кнопка «Написать менеджеру» на вкладке пополнения баланса API. */
+.apiTopupActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-block: 18px 12px;
+}
+
+/* ── Админ-панель владельца ─────────────────────────────────────────────────
+   Раздел одного пользователя (выдача тарифов), поэтому разметка минимальная:
+   свои строки-формы вместо общих карточек кабинета. */
+.adminCard {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.adminRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-block: 10px 4px;
+}
+.adminRow > .searchInput {
+  flex: 1 1 150px;
+  min-width: 0;
+}
+.adminLimits {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-block-start: 10px;
+}
+.adminLimitRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+}
+.adminLimitRow > .searchInput {
+  flex: 0 0 140px;
+}
+.adminLimitBase {
+  color: var(--mut);
+  font-size: 12px;
+}

@@ -53,8 +53,8 @@ async function makeUser(): Promise<{ token: string; id: string }> {
   return { id: row.rows[0].id, token: JSON.parse(login.body).token };
 }
 
-describe('billing without provider and without dev fallback', () => {
-  it('checkout → 503, план не выдан', async () => {
+describe('платного самообслуживания нет', () => {
+  it('checkout → 402 и тариф не выдан', async () => {
     const u = await makeUser();
     const res = await app.inject({
       method: 'POST',
@@ -62,12 +62,14 @@ describe('billing without provider and without dev fallback', () => {
       headers: { authorization: `Bearer ${u.token}` },
       payload: { plan: 'Pro', period: 'monthly', consent: true },
     });
-    assert.equal(res.statusCode, 503, res.body);
+    assert.equal(res.statusCode, 402, res.body);
     const row = await db.query<{ plan: string }>('SELECT plan FROM subscriptions WHERE user_id = $1', [u.id]);
     assert.equal(row.rows[0]?.plan ?? 'Free', 'Free');
   });
 
-  it('вебхук LS без конфига → 404', async () => {
+  it('вебхука платежей больше не существует → 404', async () => {
+    // Маршрут удалён вместе с провайдером: подделанное событие не может выдать
+    // тариф даже теоретически.
     const res = await app.inject({
       method: 'POST',
       url: '/api/billing/webhook',

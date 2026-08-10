@@ -45,8 +45,11 @@ export interface Subscription {
   renewsAt: string | null;
   periodEnd: string | null;
   cancelAtPeriodEnd: boolean;
-  /** 'lemonsqueezy' — подписка живёт у провайдера (доступен портал оплаты). */
-  provider?: 'lemonsqueezy' | null;
+  /** Провайдера оплаты в продукте нет — поле всегда null (оставлено, чтобы
+   *  старые сборки фронта не падали на его отсутствии). */
+  provider?: null;
+  /** Откуда взялась подписка: пока всегда 'manual' (выдача владельцем). */
+  source?: string;
 }
 
 export const billingApi = {

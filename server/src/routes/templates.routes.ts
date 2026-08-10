@@ -8,7 +8,7 @@ import { notFound } from '../lib/errors.ts';
 import { decTextStrict, encText } from '../lib/docCrypto.ts';
 import { toIso } from '../lib/format.ts';
 import { newId } from '../lib/ids.ts';
-import { assertFeature, withAiRequest } from '../lib/limits.ts';
+import { assertDocumentAllowance, assertFeature, DOC_COST, withDocumentUnits } from '../lib/limits.ts';
 import { asObject, optionalString, requireString } from '../lib/validate.ts';
 import { generateTemplateDraft } from '../llm.ts';
 import type { SavedTemplate, Template } from '../types.ts';
@@ -74,8 +74,10 @@ export function templateRoutes(app: FastifyInstance, db: Db): void {
         // «рыба», а не договор под конкретную сделку пользователя.
         details: requireString(body, 'details', { min: 5, max: 4000 }),
       };
-      // Atomic reservation right before the model call; released on failure.
-      const content = await withAiRequest(db, req.currentUser.id, (plan) =>
+      // Создание договора по шаблону — 2 единицы лимита ДОКУМЕНТОВ (DOC_COST.draft),
+      // а не единица лимита чата: лимит ИИ-запросов считает только переписку.
+      await assertDocumentAllowance(db, req.currentUser.id, DOC_COST.draft);
+      const content = await withDocumentUnits(db, req.currentUser.id, DOC_COST.draft, (plan) =>
         generateTemplateDraft(template.name, template.description, fields, plan),
       );
       return { title: `${template.name} — ${fields.partyA} / ${fields.partyB}`, content };

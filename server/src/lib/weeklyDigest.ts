@@ -102,11 +102,11 @@ export async function sendWeeklyDigests(db: Db, opts: { force?: boolean } = {}):
           `<p>Здравствуйте, <strong>${escapeMailHtml(u.name)}</strong>!</p>
          <p>Вот что накопилось к понедельнику:</p>
          <ul>${items.join('')}</ul>
-         <p style="color:#8a8f98;font-size:13px">Отключить сводку можно в Настройках → Профиль.</p>`,
+         <p class="lx-mut" style="color:#a3a09a;font-size:13px">Отключить сводку можно в Настройках → Профиль.</p>`,
           `<p>Hello <strong>${escapeMailHtml(u.name)}</strong>,</p>
          <p>Here is what has piled up by Monday:</p>
          <ul>${itemsEn.join('')}</ul>
-         <p style="color:#8a8f98;font-size:13px">You can turn the digest off in Settings → Profile.</p>`,
+         <p class="lx-mut" style="color:#a3a09a;font-size:13px">You can turn the digest off in Settings → Profile.</p>`,
         ),
         biLine('Открыть Lexab', 'Open Lexab'),
         `${config.appBaseUrl}/chat`,

@@ -18,7 +18,7 @@ import type { Db } from '../db.ts';
 import { config } from '../config.ts';
 import { badRequest, HttpError, notFound } from '../lib/errors.ts';
 import { audit } from '../lib/audit.ts';
-import { assertFeature, planHasFeature, planFor, withAiRequest } from '../lib/limits.ts';
+import { assertFeature, planHasFeature, planFor } from '../lib/limits.ts';
 import { notify } from '../lib/notify.ts';
 import { resolveDocumentAccess } from '../lib/teamAccess.ts';
 import { asObject, requireString } from '../lib/validate.ts';
@@ -174,15 +174,16 @@ export async function runWorkflow(db: Db, runId: string): Promise<void> {
         // so the shared pipeline runs RAG + citation validation, exactly like
         // the interactive and batch paths do.
         if (!source.jurisdiction) source.jurisdiction = docJurisdiction;
-        const result = await withAiRequest(db, userId, async (plan) => {
-          const gen = await analyzeSource(db, userId, source, plan);
-          // Долгий шаг анализа мог идти десятки секунд — документ могли удалить
-          // за это время. Перепроверяем перед сохранением, чтобы persistAnalysis
-          // не воскресил его дублем; иначе честно валим запуск.
-          const stillLive = await db.query('SELECT 1 FROM documents WHERE id = $1 AND deleted_at IS NULL', [documentId]);
-          if (!stillLive.rows[0]) throw new HttpError(410, 'Документ удалён во время выполнения сценария');
-          return persistAnalysis(db, source.ownerUserId ?? ownerId, source, gen, userId);
-        });
+        // Шаг «Анализ» сценария стоит одну единицу лимита ДОКУМЕНТОВ (её
+        // списывает persistAnalysis), а не единицу лимита чата.
+        const stepPlan = await planFor(db, userId);
+        const gen = await analyzeSource(db, userId, source, stepPlan);
+        // Долгий шаг анализа мог идти десятки секунд — документ могли удалить
+        // за это время. Перепроверяем перед сохранением, чтобы persistAnalysis
+        // не воскресил его дублем; иначе честно валим запуск.
+        const stillLive = await db.query('SELECT 1 FROM documents WHERE id = $1 AND deleted_at IS NULL', [documentId]);
+        if (!stillLive.rows[0]) throw new HttpError(410, 'Документ удалён во время выполнения сценария');
+        const result = await persistAnalysis(db, source.ownerUserId ?? ownerId, source, gen, userId);
         analysisId = result.id;
         await setRun(db, runId, { analysis_id: analysisId });
       } else if (step.kind === 'apply-redlines') {

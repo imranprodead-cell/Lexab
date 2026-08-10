@@ -241,6 +241,13 @@
   gap: 8px 18px;
 }
 
+/* Отрицательный отступ гасит «воздух» области нажатия значков: пальцу он
+   нужен, а в макете значки должны стоять вровень с краем колонки. */
+.footerSocial {
+  margin-inline-end: -10px;
+  margin-block: -8px;
+}
+
 @media (max-width: 700px) {
   .footerInner {
     padding: 32px 16px 24px;
@@ -248,5 +255,10 @@
 
   .footerLegal {
     margin-inline-start: 0;
+  }
+
+  .footerSocial {
+    margin-inline-start: -10px;
+    margin-inline-end: auto;
   }
 }

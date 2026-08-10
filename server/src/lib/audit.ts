@@ -104,6 +104,10 @@ export type AuditEventType =
   // billing
   | 'billing.checkout'
   | 'billing.canceled'
+  // админ-панель владельца: выдача тарифов и персональных лимитов
+  | 'admin.plan_granted'
+  | 'admin.limits_changed'
+  | 'admin.usage_reset'
   // sso (reserved for the SSO feature)
   | 'sso.config_changed'
   | 'sso.login'

@@ -1,16 +1,16 @@
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { TopBar } from '@/components/layout/TopBar';
 import { CountrySelector } from '@/components/layout/CountrySelector';
 import { Icon } from '@/components/icons/Icon';
 import { billingApi, type BillingPeriod } from '@/api/billing.api';
-import { Spinner } from '@/components/ui/Spinner';
-import { useAsync, clearAsyncCache } from '@/hooks/useAsync';
+import { useAsync } from '@/hooks/useAsync';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { useReveal } from '@/hooks/useReveal';
 import { useUIStore } from '@/store/useUIStore';
 import { useI18n } from '@/i18n/I18nProvider';
 import { pickText, type Language } from '@/i18n/messages';
 import styles from './pages.module.css';
+import { MANAGER_TELEGRAM } from '@/lib/contacts';
 
 /** Yearly billing discount (also applied by POST /billing/checkout → Stripe). */
 const YEARLY_DISCOUNT = 0.15;
@@ -470,21 +470,12 @@ function PlanCard({
   period,
   wide,
   current,
-  currentPeriod,
-  lsManaged,
-  onPurchased,
   delay = 0,
 }: {
   plan: Plan;
   period: BillingPeriod;
   wide?: boolean;
   current?: boolean;
-  /** Период действующей подписки ('monthly'|'yearly') — для честной CTA. */
-  currentPeriod?: BillingPeriod | null;
-  /** Подписка живёт у Lemon Squeezy: «продлить» текущий план бессмысленно
-   *  (продлевает провайдер), а смена периода — платная прората. */
-  lsManaged?: boolean;
-  onPurchased?: (plan: string) => void;
   /** Задержка каскада появления (декоративная). */
   delay?: number;
 }) {
@@ -492,10 +483,6 @@ function PlanCard({
   const reveal = useReveal<HTMLDivElement>(delay);
   const pushToast = useUIStore((s) => s.pushToast);
   const [busy, setBusy] = useState(false);
-  // Consent step before a paid purchase: the withdrawal-right waiver must be
-  // explicitly ticked (unchecked by default) to make the no-refund term lawful.
-  const [confirming, setConfirming] = useState(false);
-  const [consent, setConsent] = useState(false);
 
   const yearly = period === 'yearly';
   const hasNumericPrice = plan.monthly !== undefined;
@@ -510,8 +497,19 @@ function PlanCard({
   const showDiscount = yearly && hasNumericPrice && (plan.monthly as number) > 0;
   const longPrice = shownPrice.length > 6;
 
+  /**
+   * Платёжного самообслуживания в продукте НЕТ: провайдер удалён после отказа
+   * в верификации магазина (2026-08-06). Тариф подключает менеджер, поэтому
+   * кнопка ведёт в переписку. Шаг с галочкой «отказ от возврата» убран вместе
+   * с покупкой: отказываться не от чего, пока клиент ничего не оплатил через
+   * продукт — а требовать такую подпись без оплаты просто нечестно.
+   */
   const buy = () => {
     if (busy) return;
+    if (plan.name === 'Free') {
+      pushToast(t('plans.freeActive'), 'success');
+      return;
+    }
     if (plan.name === 'Enterprise') {
       setBusy(true);
       billingApi
@@ -521,54 +519,7 @@ function PlanCard({
         .finally(() => setBusy(false));
       return;
     }
-    if (plan.name === 'Free') {
-      pushToast(t('plans.freeActive'), 'success');
-      return;
-    }
-    // Paid plan: open the consent step instead of buying immediately. Clear any
-    // leftover tick so the waiver must be re-checked explicitly every time.
-    setConsent(false);
-    setConfirming(true);
-  };
-
-  const confirmPurchase = () => {
-    if (busy) return;
-    if (!consent) {
-      pushToast(t('plans.consentRequired'), 'error');
-      return;
-    }
-    setBusy(true);
-    let redirecting = false;
-    billingApi
-      .checkout(plan.name, period, true)
-      .then((res) => {
-        // Новая покупка через Lemon Squeezy: уходим на их страницу оплаты;
-        // активация придёт вебхуком, а возврат — на /plans?checkout=success.
-        if (res.url) {
-          // busy НЕ сбрасываем: навигация на внешний URL занимает секунды, и
-          // повторный клик успел бы создать второй checkout + дублировать
-          // consent-запись в append-only журнале.
-          redirecting = true;
-          window.location.assign(res.url);
-          return;
-        }
-        clearAsyncCache(); // sidebar/settings quotas re-read the new plan
-        onPurchased?.(res.plan);
-        setConfirming(false);
-        setConsent(false);
-        pushToast(
-          res.changed
-            ? t('plans.changed', { plan: res.plan })
-            : yearly
-              ? t('plans.activatedYearly', { plan: res.plan, d: res.discountPercent })
-              : t('plans.activatedMonthly', { plan: res.plan }),
-          'success',
-        );
-      })
-      .catch((err) => pushToast(err instanceof Error && err.message ? err.message : t('plans.checkoutFailed'), 'error'))
-      .finally(() => {
-        if (!redirecting) setBusy(false);
-      });
+    window.open(MANAGER_TELEGRAM, '_blank', 'noopener,noreferrer');
   };
 
   return (
@@ -599,48 +550,13 @@ function PlanCard({
           </div>
         ))}
       </div>
-      {confirming ? (
-        <div className={styles.planConsent}>
-          <label className={styles.planConsentRow}>
-            <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
-            <span>{t('plans.consentLabel')}</span>
-          </label>
-          <div className={styles.planConsentActions}>
-            <button
-              className={`${styles.planCta} ${plan.accent ? `${styles.planCtaAccent} btn-shimmer` : ''}`}
-              disabled={busy || !consent}
-              onClick={confirmPurchase}
-            >
-              {busy ? t('plans.opening') : t('plans.confirmPurchase')}
-            </button>
-            <button
-              className={styles.planConsentCancel}
-              disabled={busy}
-              onClick={() => {
-                setConfirming(false);
-                setConsent(false);
-              }}
-            >
-              {t('common.cancel')}
-            </button>
-          </div>
-        </div>
-      ) : lsManaged && current && (currentPeriod ?? 'monthly') === period ? (
-        // Текущий LS-план в текущем периоде: «обновить лимиты» дал бы 400
-        // (продлевает провайдер), — честная неактивная кнопка. Другой период
-        // остаётся кликабельным: это реальная платная смена периода с проратой.
-        <button className={styles.planCta} disabled>
-          {t('plans.currentBtn')}
-        </button>
-      ) : (
-        <button
-          className={`${styles.planCta} ${plan.accent && !current ? `${styles.planCtaAccent} btn-shimmer` : ''}`}
-          disabled={busy}
-          onClick={buy}
-        >
-          {busy ? t('plans.opening') : current ? (lsManaged ? t('plans.switchPeriod') : t('plans.renew')) : pickText(plan.cta, lang)}
-        </button>
-      )}
+      <button
+        className={`${styles.planCta} ${plan.accent && !current ? `${styles.planCtaAccent} btn-shimmer` : ''}`}
+        disabled={busy || Boolean(current)}
+        onClick={buy}
+      >
+        {busy ? t('plans.opening') : current ? t('plans.currentBtn') : pickText(plan.cta, lang)}
+      </button>
     </div>
   );
 }
@@ -655,66 +571,8 @@ export function PlansPage() {
 
   // Real current plan (not hardcoded) + instant update after purchase.
   const limits = useAsync((signal) => billingApi.limits(signal), []);
-  const subscription = useAsync((signal) => billingApi.subscription(signal), []);
-  const [justBought, setJustBought] = useState<string | null>(null);
-  const currentPlan = justBought ?? limits.data?.plan ?? null;
-  const pushToast = useUIStore((s) => s.pushToast);
+  const currentPlan = limits.data?.plan ?? null;
 
-  // Возврат со страницы оплаты Lemon Squeezy (?checkout=success): вебхук может
-  // отстать от редиректа на секунды — показываем «обрабатываем» и поллим
-  // подписку до смены плана (потолок ~60с), затем обновляем весь кабинет.
-  const [processingPayment, setProcessingPayment] = useState(
-    () => new URLSearchParams(window.location.search).get('checkout') === 'success',
-  );
-  const pollRef = useRef<number | null>(null);
-  useEffect(() => {
-    if (!processingPayment) return;
-    // Параметр убираем сразу — перезагрузка страницы не перезапустит ожидание.
-    window.history.replaceState(null, '', window.location.pathname);
-    const startedAt = Date.now();
-    // alive-флаг: in-flight запрос, завершившийся ПОСЛЕ ухода со страницы, не
-    // должен перезапустить цикл (утечка таймера + setState на размонтированном).
-    let alive = true;
-    const controller = new AbortController();
-    const schedule = () => {
-      if (!alive) return;
-      // Потолок ожидания применяется и к ошибкам сети — иначе при лежащем
-      // API спиннер и запросы крутились бы вечно.
-      if (Date.now() - startedAt > 60_000) {
-        setProcessingPayment(false);
-        pushToast(t('plans.paymentTimeout'), 'default');
-        return;
-      }
-      pollRef.current = window.setTimeout(poll, 2500);
-    };
-    const poll = () => {
-      void billingApi
-        .subscription(controller.signal)
-        .then((sub) => {
-          if (!alive) return;
-          // Успех — только когда подписка реально пришла от провайдера:
-          // сравнение с 'Free' давало ложный мгновенный успех пользователям,
-          // у которых уже был платный план без LS (dev-активации).
-          if (sub.provider === 'lemonsqueezy' && sub.plan !== 'Free') {
-            setProcessingPayment(false);
-            setJustBought(sub.plan);
-            clearAsyncCache();
-            limits.reload();
-            pushToast(t('plans.paymentDone', { plan: sub.plan }), 'success');
-            return;
-          }
-          schedule();
-        })
-        .catch(() => schedule());
-    };
-    poll();
-    return () => {
-      alive = false;
-      controller.abort();
-      if (pollRef.current) window.clearTimeout(pollRef.current);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [processingPayment]);
 
   return (
     <div className={styles.page}>
@@ -751,12 +609,6 @@ export function PlansPage() {
               </button>
             </div>
           </div>
-          {processingPayment ? (
-            <div className={styles.paymentProcessing} role="status">
-              <Spinner size={16} />
-              {t('plans.paymentProcessing')}
-            </div>
-          ) : null}
           <div className={styles.planRow}>
             {firstFour.map((p, i) => (
               <PlanCard
@@ -764,14 +616,11 @@ export function PlansPage() {
                 plan={p}
                 period={period}
                 current={p.name === currentPlan}
-                currentPeriod={subscription.data?.period ?? null}
-                lsManaged={subscription.data?.provider === 'lemonsqueezy'}
-                onPurchased={setJustBought}
                 delay={0.08 + i * 0.08}
               />
             ))}
           </div>
-          <PlanCard plan={enterprise} period={period} wide onPurchased={setJustBought} delay={0.4} />
+          <PlanCard plan={enterprise} period={period} wide delay={0.4} />
         </div>
       </div>
     </div>

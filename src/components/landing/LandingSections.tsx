@@ -4,6 +4,7 @@ import { AnimatePresence, motion, useInView } from 'motion/react';
 import { EASE } from '@/lib/motion';
 import { Icon, type IconName } from '@/components/icons/Icon';
 import { Avatar } from '@/components/ui/Avatar';
+import { SocialLinks } from '@/components/ui/SocialLinks';
 import { useI18n } from '@/i18n/I18nProvider';
 import { pickText } from '@/i18n/messages';
 import { prefersReducedMotion, scrollBehavior } from '@/lib/scroll';
@@ -13,6 +14,7 @@ import { PUBLIC_SLUGS } from '@/pages/public/registry';
 import { publicPath } from '@/router/publicPaths';
 import { LandingDemo, DEMO_NOTE } from './LandingDemo';
 import styles from './landing.module.css';
+import { MANAGER_TELEGRAM, MANAGER_TELEGRAM_LABEL } from '@/lib/contacts';
 
 /**
  * Карта разделов сайта берётся из ОБЩЕГО меню (src/content/site/nav.ts) и
@@ -27,7 +29,7 @@ const SITE_MAP = FOOTER_COLUMNS.map((col) => ({
 /** Bilingual copy lives next to the markup (same idiom as PlansPage.PLANS). */
 type Text2 = { ru: string; en: string; de?: string; ar?: string; kk?: string; uz?: string };
 
-const TELEGRAM_URL = 'https://t.me/MANAGER_CIVIS';
+const TELEGRAM_URL = MANAGER_TELEGRAM;
 
 interface SectionHead {
   eyebrow: Text2;
@@ -291,7 +293,7 @@ const PLANS: LandingPlan[] = [
     features: [
       { ru: '20 обращений к ИИ в месяц', en: '20 AI requests per month', de: '20 KI-Anfragen pro Monat', ar: '20 طلب ذكاء اصطناعي شهرياً', kk: 'Айына 20 AI-сұрау', uz: 'Oyiga 20 ta AI soʻrov' },
       { ru: 'До 3 документов', en: 'Up to 3 documents', de: 'Bis zu 3 Dokumente', ar: 'حتى 3 مستندات', kk: '3 құжатқа дейін', uz: '3 tagacha hujjat' },
-      { ru: '100 МБ хранилища', en: '100 MB storage', de: '100 MB Speicherplatz', ar: '100 ميغابايت من التخزين', kk: '100 МБ қойма', uz: '100 MB xotira' },
+      { ru: '50 МБ хранилища', en: '50 MB storage', de: '50 MB Speicherplatz', ar: '50 ميغابايت من التخزين', kk: '50 МБ қойма', uz: '50 MB xotira' },
       { ru: 'AI Chat с документами', en: 'AI Chat with documents', de: 'AI Chat mit Dokumenten', ar: 'محادثة AI Chat مع المستندات', kk: 'Құжаттармен AI Chat', uz: 'Hujjatlar bilan AI Chat' },
       { ru: 'AI Summary', en: 'AI Summary', de: 'AI Summary', ar: 'ملخص AI Summary', kk: 'AI Summary', uz: 'AI Summary' },
       { ru: 'Экспорт в PDF', en: 'PDF export', de: 'PDF-Export', ar: 'تصدير إلى PDF', kk: 'PDF форматына экспорт', uz: 'PDFga eksport' },
@@ -309,7 +311,7 @@ const PLANS: LandingPlan[] = [
       { ru: 'AI Contract Generator', en: 'AI Contract Generator', de: 'AI Contract Generator', ar: 'مولّد العقود AI Contract Generator', kk: 'AI Contract Generator', uz: 'AI Contract Generator' },
       { ru: 'AI Summary', en: 'AI Summary', de: 'AI Summary', ar: 'ملخص AI Summary', kk: 'AI Summary', uz: 'AI Summary' },
       { ru: 'Экспорт в PDF и DOCX', en: 'PDF & DOCX export', de: 'Export als PDF und DOCX', ar: 'تصدير إلى PDF وDOCX', kk: 'PDF және DOCX форматына экспорт', uz: 'PDF va DOCXga eksport' },
-      { ru: '2 GB защищённого хранилища', en: '2 GB secure storage', de: '2 GB geschützter Speicherplatz', ar: '‏2 GB من التخزين الآمن', kk: '2 GB қорғалған қойма', uz: '2 GB himoyalangan xotira' },
+      { ru: '250 MB защищённого хранилища', en: '250 MB secure storage', de: '250 MB geschützter Speicherplatz', ar: '‏250 MB من التخزين الآمن', kk: '250 MB қорғалған қойма', uz: '250 MB himoyalangan xotira' },
       { ru: 'Email-поддержка', en: 'Email support', de: 'E-Mail-Support', ar: 'دعم عبر البريد الإلكتروني', kk: 'Email арқылы қолдау', uz: 'Email orqali qoʻllab-quvvatlash' },
     ],
   },
@@ -330,7 +332,7 @@ const PLANS: LandingPlan[] = [
       { ru: 'Пакетная проверка договоров', en: 'Bulk contract review', de: 'Stapelprüfung von Verträgen', ar: 'مراجعة العقود دفعةً واحدة', kk: 'Шарттарды топтап тексеру', uz: 'Shartnomalarni paketli tekshirish' },
       { ru: 'Обязательства и сроки по договору (CLM)', en: 'Contract obligations and deadlines (CLM)', de: 'Vertragspflichten und Fristen (CLM)', ar: 'الالتزامات والمواعيد التعاقدية (CLM)', kk: 'Шарт бойынша міндеттемелер мен мерзімдер (CLM)', uz: 'Shartnoma boʻyicha majburiyatlar va muddatlar (CLM)' },
       { ru: 'Сценарии обработки', en: 'Processing workflows', de: 'Verarbeitungs-Workflows', ar: 'سيناريوهات المعالجة', kk: 'Өңдеу сценарийлері', uz: 'Ishlov berish stsenariylari' },
-      { ru: '50 GB защищённого хранилища', en: '50 GB secure storage', de: '50 GB geschützter Speicherplatz', ar: '‏50 GB من التخزين الآمن', kk: '50 GB қорғалған қойма', uz: '50 GB himoyalangan xotira' },
+      { ru: '500 MB защищённого хранилища', en: '500 MB secure storage', de: '500 MB geschützter Speicherplatz', ar: '‏500 MB من التخزين الآمن', kk: '500 MB қорғалған қойма', uz: '500 MB himoyalangan xotira' },
       { ru: 'Приоритетная поддержка', en: 'Priority support', de: 'Priorisierter Support', ar: 'دعم ذو أولوية', kk: 'Приоритетті қолдау', uz: 'Ustuvor qoʻllab-quvvatlash' },
       { ru: 'Ранний доступ к новым функциям', en: 'Early access to new features', de: 'Früher Zugriff auf neue Funktionen', ar: 'وصول مبكر إلى الميزات الجديدة', kk: 'Жаңа функцияларға ерте қол жеткізу', uz: 'Yangi funksiyalarga erta kirish' },
     ],
@@ -345,7 +347,7 @@ const PLANS: LandingPlan[] = [
     features: [
       { ru: 'Доступ к самым мощным AI-моделям', en: 'Access to the most capable AI models', de: 'Zugriff auf die leistungsstärksten KI-Modelle', ar: 'الوصول إلى أقوى نماذج الذكاء الاصطناعي', kk: 'Ең қуатты AI-модельдерге қол жеткізу', uz: 'Eng kuchli AI modellaridan foydalanish' },
       { ru: '5 приглашённых участников плюс владелец', en: '5 invited members plus the owner', de: '5 eingeladene Mitglieder plus Inhaber', ar: '5 أعضاء مدعوين إضافةً إلى المالك', kk: '5 шақырылған қатысушы және иесі', uz: '5 ta taklif qilingan ishtirokchi va egasi' },
-      { ru: 'До 700 документов в месяц', en: 'Up to 700 documents per month', de: 'Bis zu 700 Dokumente pro Monat', ar: 'حتى 700 مستند شهرياً', kk: 'Айына 700 құжатқа дейін', uz: 'Oyiga 700 tagacha hujjat' },
+      { ru: 'До 500 документов в месяц', en: 'Up to 500 documents per month', de: 'Bis zu 500 Dokumente pro Monat', ar: 'حتى 500 مستند شهرياً', kk: 'Айына 500 құжатқа дейін', uz: 'Oyiga 500 tagacha hujjat' },
       { ru: 'Общие Workspaces', en: 'Shared workspaces', de: 'Gemeinsame Workspaces', ar: 'مساحات عمل مشتركة (Workspaces)', kk: 'Ортақ Workspaces', uz: 'Umumiy Workspaces' },
       { ru: 'Управление ролями и правами доступа', en: 'Roles & access management', de: 'Rollen- und Rechteverwaltung', ar: 'إدارة الأدوار وصلاحيات الوصول', kk: 'Рөлдер мен қол жеткізу құқықтарын басқару', uz: 'Rollar va kirish huquqlarini boshqarish' },
       { ru: 'Совместная работа над документами', en: 'Document collaboration', de: 'Gemeinsames Arbeiten an Dokumenten', ar: 'العمل التعاوني على المستندات', kk: 'Құжаттармен бірлескен жұмыс', uz: 'Hujjatlar ustida hamkorlikda ishlash' },
@@ -353,9 +355,9 @@ const PLANS: LandingPlan[] = [
       // 1000 — config.apiMonthlyLimit (server/src/config.ts:203, переменная
       // API_MONTHLY_LIMIT не задана → действует значение по умолчанию).
       // У Enterprise потолка запросов к API нет (apiMonthlyLimitFor → null).
-      { ru: 'Программный доступ по API (1000 запросов в месяц)', en: 'Programmatic API access (1,000 requests/mo)', de: 'Programmatischer API-Zugang (1.000 Anfragen/Mon.)', ar: 'وصول برمجي عبر API (1000 طلب شهريًا)', kk: 'API арқылы бағдарламалық қолжетімділік (айына 1000 сұрау)', uz: 'API orqali dasturiy kirish (oyiga 1000 soʻrov)' },
+      { ru: 'Программный доступ по API (100 запросов в месяц)', en: 'Programmatic API access (100 requests/mo)', de: 'Programmatischer API-Zugang (100 Anfragen/Mon.)', ar: 'وصول برمجي عبر API (100 طلب شهريًا)', kk: 'API арқылы бағдарламалық қолжетімділік (айына 100 сұрау)', uz: 'API orqali dasturiy kirish (oyiga 100 soʻrov)' },
       { ru: 'SSO (Single Sign-On)', en: 'SSO (Single Sign-On)', de: 'SSO (Single Sign-On)', ar: 'SSO (تسجيل الدخول الموحّد)', kk: 'SSO (Single Sign-On)', uz: 'SSO (Single Sign-On)' },
-      { ru: '1 TB защищённого хранилища', en: '1 TB secure storage', de: '1 TB geschützter Speicherplatz', ar: '‏1 TB من التخزين الآمن', kk: '1 TB қорғалған қойма', uz: '1 TB himoyalangan xotira' },
+      { ru: '1 ГБ защищённого хранилища', en: '1 GB secure storage', de: '1 GB geschützter Speicherplatz', ar: '‏1 GB من التخزين الآمن', kk: '1 ГБ қорғалған қойма', uz: '1 GB himoyalangan xotira' },
       { ru: 'Выделенный Customer Success Manager', en: 'Dedicated Customer Success Manager', de: 'Dedizierter Customer Success Manager', ar: 'مدير مخصص لنجاح العملاء (Customer Success Manager)', kk: 'Арнайы бекітілген Customer Success Manager', uz: 'Shaxsiy Customer Success Manager' },
     ],
   },
@@ -565,7 +567,7 @@ const FOOTER_COLS: {
   {
     title: { ru: 'Контакты', en: 'Contacts', de: 'Kontakt', ar: 'للتواصل', kk: 'Байланыс', uz: 'Aloqa' },
     links: [
-      { label: { ru: 'Telegram · @MANAGER_CIVIS', en: 'Telegram · @MANAGER_CIVIS', de: 'Telegram · @MANAGER_CIVIS', ar: 'Telegram · @MANAGER_CIVIS', kk: 'Telegram · @MANAGER_CIVIS', uz: 'Telegram · @MANAGER_CIVIS' }, href: TELEGRAM_URL },
+      { label: { ru: `Telegram · ${MANAGER_TELEGRAM_LABEL}`, en: `Telegram · ${MANAGER_TELEGRAM_LABEL}`, de: `Telegram · ${MANAGER_TELEGRAM_LABEL}`, ar: `Telegram · ${MANAGER_TELEGRAM_LABEL}`, kk: `Telegram · ${MANAGER_TELEGRAM_LABEL}`, uz: `Telegram · ${MANAGER_TELEGRAM_LABEL}` }, href: TELEGRAM_URL },
       { label: { ru: 'Enterprise — написать нам', en: 'Enterprise — message us', de: 'Enterprise – schreiben Sie uns', ar: 'Enterprise — راسلنا', kk: 'Enterprise — бізге жазыңыз', uz: 'Enterprise — bizga yozing' }, href: TELEGRAM_URL },
     ],
   },
@@ -1234,7 +1236,10 @@ export function LandingSections({ onStart }: { onStart: () => void }) {
           ))}
         </div>
 
-        <div className={styles.footerBottom}>© {new Date().getFullYear()} Lexab · {t('auth.tagline')}</div>
+        <div className={styles.footerBottom}>
+          <span>© {new Date().getFullYear()} Lexab · {t('auth.tagline')}</span>
+          <SocialLinks className={styles.footerSocial} />
+        </div>
       </footer>
     </>
   );

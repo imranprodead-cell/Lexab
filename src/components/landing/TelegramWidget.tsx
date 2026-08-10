@@ -4,8 +4,9 @@ import { EASE } from '@/lib/motion';
 import { useI18n } from '@/i18n/I18nProvider';
 import { scrollBehavior } from '@/lib/scroll';
 import styles from './telegramWidget.module.css';
+import { MANAGER_TELEGRAM, MANAGER_TELEGRAM_LABEL } from '@/lib/contacts';
 
-const TELEGRAM_URL = 'https://t.me/MANAGER_CIVIS';
+const TELEGRAM_URL = MANAGER_TELEGRAM;
 const WHATSAPP_URL = 'https://wa.me/998336132250';
 const WHATSAPP_PHONE = '+998 33 613 22 50';
 
@@ -51,9 +52,13 @@ function WhatsAppGlyph() {
 }
 
 /**
- * QR code for t.me/MANAGER_CIVIS — generated offline with the `qrcode`
- * package (error correction M) and verified to decode back to the URL.
- * Black modules on a white card, like the reference design.
+ * QR-код на MANAGER_TELEGRAM — сгенерирован офлайн пакетом `qrcode`
+ * (коррекция M) и проверен обратным декодированием в тот же адрес.
+ *
+ * ВНИМАНИЕ: адрес зашит в путь картинки, поиском по тексту его не найти.
+ * Меняется аккаунт в src/lib/contacts.ts — этот путь надо ПЕРЕГЕНЕРИРОВАТЬ,
+ * иначе люди со сканера уйдут на старый аккаунт (так и случилось при
+ * переименовании Civis → Lexab).
  */
 function TelegramQr() {
   return (
@@ -61,7 +66,7 @@ function TelegramQr() {
       <path fill="#ffffff" d="M0 0h25v25H0z" />
       <path
         stroke="#000000"
-        d="M0 0.5h7m1 0h1m2 0h1m1 0h3m2 0h7M0 1.5h1m5 0h1m2 0h6m1 0h1m1 0h1m5 0h1M0 2.5h1m1 0h3m1 0h1m1 0h2m2 0h2m1 0h2m1 0h1m1 0h3m1 0h1M0 3.5h1m1 0h3m1 0h1m3 0h1m1 0h1m1 0h1m3 0h1m1 0h3m1 0h1M0 4.5h1m1 0h3m1 0h1m2 0h1m3 0h3m2 0h1m1 0h3m1 0h1M0 5.5h1m5 0h1m1 0h3m3 0h1m3 0h1m5 0h1M0 6.5h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7M9 7.5h1m1 0h1m2 0h3M0 8.5h1m1 0h1m3 0h2m3 0h3m2 0h1m2 0h1m2 0h1m1 0h1M0 9.5h1m1 0h2m1 0h1m4 0h1m1 0h1m1 0h1m1 0h1m1 0h1m2 0h1m1 0h2M0 10.5h1m1 0h8m2 0h1m1 0h2m3 0h4m1 0h1M2 11.5h1m4 0h2m9 0h2m1 0h1M0 12.5h1m1 0h1m3 0h2m1 0h1m1 0h3m1 0h2m1 0h1m5 0h1M2 13.5h1m1 0h2m4 0h1m2 0h2m1 0h1m1 0h2m3 0h2M0 14.5h2m2 0h1m1 0h1m1 0h1m1 0h2m3 0h1m5 0h2m1 0h1M3 15.5h3m3 0h3m2 0h1m1 0h2m1 0h3M0 16.5h4m2 0h1m3 0h2m1 0h1m2 0h5m2 0h1M8 17.5h2m2 0h1m3 0h1m3 0h1m3 0h1M0 18.5h7m1 0h1m1 0h2m2 0h3m1 0h1m1 0h1m3 0h1M0 19.5h1m5 0h1m2 0h2m3 0h3m3 0h1m3 0h1M0 20.5h1m1 0h3m1 0h1m2 0h1m2 0h2m1 0h6m2 0h1M0 21.5h1m1 0h3m1 0h1m3 0h1m1 0h2m1 0h3m2 0h1m1 0h2M0 22.5h1m1 0h3m1 0h1m1 0h2m1 0h4m2 0h1m1 0h3m1 0h2M0 23.5h1m5 0h1m4 0h2m1 0h1m1 0h2m1 0h2M0 24.5h7m1 0h4m1 0h1m1 0h2m1 0h1m2 0h1m2 0h1"
+        d="M0 0.5h7m1 0h2m3 0h3m2 0h7M0 1.5h1m5 0h1m1 0h3m5 0h1m1 0h1m5 0h1M0 2.5h1m1 0h3m1 0h1m1 0h1m2 0h1m1 0h4m1 0h1m1 0h3m1 0h1M0 3.5h1m1 0h3m1 0h1m9 0h1m1 0h1m1 0h3m1 0h1M0 4.5h1m1 0h3m1 0h1m1 0h4m2 0h3m1 0h1m1 0h3m1 0h1M0 5.5h1m5 0h1m4 0h2m1 0h1m1 0h1m1 0h1m5 0h1M0 6.5h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7M11 7.5h1m1 0h1m1 0h2M0 8.5h1m2 0h6m2 0h4m1 0h2m2 0h1m1 0h3M1 9.5h1m2 0h2m1 0h6m7 0h4M2 10.5h1m2 0h2m1 0h1m4 0h4m3 0h2m2 0h1M1 11.5h2m1 0h2m1 0h1m2 0h3m3 0h2m1 0h1m1 0h4M0 12.5h1m1 0h2m1 0h3m3 0h3m1 0h2m1 0h1m5 0h1M0 13.5h2m6 0h2m2 0h1m3 0h1m3 0h1m2 0h1M0 14.5h2m1 0h1m1 0h2m1 0h1m3 0h1m1 0h2m1 0h1m2 0h5M0 15.5h1m1 0h3m2 0h2m1 0h3m4 0h3m1 0h2m1 0h1M0 16.5h1m2 0h1m1 0h3m1 0h1m1 0h2m3 0h5m1 0h2M8 17.5h1m1 0h1m2 0h1m2 0h1m3 0h1m1 0h2M0 18.5h7m1 0h2m1 0h1m1 0h1m1 0h2m1 0h1m1 0h1m3 0h1M0 19.5h1m5 0h1m1 0h2m2 0h5m3 0h1M0 20.5h1m1 0h3m1 0h1m1 0h1m3 0h1m1 0h7M0 21.5h1m1 0h3m1 0h1m1 0h2m1 0h1m2 0h2m1 0h2m4 0h2M0 22.5h1m1 0h3m1 0h1m2 0h4m3 0h2m2 0h5M0 23.5h1m5 0h1m2 0h4m1 0h1m3 0h3m1 0h3M0 24.5h7m1 0h1m1 0h1m4 0h2m1 0h1m2 0h1m2 0h1"
       />
     </svg>
   );
@@ -126,7 +131,7 @@ export function TelegramWidget({
             href={TELEGRAM_URL}
             target="_blank"
             rel="noreferrer noopener"
-            aria-label="Telegram — @MANAGER_CIVIS"
+            aria-label={`Telegram — ${MANAGER_TELEGRAM_LABEL}`}
           >
             <span className={styles.tgIcon}>
               <PlaneGlyph />
@@ -138,7 +143,7 @@ export function TelegramWidget({
             <div className={styles.qrCard}>
               <TelegramQr />
             </div>
-            <div className={styles.qrUser}>@MANAGER_CIVIS</div>
+            <div className={styles.qrUser}>{MANAGER_TELEGRAM_LABEL}</div>
             <div className={styles.qrHint}>{t('landing.tg.scan')}</div>
             <span className={styles.qrArrow} aria-hidden="true" />
           </div>

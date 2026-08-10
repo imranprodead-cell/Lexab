@@ -11,7 +11,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Db } from '../db.ts';
 import { ALLOWED_EXTENSIONS, assertValidFileContent, extractText, fileExtension, MAX_UPLOAD_BYTES } from '../extract.ts';
 import { badRequest, HttpError, notFound } from '../lib/errors.ts';
-import { assertDocumentAllowance, assertFeature, assertStorageAllowance, bumpUsage, planFor, planHasFeature, releaseAiRequest, reserveAiRequest, reserveDocument, withStorageReservation, withAiRequest } from '../lib/limits.ts';
+import { assertDocumentAllowance, assertFeature, assertStorageAllowance, DOC_COST, planFor, planHasFeature, quotaOwnerFor, reserveDocument, withDocumentUnits, withStorageReservation } from '../lib/limits.ts';
 import { notify } from '../lib/notify.ts';
 import { activeTeamOwnerFor, resolveAnalysisAccess, resolveDocumentAccess } from '../lib/teamAccess.ts';
 import { attachmentDisposition, formatSize, looksRussian, looksUzbekCyrillic, looksUzbekLatin } from '../lib/format.ts';
@@ -340,7 +340,9 @@ export async function persistAnalysis(
   //  - skipReviewStats: НЕ писать ревью-аналитику (review_events + user_stats
   //    hours_saved) — для потоков ГЕНЕРАЦИИ (черновик): это не проверка договора,
   //    и массовая генерация не должна накручивать «проверено N / сэкономлено X ч».
-  opts: { skipDocQuota?: boolean; skipNotify?: boolean; apiRequestId?: string; skipReviewStats?: boolean } = {},
+  //  - docUnits: сколько единиц лимита ДОКУМЕНТОВ стоит операция (см. DOC_COST).
+  //    Разбор — 1, генерация договора — 2.
+  opts: { skipDocQuota?: boolean; skipNotify?: boolean; apiRequestId?: string; skipReviewStats?: boolean; docUnits?: number } = {},
 ): Promise<AnalysisResult> {
   // Пост-калибровка: после валидации цитат (демоция непроверенных в Low) балл
   // риска не может превышать потолок фактической максимальной severity.
@@ -435,7 +437,7 @@ export async function persistAnalysis(
         const sameFile = source.uploadId
           ? await tx.query('SELECT 1 FROM analyses WHERE document_id = $1 AND upload_id = $2 LIMIT 1', [documentId, source.uploadId])
           : { rows: [] as unknown[] };
-        if (!sameFile.rows.length) await reserveDocument(tx, userId);
+        if (!sameFile.rows.length) await reserveDocument(tx, userId, opts.docUnits ?? DOC_COST.analysis);
       }
     } else {
       documentId = newId('d');
@@ -451,7 +453,7 @@ export async function persistAnalysis(
       // docs-лимит плана (Business 700) и после 700 API-вызовов блокировал ручное
       // создание документов пользователем. Документ создаётся (строка выше), но
       // не учитывается в docs_created.
-      if (!opts.skipDocQuota) await reserveDocument(tx, userId);
+      if (!opts.skipDocQuota) await reserveDocument(tx, userId, opts.docUnits ?? DOC_COST.analysis);
       await tx.query(
         `INSERT INTO document_versions (id, document_id, label, author, note)
          VALUES ($1, $2, 'v1 — original', 'Upload', 'Initial draft received.')`,
@@ -742,8 +744,14 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
     const prompt = requireString(body, 'prompt', { min: 1, max: 4000 });
     const jurisdiction = optionalString(body, 'jurisdiction')?.slice(0, 120) || null;
 
-    // Atomic AI reservation right before the model call; released on failure.
-    const draft = await withAiRequest(db, req.currentUser.id, (plan) => generateContractDraft(prompt, jurisdiction, plan));
+    // Создание договора списывается из лимита ДОКУМЕНТОВ (2 единицы), а не из
+    // лимита чата: лимит ИИ-запросов — только переписка. Резерв ставится ДО
+    // обращения к модели и возвращается при провале; persistAnalysis ниже уже
+    // не списывает ничего (docUnits: 0), иначе черновик стоил бы 3.
+    await assertDocumentAllowance(db, req.currentUser.id, DOC_COST.draft);
+    const draft = await withDocumentUnits(db, req.currentUser.id, DOC_COST.draft, (plan) =>
+      generateContractDraft(prompt, jurisdiction, plan),
+    );
     await audit(db, req, { type: 'ai.draft', target: { type: 'document', label: draft.title }, metadata: { feature: 'draft', ok: true } });
 
     const draftText = draft.document
@@ -767,7 +775,10 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
       pdf: null,
       jurisdiction,
     };
-    const result = await persistAnalysis(db, req.currentUser.id, source, gen, req.currentUser.id, req);
+    const result = await persistAnalysis(db, req.currentUser.id, source, gen, req.currentUser.id, req, undefined, {
+      skipReviewStats: true,
+      docUnits: 0,
+    });
     reply.code(201);
     return result;
   });
@@ -786,26 +797,64 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
       'SELECT id FROM documents WHERE user_id = $1 AND name = $2 AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1',
       [docOwnerId, source.fileName],
     );
-    // Единица квоты не тратится только на повторный разбор ТОГО ЖЕ файла
-    // (см. persistAnalysis). Проверяем это ДО обращения к модели, чтобы отказ
-    // не стоил пользователю зря сожжённого ИИ-запроса.
-    const reanalysisOfSameFile =
-      Boolean(existingDoc.rows[0]) &&
-      Boolean(source.uploadId) &&
-      (
-        await db.query('SELECT 1 FROM analyses WHERE document_id = $1 AND upload_id = $2 LIMIT 1', [
-          existingDoc.rows[0].id,
-          source.uploadId,
-        ])
-      ).rows.length > 0;
+    /**
+     * ПОВТОРНЫЙ РАЗБОР ТОГО ЖЕ ФАЙЛА ОТДАЁТ ГОТОВЫЙ РАЗБОР И НЕ ЖЁТ НИЧЕГО.
+     *
+     * Почему это не «срезание угла», а тот же самый ответ: разбор кэшируется
+     * ТОЛЬКО когда у источника есть upload_id, а sourceFromAnalysis для такого
+     * документа берёт ПОЛНЫЙ ИСХОДНЫЙ текст из той же загрузки, а не
+     * отредактированный черновик (см. комментарий там). Вход побайтово тот же —
+     * значит и разбор тот же, платить за него второй раз незачем.
+     *
+     * Черновики из промпта (upload_id = null) в кэш не попадают вовсе: их текст
+     * собирается из блоков и меняется после каждой правки, поэтому им нужен
+     * настоящий повторный прогон.
+     *
+     * `force: true` в теле запроса заставляет прогнать заново (списав лимит) —
+     * запасной выход, если разбор вышел неудачным.
+     */
+    const rawBody: unknown = req.body;
+    const wantsFresh =
+      typeof rawBody === 'object' && rawBody !== null && (rawBody as Record<string, unknown>).force === true;
+    // Разбор ЭТОЙ ЖЕ загрузки, если он уже есть. Считается ВСЕГДА, даже при
+    // force: от него зависит не только кэш, но и решение «списывать ли единицу
+    // документа». Упрощать до «документ есть и загрузка есть» нельзя — тогда
+    // НОВЫЙ файл под СТАРЫМ именем перестал бы тратить квоту, а это ровно та
+    // дыра, которую закрыл аудит 2026-08-03.
+    const priorAnalysisId =
+      existingDoc.rows[0] && source.uploadId
+        ? ((
+            await db.query<{ id: string }>(
+              'SELECT id FROM analyses WHERE document_id = $1 AND upload_id = $2 ORDER BY created_at DESC LIMIT 1',
+              [existingDoc.rows[0].id, source.uploadId],
+            )
+          ).rows[0]?.id ?? null)
+        : null;
+    const cachedId = wantsFresh ? null : priorAnalysisId;
+    if (cachedId) {
+      const cached = await loadAnalysis(db, req.currentUser.id, cachedId);
+      if (wantsSSE(req)) {
+        const sse = openSSE(req, reply);
+        try {
+          for (let i = 0; i < ANALYSIS_STEPS.length; i++) sse.send('step', { index: i, label: ANALYSIS_STEPS[i] });
+          sse.send('result', cached);
+        } finally {
+          sse.close();
+        }
+        return reply;
+      }
+      return cached;
+    }
+
+    // Единица квоты документов не тратится на повторный разбор того же файла
+    // (см. persistAnalysis). Проверяем ДО обращения к модели, чтобы отказ не
+    // стоил пользователю зря сожжённого ИИ-запроса.
+    const reanalysisOfSameFile = priorAnalysisId !== null;
     if (!reanalysisOfSameFile) await assertDocumentAllowance(db, req.currentUser.id);
 
-    // Reserve one AI request atomically (402 if over limit); released below if
-    // the model fails, and counted post-hoc only for unlimited plans.
-    const { plan, reserved } = await reserveAiRequest(db, req.currentUser.id);
-    const countOnSuccess = async () => {
-      if (!reserved) await bumpUsage(db, req.currentUser.id, { ai: 1 });
-    };
+    // Разбор договора списывается из лимита ДОКУМЕНТОВ (одна единица, внутри
+    // persistAnalysis), а не из лимита ИИ-запросов: тот считает только чат.
+    const { plan } = await quotaOwnerFor(db, req.currentUser.id);
 
     if (wantsSSE(req)) {
       const sse = openSSE(req, reply);
@@ -815,10 +864,8 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
         const gen = await analyzeSource(db, req.currentUser.id, source, plan, (m) => req.log.warn(m));
         sse.send('step', { index: 2, label: ANALYSIS_STEPS[2] });
         const result = await persistAnalysis(db, source.ownerUserId ?? req.currentUser.id, source, gen, req.currentUser.id, req);
-        await countOnSuccess();
         sse.send('result', result);
       } catch (err) {
-        if (reserved) await releaseAiRequest(db, req.currentUser.id); // model failed — give the unit back
         req.log.error(err, 'analysis failed');
         // Forward our own user-safe message (e.g. AI-unavailable); hide internals otherwise.
         const message = err instanceof HttpError ? err.message : 'Analysis failed. Please try again.';
@@ -829,16 +876,10 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
       return reply;
     }
 
-    try {
-      const gen = await analyzeSource(db, req.currentUser.id, source, plan, (m) => req.log.warn(m));
-      const result = await persistAnalysis(db, source.ownerUserId ?? req.currentUser.id, source, gen, req.currentUser.id, req);
-      await countOnSuccess();
-      reply.code(201);
-      return result;
-    } catch (err) {
-      if (reserved) await releaseAiRequest(db, req.currentUser.id);
-      throw err;
-    }
+    const gen = await analyzeSource(db, req.currentUser.id, source, plan, (m) => req.log.warn(m));
+    const result = await persistAnalysis(db, source.ownerUserId ?? req.currentUser.id, source, gen, req.currentUser.id, req);
+    reply.code(201);
+    return result;
   });
 
   app.get('/analysis/:id', { preHandler: [app.authenticate] }, async (req) => {

@@ -18,7 +18,7 @@ import { config } from '../config.ts';
 import type { Db } from '../db.ts';
 import { badRequest, HttpError, notFound } from '../lib/errors.ts';
 import { newId } from '../lib/ids.ts';
-import { assertFeature, planFor, PLAN_SEATS } from '../lib/limits.ts';
+import { assertFeature, planFor, effectiveLimits } from '../lib/limits.ts';
 import { notify } from '../lib/notify.ts';
 import { asObject, optionalString, requireEmail, requireString } from '../lib/validate.ts';
 import { biBody, biLine, biSubject, escapeMailHtml, mailLayout, sendMail } from '../mail.ts';
@@ -194,7 +194,8 @@ export function teamRoutes(app: FastifyInstance, db: Db): void {
     // «без ограничения по пользователям», а код запирал и его на пяти
     // (аудит 2026-08-03). Считаем существующих + приглашённых.
     const ownerPlan = await planFor(db, req.currentUser.id);
-    const seats = PLAN_SEATS[ownerPlan] ?? PLAN_SEATS.Business;
+    // Персональные места из админ-панели перекрывают тарифные (миграция 058).
+    const seats = (await effectiveLimits(db, req.currentUser.id, ownerPlan)).seats;
     if (seats !== null) {
       const size = await db.query<{ count: string | number }>(
         'SELECT count(*) AS count FROM team_members WHERE owner_user_id = $1',

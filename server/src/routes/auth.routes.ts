@@ -15,7 +15,6 @@ import { consumeBackupCode, recordSession, verifyUserTotp } from './security.rou
 import { asObject, requireEmail, requireString } from '../lib/validate.ts';
 import { biBody, biLine, biSubject, escapeMailHtml, mailLayout, sendMail } from '../mail.ts';
 import { notify } from '../lib/notify.ts';
-import { cancelSubscription, lemonSqueezyEnabled } from '../lib/lemonsqueezy.ts';
 import { recordBillingEvent, TERMS_VERSION } from '../lib/billing.ts';
 import { audit, countRecent } from '../lib/audit.ts';
 import { assertSsoNotRequired } from './sso.routes.ts';
@@ -632,33 +631,20 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
     );
     const auditOwnerId = owner.rows[0]?.owner_user_id ?? req.currentUser.id;
     await audit(db, req, { type: 'auth.account_deleted', teamOwnerId: auditOwnerId });
-    // Живая подписка Lemon Squeezy обязана быть отменена ДО удаления строки —
-    // иначе карта пользователя списывается вечно, а вебхуки мёртвой учётки
-    // молча скипаются. Best-effort: сбой отмены не блокирует right-to-erasure,
-    // но кричит в лог и оставляет след в billing_events (переживает CASCADE —
-    // user_id там без FK, email сохраняется).
-    const lsSub = await db.query<{ ls_subscription_id: string | null }>(
-      'SELECT ls_subscription_id FROM subscriptions WHERE user_id = $1',
-      [req.currentUser.id],
-    );
-    const lsId = lsSub.rows[0]?.ls_subscription_id;
-    if (lsId && lemonSqueezyEnabled()) {
-      try {
-        await cancelSubscription(lsId);
-        await recordBillingEvent(db, {
-          userId: req.currentUser.id,
-          email: req.currentUser.email,
-          kind: 'canceled',
-          payload: { reason: 'account_deleted', lsSubscriptionId: lsId },
-        });
-      } catch (err) {
-        req.log.error({ err, lsId, email: req.currentUser.email }, 'lemonsqueezy: FAILED to cancel subscription on account deletion — cancel it manually in the LS dashboard');
-      }
-    }
+    // Платёжного провайдера нет (см. lib/billing.ts): отменять на его стороне
+    // нечего — подписка живёт только строкой в нашей базе и уходит вместе с
+    // пользователем по CASCADE. billing_events остаются намеренно: это правовой
+    // след (user_id там без FK, email сохраняется).
+    await recordBillingEvent(db, {
+      userId: req.currentUser.id,
+      email: req.currentUser.email,
+      kind: 'canceled',
+      payload: { reason: 'account_deleted' },
+    });
     invalidateTtsAuthCache(req.currentUser.id);
-    // Журнал вебхуков платежей не связан с users внешним ключом и CASCADE его
-    // не трогает — обезличиваем вручную (право на забвение). billing_events
-    // остаются намеренно: это юридическое доказательство оплаты (миграция 029).
+    // Наследство прежнего платёжного провайдера: таблица вебхуков не связана с
+    // users внешним ключом, CASCADE её не чистит. Новых строк там не появится,
+    // но старые обезличиваем — право на забвение действует и на них.
     await db.query("UPDATE ls_webhook_events SET payload = '{}'::jsonb, user_id = NULL WHERE user_id = $1", [req.currentUser.id]);
     await db.query('DELETE FROM users WHERE id = $1', [req.currentUser.id]);
     // Повторно ПОСЛЕ удаления: параллельный authenticateTts мог перезаписать

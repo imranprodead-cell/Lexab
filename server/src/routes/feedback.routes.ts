@@ -133,7 +133,7 @@ export function feedbackRoutes(app: FastifyInstance, db: Db): void {
           'Новый отзыв о продукте',
           `<p><strong>${escapeMailHtml(u.name)}</strong>${u.firm ? ` из ${escapeMailHtml(u.firm)}` : ''} · <a href="mailto:${escapeMailHtml(u.email)}">${escapeMailHtml(u.email)}</a></p>
            <p>Тип: <strong>${escapeMailHtml(label)}</strong>${page ? ` · Страница: ${escapeMailHtml(page.slice(0, 200))}` : ''}${attachments.length ? ` · Вложений: ${attachments.length}` : ''}</p>
-           <p style="white-space:pre-wrap;border-left:3px solid #8b7cf6;padding-left:12px;margin-top:14px;">${escapeMailHtml(message)}</p>`,
+           <p class="lx-rule" style="white-space:pre-wrap;border-left:3px solid #e8e6e3;padding-left:12px;margin-top:14px;">${escapeMailHtml(message)}</p>`,
         ),
         attachments,
       });

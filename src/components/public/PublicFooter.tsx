@@ -9,6 +9,7 @@
  */
 import { Link } from 'react-router-dom';
 import { Avatar } from '@/components/ui/Avatar';
+import { SocialLinks } from '@/components/ui/SocialLinks';
 import { FOOTER_COLUMNS, LEGAL_LINKS } from '@/content/site/nav';
 import { useI18n } from '@/i18n/I18nProvider';
 import { PUBLIC_SLUGS } from '@/pages/public/registry';
@@ -58,6 +59,7 @@ export function PublicFooter() {
               </Link>
             ))}
           </span>
+          <SocialLinks className={styles.footerSocial} />
         </div>
       </div>
     </footer>

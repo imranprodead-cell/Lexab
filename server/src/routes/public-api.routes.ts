@@ -22,7 +22,7 @@ import { decJsonFromJsonb, decText, encJsonForJsonb } from '../lib/docCrypto.ts'
 import { badRequest, HttpError } from '../lib/errors.ts';
 import { formatSize } from '../lib/format.ts';
 import { newId } from '../lib/ids.ts';
-import { apiMonthlyUsage, releaseApiRequest, reserveApiRequest, withAiRequest } from '../lib/limits.ts';
+import { apiMonthlyUsage, planFor, releaseApiRequest, reserveApiRequest } from '../lib/limits.ts';
 import { generateCompare, generateContractDraft, generateTemplateDraft, type GeneratedAnalysis, type TemplateFields } from '../llm.ts';
 import { createWebhookEndpoint, enqueueJobWebhooks, listWebhookEndpoints, revokeWebhookEndpoint } from '../lib/apiWebhooks.ts';
 import { asObject, optionalString, requireString } from '../lib/validate.ts';
@@ -189,8 +189,12 @@ async function runApiJob(
   // kind для события вебхука ('ai.analysis' → 'analysis' и т.д.).
   const kind = auditType.replace(/^ai\./, '');
   try {
-    // withAiRequest — тот же учёт ИИ-квоты, что у интерактивного/batch путей.
-    await withAiRequest(db, userId, (plan) => work(plan));
+    // У публичного API СВОЙ месячный счётчик (api_requests, зарезервирован
+    // выше). Лимит ИИ-запросов он не трогает — тот считает только переписку в
+    // чате; лимит документов тоже (skipDocQuota), иначе интегратор съедал бы
+    // интерактивную квоту владельца.
+    const plan = await planFor(db, userId);
+    await work(plan);
     // Задание завершено (done закоммичен работой) → callback клиенту (never-throw).
     await enqueueJobWebhooks(db, userId, requestId, kind, 'done');
   } catch (err) {

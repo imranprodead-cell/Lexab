@@ -1,0 +1,43 @@
+/* Значки соцсетей в подвале: тихие, как остальные ссылки подвала. */
+
+.row {
+  display: flex;
+  align-items: center;
+  /* 8px — минимальный зазор между соседними целями нажатия. */
+  gap: 8px;
+}
+
+.link {
+  /* Видимый знак маленький, а область нажатия — 40×40 плюс зазор: попасть
+     пальцем можно, но в макете значки остаются скромными. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 40px;
+  block-size: 40px;
+  border-radius: var(--r-md);
+  /* --dim, а не --mut: залитый знак на светлом фоне при --mut даёт контраст
+     2.5:1 — ниже порога 3:1 для нетекстовой графики. Заодно значки встают
+     вровень по весу с ссылками подвала, которые тоже --dim. */
+  color: var(--dim);
+  touch-action: manipulation;
+  transition:
+    color 0.2s var(--ease),
+    background-color 0.2s var(--ease);
+}
+
+.link:hover {
+  color: var(--text);
+  background: var(--panel-2);
+}
+
+.link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .link {
+    transition: none;
+  }
+}

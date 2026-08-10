@@ -27,7 +27,7 @@ import { badRequest, HttpError } from '../lib/errors.ts';
 import { newId } from '../lib/ids.ts';
 import { hashPassword } from '../lib/passwords.ts';
 import { asObject, requireEmail, requireString } from '../lib/validate.ts';
-import { assertFeature, planFor, planHasFeature, PLAN_SEATS } from '../lib/limits.ts';
+import { assertFeature, planFor, planHasFeature, effectiveLimits } from '../lib/limits.ts';
 import { sealSecret, openSecret } from '../lib/secrets.ts';
 import { audit } from '../lib/audit.ts';
 import { invalidateTtsAuthCache, getUserById, type UserRow } from '../plugins/auth.ts';
@@ -412,7 +412,7 @@ async function jitProvision(db: Db, cfg: SsoConfigRow, email: string, name: stri
   } else if (!existingRow && userId !== cfg.owner_user_id) {
     // Мест — по тарифу владельца (Enterprise без ограничения), а не жёстко 5.
     const ownerPlan = await planFor(db, cfg.owner_user_id);
-    const seats = PLAN_SEATS[ownerPlan] ?? PLAN_SEATS.Business;
+    const seats = (await effectiveLimits(db, cfg.owner_user_id, ownerPlan)).seats;
     if (seats !== null) {
       const count = await db.query<{ n: string | number }>("SELECT count(*) AS n FROM team_members WHERE owner_user_id = $1 AND status = 'active'", [cfg.owner_user_id]);
       if (Number(count.rows[0]?.n ?? 0) >= seats) return 'team_full';

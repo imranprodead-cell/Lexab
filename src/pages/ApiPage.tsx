@@ -23,6 +23,7 @@ import { useReveal } from '@/hooks/useReveal';
 import { useI18n } from '@/i18n/I18nProvider';
 import { localeFor } from '@/i18n/dates';
 import { useUIStore } from '@/store/useUIStore';
+import { MANAGER_TELEGRAM } from '@/lib/contacts';
 import styles from './pages.module.css';
 
 type Gated<T> = { locked: true } | { locked: false; data: T };
@@ -44,7 +45,7 @@ const KNOWN_SCOPES = new Set(API_SCOPES_FALLBACK);
 
 /** Под-навигация страницы: 4 вкладки, hash-часть URL = id вкладки
  *  (#keys/#usage/#docs/#plan). Неизвестный/пустой hash → первая вкладка. */
-const API_TABS = ['keys', 'usage', 'docs', 'plan'] as const;
+const API_TABS = ['keys', 'usage', 'topup', 'docs', 'plan'] as const;
 type ApiTab = (typeof API_TABS)[number];
 const tabFromHash = (): ApiTab => {
   const h = window.location.hash.replace(/^#/, '');
@@ -164,6 +165,7 @@ export function ApiPage() {
   const tabLabels: Record<ApiTab, string> = {
     keys: t('api.keys'),
     usage: t('api.usage'),
+    topup: t('api.tabTopup'),
     docs: t('api.docs'),
     plan: t('api.tabPlan'),
   };
@@ -594,6 +596,50 @@ curl "${apiBase}/analyses/apireq_XXXXXXXX?report=1" -H "Authorization: Bearer YO
 
                 <h3 className={styles.apiSubTitle}>{t('api.docsErrors')}</h3>
                 <p className={styles.apiDocText}>{t('api.docsErrorsBody')}</p>
+              </section>
+              )}
+
+              {/* Пополнение баланса ------------------------------------------ */}
+              {tab === 'topup' && (
+              <section className={styles.section} role="tabpanel" id="api-panel-topup" aria-labelledby="api-tab-topup">
+                <h2 className={styles.sectionTitle}>{t('api.topup.title')}</h2>
+                {monthLimit === null ? (
+                  <p className={styles.sectionSub}>{t('api.topup.unlimited')}</p>
+                ) : (
+                  <>
+                    <p className={styles.sectionSub}>{t('api.topup.sub', { limit: monthLimit })}</p>
+                    <div className={styles.statGrid}>
+                      <div className={styles.stat}>
+                        <div className={styles.statLabel}>
+                          <Icon name="analytics" size={15} color="var(--accent)" />
+                          {t('api.usedThisMonth')}
+                        </div>
+                        <div className={styles.statValue}>{usage ? <CountUp to={usage.month.used} /> : '—'}</div>
+                      </div>
+                      <div className={styles.stat}>
+                        <div className={styles.statLabel}>
+                          <Icon name="clock" size={15} color="var(--accent)" />
+                          {t('api.remaining', { limit: monthLimit })}
+                        </div>
+                        <div className={styles.statValue}>
+                          {usage && usage.month.remaining !== null ? <CountUp to={usage.month.remaining} /> : '—'}
+                        </div>
+                      </div>
+                    </div>
+                    {/* Самообслуживания нет намеренно: пакеты вызовов продаются
+                        напрямую, поэтому кнопка ведёт в переписку, а не в оплату. */}
+                    <div className={styles.apiTopupActions}>
+                      <Button
+                        icon="message"
+                        iconRight="arrowUpRight"
+                        onClick={() => window.open(MANAGER_TELEGRAM, '_blank', 'noopener,noreferrer')}
+                      >
+                        {t('api.topup.button')}
+                      </Button>
+                    </div>
+                    <p className={styles.apiEmptyHint}>{t('api.topup.note')}</p>
+                  </>
+                )}
               </section>
               )}
 

@@ -1152,6 +1152,12 @@ const uz: Record<string, string> = {
   "projects.current": "Joriy",
   "api.tabPlan": "Tarif",
   "api.tabsAria": "API bo'limlari",
+  'api.tabTopup': 'Balansni toʻldirish',
+  'api.topup.title': 'API balansini toʻldirish',
+  'api.topup.sub': 'Tarifga oyiga {limit} ta chaqiruv kiradi. Koʻproq kerak boʻlsa — menejerga yozing, akkauntingizga chaqiruvlar qoʻshamiz.',
+  'api.topup.button': 'Menejerga yozish',
+  'api.topup.note': 'Hisoblagich har oyning 1-sanasida nolga tushadi. Qoʻshimcha sotib olingan chaqiruvlar joriy oy oxirigacha amal qiladi.',
+  'api.topup.unlimited': 'Sizning tarifingizda API chaqiruvlari cheklanmagan — balansni toʻldirish shart emas.',
 };
 
 export default uz;

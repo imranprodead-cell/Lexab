@@ -395,12 +395,12 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
     // user's message). EVERYTHING after the reservation runs under a guard that
     // gives the unit back on ANY failure — a bad body, a transient DB error, or
     // the model itself — so a failed request never permanently burns allowance.
-    const { plan, reserved } = await reserveAiRequest(db, req.currentUser.id);
+    const { plan, reserved, quotaUserId } = await reserveAiRequest(db, req.currentUser.id);
     let released = false;
     const release = async () => {
       if (reserved && !released) {
         released = true;
-        await releaseAiRequest(db, req.currentUser.id);
+        await releaseAiRequest(db, req.currentUser.id, quotaUserId);
       }
     };
 
@@ -509,7 +509,7 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
         await db.query('UPDATE chat_sessions SET updated_at = now() WHERE id = $1', [sessionId]);
         // Limited plans were already counted by the reservation; count unlimited
         // plans post-hoc for analytics.
-        if (!reserved) await bumpUsage(db, req.currentUser.id, { ai: 1 });
+        if (!reserved) await bumpUsage(db, quotaUserId, { ai: 1 });
         await audit(db, req, { type: 'ai.chat', target: { type: 'chat', id: sessionId }, metadata: { feature: 'chat', ok: true } });
         return { id: messageId, role: 'assistant', kind: 'text', text: replyText };
       };

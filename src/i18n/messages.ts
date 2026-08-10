@@ -1699,9 +1699,15 @@ export const MESSAGES: Dict = {
   // короткая подпись вкладки «Тариф» и aria-заголовок списка вкладок.
   'api.tabPlan': { ru: 'Тариф', en: 'Plan' },
   'api.tabsAria': { ru: 'Разделы API', en: 'API sections' },
-  // Интерактивная документация API (/developer/docs). Названия и описания
-  // эндпоинтов приходят из OpenAPI-спеки на английском и НЕ переводятся.
-  'api.docsPage.title': { ru: 'Документация API', en: 'API reference' },
+  // Вкладка «Пополнение баланса»: пакет вызовов докупается не самообслуживанием,
+  // а через менеджера — поэтому кнопка ведёт в переписку, а не в оплату.
+  'api.tabTopup': { ru: 'Пополнить баланс', en: 'Top up' },
+  'api.topup.title': { ru: 'Пополнение баланса API', en: 'Top up your API balance' },
+  'api.topup.sub': { ru: 'В тариф входит {limit} вызовов в месяц. Нужно больше — напишите менеджеру, и мы добавим вызовы на ваш аккаунт.', en: 'Your plan includes {limit} calls per month. Need more — message the manager and we will add calls to your account.' },
+  'api.topup.button': { ru: 'Написать менеджеру', en: 'Message the manager' },
+  'api.topup.note': { ru: 'Счётчик обнуляется 1-го числа каждого месяца. Докупленные вызовы действуют до конца текущего месяца.', en: 'The counter resets on the 1st of each month. Purchased calls are valid until the end of the current month.' },
+  'api.topup.unlimited': { ru: 'На вашем тарифе вызовы API не ограничены — пополнять баланс не нужно.', en: 'Your plan has unlimited API calls — no top-up needed.' },
+'api.docsPage.title': { ru: 'Документация API', en: 'API reference' },
   'api.docsPage.sub': {
     ru: 'Полное описание публичного API /v1: эндпоинты, схемы и готовые примеры кода. Технический контракт — на английском.',
     en: 'Complete reference for the public /v1 API: endpoints, schemas and ready-to-use code examples.',

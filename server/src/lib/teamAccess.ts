@@ -5,7 +5,7 @@
  * owner's team. Roles: admin & editor may edit (redlines, blocks, re-analysis),
  * viewer is read-only. The owner can always do everything.
  */
-import type { Db } from '../db.ts';
+import type { Db, Queryable } from '../db.ts';
 import { HttpError, notFound } from './errors.ts';
 
 export type TeamRole = 'admin' | 'editor' | 'viewer';
@@ -34,7 +34,7 @@ export interface DocumentAccess {
 
 /** Владелец команды, в которой пользователь состоит АКТИВНЫМ участником,
  *  или null (сам себе команда). Единая точка для «чьи плейбуки/фичи применяются». */
-export async function activeTeamOwnerFor(db: Db, userId: string): Promise<string | null> {
+export async function activeTeamOwnerFor(db: Queryable, userId: string): Promise<string | null> {
   // ORDER BY created_at: пользователь может быть активным участником нескольких
   // команд (уникальность — по owner+email, не по участнику). Без порядка LIMIT 1
   // был бы недетерминирован; берём самое РАННЕЕ членство — стабильно и совпадает

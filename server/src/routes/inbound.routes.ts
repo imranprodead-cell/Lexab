@@ -32,7 +32,7 @@ import { audit } from '../lib/audit.ts';
 import { encText } from '../lib/docCrypto.ts';
 import { formatSize } from '../lib/format.ts';
 import { newId } from '../lib/ids.ts';
-import { withAiRequest, withStorageReservation } from '../lib/limits.ts';
+import { planFor, withStorageReservation } from '../lib/limits.ts';
 import { asObject, requireString } from '../lib/validate.ts';
 import { generateAnalysis } from '../llm.ts';
 import { getUserByEmail } from '../plugins/auth.ts';
@@ -195,14 +195,14 @@ export function inboundRoutes(app: FastifyInstance, db: Db): void {
             text,
             pdf: fileExtension(fileName) === '.pdf' ? buffer : null,
           };
-          // AI usage counts against the monthly quota, same as the interactive
-          // path — email intake must not be a free-analysis bypass.
-          const analysis = await withAiRequest(db, user.id, async (plan) => {
-            const gen = await generateAnalysis({ fileName, text: source.text, pdf: source.pdf, plan });
-            // req тут — вебхук почтового провайдера, не пользователь; актора
-            // подписываем email-ом отправителя письма.
-            return persistAnalysis(db, user.id, source, gen, user.id, null, user.email);
-          });
+          // Договор из почты — тот же разбор: одна единица лимита ДОКУМЕНТОВ
+          // (внутри persistAnalysis). Приём по почте не должен быть лазейкой в
+          // бесплатный анализ, но и лимит чата он не трогает.
+          const plan = await planFor(db, user.id);
+          const gen = await generateAnalysis({ fileName, text: source.text, pdf: source.pdf, plan });
+          // req тут — вебхук почтового провайдера, не пользователь; актора
+          // подписываем email-ом отправителя письма.
+          const analysis = await persistAnalysis(db, user.id, source, gen, user.id, null, user.email);
           results.push({ fileName, analysisId: analysis.id });
         } catch (err) {
           // Bytes saved but no row committed to own them (extractText threw on a

@@ -1152,6 +1152,12 @@ const ar: Record<string, string> = {
   "projects.current": "الحالي",
   "api.tabPlan": "الخطة",
   "api.tabsAria": "أقسام API",
+  'api.tabTopup': 'شحن الرصيد',
+  'api.topup.title': 'شحن رصيد واجهة البرمجة',
+  'api.topup.sub': 'تتضمن باقتك {limit} طلبًا شهريًا. إذا احتجت إلى المزيد، راسل المدير وسنضيف طلبات إلى حسابك.',
+  'api.topup.button': 'مراسلة المدير',
+  'api.topup.note': 'يُصفَّر العدّاد في اليوم الأول من كل شهر. وتظل الطلبات المشتراة صالحة حتى نهاية الشهر الجاري.',
+  'api.topup.unlimited': 'باقتك تتيح طلبات غير محدودة — لا حاجة إلى الشحن.',
 };
 
 export default ar;

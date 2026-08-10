@@ -57,6 +57,10 @@ const loaders = {
   ComparePage: () => import('@/pages/ComparePage'),
   ArchivePage: () => import('@/pages/ArchivePage'),
   ApiPage: () => import('@/pages/ApiPage'),
+  // Админ-панель владельца. В loaders она нужна для ленивой загрузки, но в
+  // прогрев (prefetchAllPages) не попадает: см. фильтр там — качать её всем
+  // работающим юристам незачем.
+  AdminPage: () => import('@/pages/AdminPage'),
   ApiDocsPage: () => import('@/pages/ApiDocsPage'),
   SettingsPage: () => import('@/pages/SettingsPage'),
   NotFoundPage: () => import('@/pages/NotFoundPage'),
@@ -80,7 +84,12 @@ export function prefetchAllPages() {
   }
   if (!signedIn) return;
   const warm = () => {
-    for (const load of Object.values(loaders)) void load().catch(() => undefined);
+    // Админку из прогрева исключаем: она нужна одному человеку, а качалась бы
+    // фоном у каждого работающего юриста.
+    for (const [name, load] of Object.entries(loaders)) {
+      if (name === 'AdminPage') continue;
+      void load().catch(() => undefined);
+    }
   };
   if ('requestIdleCallback' in window) {
     window.requestIdleCallback(warm, { timeout: 3000 });
@@ -266,6 +275,13 @@ const appRoutes: RouteObject[] = [
             // Раздел «API» (Business). Путь /developer — /api занят бэкендом.
             path: 'developer',
             lazy: async () => ({ Component: (await loaders.ApiPage()).ApiPage }),
+          },
+          {
+            // Админ-панель владельца. Доступ решает СЕРВЕР (ADMIN_EMAILS):
+            // маршрут открыт всем, но страница получает 404 и показывает
+            // «раздела нет». Прятать маршрут бессмысленно — адрес наберут руками.
+            path: 'admin',
+            lazy: async () => ({ Component: (await loaders.AdminPage()).AdminPage }),
           },
           {
             // Интерактивная документация публичного API (рендер OpenAPI-спеки).

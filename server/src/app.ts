@@ -17,6 +17,7 @@ import { publicApiRoutes } from './routes/public-api.routes.ts';
 import { approvalRoutes } from './routes/approvals.routes.ts';
 import { analyticsRoutes } from './routes/analytics.routes.ts';
 import { authRoutes } from './routes/auth.routes.ts';
+import { adminRoutes } from './routes/admin.routes.ts';
 import { billingRoutes } from './routes/billing.routes.ts';
 import { chatRoutes } from './routes/chats.routes.ts';
 import { compareRoutes } from './routes/compare.routes.ts';
@@ -233,6 +234,7 @@ export async function buildApp(db: Db): Promise<FastifyInstance> {
       analyticsRoutes(api, db);
       notificationRoutes(api, db);
       billingRoutes(api, db);
+      adminRoutes(api, db);
       teamRoutes(api, db);
       auditRoutes(api, db);
       ssoRoutes(api, db);
