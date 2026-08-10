@@ -108,15 +108,11 @@
 2. **Settings**:
    - **Service Name**: `web`
    - **Root Directory**: `/` (корень)
-   - Команды заданы файлом `railway.json`. В нём две неочевидные вещи, и обе
-     обязательные:
-     - `npm ci --include=dev` — инструменты сборки лежат в dev-зависимостях, и
-       без флага Railway их не поставит, а сборка упадёт с «vite: not found»;
-     - `npm i -g npm@latest` перед установкой. Nixpacks ставит Node 24 со
-       встроенным npm 11.6, а наш `package-lock.json` собран более новым npm —
-       старый его не принимает и падает с «Missing: … from lock file» на
-       зависимостях puppeteer. Обратной проблемы нет: новый npm читает файлы,
-       собранные старым, поэтому берём свежий и не привязываемся к версии.
+   - Команды заданы файлом `railway.json`, и там намеренно указана ТОЛЬКО
+     сборка (`npm run build`). Зависимости Railway ставит сам, до этой команды.
+     Добавлять в неё `npm ci` нельзя: вторая установка подряд падает с
+     «EBUSY: resource busy or locked, rmdir /app/node_modules/.cache» —
+     Railway держит этот каталог занятым под свой кэш.
 3. **Variables**:
 
 | Переменная | Значение |
@@ -249,8 +245,8 @@ https://lexabai.com/?k=grant-2026      ← жюри гранта
 
 | Симптом | Причина и что делать |
 |---|---|
-| Сборка `web` падает с `vite: not found` | В команде сборки потерялся `--include=dev` |
-| Сборка падает с `npm error Missing: … from lock file` | Из команды сборки пропал `npm i -g npm@latest`: встроенный в Node 24 npm 11.6 не читает наш `package-lock.json` |
+| Сборка падает с `npm error Missing: … from lock file` | `package-lock.json` пересобран новым npm, а в Railway встроен npm 11.6. Пересоберите файл его версией: `npx npm@11.6.1 install --package-lock-only` |
+| Сборка падает с `npm error EBUSY … rmdir '/app/node_modules/.cache'` | В `buildCommand` попал `npm ci`. Зависимости Railway ставит сам — в команде сборки должна остаться только сборка |
 | Сборка падает с `VITE_SITE_ORIGIN не задан` | Не добавили переменную в сервис `web` |
 | Сервер `api` не стартует, в логах «Небезопасные настройки для боевого запуска» | Перенесли `MAIL_REDIRECT_TO` — удалите её |
 | Сайт открывается у всех подряд | `SITE_ACCESS_CODES` пуст. В логах при старте видно: «ОТКРЫТ ВСЕМ» или «доступ по ссылке, кодов: N» |
