@@ -31,6 +31,12 @@ jobs:
       - run: npx eslint . --ext ts,tsx --report-unused-disable-directives
       - run: npx tsc --noEmit
       - run: npm test
+      # Сборке нужен VITE_SITE_ORIGIN: без него она падает намеренно («пустой
+      # canonical хуже отсутствующего»), а .env в репозитории нет и быть не
+      # должно. Берём пример конфига, а не хардкодим домен в workflow: домен
+      # обязан жить в одной точке. Без этой строки шаг сборки в CI не выполнялся
+      # вовсе и валил проверку с 2026-08-06 (ba33494).
+      - run: cp .env.example .env
       - run: npm run build
       # Блокирующий гейт: реальные уязвимости в ПРОДАКШЕН-зависимостях.
       - run: npm audit --omit=dev --audit-level=high
