@@ -17,7 +17,7 @@ import { PassThrough } from 'node:stream';
 import type { FastifyInstance } from 'fastify';
 import { config } from '../config.ts';
 import { HttpError } from '../lib/errors.ts';
-import { googleAccessToken } from '../lib/googleAuth.ts';
+import { credentialsJsonText, googleAccessToken } from '../lib/googleAuth.ts';
 import {
   runChunkPipeline,
   splitTtsChunks,
@@ -97,7 +97,10 @@ export function clipTtsText(s: string, maxBytes: number): string {
  *  простой API-ключ (AIza…) → только Chirp3-HD (Gemini-модели требуют
  *  IAM-роль aiplatform, которую API-ключ нести не может — живой 403). */
 export function ttsAuthMode(cred: string): 'service-account' | 'api-key' {
-  return cred.trim().startsWith('{') ? 'service-account' : 'api-key';
+  // Не `startsWith('{')`: ключ сервисного аккаунта принимается ещё и в base64
+  // (см. credentialsJsonText — так его не может испортить панель хостинга),
+  // а base64 начинается с чего угодно и был бы принят за API-ключ.
+  return credentialsJsonText(cred) ? 'service-account' : 'api-key';
 }
 
 async function resolveTtsAuth(): Promise<Record<string, string>> {

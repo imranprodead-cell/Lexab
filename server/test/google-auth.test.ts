@@ -9,7 +9,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { parseServiceAccount } from '../src/lib/googleAuth.ts';
+import { credentialsJsonText, parseServiceAccount } from '../src/lib/googleAuth.ts';
+import { ttsAuthMode } from '../src/routes/tts.routes.ts';
 
 /** Настоящая пара ключей — подпись должна пройти, а не «примерно совпасть». */
 const { privateKey } = crypto.generateKeyPairSync('rsa', {
@@ -57,4 +58,32 @@ test('нормальный ключ проходит без изменений',
 test('не-JSON и чужой JSON отвергаются понятным сообщением', () => {
   assert.throws(() => parseServiceAccount('AIzaSyНеКлюч'), /не JSON/);
   assert.throws(() => parseServiceAccount('{"foo":1}'), /client_email/);
+});
+
+test('ключ в base64 принимается — эту форму панель хостинга испортить не может', () => {
+  const json = JSON.stringify({
+    client_email: 'tts@example.iam.gserviceaccount.com',
+    private_key: privateKey,
+    project_id: 'lexab',
+  });
+  const encoded = Buffer.from(json, 'utf8').toString('base64');
+
+  // В base64 нет ни слэшей PEM, ни переносов, ни кавычек.
+  assert.ok(!encoded.includes('\\'));
+  assert.ok(!encoded.includes('\n'));
+
+  const sa = parseServiceAccount(encoded);
+  assert.equal(sa.client_email, 'tts@example.iam.gserviceaccount.com');
+  assert.doesNotThrow(() => sign(sa.private_key));
+});
+
+test('base64 распознаётся как сервисный аккаунт, а API-ключ — как API-ключ', () => {
+  const encoded = Buffer.from(JSON.stringify({ client_email: 'a@b.c', private_key: privateKey }), 'utf8').toString(
+    'base64',
+  );
+  // Без этого различения base64 приняли бы за API-ключ и потеряли голоса Gemini.
+  assert.equal(ttsAuthMode(encoded), 'service-account');
+  assert.equal(ttsAuthMode('{"client_email":"a@b.c","private_key":"x"}'), 'service-account');
+  assert.equal(ttsAuthMode('AIzaSyC-ЭтоApiКлюч'), 'api-key');
+  assert.equal(credentialsJsonText('AIzaSyC0000000000000000000000000000000000'), null);
 });
