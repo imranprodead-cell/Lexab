@@ -20,7 +20,8 @@
   align-items: center;
   justify-content: center;
   background: transparent;
-  border: 1px solid var(--border);
+  border: none;
+  padding: 0;
   color: var(--dim);
   cursor: pointer;
 }
