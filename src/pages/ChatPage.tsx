@@ -28,11 +28,23 @@ import { useUIStore } from '@/store/useUIStore';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { useI18n } from '@/i18n/I18nProvider';
 import { formatFileSize } from '@/lib/format';
+import { plansLabel } from '@/lib/planFeatures';
+import { MAX_PHOTO_BYTES, MAX_PHOTOS } from '@/api/uploads.api';
 import { COUNTRIES } from '@/data/countries';
 import type { ChatMessage } from '@/types/domain';
 import chat from '@/components/chat/chat.module.css';
 
 const ACCEPTED = /\.(pdf|docx?|txt)$/i;
+/** Фото страниц договора: по расширению или типу (HEIC в Chrome приходит без типа). */
+const PHOTO = /\.(jpe?g|png|webp|heic|heif)$/i;
+const isPhoto = (f: File) => PHOTO.test(f.name) || f.type.startsWith('image/');
+
+/** «Фото договора 17.10.2026 18-42-05.pdf» — уникально до секунды: документы
+ *  различаются по имени, и вторая пачка фото не должна лечь поверх первой. */
+function photoDocName(base: string, d = new Date()): string {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${base} ${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} ${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}.pdf`;
+}
 
 // Декоративный фон «строк договора» (эталон app/page.tsx): тонкие полосы 2px
 // с процентными ширинами, часть — золотые. Числа = ширина в %, 'gap' — пропуск
@@ -248,7 +260,7 @@ export function ChatPage() {
   const analysisStartedAt = useChatStore((s) => s.analysisStartedAt);
   const cancelAnalysis = useChatStore((s) => s.cancelAnalysis);
 
-  const analyze = (file: { name: string; size: string }, rawFile?: File, opts?: { uploadId?: string }) => {
+  const analyze = (file: { name: string; size: string }, rawFile?: File, opts?: { uploadId?: string; photos?: File[] }) => {
     // Create the sidebar entry and tie it to this canvas, so follow-up
     // questions land in the same session instead of creating a second one.
     void addSession(file.name).then((session) => {
@@ -274,11 +286,51 @@ export function ChatPage() {
     analyze({ name: file.name, size: formatFileSize(file.size) }, file);
   };
 
+  /** Выбор из окна или перетаскивание: один документ ЛИБО фото страниц. */
+  const handleFiles = (files: File[]) => {
+    if (ghost) {
+      pushToast(t('ghost.noFiles'), 'default');
+      return;
+    }
+    const photos = files.filter(isPhoto);
+    if (!photos.length) {
+      if (files.length > 1) pushToast(t('chat.oneDoc'), 'error');
+      else handleFile(files[0]);
+      return;
+    }
+    if (photos.length < files.length) {
+      pushToast(t('chat.mixedFiles'), 'error');
+      return;
+    }
+    // Тариф без «Фото и сканов» — честный отказ сразу, без загрузки снимков.
+    // Флаг считает сервер по тарифу анализа (у участника команды — владельца).
+    if (limits?.features?.scans === false) {
+      pushToast(t('limits.featureLocked', { feature: t('feat.scans'), plans: plansLabel('scans'), plan: limits.plan }), 'error');
+      return;
+    }
+    if (photos.length > MAX_PHOTOS) {
+      pushToast(t('chat.tooManyPhotos', { max: MAX_PHOTOS }), 'error');
+      return;
+    }
+    if (photos.some((p) => p.size > MAX_PHOTO_BYTES)) {
+      pushToast(t('chat.photoTooBig'), 'error');
+      return;
+    }
+    // Порядок страниц — по имени снимка (IMG_0001, IMG_0002… — порядок съёмки);
+    // одинаковые имена (iOS отдаёт «image.jpg») сохраняют порядок выбора.
+    const ordered = [...photos].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    analyze(
+      { name: photoDocName(t('chat.photoDocName')), size: t('chat.photoCount', { n: ordered.length }) },
+      undefined,
+      { photos: ordered },
+    );
+  };
+
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
     setDragging(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) handleFile(file);
+    const files = Array.from(e.dataTransfer.files ?? []);
+    if (files.length) handleFiles(files);
   };
 
   const onDragOver = (e: DragEvent) => {
@@ -315,7 +367,7 @@ export function ChatPage() {
       hideDisclaimer={onWelcome}
       ephemeral={ghost}
       onAnalyze={() => pushToast(ghost ? t('ghost.noFiles') : t('chat.attachFirst'), 'default')}
-      onFile={ghost ? undefined : (file) => handleFile(file)}
+      onFiles={ghost ? undefined : (files) => handleFiles(files)}
       onCloudImport={ghost ? undefined : () => setCloudOpen(true)}
       onSend={(text) => {
         const lower = text.trim().toLowerCase();

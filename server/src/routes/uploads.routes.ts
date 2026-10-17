@@ -1,5 +1,6 @@
 /**
  * POST /uploads — multipart `file` → { fileName, fileSize }.
+ * POST /uploads/photos — фото договора (до 20 страниц) → один PDF-«скан».
  * GET /files/:key — serves locally stored uploads (decrypts via readFileBytes).
  * Provider URLs (Supabase/S3) are NEVER stored or returned: with encryption at
  * rest they point at the LEXAIENC1 ciphertext envelope — anyone opening one
@@ -12,11 +13,12 @@ import { ALLOWED_EXTENSIONS, assertValidFileContent, extractText, fileExtension,
 import { badRequest, HttpError, notFound } from '../lib/errors.ts';
 import { audit } from '../lib/audit.ts';
 import { scanUpload } from '../lib/scan.ts';
-import { assertStorageAllowance, withStorageReservation } from '../lib/limits.ts';
+import { assertStorageAllowance, featureLocked, planHasFeature, quotaOwnerFor, withStorageReservation } from '../lib/limits.ts';
+import { MAX_PHOTO_BYTES, MAX_PHOTOS, photosToPdf } from '../lib/photos.ts';
 import { encText } from '../lib/docCrypto.ts';
 import { attachmentDisposition, formatSize } from '../lib/format.ts';
 import { newId } from '../lib/ids.ts';
-import { deleteFile, readFileBytes, saveFile } from '../storage.ts';
+import { deleteFile, readFileBytes, saveFile, type StoredFile } from '../storage.ts';
 
 const MIME_BY_EXT: Record<string, string> = {
   '.pdf': 'application/pdf',
@@ -25,6 +27,50 @@ const MIME_BY_EXT: Record<string, string> = {
   '.txt': 'text/plain; charset=utf-8',
   '.md': 'text/markdown; charset=utf-8',
 };
+
+/** Все снимки одной загрузки вместе: 20 фото по 15 МБ держать в памяти нельзя,
+ *  а реальный договор с телефона — это 20–80 МБ. */
+const MAX_PHOTOS_TOTAL_BYTES = 100 * 1024 * 1024;
+
+/** Имя документа из фото: клиент присылает локализованное «Фото договора …».
+ *  Убираем разделители путей и управляющие символы, расширение — всегда .pdf. */
+export function photoDocName(raw: string): string {
+  const base = raw
+    .replace(/\p{Cc}+/gu, ' ')
+    .replace(/[/\\:*?"<>|]+/g, ' ')
+    .replace(/\.(pdf|jpe?g|png|webp|heic|heif)$/i, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 150);
+  return `${base || `Photos ${new Date().toISOString().slice(0, 19).replace('T', ' ').replace(/:/g, '-')}`}.pdf`;
+}
+
+/** Строка uploads для уже сохранённого файла — с резервом квоты хранилища
+ *  (при сбое вставки файл удаляется, чтобы не осиротеть). */
+async function recordUpload(
+  db: Db,
+  userId: string,
+  file: { fileName: string; sizeBytes: number; mime: string | undefined; stored: StoredFile; text: string | null },
+): Promise<string> {
+  // Contract text is encrypted at rest with the owner's data key.
+  const storedText = file.text === null ? null : await encText(db, userId, file.text);
+  const id = newId('up');
+  await withStorageReservation(
+    db,
+    userId,
+    file.sizeBytes,
+    (tx) =>
+      tx
+        .query(
+          `INSERT INTO uploads (id, user_id, file_name, size_bytes, mime, storage, storage_key, url, extracted_text)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, $8)`,
+          [id, userId, file.fileName, file.sizeBytes, file.mime, file.stored.storage, file.stored.key, storedText],
+        )
+        .then(() => undefined),
+    () => deleteFile(file.stored.storage, file.stored.key),
+  );
+  return id;
+}
 
 export function uploadRoutes(app: FastifyInstance, db: Db): void {
   app.post(
@@ -79,23 +125,13 @@ export function uploadRoutes(app: FastifyInstance, db: Db): void {
         await deleteFile(stored.storage, stored.key).catch(() => {});
         throw err;
       }
-      // Contract text is encrypted at rest with the owner's data key.
-      const storedText = text === null ? null : await encText(db, req.currentUser.id, text);
-      const id = newId('up');
-      await withStorageReservation(
-        db,
-        req.currentUser.id,
-        buffer.length,
-        (tx) =>
-          tx
-            .query(
-              `INSERT INTO uploads (id, user_id, file_name, size_bytes, mime, storage, storage_key, url, extracted_text)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, $8)`,
-              [id, req.currentUser.id, fileName, buffer.length, part.mimetype, stored.storage, stored.key, storedText],
-            )
-            .then(() => undefined),
-        () => deleteFile(stored.storage, stored.key),
-      );
+      const id = await recordUpload(db, req.currentUser.id, {
+        fileName,
+        sizeBytes: buffer.length,
+        mime: part.mimetype,
+        stored,
+        text,
+      });
 
       await audit(db, req, {
         type: 'file.uploaded',
@@ -104,6 +140,72 @@ export function uploadRoutes(app: FastifyInstance, db: Db): void {
       });
       reply.code(201);
       return { id, fileName, fileSize: formatSize(buffer.length) };
+    },
+  );
+
+  /**
+   * Фото договора с телефона: снимки по порядку страниц → один PDF-«скан»,
+   * дальше тот же путь, что у загруженного PDF (анализ читает его «глазами»).
+   * Тариф проверяется ДО приёма файлов: бесплатному не нужно ждать загрузку
+   * двадцати снимков ради отказа. Тариф — тот, по которому пойдёт анализ
+   * (у участника платной команды — тариф владельца).
+   *
+   * Антивирус исходным снимкам не нужен: они не сохраняются вовсе, в хранилище
+   * попадает только PDF из заново закодированных пикселей.
+   */
+  app.post(
+    '/uploads/photos',
+    { preHandler: [app.authenticate], config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },
+    async (req, reply) => {
+      if (!req.isMultipart()) throw badRequest('Expected multipart/form-data with photo files');
+      const { plan } = await quotaOwnerFor(db, req.currentUser.id);
+      if (!planHasFeature(plan, 'scans')) throw featureLocked('scans', plan);
+
+      const photos: { name: string; buffer: Buffer }[] = [];
+      let requestedName = '';
+      let total = 0;
+      try {
+        for await (const part of req.parts({ limits: { files: MAX_PHOTOS, fileSize: MAX_PHOTO_BYTES } })) {
+          if (part.type === 'field') {
+            if (part.fieldname === 'name' && typeof part.value === 'string') requestedName = part.value;
+            continue;
+          }
+          const buffer = await part.toBuffer();
+          total += buffer.length;
+          if (total > MAX_PHOTOS_TOTAL_BYTES) {
+            throw new HttpError(413, 'Фото слишком много по объёму — разделите договор на части. / The photos are too large in total.');
+          }
+          photos.push({ name: part.filename || `photo-${photos.length + 1}`, buffer });
+        }
+      } catch (err) {
+        const code = (err as { code?: string }).code;
+        if (code === 'FST_FILES_LIMIT') {
+          throw new HttpError(413, `Не больше ${MAX_PHOTOS} фото за раз. / At most ${MAX_PHOTOS} photos at a time.`);
+        }
+        if (code === 'FST_REQ_FILE_TOO_LARGE') {
+          throw new HttpError(413, 'Одно из фото больше 15 МБ. / One of the photos exceeds 15 MB.');
+        }
+        throw err;
+      }
+
+      const pdf = await photosToPdf(photos);
+      const fileName = photoDocName(requestedName);
+      await assertStorageAllowance(db, req.currentUser.id, pdf.length);
+      const stored = await saveFile(pdf, fileName, 'application/pdf');
+      const id = await recordUpload(db, req.currentUser.id, {
+        fileName,
+        sizeBytes: pdf.length,
+        mime: 'application/pdf',
+        stored,
+        text: null,
+      });
+      await audit(db, req, {
+        type: 'file.uploaded',
+        target: { type: 'document', id, label: fileName },
+        metadata: { sizeBytes: pdf.length, photos: photos.length },
+      });
+      reply.code(201);
+      return { id, fileName, fileSize: formatSize(pdf.length), pages: photos.length };
     },
   );
 

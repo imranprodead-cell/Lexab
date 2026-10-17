@@ -12,6 +12,9 @@ export interface UsageMetric {
 export interface FeatureFlags {
   /** Э-подписи закрыты до подключения E-IMZO — интерфейс показывает «скоро». */
   esign: boolean;
+  /** Фото и сканы договоров — по тарифу, которым идёт анализ (у участника
+   *  платной команды это тариф владельца). Нет поля — решает сервер. */
+  scans?: boolean;
 }
 
 export interface PlanLimits {

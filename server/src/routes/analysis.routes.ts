@@ -20,7 +20,8 @@ import { newId } from '../lib/ids.ts';
 import { recalibrateRisk } from '../lib/riskScore.ts';
 import { openSSE, wantsSSE } from '../lib/sse.ts';
 import { asObject, optionalString, requireOneOf, requireString } from '../lib/validate.ts';
-import { generateAnalysis, generateContractDraft, type GeneratedAnalysis } from '../llm.ts';
+import { generateAnalysis, generateContractDraft, readsScans, type GeneratedAnalysis } from '../llm.ts';
+import { startScanOcr } from '../lib/ocr.ts';
 import { jurisdictionCode, retrieveLegalContext } from '../rag/retrieve.ts';
 import type { RetrievedChunk } from '../rag/types.ts';
 import { validateFindings } from '../rag/validate-citations.ts';
@@ -86,7 +87,15 @@ export async function loadAnalysis(db: Db, userId: string, id: string): Promise<
     decRedlines.push({ id: r.id, delText, insText, severity: r.severity, status: r.status });
   }
 
+  // Скан/фото: интерфейс предупреждает, что текст для чата распознан ИИ.
+  const ocr = await db.query<{ ocr_status: 'pending' | 'done' | 'failed' | null }>(
+    'SELECT u.ocr_status FROM analyses a JOIN uploads u ON u.id = a.upload_id WHERE a.id = $1',
+    [id],
+  );
+  const scanOcr = ocr.rows[0]?.ocr_status ?? undefined;
+
   return {
+    ...(scanOcr ? { scanOcr } : {}),
     id: row.id,
     documentId: row.document_id,
     fileName: row.file_name,
@@ -619,7 +628,18 @@ export async function persistAnalysis(
     metadata: { feature: 'analysis', ok: true },
   });
 
+  // Скан/фото: ответ сразу говорит интерфейсу, что текст для чата распознаёт
+  // ИИ (тот же признак, что отдаёт loadAnalysis).
+  const scanOcr = source.uploadId
+    ? ((
+        await db.query<{ ocr_status: 'pending' | 'done' | 'failed' | null }>('SELECT ocr_status FROM uploads WHERE id = $1', [
+          source.uploadId,
+        ])
+      ).rows[0]?.ocr_status ?? undefined)
+    : undefined;
+
   return {
+    ...(scanOcr ? { scanOcr } : {}),
     id: analysisId,
     documentId,
     fileName: source.fileName,
@@ -722,6 +742,13 @@ export async function analyzeSource(
   const playbook = planHasFeature(pbPlan, 'playbooks') || planHasFeature(plan, 'playbooks')
     ? await loadActivePlaybook(db, pbOwnerId, corpus).catch(() => null)
     : null;
+  // Скан или фото без текстового слоя на тарифе, который читает их «глазами»:
+  // рядом с анализом дешёвая модель один раз распознаёт полный текст — для
+  // чата, поиска и повторного анализа. Анализ его не ждёт; ждём только захват
+  // статуса, чтобы ответ анализа уже знал, что текст в пути.
+  if (!source.text?.trim() && source.pdf && source.uploadId && planHasFeature(plan, 'scans') && readsScans(plan)) {
+    await startScanOcr(db, source.uploadId, { pdf: source.pdf, log: logWarn });
+  }
   const gen = await generateAnalysis({
     fileName: source.fileName,
     text: source.text,

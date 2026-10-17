@@ -28,6 +28,7 @@ const FEATURE_KEY: Record<string, string> = {
   batch: 'nav.batch',
   workflows: 'feat.workflows',
   apiAccess: 'nav.api',
+  scans: 'feat.scans',
 };
 
 type Translate = (key: string, params?: Record<string, string | number>) => string;

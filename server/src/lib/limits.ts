@@ -229,7 +229,8 @@ export type PlanFeature =
   | 'clm'
   | 'batch'
   | 'workflows'
-  | 'apiAccess';
+  | 'apiAccess'
+  | 'scans';
 
 const FEATURE_MIN_PLAN: Record<PlanFeature, string[]> = {
   docxExport: ['Standard', 'Pro', 'Business', 'Enterprise'],
@@ -246,6 +247,9 @@ const FEATURE_MIN_PLAN: Record<PlanFeature, string[]> = {
   batch: ['Pro', 'Business', 'Enterprise'],
   workflows: ['Pro', 'Business', 'Enterprise'],
   apiAccess: ['Business', 'Enterprise'],
+  // Фото и сканы читает только модель с «глазами» (Claude); бесплатный тариф
+  // работает на текстовой DeepSeek — решение владельца 2026-10-17.
+  scans: ['Standard', 'Pro', 'Business', 'Enterprise'],
 };
 
 const FEATURE_LABEL: Record<PlanFeature, { ru: string; en: string; plans: string }> = {
@@ -263,23 +267,29 @@ const FEATURE_LABEL: Record<PlanFeature, { ru: string; en: string; plans: string
   batch: { ru: 'Массовый разбор пачки договоров', en: 'Batch contract review', plans: 'Pro и Business' },
   workflows: { ru: 'Агентные воркфлоу (сценарии)', en: 'Agentic workflows', plans: 'Pro и Business' },
   apiAccess: { ru: 'API-доступ для интеграций', en: 'API access', plans: 'Business' },
+  scans: { ru: 'Фото и сканы договоров', en: 'Photos & scanned contracts', plans: 'Standard, Pro и Business' },
 };
 
 export function planHasFeature(plan: string, feature: PlanFeature): boolean {
   return FEATURE_MIN_PLAN[feature].includes(plan);
 }
 
-/** 402 when the user's plan does not include the feature. */
-export async function assertFeature(db: Db, userId: string, feature: PlanFeature): Promise<void> {
-  const plan = await planFor(db, userId);
-  if (planHasFeature(plan, feature)) return;
+/** Отказ 402 «функция не входит в тариф» — один вид для всех гейтов. */
+export function featureLocked(feature: PlanFeature, plan: string): HttpError {
   const f = FEATURE_LABEL[feature];
-  throw new HttpError(
+  return new HttpError(
     402,
     `«${f.ru}» доступно на планах ${f.plans} (у вас ${plan}). ${upgradeHint}`,
     'feature_locked',
     { feature, plan, plans: f.plans },
   );
+}
+
+/** 402 when the user's plan does not include the feature. */
+export async function assertFeature(db: Db, userId: string, feature: PlanFeature): Promise<void> {
+  const plan = await planFor(db, userId);
+  if (planHasFeature(plan, feature)) return;
+  throw featureLocked(feature, plan);
 }
 
 /**

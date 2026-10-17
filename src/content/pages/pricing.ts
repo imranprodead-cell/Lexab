@@ -7,7 +7,8 @@
  * больше, чем сервер даёт: цифру некуда вписать руками.
  *
  * Состав возможностей по ступеням — зеркало FEATURE_MIN_PLAN (planFeatures.ts),
- * проверено 05.08.2026: Standard+ — выгрузка DOCX и шаблоны; Pro+ — сравнение
+ * проверено 05.08.2026 (+17.10.2026 фото и сканы): Standard+ — выгрузка DOCX, шаблоны,
+ * фото и сканы договоров; Pro+ — сравнение
  * редакций, история версий, согласования, плейбуки, обязательства и сроки,
  * пакетная проверка, сценарии; Business+ — команда, журнал действий, единый
  * вход, программный доступ.
@@ -140,12 +141,12 @@ export const pricing: PageContent = {
         {
           title: { ru: 'Standard', en: 'Standard', de: 'Standard', ar: 'Standard', kk: 'Standard', uz: 'Standard' },
           body: {
-            ru: 'Добавляются выгрузка разбора в DOCX и библиотека шаблонов с черновиком по форме.',
-            en: 'Adds DOCX export of the review and the template library with form-driven drafts.',
-            de: 'Ergänzt den DOCX-Export der Prüfung und die Vorlagenbibliothek mit Entwurf per Formular.',
-            ar: 'يضيف تصدير المراجعة إلى DOCX ومكتبة القوالب مع مسودة عبر نموذج.',
-            kk: 'Талдауды DOCX-ке шығару және форма бойынша жобасы бар үлгілер кітапханасы қосылады.',
-            uz: 'Tahlilni DOCX ga chiqarish va shakl boʻyicha loyihasi bor shablonlar kutubxonasi qoʻshiladi.',
+            ru: 'Добавляются выгрузка разбора в DOCX, библиотека шаблонов с черновиком по форме и проверка фото и сканов договоров.',
+            en: 'Adds DOCX export of the review, the template library with form-driven drafts, and review of contract photos and scans.',
+            de: 'Ergänzt den DOCX-Export der Prüfung, die Vorlagenbibliothek mit Entwurf per Formular und die Prüfung von Vertragsfotos und Scans.',
+            ar: 'يضيف تصدير المراجعة إلى DOCX، ومكتبة القوالب مع مسودة عبر نموذج، ومراجعة صور العقود ونسخها الممسوحة ضوئيًا.',
+            kk: 'Талдауды DOCX-ке шығару, форма бойынша жобасы бар үлгілер кітапханасы және шарттардың фотолары мен скандарын тексеру қосылады.',
+            uz: 'Tahlilni DOCX ga chiqarish, shakl boʻyicha loyihasi bor shablonlar kutubxonasi va shartnomalarning fotosurat va skanlarini tekshirish qoʻshiladi.',
           },
         },
         {

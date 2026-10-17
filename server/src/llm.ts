@@ -12,9 +12,11 @@
  */
 import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
+import { PDFDocument } from 'pdf-lib';
 import { config } from './config.ts';
 import { HttpError, serviceUnavailable } from './lib/errors.ts';
 import { recordLlmUsage } from './lib/aiUsage.ts';
+import { featureLocked, planHasFeature } from './lib/limits.ts';
 import {
   fallbackAnalysis,
   fallbackChatReply,
@@ -522,7 +524,12 @@ export async function generateAnalysis(input: AnalysisInput): Promise<GeneratedA
       // ── DeepSeek path (Free plan): text-only. No visual PDF reading, so a
       // scan without a text layer fails honestly instead of fabricating.
       if (isDeepSeekModel(model)) {
-        if (!text?.trim()) throw new HttpError(422, SCAN_NEEDS_TEXT);
+        if (!text?.trim()) {
+          // Скан/фото на тарифе без «глаз» — это вопрос тарифа, а не битый
+          // файл: тот же отказ 402, что и у других платных функций.
+          if (input.pdf && !planHasFeature(input.plan ?? 'Free', 'scans')) throw featureLocked('scans', input.plan ?? 'Free');
+          throw new HttpError(422, SCAN_NEEDS_TEXT);
+        }
         const raw = await runDeepseek({
           op: 'analysis',
           model,
@@ -579,6 +586,100 @@ export async function generateAnalysis(input: AnalysisInput): Promise<GeneratedA
     console.error(`[llm] analysis generation failed (failing loud, no fabrication): ${(err as Error).message}`);
     throw serviceUnavailable(LLM_UNAVAILABLE);
   }
+}
+
+/**
+ * Читает ли модель этого тарифа скан «глазами». DeepSeek (бесплатный тариф)
+ * понимает только текст; Claude получает PDF целиком. Без ключа Anthropic —
+ * никто.
+ */
+export function readsScans(plan?: string | null): boolean {
+  return Boolean(config.anthropicApiKey) && !isDeepSeekModel(modelForPlan(plan));
+}
+
+const OCR_SYSTEM = `You transcribe scanned or photographed documents (contracts and other legal papers) into plain text.
+
+Rules:
+- Reproduce the text exactly as printed, in its original language and spelling. Never translate, summarize, paraphrase, correct or complete it.
+- Keep the reading order, clause numbering, headings and paragraph breaks. Render tables row by row, separating cells with " | ".
+- Write [illegible] for anything you cannot read with certainty instead of guessing. Write [signature] for signatures and [stamp] for stamps and seals; transcribe handwriting only where it is legible.
+- Output only the transcription: no preface, no comments, no Markdown.
+- Output nothing for a page that has no text.`;
+
+/** Страниц в одном запросе: части идут параллельно — 20 страниц распознаются
+ *  за время трёх, а не двадцати (ответ модели упирается в скорость вывода). */
+const OCR_PAGES_PER_CHUNK = 3;
+const OCR_CONCURRENCY = 4;
+/** Длиннее не распознаём: столько страниц в скане до 10 МБ не бывает, а
+ *  счёт за такой файл был бы несоразмерным. */
+export const OCR_MAX_PAGES = 100;
+
+/** PDF → части по `size` страниц. Не разбирается (шифрованный, битый) — целиком. */
+async function splitPdf(pdf: Buffer, size: number): Promise<Buffer[]> {
+  let src: PDFDocument;
+  try {
+    src = await PDFDocument.load(pdf);
+  } catch {
+    return [pdf];
+  }
+  const count = src.getPageCount();
+  if (count > OCR_MAX_PAGES) throw new Error(`scan has ${count} pages (limit ${OCR_MAX_PAGES})`);
+  if (count <= size) return [pdf];
+  const parts: Buffer[] = [];
+  for (let start = 0; start < count; start += size) {
+    const part = await PDFDocument.create();
+    const indices = Array.from({ length: Math.min(size, count - start) }, (_, k) => start + k);
+    for (const page of await part.copyPages(src, indices)) part.addPage(page);
+    parts.push(Buffer.from(await part.save()));
+  }
+  return parts;
+}
+
+async function transcribeChunk(api: Anthropic, pdf: Buffer): Promise<string> {
+  const model = config.ocrModel;
+  const stream = api.beta.messages.stream({
+    model,
+    max_tokens: 16000,
+    system: OCR_SYSTEM,
+    // Переписывание со страницы не требует рассуждений: без них весь бюджет
+    // уходит в сам текст. Haiku принимает disabled; другим моделям не шлём.
+    ...(/haiku/.test(model) ? { thinking: { type: 'disabled' as const } } : {}),
+    messages: [
+      {
+        role: 'user',
+        content: [
+          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: pdf.toString('base64') } },
+          { type: 'text', text: 'Transcribe this document.' },
+        ],
+      },
+    ],
+  });
+  const message = await stream.finalMessage();
+  logUsage('ocr', model, message);
+  // Обрезанная (max_tokens) или отклонённая часть — это ДЫРА в тексте договора.
+  // Текст с дырой хуже, чем никакого: чат уверенно скажет «такого пункта нет».
+  if (message.stop_reason !== 'end_turn') throw new Error(`OCR stopped: ${message.stop_reason}`);
+  return textOf(message).trim();
+}
+
+/**
+ * Распознать текст скана/фото целиком. Бросает при любой неудаче части —
+ * частичный текст наружу не отдаётся (см. transcribeChunk).
+ */
+export async function transcribeScan(pdf: Buffer): Promise<string> {
+  const api = getClient();
+  if (!api) throw new Error('ANTHROPIC_API_KEY is not set');
+  const parts = await splitPdf(pdf, OCR_PAGES_PER_CHUNK);
+  const texts: string[] = new Array(parts.length);
+  let next = 0;
+  const lane = async () => {
+    while (next < parts.length) {
+      const i = next++;
+      texts[i] = await transcribeChunk(api, parts[i]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(OCR_CONCURRENCY, parts.length) }, lane));
+  return texts.filter(Boolean).join('\n\n');
 }
 
 /**

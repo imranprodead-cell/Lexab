@@ -140,6 +140,14 @@ const PLANS: Plan[] = [
         ar: "التصدير إلى PDF و DOCX",
       },
       {
+        ru: "Фото и сканы договоров",
+        en: "Photos & scanned contracts",
+        de: "Fotos und gescannte Verträge",
+        kk: "Шарттардың фотолары мен скандары",
+        uz: "Shartnomalarning fotosurat va skanlari",
+        ar: "صور العقود ونسخها الممسوحة ضوئيًا",
+      },
+      {
         ru: "2 ГБ защищённого хранилища",
         en: "2 GB secure storage",
         de: "2 GB sicherer Speicher",

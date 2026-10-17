@@ -11,7 +11,7 @@
 import { create } from 'zustand';
 import { consumePendingProject, USE_MOCK, analysisApi, documentsApi } from '@/api';
 import { chatsApi } from '@/api/chats.api';
-import { uploadsApi } from '@/api/uploads.api';
+import { uploadsApi, type UploadedFile } from '@/api/uploads.api';
 import { ApiError } from '@/api/util';
 import { apiErrorMessage } from '@/i18n/apiError';
 import { COUNTRIES } from '@/data/countries';
@@ -103,11 +103,13 @@ interface ChatState {
   setFeedback: (messageId: string, value: 'up' | 'down' | null) => void;
 
   /** `opts.keepCanvas`: не обнулять текущий документ на время анализа — воркспейс
-   *  остаётся открытым (черновик шаблона анализируется «на месте»). */
+   *  остаётся открытым (черновик шаблона анализируется «на месте»).
+   *  `opts.photos`: фото страниц договора по порядку — сервер склеит их в PDF,
+   *  `file.name` тогда — имя будущего документа. */
   startAnalysis: (
     file: { name: string; size: string },
     rawFile?: File,
-    opts?: { keepCanvas?: boolean; uploadId?: string },
+    opts?: { keepCanvas?: boolean; uploadId?: string; photos?: File[] },
   ) => Promise<void>;
   /** Отменить идущий анализ (кнопка «Отменить» на карточке). */
   cancelAnalysis: () => void;
@@ -162,6 +164,9 @@ interface DocSnapshot {
 /** Последний прикреплённый файл (не переживает перезагрузку страницы) —
  *  нужен «Повторить» после неудачного анализа, чтобы переслать ТЕ ЖЕ байты. */
 let lastRawFile: File | null = null;
+/** То же для фото страниц: «Повторить» после сбоя анализа берёт уже
+ *  загруженный PDF (upload), а если не дошла сама загрузка — шлёт снимки снова. */
+let lastPhotos: { name: string; photos: File[]; upload: UploadedFile | null } | null = null;
 
 let stepTimers: ReturnType<typeof setTimeout>[] = [];
 function clearStepTimers() {
@@ -449,12 +454,16 @@ export const useChatStore = create<ChatState>((set, get) => {
     // НЕЛЬЗЯ: сервер разрешал бы контент по имени и мог молча разобрать
     // устаревшую версию или вообще ничего (выдуманный «анализ»).
     if (rawFile) lastRawFile = rawFile;
-    const effectiveRaw = rawFile ?? (lastRawFile && lastRawFile.name === file.name ? lastRawFile : null);
+    if (opts?.photos?.length) lastPhotos = { name: file.name, photos: opts.photos, upload: null };
+    const photoRun = !rawFile && !opts?.uploadId && lastPhotos?.name === file.name ? lastPhotos : null;
+    const effectiveRaw = photoRun
+      ? null
+      : (rawFile ?? (lastRawFile && lastRawFile.name === file.name ? lastRawFile : null));
     // opts.uploadId — файл уже НА СЕРВЕРЕ (импорт из Google Drive / OneDrive /
     // Dropbox). Раньше этот гейт заворачивал такой запуск, и импорт из облака
     // НИКОГДА не доходил до анализа: пользователь видел «прикрепите файл
     // заново» после успешного импорта (аудит 2026-08-03).
-    if (!effectiveRaw && !opts?.uploadId && !USE_MOCK) {
+    if (!effectiveRaw && !opts?.uploadId && !photoRun && !USE_MOCK) {
       useUIStore.getState().pushToast(tStandalone('chat.retryNeedsFile'), 'error');
       return;
     }
@@ -494,8 +503,19 @@ export const useChatStore = create<ChatState>((set, get) => {
     analysisAbort = controller;
 
     try {
-      // Ship the file itself first — the AI reads the actual contract text.
-      if (effectiveRaw && !opts?.uploadId && !USE_MOCK) {
+      let uploadId = opts?.uploadId;
+      let fileName = file.name;
+      let fileSize = file.size;
+      if (photoRun && !USE_MOCK) {
+        // Фото → PDF на сервере. Отказ (тариф, размер, не фото) уходит в
+        // карточку ошибки с настоящей причиной, а не общим «не загрузилось».
+        const up = photoRun.upload ?? (await uploadsApi.uploadPhotos(photoRun.photos, file.name));
+        photoRun.upload = up;
+        uploadId = up.id;
+        fileName = up.fileName;
+        fileSize = up.fileSize;
+      } else if (effectiveRaw && !opts?.uploadId && !USE_MOCK) {
+        // Ship the file itself first — the AI reads the actual contract text.
         try {
           await uploadsApi.upload(effectiveRaw);
         } catch {
@@ -510,10 +530,10 @@ export const useChatStore = create<ChatState>((set, get) => {
       }
       const sessionAtCall = get().serverSessionId;
       const result = await analysisApi.analyze({
-        fileName: file.name,
-        fileSize: file.size,
+        fileName,
+        fileSize,
           jurisdiction: defaultLaw(),
-          ...(opts?.uploadId ? { uploadId: opts.uploadId } : {}),
+          ...(uploadId ? { uploadId } : {}),
         },
         controller?.signal,
       );

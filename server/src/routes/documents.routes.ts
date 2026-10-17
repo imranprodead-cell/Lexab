@@ -477,15 +477,19 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
     // иначе при двух файлах с одним именем взяли бы чужой (новейший) текст.
     // Старые анализы без upload_id → откат к поиску по имени файла (как раньше).
     const uploadRes = uploadId
-      ? await db.query<{ extracted_text: string | null }>(
-          'SELECT extracted_text FROM uploads WHERE id = $1 AND user_id = $2',
+      ? await db.query<{ extracted_text: string | null; ocr_status: string | null }>(
+          'SELECT extracted_text, ocr_status FROM uploads WHERE id = $1 AND user_id = $2',
           [uploadId, doc.user_id],
         )
-      : await db.query<{ extracted_text: string | null }>(
-          'SELECT extracted_text FROM uploads WHERE user_id = $1 AND file_name = $2 ORDER BY created_at DESC LIMIT 1',
+      : await db.query<{ extracted_text: string | null; ocr_status: string | null }>(
+          'SELECT extracted_text, ocr_status FROM uploads WHERE user_id = $1 AND file_name = $2 ORDER BY created_at DESC LIMIT 1',
           [doc.user_id, doc.name],
         );
-    const rawFull = uploadRes.rows[0]?.extracted_text ?? null;
+    // Текст скана, распознанный ИИ, в экспорт НЕ идёт: ошибка распознавания в
+    // сумме или дате не должна уехать клиенту файлом как «чистый договор».
+    // Скан экспортируется как раньше — разобранными пунктами.
+    const ocrText = uploadRes.rows[0]?.ocr_status === 'done';
+    const rawFull = ocrText ? null : (uploadRes.rows[0]?.extracted_text ?? null);
     let fullText = rawFull === null ? null : await decText(db, doc.user_id, rawFull);
     if (fullText) {
       // Apply every ACCEPTED redline to the full source text — robustly, so the

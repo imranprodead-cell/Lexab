@@ -167,12 +167,12 @@ export const contractAnalysis: PageContent = {
             uz: 'Yuklash va tayyorlash',
           },
           body: {
-            ru: 'Файл проверяется антивирусом, из него извлекается текст, содержимое шифруется вашим ключом. Отсканированный PDF без текстового слоя честно отклоняется, а не разбирается наугад.',
-            en: 'The file is scanned for malware, its text is extracted and the content is encrypted with your key. A scanned PDF with no text layer is honestly rejected rather than guessed at.',
-            de: 'Die Datei wird auf Schadsoftware geprüft, der Text extrahiert und der Inhalt mit Ihrem Schlüssel verschlüsselt. Ein gescanntes PDF ohne Textebene wird ehrlich abgelehnt statt erraten.',
-            ar: 'يُفحص الملف بمضاد الفيروسات، ويُستخرج نصه، ويُشفَّر المحتوى بمفتاحك. أما ملف PDF الممسوح ضوئيًا بلا طبقة نصية فيُرفض بصراحة بدل تخمينه.',
-            kk: 'Файл антивируспен тексеріледі, мәтіні алынады, мазмұны сіздің кілтіңізбен шифрланады. Мәтін қабаты жоқ сканерленген PDF болжаммен талданбай, ашық түрде қабылданбайды.',
-            uz: 'Fayl antivirus bilan tekshiriladi, matni ajratib olinadi, mazmuni sizning kalitingiz bilan shifrlanadi. Matn qatlami yoʻq skanerlangan PDF taxmin qilinmay, ochiq rad etiladi.',
+            ru: 'Файл проверяется антивирусом, из него извлекается текст, содержимое шифруется вашим ключом. Скан или фото договора на платных тарифах ИИ читает прямо со страниц; на бесплатном такой файл честно отклоняется, а не разбирается наугад.',
+            en: 'The file is scanned for malware, its text is extracted and the content is encrypted with your key. On paid plans the AI reads a scan or photo of the contract straight from the pages; on the free plan such a file is honestly rejected rather than guessed at.',
+            de: 'Die Datei wird auf Schadsoftware geprüft, der Text extrahiert und der Inhalt mit Ihrem Schlüssel verschlüsselt. In kostenpflichtigen Tarifen liest die KI einen Scan oder ein Foto des Vertrags direkt von den Seiten; im kostenlosen Tarif wird eine solche Datei ehrlich abgelehnt statt erraten.',
+            ar: 'يُفحص الملف بمضاد الفيروسات، ويُستخرج نصه، ويُشفَّر المحتوى بمفتاحك. في الخطط المدفوعة يقرأ الذكاء الاصطناعي المسح الضوئي أو صورة العقد مباشرة من الصفحات، أما في الخطة المجانية فيُرفض هذا الملف بصراحة بدل تخمينه.',
+            kk: 'Файл антивируспен тексеріледі, мәтіні алынады, мазмұны сіздің кілтіңізбен шифрланады. Ақылы тарифтерде ЖИ шарттың сканын немесе фотосын тікелей беттерден оқиды; тегін тарифте мұндай файл болжаммен талданбай, ашық түрде қабылданбайды.',
+            uz: 'Fayl antivirus bilan tekshiriladi, matni ajratib olinadi, mazmuni sizning kalitingiz bilan shifrlanadi. Pullik tariflarda AI shartnoma skani yoki fotosuratini bevosita sahifalardan oʻqiydi; bepul tarifda esa bunday fayl taxmin qilinmay, ochiq rad etiladi.',
           },
         },
         {

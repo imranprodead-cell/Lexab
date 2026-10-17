@@ -119,12 +119,12 @@ export const documentChat: PageContent = {
         {
           title: { ru: 'Загружаете документ', en: 'You upload a document', de: 'Sie laden ein Dokument hoch', ar: 'ترفع مستندًا', kk: 'Құжатты жүктейсіз', uz: 'Hujjatni yuklaysiz' },
           body: {
-            ru: 'PDF, DOCX или обычный текст. Содержимое файла сверяется с его расширением — подменённый файл не пройдёт, — и текст шифруется до попадания в хранилище.',
-            en: 'PDF, DOCX or plain text. The file’s content is checked against its extension — a disguised file will not pass — and the text is encrypted before it reaches storage.',
-            de: 'PDF, DOCX oder reiner Text. Der Inhalt wird gegen die Dateiendung geprüft — eine getarnte Datei kommt nicht durch — und der Text wird vor der Ablage verschlüsselt.',
-            ar: 'PDF أو DOCX أو نص عادي. يُطابَق محتوى الملف مع امتداده — فالملف المموَّه لا يمر — ويُشفَّر النص قبل وصوله إلى التخزين.',
-            kk: 'PDF, DOCX немесе қарапайым мәтін. Файл мазмұны кеңейтіміне сәйкестігі тексеріледі — жасырылған файл өтпейді — және мәтін сақтауға түспей тұрып шифрланады.',
-            uz: 'PDF, DOCX yoki oddiy matn. Fayl mazmuni kengaytmasiga mosligi tekshiriladi — niqoblangan fayl oʻtmaydi — va matn saqlashga tushishidan oldin shifrlanadi.',
+            ru: 'PDF, DOCX или обычный текст, а на платных тарифах — ещё скан или фото договора: ИИ один раз распознаёт его текст, и чат честно об этом предупреждает. Содержимое файла сверяется с его расширением — подменённый файл не пройдёт, — и текст шифруется до попадания в хранилище.',
+            en: 'PDF, DOCX or plain text — and on paid plans also a scan or photo of the contract: AI recognizes its text once, and the chat says so plainly. The file’s content is checked against its extension — a disguised file will not pass — and the text is encrypted before it reaches storage.',
+            de: 'PDF, DOCX oder reiner Text — in kostenpflichtigen Tarifen auch ein Scan oder Foto des Vertrags: Die KI erkennt dessen Text einmalig, und der Chat weist offen darauf hin. Der Inhalt wird gegen die Dateiendung geprüft — eine getarnte Datei kommt nicht durch — und der Text wird vor der Ablage verschlüsselt.',
+            ar: 'PDF أو DOCX أو نص عادي، وفي الخطط المدفوعة أيضًا مسح ضوئي أو صورة للعقد: يتعرّف الذكاء الاصطناعي على نصه مرة واحدة، وتنبّه المحادثة إلى ذلك بوضوح. يُطابَق محتوى الملف مع امتداده — فالملف المموَّه لا يمر — ويُشفَّر النص قبل وصوله إلى التخزين.',
+            kk: 'PDF, DOCX немесе қарапайым мәтін, ал ақылы тарифтерде — шарттың сканы немесе фотосы да: ЖИ оның мәтінін бір рет таниды, ал чат бұл туралы ашық ескертеді. Файл мазмұны кеңейтіміне сәйкестігі тексеріледі — жасырылған файл өтпейді — және мәтін сақтауға түспей тұрып шифрланады.',
+            uz: 'PDF, DOCX yoki oddiy matn, pullik tariflarda esa shartnoma skani yoki fotosurati ham: AI uning matnini bir marta taniydi, chat esa bu haqda ochiq ogohlantiradi. Fayl mazmuni kengaytmasiga mosligi tekshiriladi — niqoblangan fayl oʻtmaydi — va matn saqlashga tushishidan oldin shifrlanadi.',
           },
         },
         {

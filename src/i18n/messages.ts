@@ -258,6 +258,7 @@ export const MESSAGES: Dict = {
   'feat.versions': { ru: 'История версий', en: 'Version history' },
   'feat.sso': { ru: 'Единый вход (SSO)', en: 'Single Sign-On (SSO)' },
   'feat.workflows': { ru: 'Агентные сценарии', en: 'Agentic workflows' },
+  'feat.scans': { ru: 'Фото и сканы договоров', en: 'Photos & scanned contracts' },
   'plan.upsellTitle': { ru: 'Функция старших тарифов', en: 'Available on higher plans' },
   'limits.featureLocked': {
     ru: '«{feature}» доступно на тарифах {plans} (у вас {plan}). Обновите тариф в разделе «Тарифы».',
@@ -1066,8 +1067,16 @@ export const MESSAGES: Dict = {
   'sigstatus.Declined': { ru: 'Отклонён', en: 'Declined' },
 
   // Chat composer
-  'chat.fileTypes': { ru: 'Поддерживаются файлы PDF, DOC/DOCX, TXT.', en: 'Supported files: PDF, DOC/DOCX, TXT.' },
+  'chat.fileTypes': { ru: 'Поддерживаются PDF, DOC/DOCX, TXT, а на платных тарифах — фото договора (JPG, PNG, HEIC).', en: 'Supported: PDF, DOC/DOCX, TXT, and on paid plans contract photos (JPG, PNG, HEIC).' },
   'chat.fileTooBig': { ru: 'Файл больше 10 МБ — загрузите файл поменьше.', en: 'File exceeds 10 MB — please upload a smaller one.' },
+  'chat.photoDocName': { ru: 'Фото договора', en: 'Contract photos' },
+  'chat.photoCount': { ru: 'Фото: {n}', en: 'Photos: {n}' },
+  'chat.mixedFiles': { ru: 'Выберите либо один документ, либо фото страниц договора — не вместе.', en: 'Choose either one document or photos of the contract pages — not both.' },
+  'chat.oneDoc': { ru: 'По одному договору за раз — выберите один файл.', en: 'One contract at a time — choose a single file.' },
+  'chat.tooManyPhotos': { ru: 'Не больше {max} фото за раз — это {max} страниц договора.', en: 'At most {max} photos at a time — that is {max} contract pages.' },
+  'chat.photoTooBig': { ru: 'Фото больше 15 МБ — выберите снимок поменьше.', en: 'A photo exceeds 15 MB — please choose a smaller one.' },
+  'chat.scanNote': { ru: 'Договор загружен сканом или фото. Текст для вопросов в чате распознаёт ИИ — сверяйте цитаты с оригиналом.', en: 'This contract was uploaded as a scan or photo. Its text for chat questions is recognized by AI — check quotes against the original.' },
+  'chat.scanFailed': { ru: 'Договор загружен сканом или фото, и полный текст распознать не удалось — в чате доступны итог разбора и ключевые пункты.', en: 'This contract was uploaded as a scan or photo and its full text could not be recognized — chat can use the review summary and key clauses.' },
   // Текст прямо противоречил коду: анализ в этом случае НЕ запускается вовсе
   // (загрузка не удалась — конвейер обрывается). Аудит 2026-08-03.
   'chat.an.elapsed': { ru: 'Идёт разбор · {time}', en: 'Reviewing · {time}' },

@@ -285,13 +285,23 @@ export async function httpForm<T>(path: string, form: FormData): Promise<T> {
   if (!response.ok) {
     noteUnauthorized(path, response.status, authH.Authorization);
     let message = `Request failed (${response.status})`;
+    // code/details — как в http(): отказ по тарифу при загрузке фото должен
+    // собираться на языке интерфейса, а не показывать русскую строку сервера.
+    let code: string | undefined;
+    let details: Record<string, string | number | null> | undefined;
     try {
-      const data = (await response.json()) as { message?: string };
+      const data = (await response.json()) as {
+        message?: string;
+        code?: string;
+        details?: Record<string, string | number | null>;
+      };
       if (data?.message) message = data.message;
+      if (data?.code) code = data.code;
+      if (data?.details) details = data.details;
     } catch {
       /* non-JSON error body */
     }
-    throw new ApiError(message, response.status);
+    throw new ApiError(message, response.status, code, details);
   }
   return (await response.json()) as T;
 }

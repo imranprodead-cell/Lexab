@@ -24,7 +24,8 @@ export type PlanFeature =
   | 'clm'
   | 'batch'
   | 'workflows'
-  | 'apiAccess';
+  | 'apiAccess'
+  | 'scans';
 
 const PAID = ['Standard', 'Pro', 'Business', 'Enterprise'];
 const PRO = ['Pro', 'Business', 'Enterprise'];
@@ -45,6 +46,7 @@ export const FEATURE_MIN_PLAN: Record<PlanFeature, string[]> = {
   batch: PRO,
   workflows: PRO,
   apiAccess: BUSINESS,
+  scans: PAID,
 };
 
 /** Человекочитаемый список тарифов для подсказки («Pro и Business»). */

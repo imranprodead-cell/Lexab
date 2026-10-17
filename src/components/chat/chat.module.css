@@ -810,6 +810,19 @@
   margin: 0;
   min-height: 72px;
 }
+.scanNote {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--mut);
+}
+.scanNote svg {
+  flex: none;
+  margin-top: 2px;
+}
 /* Modest fade-in for newly appearing message texts. */
 .textIn {
   animation: lxTextIn 0.24s ease both;

@@ -11,13 +11,14 @@ import type { Db } from '../db.ts';
 import { badRequest, HttpError, notFound } from '../lib/errors.ts';
 import { audit } from '../lib/audit.ts';
 import { decJsonFromJsonb, decText, decTextStrict, encText } from '../lib/docCrypto.ts';
-import { bumpUsage, releaseAiRequest, reserveAiRequest, withAiRequest } from '../lib/limits.ts';
+import { bumpUsage, planHasFeature, releaseAiRequest, reserveAiRequest, withAiRequest } from '../lib/limits.ts';
+import { startScanOcr, type OcrStatus } from '../lib/ocr.ts';
 import { resolveAnalysisAccess } from '../lib/teamAccess.ts';
 import { toIso } from '../lib/format.ts';
 import { newId } from '../lib/ids.ts';
 import { openSSE, wantsSSE } from '../lib/sse.ts';
 import { asObject, requireString } from '../lib/validate.ts';
-import { generateChatReply, generateHistorySummary, type ChatTurn } from '../llm.ts';
+import { generateChatReply, generateHistorySummary, readsScans, type ChatTurn } from '../llm.ts';
 import { jurisdictionCode, retrieveLegalContext } from '../rag/retrieve.ts';
 import type { ChatMessage, ChatSession } from '../types.ts';
 
@@ -51,8 +52,14 @@ async function toSessionDecrypted(db: Db, userId: string, r: SessionRow): Promis
 
 /** Contract context for document Q&A: summary + clause text with redline state.
  *  Exported for the prompt-equality test (encryption must not change one byte
- *  of what the model receives). */
-export async function buildAnalysisContext(db: Db, userId: string, analysisId: string): Promise<string | undefined> {
+ *  of what the model receives). `opts.plan` (тариф, по которому идёт чат)
+ *  разрешает запустить распознавание старого скана, у которого текста нет. */
+export async function buildAnalysisContext(
+  db: Db,
+  userId: string,
+  analysisId: string,
+  opts: { plan?: string; log?: (msg: string) => void } = {},
+): Promise<string | undefined> {
   // Owner or team member with read access to the shared document.
   try {
     await resolveAnalysisAccess(db, userId, analysisId);
@@ -107,18 +114,24 @@ export async function buildAnalysisContext(db: Db, userId: string, analysisId: s
   // contract" grounds in the right file even when two uploads share a name; fall
   // back to newest-by-name for legacy analyses without a link.
   const upload = row.upload_id
-    ? await db.query<{ extracted_text: string | null }>('SELECT extracted_text FROM uploads WHERE id = $1 AND user_id = $2', [
-        row.upload_id,
-        row.user_id,
-      ])
-    : await db.query<{ extracted_text: string | null }>(
-        'SELECT extracted_text FROM uploads WHERE user_id = $1 AND file_name = $2 ORDER BY created_at DESC LIMIT 1',
+    ? await db.query<{ extracted_text: string | null; ocr_status: OcrStatus | null }>(
+        'SELECT extracted_text, ocr_status FROM uploads WHERE id = $1 AND user_id = $2',
+        [row.upload_id, row.user_id],
+      )
+    : await db.query<{ extracted_text: string | null; ocr_status: OcrStatus | null }>(
+        'SELECT extracted_text, ocr_status FROM uploads WHERE user_id = $1 AND file_name = $2 ORDER BY created_at DESC LIMIT 1',
         [row.user_id, row.file_name],
       );
   // Present-but-undecryptable text must throw, not silently drop the "Full
   // contract text" block from the grounding context.
   const rawFull = upload.rows[0]?.extracted_text ?? null;
   const fullText = rawFull === null ? null : await decTextStrict(db, ownerId, rawFull);
+  let ocrStatus = upload.rows[0]?.ocr_status ?? null;
+  // Скан, разобранный до появления распознавания (или прошлый сбой): запускаем
+  // сейчас — этот ответ ещё без полного текста, следующий уже с ним.
+  if (!fullText && row.upload_id && opts.plan && planHasFeature(opts.plan, 'scans') && readsScans(opts.plan)) {
+    if (await startScanOcr(db, row.upload_id, { log: opts.log })) ocrStatus = 'pending';
+  }
 
   return [
     `File: ${row.file_name}`,
@@ -127,8 +140,14 @@ export async function buildAnalysisContext(db: Db, userId: string, analysisId: s
     // Явный маркер отсутствия полного текста: без него модель на «переведи
     // договор» достраивает недостающие клаузы из головы.
     fullText
-      ? `Full contract text:\n${fullText}`
-      : 'FULL CONTRACT TEXT UNAVAILABLE — only the reviewed key clauses above are available. Say so if asked to translate or quote the whole contract; never invent missing clauses.',
+      ? ocrStatus === 'done'
+        ? // Текст переписан ИИ со скана: ошибка в цифре или фамилии возможна,
+          // и человек должен знать это до того, как понесёт цитату дальше.
+          `Full contract text — recognized by AI from a scanned or photographed document, so it may contain recognition errors. When you quote it, remind the user to check the quote against the original scan:\n${fullText}`
+        : `Full contract text:\n${fullText}`
+      : ocrStatus === 'pending'
+        ? 'FULL CONTRACT TEXT IS STILL BEING RECOGNIZED FROM THE SCAN — only the reviewed key clauses above are available right now. If the question needs the whole contract, say the full text will be ready in about a minute; never invent missing clauses.'
+        : 'FULL CONTRACT TEXT UNAVAILABLE — only the reviewed key clauses above are available. Say so if asked to translate or quote the whole contract; never invent missing clauses.',
   ]
     .filter(Boolean)
     .join('\n\n');
@@ -410,7 +429,9 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
       // Document Q&A: when the client passes the analysis it is looking at,
       // the reply is grounded in that contract.
       const analysisId = typeof body.analysisId === 'string' ? body.analysisId : undefined;
-      let docContext = analysisId ? await buildAnalysisContext(db, req.currentUser.id, analysisId) : undefined;
+      let docContext = analysisId
+        ? await buildAnalysisContext(db, req.currentUser.id, analysisId, { plan, log: (m) => req.log.warn(m) })
+        : undefined;
       // Черновик шаблона в воркспейсе: серверного анализа ещё нет, но вопросы
       // должны видеть текст документа — клиент шлёт его в draftText.
       if (!docContext) {

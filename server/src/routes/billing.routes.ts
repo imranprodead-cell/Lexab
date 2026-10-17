@@ -18,7 +18,7 @@ import { HttpError } from '../lib/errors.ts';
 import { toIso } from '../lib/format.ts';
 import { notify } from '../lib/notify.ts';
 import { asObject } from '../lib/validate.ts';
-import { DOC_COST, effectiveLimits, monthlyUsage, planFor, storageUsedBytes } from '../lib/limits.ts';
+import { DOC_COST, effectiveLimits, monthlyUsage, planFor, planHasFeature, quotaOwnerFor, storageUsedBytes } from '../lib/limits.ts';
 import { config } from '../config.ts';
 import { escapeMailHtml, mailLayout, sendMail } from '../mail.ts';
 import { getUserByEmail } from '../plugins/auth.ts';
@@ -63,10 +63,13 @@ export function billingRoutes(app: FastifyInstance, db: Db): void {
   // надбавки из админ-панели) — те же числа, что применяет сам гейт.
   app.get('/billing/limits', { preHandler: [app.authenticate] }, async (req) => {
     const userId = req.currentUser.id;
-    const [plan, usage, storageBytes] = await Promise.all([
+    const [plan, usage, storageBytes, quota] = await Promise.all([
       planFor(db, userId),
       monthlyUsage(db, userId),
       storageUsedBytes(db, userId),
+      // Фото и сканы разрешает тариф, по которому идёт анализ, — у участника
+      // платной команды это тариф владельца, а не свой Free.
+      quotaOwnerFor(db, userId),
     ]);
     const limits = await effectiveLimits(db, userId, plan);
 
@@ -84,7 +87,7 @@ export function billingRoutes(app: FastifyInstance, db: Db): void {
       docCosts: DOC_COST,
       // Рантайм-флаги разделов: интерфейс не должен предлагать то, что сервер
       // всё равно отклонит. Э-подписи закрыты до подключения E-IMZO.
-      features: { esign: config.esignEnabled },
+      features: { esign: config.esignEnabled, scans: planHasFeature(quota.plan, 'scans') },
     };
   });
 

@@ -175,6 +175,10 @@ export const config = {
    * NODE_ENV (which is never set here) so a keyless deploy can't silently mock.
    */
   llmFallback: env('LLM_FALLBACK', 'off').toLowerCase(),
+  /** Распознавание текста сканов и фото (llm.ts transcribeScan): работа
+   *  «переписать со страницы», а не рассуждать, — поэтому самая дешёвая модель,
+   *  читающая PDF. Один вызов на документ. */
+  ocrModel: env('OCR_MODEL', 'claude-haiku-5-5'),
   /** Per-plan model: better plan → smarter model (see llm.ts modelForPlan).
    *  Models prefixed "deepseek" route to the DeepSeek client, everything else
    *  to Anthropic. Free defaults to DeepSeek when DEEPSEEK_API_KEY is set. */

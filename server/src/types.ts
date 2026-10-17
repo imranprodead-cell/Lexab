@@ -66,6 +66,10 @@ export interface AnalysisResult {
   redlines: Redline[];
   document: DocBlock[];  /** Viewer may edit (owner / team admin / editor). */
   canEdit?: boolean;
+  /** Договор загружен сканом или фото, и его текст для чата распознаёт ИИ:
+   *  'pending' — ещё распознаётся, 'done' — готов, 'failed' — не вышло.
+   *  Нет поля — текст взят из самого файла. */
+  scanOcr?: 'pending' | 'done' | 'failed';
 }
 
 export interface ChatMessage {

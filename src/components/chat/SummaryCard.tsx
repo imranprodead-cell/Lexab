@@ -61,6 +61,15 @@ export function SummaryCard({ analysis, onOpenWorkspace, onOpenFinding, onAsk, o
         <RiskGauge score={analysis.riskScore} />
       </div>
 
+      {/* Скан или фото: текст для чата переписан ИИ со страниц — ошибка в цифре
+          возможна, и человек должен знать это до того, как понесёт цитату. */}
+      {analysis.scanOcr ? (
+        <p className={styles.scanNote}>
+          <Icon name="eye" size={14} />
+          <span>{t(analysis.scanOcr === 'failed' ? 'chat.scanFailed' : 'chat.scanNote')}</span>
+        </p>
+      ) : null}
+
       <div className={styles.findings}>
         <div className={styles.findingsLabel}>{t('chat.sum.top', { n: analysis.findings.length })}</div>
         <div className={styles.findingList}>

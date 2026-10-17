@@ -49,8 +49,9 @@ interface ChatInputProps {
   onAnalyze: () => void;
   /** Fired for a plain (non-command) submitted message. */
   onSend?: (text: string) => void;
-  /** When provided, the attach button opens a file picker and passes the chosen file here. */
-  onFile?: (file: File) => void;
+  /** When provided, the attach button opens a file picker and passes the chosen
+   *  files here: один документ или несколько фото страниц договора. */
+  onFiles?: (files: File[]) => void;
   /** When provided, a cloud button opens the Google Drive / M365 / Dropbox import. */
   onCloudImport?: () => void;
   /** Storage slot for the unsent draft (chat and workspace keep separate drafts). */
@@ -74,7 +75,7 @@ interface ChatInputProps {
  * The chat composer: auto-growing textarea, attach button, and slash-command
  * autocomplete with full keyboard control (↑/↓ to move, ↵ to pick, Esc to close).
  */
-export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudImport, draftKey = 'chat', hideAttach = false, ephemeral = false, banner, bare = false, hideDisclaimer = false }: ChatInputProps) {
+export function ChatInput({ compact = false, onAnalyze, onSend, onFiles, onCloudImport, draftKey = 'chat', hideAttach = false, ephemeral = false, banner, bare = false, hideDisclaimer = false }: ChatInputProps) {
   const { t } = useI18n();
   const [value, setValue] = useState(() => (ephemeral ? '' : loadDraft(draftKey)));
   const [slashOpen, setSlashOpen] = useState(false);
@@ -111,7 +112,7 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
   }, [measureHeight]);
 
   const onAttach = () => {
-    if (onFile) fileInputRef.current?.click();
+    if (onFiles) fileInputRef.current?.click();
     else onAnalyze();
   };
 
@@ -278,14 +279,17 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFile, onCloudI
             their own row underneath — attach/cloud left, ✦/mic/send right.
             Панель эталона (bg-surface + бордер) вместо стекла — см. .inputBar. */}
         <div className={styles.inputBar}>
+          {/* Фото: на телефоне image/* добавляет в выбор «Снять фото» — договор
+              можно сфотографировать постранично прямо отсюда. */}
           <input
             ref={fileInputRef}
             type="file"
-            accept=".pdf,.doc,.docx,.txt"
+            multiple
+            accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.webp,.heic,.heif,image/*"
             style={{ display: 'none' }}
             onChange={(e) => {
-              const file = e.target.files?.[0];
-              if (file) onFile?.(file);
+              const files = Array.from(e.target.files ?? []);
+              if (files.length) onFiles?.(files);
               e.target.value = ''; // allow re-selecting the same file
             }}
           />

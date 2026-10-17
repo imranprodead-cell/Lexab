@@ -20,7 +20,7 @@ vi.mock('@/api/chats.api', () => ({
     setFeedback: vi.fn(),
   },
 }));
-vi.mock('@/api/uploads.api', () => ({ uploadsApi: { upload: vi.fn() } }));
+vi.mock('@/api/uploads.api', () => ({ uploadsApi: { upload: vi.fn(), uploadPhotos: vi.fn() } }));
 vi.mock('@/store/useChatHistoryStore', () => ({
   useChatHistoryStore: { getState: () => ({ load: vi.fn() }) },
 }));
@@ -369,5 +369,52 @@ describe('chat store — template draft in the workspace', () => {
     expect(s.phase).toBe('analyzing');
     expect(s.analysis).not.toBeNull(); // документ НЕ пропал с экрана
     expect(s.analysis?.id).toBe('draft_st_2');
+  });
+});
+
+describe('chat store — фото страниц договора', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useChatStore.setState({
+      phase: 'idle', messages: [], analysis: null, activeStep: -1, error: null,
+      serverSessionId: null, sessionLoading: false, ghost: false,
+    });
+  });
+
+  it('фото уходят одной загрузкой, анализ идёт по её номеру, «Повторить» не грузит снимки второй раз', async () => {
+    const { uploadsApi } = await import('@/api/uploads.api');
+    const mockPhotos = uploadsApi.uploadPhotos as ReturnType<typeof vi.fn>;
+    const mockAnalyze = (analysisApi as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze;
+    mockPhotos.mockResolvedValue({ id: 'up_ph1', fileName: 'Фото договора 1.pdf', fileSize: '120 KB' });
+    mockAnalyze
+      .mockRejectedValueOnce(new Error('model down'))
+      .mockResolvedValueOnce({ ...ANALYSIS, id: 'an_ph', fileName: 'Фото договора 1.pdf', scanOcr: 'pending' });
+    const photos = [new File(['a'], 'IMG_1.jpg', { type: 'image/jpeg' }), new File(['b'], 'IMG_2.heic')];
+    const file = { name: 'Фото договора 1.pdf', size: 'Фото: 2' };
+
+    await useChatStore.getState().startAnalysis(file, undefined, { photos });
+    expect(mockPhotos).toHaveBeenCalledWith(photos, 'Фото договора 1.pdf');
+    expect(mockAnalyze.mock.calls[0][0]).toMatchObject({ fileName: 'Фото договора 1.pdf', fileSize: '120 KB', uploadId: 'up_ph1' });
+    expect(useChatStore.getState().phase).toBe('error');
+
+    // «Повторить» с карточки ошибки приходит без файлов — берётся уже загруженный PDF.
+    await useChatStore.getState().startAnalysis(file);
+    expect(mockPhotos).toHaveBeenCalledTimes(1);
+    expect(mockAnalyze.mock.calls[1][0]).toMatchObject({ uploadId: 'up_ph1' });
+    expect(useChatStore.getState().phase).toBe('analyzed');
+    expect(useChatStore.getState().analysis?.scanOcr).toBe('pending');
+  });
+
+  it('отказ тарифа при загрузке фото показывает настоящую причину, анализ не запускается', async () => {
+    const { uploadsApi } = await import('@/api/uploads.api');
+    const { ApiError } = await import('@/api/util');
+    (uploadsApi.uploadPhotos as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new ApiError('…', 402, 'feature_locked', { feature: 'scans', plan: 'Free', plans: 'Standard, Pro и Business' }),
+    );
+    await useChatStore.getState().startAnalysis({ name: 'Фото 2.pdf', size: 'Фото: 1' }, undefined, { photos: [new File(['a'], 'a.jpg')] });
+    const s = useChatStore.getState();
+    expect(s.phase).toBe('error');
+    expect(s.error).toMatch(/Standard, Pro и Business/);
+    expect(analysisApi.analyze).not.toHaveBeenCalled();
   });
 });
