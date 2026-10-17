@@ -36,7 +36,7 @@
     "@aws-sdk/s3-request-presigner": "^3.700.0",
     "@electric-sql/pglite": "^0.3.0",
     "@fastify/cookie": "^11.1.1",
-    "@fastify/cors": "^10.0.0",
+    "@fastify/cors": "^11.3.0",
     "@fastify/helmet": "^13.1.0",
     "@fastify/jwt": "^10.2.0",
     "@fastify/multipart": "^9.0.0",
