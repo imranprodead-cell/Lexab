@@ -11,7 +11,7 @@
  *
  * Exports helpers used by the auth login path (TOTP gate + session recording).
  */
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Db } from '../db.ts';
 import { config } from '../config.ts';
 import { badRequest, HttpError, unauthorized } from '../lib/errors.ts';
@@ -28,18 +28,54 @@ import { invalidateTtsAuthCache, getUserByEmail, signToken, toProfile, type User
 
 // ─── Helpers shared with the login path ──────────────────────────────────────
 
+/** Сколько дней живёт токен входа без продления (JWT_EXPIRES_IN: '30d', '12h',
+ *  секунды). Не разобрали — 30, как по умолчанию. */
+export function tokenLifetimeDays(expiresIn: string): number {
+  const m = /^\s*(\d+)\s*(d|h|m|s)?\s*$/i.exec(expiresIn);
+  if (!m) return 30;
+  const n = Number(m[1]);
+  const unit = (m[2] ?? 's').toLowerCase();
+  const seconds = unit === 'd' ? n * 86400 : unit === 'h' ? n * 3600 : unit === 'm' ? n * 60 : n;
+  return Math.max(1, Math.ceil(seconds / 86400));
+}
+
+/** Сессия, которая не продлевалась дольше срока жизни токена (плюс сутки
+ *  запаса), мертва: её токен истёк, а истёкший продлить нельзя. Раньше такие
+ *  строки жили до SESSION_MAX_DAYS (90 дней) и висели в «Активных сессиях». */
+export const SESSION_LIVE_DAYS = tokenLifetimeDays(config.jwtExpiresIn) + 1;
+
+/** Постоянный номер браузера, который клиент присылает при входе (localStorage):
+ *  повторный вход с того же браузера заменяет его прошлую сессию. */
+export function deviceIdOf(req: FastifyRequest): string | null {
+  const raw = (req.body as Record<string, unknown> | null | undefined)?.deviceId;
+  return typeof raw === 'string' && /^[A-Za-z0-9_-]{8,64}$/.test(raw) ? raw : null;
+}
+
 /** Record a login session for the "active sessions" view + refresh the member's
  *  last-active stamp for access review (both best-effort). Возвращает id
  *  созданной сессии — он вшивается в JWT (sid), чтобы «Выйти» отзывал только
  *  эту сессию, а не все устройства; null — токен станет легаси-безсессионным. */
-export async function recordSession(db: Db, userId: string, ip: string | undefined, userAgent: string | undefined): Promise<string | null> {
+export async function recordSession(
+  db: Db,
+  userId: string,
+  ip: string | undefined,
+  userAgent: string | undefined,
+  deviceId: string | null = null,
+): Promise<string | null> {
   try {
     const id = newId('sess');
-    await db.query('INSERT INTO user_sessions (id, user_id, ip, user_agent) VALUES ($1, $2, $3, $4)', [
+    if (deviceId) {
+      // Тот же браузер входит заново: его прошлый токен на клиенте уже заменён
+      // новым. Старую строку убираем (заодно отзывая тот токен) — иначе одно
+      // устройство копилось в «Активных сессиях» десятком записей.
+      await db.query('DELETE FROM user_sessions WHERE user_id = $1 AND device_id = $2', [userId, deviceId]);
+    }
+    await db.query('INSERT INTO user_sessions (id, user_id, ip, user_agent, device_id) VALUES ($1, $2, $3, $4, $5)', [
       id,
       userId,
       ip ?? null,
       (userAgent ?? '').slice(0, 400) || null,
+      deviceId,
     ]);
     // Access review: this member was just active in every team they belong to.
     await db.query("UPDATE team_members SET last_active_at = now() WHERE member_user_id = $1 AND status = 'active'", [userId]);
@@ -75,12 +111,70 @@ export async function verifyUserTotp(db: Db, userId: string, code: string | unde
   return claimed.rows[0] ? 'ok' : 'replay';
 }
 
-/** Прунинг журнала сессий: строки старше окна жизни сессии (SESSION_MAX_DAYS)
- *  заведомо мертвы — их токены уже не проходят абсолютный потолок refresh. */
+/** Прунинг журнала сессий: строка, не продлевавшаяся дольше срока жизни
+ *  токена (SESSION_LIVE_DAYS), заведомо мертва — её токен истёк. */
 export async function pruneStaleSessions(db: Db): Promise<void> {
   await db.query(`DELETE FROM user_sessions WHERE last_seen_at < now() - ($1 || ' days')::interval`, [
-    String(config.sessionMaxDays),
+    String(SESSION_LIVE_DAYS),
   ]);
+}
+
+interface SessionRow {
+  id: string;
+  ip: string | null;
+  user_agent: string | null;
+  device_id: string | null;
+  created_at: Date | string;
+  last_seen_at: Date | string;
+}
+
+export interface SessionView {
+  id: string;
+  ip: string | null;
+  userAgent: string | null;
+  createdAt: string;
+  lastSeenAt: string;
+  /** Сессия, из которой смотрят список («Это устройство»). */
+  current: boolean;
+  /** Сколько входов склеено в эту запись (старые входы того же браузера). */
+  sessions: number;
+}
+
+/**
+ * Одно устройство — одна запись. Ключ — номер браузера (device_id); входы до
+ * его появления (NULL) склеиваются по строке браузера, а если у того же
+ * браузера уже есть запись с номером — приклеиваются к ней.
+ */
+export function groupSessionsByDevice(rows: SessionRow[], currentSid: string | null): SessionView[] {
+  const iso = (v: Date | string) => new Date(v as string).toISOString();
+  const groups = new Map<string, SessionRow[]>();
+  for (const r of rows) {
+    const key = r.device_id ? `d:${r.device_id}` : `u:${r.user_agent ?? ''}`;
+    groups.set(key, [...(groups.get(key) ?? []), r]);
+  }
+  for (const [key, list] of [...groups]) {
+    if (!key.startsWith('u:')) continue;
+    const owner = [...groups].find(([k, l]) => k.startsWith('d:') && l.some((r) => r.user_agent === list[0].user_agent));
+    if (owner) {
+      owner[1].push(...list);
+      groups.delete(key);
+    }
+  }
+  return [...groups.values()]
+    .map((list) => {
+      const sorted = [...list].sort((a, b) => iso(b.last_seen_at).localeCompare(iso(a.last_seen_at)));
+      const latest = sorted[0];
+      return {
+        id: latest.id,
+        ip: latest.ip,
+        userAgent: latest.user_agent,
+        createdAt: sorted.map((r) => iso(r.created_at)).sort()[0],
+        lastSeenAt: iso(latest.last_seen_at),
+        current: currentSid !== null && list.some((r) => r.id === currentSid),
+        sessions: list.length,
+      };
+    })
+    .sort((a, b) => Number(b.current) - Number(a.current) || b.lastSeenAt.localeCompare(a.lastSeenAt));
 }
 
 /** Consume one single-use backup recovery code. Atomic single UPDATE
@@ -261,17 +355,16 @@ export function securityRoutes(app: FastifyInstance, db: Db): void {
   });
 
   app.get('/me/sessions', { preHandler: [app.authenticate] }, async (req) => {
-    const res = await db.query<{ id: string; ip: string | null; user_agent: string | null; created_at: Date | string; last_seen_at: Date | string }>(
-      'SELECT id, ip, user_agent, created_at, last_seen_at FROM user_sessions WHERE user_id = $1 ORDER BY last_seen_at DESC LIMIT 50',
-      [req.currentUser.id],
+    // Только живые: сессия без продления дольше срока токена уже не работает.
+    const res = await db.query<SessionRow>(
+      `SELECT id, ip, user_agent, device_id, created_at, last_seen_at FROM user_sessions
+        WHERE user_id = $1 AND last_seen_at > now() - ($2 || ' days')::interval
+        ORDER BY last_seen_at DESC LIMIT 200`,
+      [req.currentUser.id, String(SESSION_LIVE_DAYS)],
     );
-    return res.rows.map((r) => ({
-      id: r.id,
-      ip: r.ip,
-      userAgent: r.user_agent,
-      createdAt: new Date(r.created_at as string).toISOString(),
-      lastSeenAt: new Date(r.last_seen_at as string).toISOString(),
-    }));
+    const raw = (req.headers.authorization ?? '').slice(7);
+    const currentSid = raw ? (app.jwt.decode<{ sid?: string }>(raw)?.sid ?? null) : null;
+    return groupSessionsByDevice(res.rows, currentSid);
   });
 
   // Sign out everywhere: bump token_version (invalidates every issued token),
@@ -280,7 +373,7 @@ export function securityRoutes(app: FastifyInstance, db: Db): void {
     await db.query('UPDATE users SET token_version = token_version + 1 WHERE id = $1', [req.currentUser.id]);
     invalidateTtsAuthCache(req.currentUser.id);
     await db.query('DELETE FROM user_sessions WHERE user_id = $1', [req.currentUser.id]);
-    const sid = await recordSession(db, req.currentUser.id, req.ip, req.headers['user-agent']);
+    const sid = await recordSession(db, req.currentUser.id, req.ip, req.headers['user-agent'], deviceIdOf(req));
     const fresh = await db.query<UserRow>('SELECT id, email, name, initials, firm, jurisdiction, avatar_url, token_version, email_verified FROM users WHERE id = $1', [req.currentUser.id]);
     await audit(db, req, { type: 'auth.sessions_revoked', teamOwnerId: req.currentUser.id });
     return { token: signToken(app, fresh.rows[0], undefined, sid), user: toProfile(fresh.rows[0]) };

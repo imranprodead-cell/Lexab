@@ -11,7 +11,7 @@ import { badRequest, HttpError, unauthorized } from '../lib/errors.ts';
 import { newId } from '../lib/ids.ts';
 import { hashPassword, verifyPassword } from '../lib/passwords.ts';
 import { isPasswordBreached } from '../lib/hibp.ts';
-import { consumeBackupCode, recordSession, verifyUserTotp } from './security.routes.ts';
+import { consumeBackupCode, deviceIdOf, recordSession, verifyUserTotp } from './security.routes.ts';
 import { asObject, requireEmail, requireString } from '../lib/validate.ts';
 import { biBody, biLine, biSubject, escapeMailHtml, mailLayout, sendMail } from '../mail.ts';
 import { notify } from '../lib/notify.ts';
@@ -258,7 +258,7 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
     );
     // Owning the mailbox proves the email → sign the user in right away.
     const user = (await getUserById(db, row.id)) as UserRow;
-    const sid = await recordSession(db, user.id, req.ip, req.headers['user-agent']);
+    const sid = await recordSession(db, user.id, req.ip, req.headers['user-agent'], deviceIdOf(req));
     return { ok: true, token: signToken(app, user, undefined, sid), user: toProfile(user) };
   });
 
@@ -420,7 +420,7 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
     }
 
     await audit(db, req, { type: 'auth.login', actorId: user.id, actorLabel: user.email, teamOwnerId: user.id });
-    const sid = await recordSession(db, user.id, req.ip, req.headers['user-agent']);
+    const sid = await recordSession(db, user.id, req.ip, req.headers['user-agent'], deviceIdOf(req));
     return { token: signToken(app, user, undefined, sid), user: toProfile(user) };
   });
 
@@ -446,16 +446,17 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
     if (Date.now() / 1000 - authAt > config.sessionMaxDays * 86400) throw unauthorized();
     await audit(db, req, { type: 'auth.refresh', teamOwnerId: req.currentUser.id });
     // Штампуем СВОЮ сессию (sid из токена); легаси-токен без sid — как раньше,
-    // последнюю активную (лучшее приближение).
-    void db
+    // последнюю активную (лучшее приближение). С ожиданием: по этой отметке
+    // сессия считается живой, и потерянная запись выкинула бы рабочий вход
+    // из списка (а потом и из базы) раньше срока.
+    await db
       .query(
         payload?.sid
           ? `UPDATE user_sessions SET last_seen_at = now() WHERE id = $1`
           : `UPDATE user_sessions SET last_seen_at = now()
              WHERE id = (SELECT id FROM user_sessions WHERE user_id = $1 ORDER BY last_seen_at DESC LIMIT 1)`,
         [payload?.sid ?? req.currentUser.id],
-      )
-      .catch(() => undefined);
+      );
     // sid переезжает в новый токен: цепочка refresh остаётся одной сессией.
     return { token: signToken(app, req.currentUser, authAt, payload?.sid ?? null), user: toProfile(req.currentUser) };
   });
@@ -558,7 +559,10 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
     // Owning the mailbox proves the email → auto-login with a fresh session.
     const fresh = (await getUserById(db, row.id)) as UserRow;
     await audit(db, req, { type: 'auth.password_reset', actorId: fresh.id, actorLabel: fresh.email, teamOwnerId: fresh.id });
-    const sid = await recordSession(db, fresh.id, req.ip, req.headers['user-agent']);
+    // token_version сменился — все прежние входы мертвы; их строки убираем,
+    // иначе «Активные сессии» показывали бы уже разлогиненные устройства.
+    await db.query('DELETE FROM user_sessions WHERE user_id = $1', [fresh.id]);
+    const sid = await recordSession(db, fresh.id, req.ip, req.headers['user-agent'], deviceIdOf(req));
     return { token: signToken(app, fresh, undefined, sid), user: toProfile(fresh) };
   });
 
@@ -584,7 +588,10 @@ export function authRoutes(app: FastifyInstance, db: Db): void {
     );
     const fresh = (await getUserById(db, user.id)) as UserRow;
     await audit(db, req, { type: 'auth.password_changed', teamOwnerId: user.id });
-    const sid = await recordSession(db, fresh.id, req.ip, req.headers['user-agent']);
+    // token_version сменился — все прежние входы мертвы; их строки убираем,
+    // иначе «Активные сессии» показывали бы уже разлогиненные устройства.
+    await db.query('DELETE FROM user_sessions WHERE user_id = $1', [fresh.id]);
+    const sid = await recordSession(db, fresh.id, req.ip, req.headers['user-agent'], deviceIdOf(req));
     return { token: signToken(app, fresh, undefined, sid), user: toProfile(fresh) };
   });
 

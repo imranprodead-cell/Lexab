@@ -937,6 +937,7 @@ const kk: Record<string, string> = {
   "sec.sessions.title": "Белсенді сеанстар",
   "sec.sessions.sub": "Тіркелгіңізге қазір кірген құрылғылар.",
   "sec.sessions.unknownDevice": "Белгісіз құрылғы",
+  "sec.sessions.current": "Осы құрылғы",
   "sec.sessions.signOutAll": "Барлық құрылғыдан шығу",
   "sec.sessions.revoked": "Басқа сеанстар аяқталды.",
   "sec.export.title": "Деректерді экспорттау",

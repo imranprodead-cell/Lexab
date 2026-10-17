@@ -21,6 +21,7 @@ import { useUIStore } from '@/store/useUIStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useI18n } from '@/i18n/I18nProvider';
 import { localeFor } from '@/i18n/dates';
+import { describeUserAgent } from '@/lib/userAgent';
 import type { UserProfile } from '@/types/domain';
 import styles from './pages.module.css';
 
@@ -1082,9 +1083,13 @@ function SessionsSection() {
             <div key={s.id} className={styles.sessionRow}>
               <Icon name="clock" size={16} color="var(--mut)" />
               <div className={styles.sessionText}>
-                <span className={styles.sessionDevice}>{s.userAgent || t('sec.sessions.unknownDevice')}</span>
+                {/* Название вместо сырой строки браузера; сама строка — в подсказке. */}
+                <span className={styles.sessionDevice} title={s.userAgent ?? undefined}>
+                  {describeUserAgent(s.userAgent) ?? t('sec.sessions.unknownDevice')}
+                  {s.current ? <span className={styles.sessionCurrent}>{t('sec.sessions.current')}</span> : null}
+                </span>
                 <span className={styles.sessionMeta}>
-                  {s.ip} · {relativeTime(s.lastSeenAt, lang, s.lastSeenAt)}
+                  {[s.ip, relativeTime(s.lastSeenAt, lang, s.lastSeenAt)].filter(Boolean).join(' · ')}
                 </span>
               </div>
             </div>

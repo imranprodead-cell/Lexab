@@ -456,6 +456,7 @@ export const MESSAGES: Dict = {
     en: 'Devices currently signed in to your account.',
   },
   'sec.sessions.unknownDevice': { ru: 'Неизвестное устройство', en: 'Unknown device' },
+  'sec.sessions.current': { ru: 'Это устройство', en: 'This device' },
   'sec.sessions.signOutAll': { ru: 'Выйти на всех устройствах', en: 'Sign out everywhere' },
   'sec.sessions.revoked': { ru: 'Остальные сессии завершены.', en: 'Other sessions signed out.' },
   'sec.export.title': { ru: 'Экспорт данных', en: 'Data export' },

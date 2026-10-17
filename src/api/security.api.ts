@@ -5,6 +5,7 @@
  */
 import type { UserProfile } from '@/types/domain';
 import { USE_MOCK, http, httpBlob } from './client';
+import { deviceId } from '@/lib/deviceId';
 import { downloadBlob } from '@/lib/download';
 import { clone, delay } from './util';
 
@@ -25,12 +26,18 @@ export interface TwoFactorEnableResult {
   backupCodes: string[];
 }
 
+/** Одно устройство в «Активных сессиях» (сервер склеивает входы одного браузера). */
 export interface SessionInfo {
   id: string;
-  ip: string;
-  userAgent: string;
+  ip: string | null;
+  /** Строка браузера как есть; человеческое название — lib/userAgent.ts. */
+  userAgent: string | null;
   createdAt: string;
   lastSeenAt: string;
+  /** Список смотрят с этого устройства. */
+  current?: boolean;
+  /** Сколько входов этого браузера склеено в запись. */
+  sessions?: number;
 }
 
 export interface AccessReviewRow {
@@ -52,14 +59,15 @@ const mockSessions: SessionInfo[] = [
   {
     id: 's1',
     ip: '82.14.10.3',
-    userAgent: 'Chrome 120 · macOS',
+    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
+    current: true,
     createdAt: new Date(Date.now() - 3 * 86_400_000).toISOString(),
     lastSeenAt: new Date(Date.now() - 4 * 60_000).toISOString(),
   },
   {
     id: 's2',
     ip: '82.14.10.3',
-    userAgent: 'Safari · iPhone',
+    userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6.1 Mobile/15E148 Safari/604.1',
     createdAt: new Date(Date.now() - 9 * 86_400_000).toISOString(),
     lastSeenAt: new Date(Date.now() - 5 * 3_600_000).toISOString(),
   },
@@ -125,7 +133,7 @@ export const securityApi = {
         const session = raw ? (JSON.parse(raw) as RotatedSession) : null;
         return { token: `mock_${Date.now()}`, user: session?.user ?? { name: 'You', initials: 'YO', firm: 'Lexab', jurisdiction: 'United Kingdom', email: 'you@example.com' } };
       }
-      return http<RotatedSession>('/me/sessions/revoke-others', { method: 'POST' });
+      return http<RotatedSession>('/me/sessions/revoke-others', { method: 'POST', body: { deviceId: deviceId() } });
     },
   },
 

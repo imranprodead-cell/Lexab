@@ -937,6 +937,7 @@ const de: Record<string, string> = {
   "sec.sessions.title": "Aktive Sitzungen",
   "sec.sessions.sub": "Geräte, die aktuell in Ihrem Konto angemeldet sind.",
   "sec.sessions.unknownDevice": "Unbekanntes Gerät",
+  "sec.sessions.current": "Dieses Gerät",
   "sec.sessions.signOutAll": "Überall abmelden",
   "sec.sessions.revoked": "Andere Sitzungen abgemeldet.",
   "sec.export.title": "Datenexport",

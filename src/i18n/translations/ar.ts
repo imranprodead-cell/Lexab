@@ -937,6 +937,7 @@ const ar: Record<string, string> = {
   "sec.sessions.title": "الجلسات النشطة",
   "sec.sessions.sub": "الأجهزة المسجَّل الدخول منها حاليًا إلى حسابك.",
   "sec.sessions.unknownDevice": "جهاز غير معروف",
+  "sec.sessions.current": "هذا الجهاز",
   "sec.sessions.signOutAll": "تسجيل الخروج من كل الأجهزة",
   "sec.sessions.revoked": "تم إنهاء الجلسات الأخرى.",
   "sec.export.title": "تصدير البيانات",

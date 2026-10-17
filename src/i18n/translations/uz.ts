@@ -937,6 +937,7 @@ const uz: Record<string, string> = {
   "sec.sessions.title": "Faol seanslar",
   "sec.sessions.sub": "Hozir hisobingizga kirgan qurilmalar.",
   "sec.sessions.unknownDevice": "Noma’lum qurilma",
+  "sec.sessions.current": "Shu qurilma",
   "sec.sessions.signOutAll": "Barcha qurilmalardan chiqish",
   "sec.sessions.revoked": "Boshqa seanslar tugatildi.",
   "sec.export.title": "Ma’lumotlarni eksport qilish",

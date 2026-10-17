@@ -1,5 +1,6 @@
 /** Real authentication API (used when VITE_USE_MOCK_API=false). */
 import type { UserProfile } from '@/types/domain';
+import { deviceId } from '@/lib/deviceId';
 import { http } from './client';
 
 export interface AuthSession {
@@ -15,7 +16,7 @@ export interface TwoFactorCredential {
 
 export const authApi = {
   login(email: string, password: string, twoFactor?: TwoFactorCredential): Promise<AuthSession> {
-    return http<AuthSession>('/auth/login', { method: 'POST', body: { email, password, ...twoFactor } });
+    return http<AuthSession>('/auth/login', { method: 'POST', body: { email, password, ...twoFactor, deviceId: deviceId() } });
   },
 
   /** Creates the account and sends a confirmation letter — no session until verified. */
@@ -41,7 +42,7 @@ export const authApi = {
 
   /** Returns a fresh token (old ones are invalidated server-side). */
   changePassword(currentPassword: string, newPassword: string): Promise<AuthSession> {
-    return http<AuthSession>('/auth/password', { method: 'POST', body: { currentPassword, newPassword } });
+    return http<AuthSession>('/auth/password', { method: 'POST', body: { currentPassword, newPassword, deviceId: deviceId() } });
   },
 
   /** Permanently deletes the account and all its data. `confirm` = account email. */
@@ -60,13 +61,13 @@ export const authApi = {
   async confirmReset(token: string, password: string, twoFactor?: TwoFactorCredential): Promise<{ token: string; user: UserProfile }> {
     return http<{ token: string; user: UserProfile }>('/auth/reset/confirm', {
       method: 'POST',
-      body: { token, password, ...twoFactor },
+      body: { token, password, ...twoFactor, deviceId: deviceId() },
     });
   },
 
   /** Confirm the email address by the token from the letter; returns a fresh session. */
   async verifyEmail(token: string): Promise<AuthSession> {
-    return http<AuthSession>('/auth/verify', { method: 'POST', body: { token } });
+    return http<AuthSession>('/auth/verify', { method: 'POST', body: { token, deviceId: deviceId() } });
   },
 
   /** Send the verification letter again (signed-in users). */
@@ -76,7 +77,7 @@ export const authApi = {
 
   /** Exchange the one-time code from the Google/SSO callback (#code=) for a session. */
   async exchangeGoogleCode(code: string): Promise<AuthSession> {
-    return http<AuthSession>('/auth/google/exchange', { method: 'POST', body: { code } });
+    return http<AuthSession>('/auth/google/exchange', { method: 'POST', body: { code, deviceId: deviceId() } });
   },
 
   /** Is corporate SSO configured for this work email's domain? */
