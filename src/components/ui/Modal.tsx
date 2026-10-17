@@ -1,4 +1,4 @@
-import { useEffect, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Icon } from '@/components/icons/Icon';
 import { useDismissable } from '@/hooks/useAsync';
@@ -14,9 +14,29 @@ interface ModalProps {
   maxWidth?: number;
 }
 
+/**
+ * Открытые модалки снизу вверх. Клик мимо окна и Esc закрывают только верхнюю:
+ * иначе окно подтверждения, открытое поверх другого окна, на нажатии своей же
+ * кнопки закрывало нижнее — и действие уходило в пустоту (так «умерла» кнопка
+ * «Подтвердить» выдачи тарифа в админке).
+ */
+const openModals: object[] = [];
+/** Событие, уже закрывшее верхнюю модалку, не закрывает следующую под ней:
+ *  порядок слушателей на document не гарантирован. */
+const consumed = new WeakSet<Event>();
+
 /** Accessible modal dialog rendered in a portal. Closes on Esc / backdrop. */
 export function Modal({ open, title, onClose, children, footer, maxWidth = 460 }: ModalProps) {
-  const ref = useDismissable<HTMLDivElement>(onClose, open);
+  const [token] = useState(() => ({}));
+  const dismissIfTop = useCallback(
+    (e: Event) => {
+      if (consumed.has(e) || openModals[openModals.length - 1] !== token) return;
+      consumed.add(e);
+      onClose();
+    },
+    [onClose, token],
+  );
+  const ref = useDismissable<HTMLDivElement>(dismissIfTop, open);
   const { t } = useI18n();
 
   // Ловушка фокуса (WCAG): Tab циклится внутри диалога, а не уходит на
@@ -43,6 +63,7 @@ export function Modal({ open, title, onClose, children, footer, maxWidth = 460 }
 
   useEffect(() => {
     if (!open) return;
+    openModals.push(token);
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     // Move keyboard focus into the dialog (remember where it came from),
@@ -55,6 +76,8 @@ export function Modal({ open, title, onClose, children, footer, maxWidth = 460 }
       (target ?? ref.current)?.focus();
     });
     return () => {
+      const i = openModals.indexOf(token);
+      if (i !== -1) openModals.splice(i, 1);
       document.body.style.overflow = prev;
       opener?.focus?.();
     };

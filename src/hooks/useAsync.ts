@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 
-/** Close a popover/menu on outside-click and Escape. Returns a ref to attach. */
-export function useDismissable<T extends HTMLElement>(onDismiss: () => void, active = true) {
+/** Close a popover/menu on outside-click and Escape. Returns a ref to attach.
+ *  The triggering event goes to onDismiss so stacked layers (Modal) can tell
+ *  which of them owns it. */
+export function useDismissable<T extends HTMLElement>(onDismiss: (e: Event) => void, active = true) {
   const ref = useRef<T>(null);
 
   useEffect(() => {
@@ -11,10 +13,10 @@ export function useDismissable<T extends HTMLElement>(onDismiss: () => void, act
       // Floating layers (calendar popovers, …) render in portals outside the
       // host element — clicking inside them must not dismiss the host.
       if (target.closest?.('[data-popover-layer]')) return;
-      if (ref.current && !ref.current.contains(e.target as Node)) onDismiss();
+      if (ref.current && !ref.current.contains(e.target as Node)) onDismiss(e);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onDismiss();
+      if (e.key === 'Escape') onDismiss(e);
     };
     document.addEventListener('mousedown', onPointer);
     document.addEventListener('keydown', onKey);
