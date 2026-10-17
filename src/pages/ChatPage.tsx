@@ -391,7 +391,7 @@ export function ChatPage() {
         ) : isFree ? (
           <div className={chat.upsellBar}>
             <span className={chat.upsellText}>
-              <Icon name="diamond" size={14} color="var(--accent)" />
+              <Icon name="sparkle" size={14} color="var(--accent)" />
               {t('chat.upsell.title')}
             </span>
             <button type="button" className={chat.upsellBtn} onClick={() => navigate('/plans')}>

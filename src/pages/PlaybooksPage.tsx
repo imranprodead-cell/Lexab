@@ -223,7 +223,7 @@ export function PlaybooksPage() {
               title={t('playbooks.upsellTitle')}
               body={t('playbooks.upsellBody')}
               action={
-                <Button variant="primary" icon="diamond" onClick={() => navigate('/plans')}>
+                <Button variant="primary" icon="sparkle" onClick={() => navigate('/plans')}>
                   {t('playbooks.upsellCta')}
                 </Button>
               }

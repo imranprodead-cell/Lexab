@@ -84,7 +84,7 @@ export function CommandPalette() {
           setOpen(false);
         },
       },
-      { id: 'plans', label: t('palette.action.upgrade'), icon: 'diamond', group: t('palette.actions'), run: go('/plans') },
+      { id: 'plans', label: t('palette.action.upgrade'), icon: 'sparkle', group: t('palette.actions'), run: go('/plans') },
     ];
   }, [navigate, resetChat, toggleTheme, t]);
 

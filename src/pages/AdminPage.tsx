@@ -299,7 +299,7 @@ export function AdminPage() {
                 </div>
                 <div className={styles.stat}>
                   <div className={styles.statLabel}>
-                    <Icon name="diamond" size={14} />
+                    <Icon name="sparkle" size={14} />
                     Выдач за 30 дней
                   </div>
                   <div className={styles.statValue}>{stats.grantsLast30Days}</div>

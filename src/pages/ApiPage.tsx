@@ -372,7 +372,7 @@ curl "${apiBase}/analyses/apireq_XXXXXXXX?report=1" -H "Authorization: Bearer YO
               title={t('api.upsellTitle')}
               body={t('api.upsellBody')}
               action={
-                <Button icon="diamond" onClick={() => navigate('/plans')}>
+                <Button icon="sparkle" onClick={() => navigate('/plans')}>
                   {t('api.upsellCta')}
                 </Button>
               }
@@ -650,7 +650,7 @@ curl "${apiBase}/analyses/apireq_XXXXXXXX?report=1" -H "Authorization: Bearer YO
                 <p className={styles.sectionSub}>{t('api.planSub')}</p>
                 <div className={styles.planLine}>
                   <span className={styles.planLineName}>
-                    <Icon name="diamond" size={15} color="var(--accent)" strokeWidth={2.2} />
+                    <Icon name="sparkle" size={15} color="var(--accent)" strokeWidth={2.2} />
                     Business
                   </span>
                   <span style={{ display: 'inline-flex', gap: 8 }}>

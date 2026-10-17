@@ -297,7 +297,7 @@ export function TemplatesPage() {
               title={t('plan.upsellTitle')}
               body={t('limits.featureLocked', { feature: t('tpl.title'), plans: plansLabel('templates'), plan: plan ?? '' })}
               action={
-                <Button variant="primary" icon="diamond" onClick={() => navigate('/plans')}>
+                <Button variant="primary" icon="sparkle" onClick={() => navigate('/plans')}>
                   {t('top.upgrade')}
                 </Button>
               }

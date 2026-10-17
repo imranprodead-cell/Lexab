@@ -468,7 +468,7 @@ export function SettingsPage() {
                 <>
                   <div className={styles.planLine}>
                     <span className={styles.planLineName}>
-                      <Icon name="diamond" size={15} color="var(--accent)" strokeWidth={2.2} />
+                      <Icon name="sparkle" size={15} color="var(--accent)" strokeWidth={2.2} />
                       {limits.data.plan}
                     </span>
                     <span style={{ display: 'inline-flex', gap: 8 }}>

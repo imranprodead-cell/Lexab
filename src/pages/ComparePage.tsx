@@ -166,7 +166,7 @@ export function ComparePage() {
               title={t('plan.upsellTitle')}
               body={t('limits.featureLocked', { feature: t('cmp.title'), plans: plansLabel('compare'), plan: plan ?? '' })}
               action={
-                <Button variant="primary" icon="diamond" onClick={() => navigate('/plans')}>
+                <Button variant="primary" icon="sparkle" onClick={() => navigate('/plans')}>
                   {t('top.upgrade')}
                 </Button>
               }

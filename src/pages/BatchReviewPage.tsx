@@ -514,7 +514,7 @@ export function BatchReviewPage() {
               title={t('batch.upsellTitle')}
               body={t('batch.upsellBody')}
               action={
-                <Button variant="primary" icon="diamond" onClick={() => navigate('/plans')}>
+                <Button variant="primary" icon="sparkle" onClick={() => navigate('/plans')}>
                   {t('batch.upsellCta')}
                 </Button>
               }

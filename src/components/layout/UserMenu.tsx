@@ -160,7 +160,7 @@ export function UserMenu({ user, plan, onNavigated }: UserMenuProps) {
         <div className={styles.userText}>
           <div className={styles.userName}>{user.name}</div>
           <div className={styles.userPlan}>
-            <Icon name="diamond" size={11} color="var(--accent)" strokeWidth={2} />
+            <Icon name="sparkle" size={13} color="var(--accent)" strokeWidth={2} />
             {plan ?? '…'}
           </div>
         </div>

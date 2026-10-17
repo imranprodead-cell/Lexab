@@ -160,7 +160,7 @@ export function SettingsMenu() {
               navigate('/plans');
             }}
           >
-            <Icon name="diamond" size={16} />
+            <Icon name="sparkle" size={16} />
             <span className={styles.settingsItemLabel}>{t('settings.plans')}</span>
           </button>
         </div>

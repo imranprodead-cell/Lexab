@@ -148,7 +148,7 @@ export function ContractsPage() {
               title={t('contracts.upsellTitle')}
               body={t('contracts.upsellBody')}
               action={
-                <Button variant="primary" icon="diamond" onClick={() => navigate('/plans')}>
+                <Button variant="primary" icon="sparkle" onClick={() => navigate('/plans')}>
                   {t('contracts.upsellCta')}
                 </Button>
               }
