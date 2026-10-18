@@ -842,6 +842,68 @@
   flex-direction: column;
   align-items: center;
 }
+.gauge {
+  position: relative;
+  width: 132px;
+  height: 132px;
+  flex-shrink: 0;
+}
+/* Кольцо: конический градиент, вырезанный радиальной маской (толщина 10px). */
+.gaugeRing {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 10px), #000 calc(100% - 9px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 10px), #000 calc(100% - 9px));
+}
+.gaugeCap {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+/* Ореол по приходу к значению: два импульса и затихает. */
+.gaugeHalo {
+  position: absolute;
+  inset: 0;
+  border: 3px solid;
+  border-radius: 50%;
+  box-sizing: border-box;
+  opacity: 0;
+  pointer-events: none;
+  animation: gaugePulse 1.1s linear 2;
+}
+@keyframes gaugePulse {
+  from {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  to {
+    transform: scale(1.22);
+    opacity: 0;
+  }
+}
+.gaugeCenter {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.gaugeNum {
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.gaugeOf {
+  font-size: 11px;
+  color: var(--mut);
+  font-family: var(--font-label);
+  margin-top: 2px;
+}
 .gaugeLabel {
   font-size: 12px;
   color: var(--dim);

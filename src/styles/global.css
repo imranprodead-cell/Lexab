@@ -49,7 +49,7 @@
   /* Secondary chart series (the muted bars next to the accent ones). */
   --chart-muted: color-mix(in srgb, var(--mut) 80%, transparent);
   /* Замороженный цвет данных: шкалы «Activity by month», статусы
-     Viewed/Reviewed, RiskGauge — прежний фиолетовый бренд-цвет данных.
+     Viewed/Reviewed — прежний фиолетовый бренд-цвет данных.
      Не следует за интерфейсным акцентом. */
   --chart-accent: #8b7cf6;
   /* Монохромные ступени графиков из эталона */
