@@ -105,11 +105,13 @@ interface ChatState {
   /** `opts.keepCanvas`: не обнулять текущий документ на время анализа — воркспейс
    *  остаётся открытым (черновик шаблона анализируется «на месте»).
    *  `opts.photos`: фото страниц договора по порядку — сервер склеит их в PDF,
-   *  `file.name` тогда — имя будущего документа. */
+   *  `file.name` тогда — имя будущего документа.
+   *  `opts.newSession`: новый договор — новый чат в боковой панели; анализ
+   *  привязывается ТОЛЬКО к нему, а не к чату, открытому в момент загрузки. */
   startAnalysis: (
     file: { name: string; size: string },
     rawFile?: File,
-    opts?: { keepCanvas?: boolean; uploadId?: string; photos?: File[] },
+    opts?: { keepCanvas?: boolean; uploadId?: string; photos?: File[]; newSession?: boolean },
   ) => Promise<void>;
   /** Отменить идущий анализ (кнопка «Отменить» на карточке). */
   cancelAnalysis: () => void;
@@ -164,9 +166,36 @@ interface DocSnapshot {
 /** Последний прикреплённый файл (не переживает перезагрузку страницы) —
  *  нужен «Повторить» после неудачного анализа, чтобы переслать ТЕ ЖЕ байты. */
 let lastRawFile: File | null = null;
+/** Загрузка этого файла уже дошла до сервера: «Повторить» после сбоя анализа
+ *  разбирает ТУ ЖЕ загрузку по её id, а не шлёт копию (лишняя копия съедала
+ *  место в хранилище тарифа). */
+let lastRawUpload: { file: File; upload: UploadedFile } | null = null;
 /** То же для фото страниц: «Повторить» после сбоя анализа берёт уже
  *  загруженный PDF (upload), а если не дошла сама загрузка — шлёт снимки снова. */
 let lastPhotos: { name: string; photos: File[]; upload: UploadedFile | null } | null = null;
+/** Что прикрепили ПОСЛЕДНИМ — «Повторить» повторяет именно это. Раньше повтор
+ *  искал «последний файл с компьютера с таким именем»: после импорта из облака
+ *  он либо просил прикрепить файл заново, либо разбирал СТАРЫЙ одноимённый
+ *  файл с компьютера (аудит загрузок 2026-10-18). Файл из облака уже лежит на
+ *  сервере — повтор идёт по его uploadId. */
+let lastAttachment: { name: string; kind: 'file' | 'photos' | 'cloud'; uploadId?: string } | null = null;
+
+/** Чат, который создаётся под идущий анализ нового договора (opts.newSession).
+ *  Отмена анализа до того, как чат создан, должна удалить и его — иначе в
+ *  боковой панели остаётся пустой чат. */
+let pendingRunSession: Promise<string | null> | null = null;
+
+/** Сколько ждать создания чата, прежде чем показать результат или ошибку
+ *  анализа: запрос в сеть может повиснуть, а ждать его вечно нельзя. */
+const OWN_SESSION_WAIT_MS = 15_000;
+/** Значение промиса, если он успел за `ms`; иначе undefined (промис живёт дальше). */
+function settledWithin<T>(promise: Promise<T>, ms: number): Promise<T | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<undefined>((resolve) => {
+    timer = setTimeout(() => resolve(undefined), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
 
 let stepTimers: ReturnType<typeof setTimeout>[] = [];
 function clearStepTimers() {
@@ -438,12 +467,16 @@ export const useChatStore = create<ChatState>((set, get) => {
     clearStepTimers();
     canvasEpoch++;
     const deadSid = get().serverSessionId;
-    if (deadSid && !USE_MOCK) {
+    const removeDead = (sid: string) =>
       void chatsApi
-        .remove(deadSid)
+        .remove(sid)
         .then(() => refreshHistory())
         .catch(() => undefined);
-    }
+    if (deadSid && !USE_MOCK) removeDead(deadSid);
+    // Чат под этот анализ мог ещё создаваться — удалить его, когда появится.
+    const pending = pendingRunSession;
+    pendingRunSession = null;
+    if (pending && !USE_MOCK) void pending.then((sid) => sid && sid !== deadSid && removeDead(sid));
     set({ phase: 'idle', messages: [], activeStep: -1, analysisStartedAt: null, error: null, serverSessionId: null });
   },
 
@@ -453,12 +486,22 @@ export const useChatStore = create<ChatState>((set, get) => {
     // последний прикреплённый (тот же по имени). Без файла анализ запускать
     // НЕЛЬЗЯ: сервер разрешал бы контент по имени и мог молча разобрать
     // устаревшую версию или вообще ничего (выдуманный «анализ»).
-    if (rawFile) lastRawFile = rawFile;
-    if (opts?.photos?.length) lastPhotos = { name: file.name, photos: opts.photos, upload: null };
-    const photoRun = !rawFile && !opts?.uploadId && lastPhotos?.name === file.name ? lastPhotos : null;
-    const effectiveRaw = photoRun
-      ? null
-      : (rawFile ?? (lastRawFile && lastRawFile.name === file.name ? lastRawFile : null));
+    if (rawFile) {
+      lastRawFile = rawFile;
+      lastAttachment = { name: file.name, kind: 'file' };
+    } else if (opts?.photos?.length) {
+      lastPhotos = { name: file.name, photos: opts.photos, upload: null };
+      lastAttachment = { name: file.name, kind: 'photos' };
+    } else if (opts?.uploadId) {
+      lastAttachment = { name: file.name, kind: 'cloud', uploadId: opts.uploadId };
+    }
+    // «Повторить» (без вложения) — то, что прикрепили последним, и только если
+    // это тот же договор (по имени на карточке ошибки).
+    const retry = !rawFile && !opts?.photos?.length && !opts?.uploadId && lastAttachment?.name === file.name ? lastAttachment : null;
+    const retryUploadId = retry?.kind === 'cloud' ? retry.uploadId : undefined;
+    const photoRun = opts?.photos?.length || retry?.kind === 'photos' ? lastPhotos : null;
+    const effectiveRaw = photoRun ? null : (rawFile ?? (retry?.kind === 'file' ? lastRawFile : null));
+    if (retryUploadId) opts = { ...opts, uploadId: retryUploadId };
     // opts.uploadId — файл уже НА СЕРВЕРЕ (импорт из Google Drive / OneDrive /
     // Dropbox). Раньше этот гейт заворачивал такой запуск, и импорт из облака
     // НИКОГДА не доходил до анализа: пользователь видел «прикрепите файл
@@ -489,7 +532,30 @@ export const useChatStore = create<ChatState>((set, get) => {
       activeStep: 0,
       analysisStartedAt: Date.now(),
       error: null,
+      // Новый договор — новый чат: прежний чат больше не «текущий», иначе
+      // анализ мог привязаться к нему, пока новый ещё создаётся (аудит загрузок
+      // 2026-10-18: в старом чате оказывался разбор чужого договора).
+      ...(opts?.newSession ? { serverSessionId: null } : {}),
     });
+
+    // Чат под этот анализ. Канвасу он назначается, только если пользователь
+    // всё ещё здесь; привязка анализа к нему — в любом случае (см. ниже).
+    let ownSession: Promise<string | null> | null = null;
+    if (opts?.newSession) {
+      const created = useChatHistoryStore
+        .getState()
+        .addSession(file.name)
+        .then((session) => session?.id ?? null)
+        .catch(() => null);
+      ownSession = created;
+      pendingRunSession = created;
+      void created.then((sid) => {
+        if (sid && epoch === canvasEpoch && pendingRunSession === created && !get().serverSessionId) {
+          set({ serverSessionId: sid });
+          tryLinkAnalysis();
+        }
+      });
+    }
 
     // Advance the visible progress steps while the request is in flight.
     // Шаги — это ожидаемый ПОРЯДОК работ, а не измеренное время: реальный
@@ -516,19 +582,28 @@ export const useChatStore = create<ChatState>((set, get) => {
         fileSize = up.fileSize;
       } else if (effectiveRaw && !opts?.uploadId && !USE_MOCK) {
         // Ship the file itself first — the AI reads the actual contract text.
+        // Анализ идёт по id ЭТОЙ загрузки: раньше id выбрасывался, и сервер
+        // искал «последний файл с таким именем» — при двух «Договор.pdf» мог
+        // разобрать не тот (аудит загрузок 2026-10-18).
         try {
-          await uploadsApi.upload(effectiveRaw);
-        } catch {
-          // Upload failed (offline/over quota). Do NOT fall through to analysis:
-          // the server resolves the contract by file NAME, so if an OLDER upload
-          // with the same name exists it would silently review that stale version
-          // and present it as an analysis of the just-selected file. Abort with a
-          // clear error instead (the outer catch cleans up the empty session).
-          useUIStore.getState().pushToast(tStandalone('chat.uploadFailed'), 'error');
-          throw new Error(tStandalone('chat.uploadFailed'));
+          const up =
+            lastRawUpload?.file === effectiveRaw ? lastRawUpload.upload : await uploadsApi.upload(effectiveRaw);
+          lastRawUpload = { file: effectiveRaw, upload: up };
+          uploadId = up.id;
+        } catch (err) {
+          // Upload failed. Do NOT fall through to analysis without the file —
+          // abort with a clear error instead (the outer catch cleans up the
+          // empty session). Отказ сервера по существу (формат, пароль на .doc,
+          // размер, лимит места) — его словами; сеть и сбои — общим «не загрузилось».
+          const reason =
+            err instanceof ApiError && err.status >= 400 && err.status < 500
+              ? apiErrorMessage(err, tStandalone)
+              : tStandalone('chat.uploadFailed');
+          useUIStore.getState().pushToast(reason, 'error');
+          throw new Error(reason);
         }
       }
-      const sessionAtCall = get().serverSessionId;
+      const sessionAtCall = ownSession ? null : get().serverSessionId;
       const result = await analysisApi.analyze({
         fileName,
         fileSize,
@@ -541,16 +616,28 @@ export const useChatStore = create<ChatState>((set, get) => {
       // переносим документ в дело (по локали, ключ уже погашен на старте) даже
       // если канвас переключили. Ошибка глотается в тост внутри хелпера.
       adoptDocIntoProject(result.documentId, pendingProjectId);
+      // Свой чат анализа (обычно давно создан — анализ идёт десятки секунд).
+      // Если создание чата повисло в сети — результат не ждёт его вечно:
+      // привязка случится, когда чат всё-таки появится.
+      const settled = ownSession ? await settledWithin(ownSession, OWN_SESSION_WAIT_MS) : null;
+      const ownSid = settled ?? null;
+      if (ownSession && settled === undefined) {
+        void ownSession.then((sid) => {
+          if (sid && !USE_MOCK) void chatsApi.linkAnalysis(sid, result.id).catch(() => undefined);
+        });
+      } else if (pendingRunSession === ownSession) pendingRunSession = null;
       // Persist the session↔analysis link NO MATTER which canvas is visible —
       // otherwise an analysis finished in the background is never restorable
-      // and its sidebar chat opens empty. (Idempotent server-side.)
-      const linkSid = sessionAtCall ?? get().serverSessionId;
+      // and its sidebar chat opens empty. (Idempotent server-side.) Новый
+      // договор привязывается ТОЛЬКО к своему чату.
+      const linkSid = ownSession ? ownSid : (sessionAtCall ?? get().serverSessionId);
       if (linkSid && !USE_MOCK) void chatsApi.linkAnalysis(linkSid, result.id).catch(() => undefined);
+      const mySid = ownSession ? ownSid : sessionAtCall;
       if (epoch !== canvasEpoch) {
         // Canvas switched while analysing. If the user came back to the same
         // session, adopt the finished result; otherwise it stays persisted
         // server-side and is restored when the session is reopened.
-        if (sessionAtCall && get().serverSessionId === sessionAtCall) {
+        if (mySid && get().serverSessionId === mySid) {
           clearStepTimers();
           set((s) => ({
             phase: 'analyzed',
@@ -572,6 +659,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       }
       clearStepTimers();
       set({
+        ...(ownSid && !get().serverSessionId ? { serverSessionId: ownSid } : {}),
         phase: 'analyzed',
         analysis: result,
         analysisStartedAt: null,
@@ -582,6 +670,17 @@ export const useChatStore = create<ChatState>((set, get) => {
       });
       tryLinkAnalysis();
     } catch (err) {
+      // Свой чат мог ещё создаваться (быстрый отказ загрузки) — дождаться его,
+      // чтобы удалить вместе с неудачным анализом, а не оставить пустым. Если
+      // создание повисло — ошибку показываем сразу, а чат удалим, когда появится.
+      const settled = ownSession ? await settledWithin(ownSession, OWN_SESSION_WAIT_MS) : null;
+      const ownSid = settled ?? null;
+      if (pendingRunSession === ownSession) pendingRunSession = null;
+      if (ownSession && settled === undefined && !USE_MOCK) {
+        void ownSession.then((sid) => {
+          if (sid) void chatsApi.remove(sid).then(() => refreshHistory()).catch(() => undefined);
+        });
+      }
       if (epoch !== canvasEpoch) return;
       // Отмена пользователем — не ошибка: состояние уже сброшено в cancelAnalysis.
       if (err instanceof DOMException && err.name === 'AbortError') return;
@@ -589,7 +688,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       // The sidebar session was created optimistically FOR this analysis. If
       // nothing was ever persisted into it (no text messages), remove it —
       // otherwise a failed/limited analysis leaves a dead chat that opens empty.
-      const deadSid = get().serverSessionId;
+      const deadSid = ownSid ?? get().serverSessionId;
       const hasText = get().messages.some((m) => m.kind === 'text');
       if (deadSid && !hasText && !USE_MOCK) {
         set({ serverSessionId: null });

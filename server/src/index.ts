@@ -4,7 +4,7 @@ import { config } from './config.ts';
 import { checkApprovalDeadlines } from './routes/approvals.routes.ts';
 import { checkAuditRetention } from './routes/audit.routes.ts';
 import { checkContractDeadlines } from './routes/contracts.routes.ts';
-import { checkRetention } from './routes/documents.routes.ts';
+import { checkRetention, purgeOrphanUploads } from './routes/documents.routes.ts';
 import { resumeBatchJobs } from './routes/batch.routes.ts';
 import { failInterruptedApiRequests, pruneApiRequests } from './routes/public-api.routes.ts';
 import { pruneWebhookDeliveries, runWebhookDeliveries } from './lib/apiWebhooks.ts';
@@ -66,6 +66,7 @@ const JOB_KEYS = {
   apiRequestsPrune: 71012,
   webhookDeliver: 71013,
   webhookPrune: 71014,
+  orphanUploads: 71015,
 } as const;
 // Задачи выполняются ПО ОДНОЙ через внутрипроцессную очередь: параллельные
 // tryJobLock-клиенты + их собственные запросы через пул при PG_POOL_MAX<=8
@@ -151,6 +152,11 @@ setInterval(() => runExclusive(JOB_KEYS.weeklyDigest, () => sendWeeklyDigests(db
 // Retention: crypto-shred documents soft-deleted past the retention window, daily.
 runExclusive(JOB_KEYS.retention, () => checkRetention(db));
 setInterval(() => runExclusive(JOB_KEYS.retention, () => checkRetention(db)), 24 * 60 * 60 * 1000);
+
+// Загрузки, так и не дошедшие до разбора (сбой, лимит, закрытая вкладка), —
+// старше суток удаляются: иначе они вечно занимали место в лимите хранилища.
+runExclusive(JOB_KEYS.orphanUploads, () => purgeOrphanUploads(db));
+setInterval(() => runExclusive(JOB_KEYS.orphanUploads, () => purgeOrphanUploads(db)), 24 * 60 * 60 * 1000);
 
 // Batch recovery: подобрать осиротевшие батчи (упавший инстанс перестаёт
 // бампать heartbeat batch_jobs.updated_at). При старте И каждые 5 минут —

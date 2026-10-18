@@ -9,6 +9,7 @@ import type { FastifyInstance } from 'fastify';
 import type { Db } from '../db.ts';
 import { config } from '../config.ts';
 import { deleteFile } from '../storage.ts';
+import { finalContractText, loadSourceText, unappliedNote } from '../lib/fullText.ts';
 import { badRequest, HttpError, notFound } from '../lib/errors.ts';
 import { decJsonFromJsonb, decText, encryptionEnabled } from '../lib/docCrypto.ts';
 import { assertFeature } from '../lib/limits.ts';
@@ -447,9 +448,11 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
     let blocks: DocBlock[] = [];
     let redlines: Redline[] = [];
     let uploadId: string | null = null;
+    let analysisId: string | null = null;
     if (analysisRes.rows[0]) {
       const a = analysisRes.rows[0];
       uploadId = a.upload_id;
+      analysisId = a.id;
       // Decrypt with the document OWNER's key (a teammate exports shared docs).
       const decBlocks = (await decJsonFromJsonb(db, doc.user_id, a.document_blocks)) as DocBlock[] | null;
       if (decBlocks === null) throw new HttpError(500, 'Document cannot be decrypted — data key mismatch');
@@ -476,63 +479,16 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
     // Берём тот САМЫЙ upload, из которого сделан анализ (analyses.upload_id) —
     // иначе при двух файлах с одним именем взяли бы чужой (новейший) текст.
     // Старые анализы без upload_id → откат к поиску по имени файла (как раньше).
-    const uploadRes = uploadId
-      ? await db.query<{ extracted_text: string | null; ocr_status: string | null }>(
-          'SELECT extracted_text, ocr_status FROM uploads WHERE id = $1 AND user_id = $2',
-          [uploadId, doc.user_id],
-        )
-      : await db.query<{ extracted_text: string | null; ocr_status: string | null }>(
-          'SELECT extracted_text, ocr_status FROM uploads WHERE user_id = $1 AND file_name = $2 ORDER BY created_at DESC LIMIT 1',
-          [doc.user_id, doc.name],
-        );
+    const source = await loadSourceText(db, doc.user_id, { fileName: doc.name, uploadId, nameFallback: redlines.length > 0 });
     // Текст скана, распознанный ИИ, в экспорт НЕ идёт: ошибка распознавания в
     // сумме или дате не должна уехать клиенту файлом как «чистый договор».
     // Скан экспортируется как раньше — разобранными пунктами.
-    const ocrText = uploadRes.rows[0]?.ocr_status === 'done';
-    const rawFull = ocrText ? null : (uploadRes.rows[0]?.extracted_text ?? null);
-    let fullText = rawFull === null ? null : await decText(db, doc.user_id, rawFull);
-    if (fullText) {
-      // Apply every ACCEPTED redline to the full source text — robustly, so the
-      // clean export can't silently ship the old (risky) wording:
-      //  • ALL occurrences (not just the first) — a repeated clause is fully fixed;
-      //  • whitespace-tolerant match (\s+) — the model quotes normalised text
-      //    while PDF/DOCX extraction keeps newlines/double spaces inside a clause;
-      //  • a FUNCTION replacement — so `$&`, `$$` etc. in the new wording are
-      //    inserted literally, never interpreted as replacement patterns.
-      // Anything that still can't be placed (empty delText = a pure insertion, or
-      // wording not found even fuzzily) is collected and appended as a visible
-      // note rather than dropped without a trace.
-      const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const unapplied: Redline[] = [];
-      let text: string = fullText;
-      for (const r of redlines) {
-        if (r.status !== 'accepted') continue;
-        if (!r.delText.trim()) {
-          unapplied.push(r);
-          continue;
-        }
-        const pattern = new RegExp(escapeRe(r.delText).replace(/\s+/g, '\\s+'), 'g');
-        let hit = false;
-        const next = text.replace(pattern, () => {
-          hit = true;
-          return r.insText;
-        });
-        if (hit) text = next;
-        else unapplied.push(r);
-      }
-      if (unapplied.length) {
-        const ru = looksRussian(text);
-        const header = ru
-          ? '\n\n— Принятые изменения, которые не удалось автоматически вставить в исходный текст (примените вручную):'
-          : '\n\n— Accepted changes that could not be merged into the source text automatically (apply manually):';
-        text += header;
-        for (const r of unapplied) {
-          text += r.delText.trim()
-            ? `\n• ${ru ? 'Было' : 'Was'}: «${r.delText}» → ${ru ? 'Стало' : 'Now'}: «${r.insText}»`
-            : `\n• ${ru ? 'Добавить' : 'Add'}: «${r.insText}»`;
-        }
-      }
-      fullText = text;
+    let fullText = source.ocrStatus === 'done' ? null : source.text;
+    if (fullText && analysisId) {
+      // Ручные правки пунктов и принятые правки ИИ — в полный текст; не
+      // вставшие — видимой припиской (та же логика, что у «Весь договор»).
+      const merged = await finalContractText(db, doc.user_id, analysisId, fullText, blocks, redlines);
+      fullText = merged.text + unappliedNote(merged.text, merged.unapplied, merged.unplacedEdits);
     }
 
     // Audit under the document owner's team scope (a teammate exporting a shared
@@ -544,25 +500,42 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
       metadata: { format, ...(format === 'docx' ? { mode } : {}) },
     });
 
-    // Пометка «исходник утрачен» — на языке контента: без неё экспорт из
-    // клауз разбора выглядит как «скачалось что-то не то».
+    // Пометка, ПОЧЕМУ в файле только пункты разбора, — на языке контента и
+    // правдивая (аудит загрузок 2026-10-18: у скана писалось «исходный файл
+    // отсутствует», хотя он на месте, а у договора, созданного по запросу,
+    // исходного файла не было никогда — там пометка не нужна вовсе).
     const blocksSample = blocks
       .map((b) => (b.type === 'heading' ? (b.text ?? '') : (b.segments ?? []).filter((s): s is string => typeof s === 'string').join(' ')))
       .join(' ')
       .slice(0, 2000);
-    const noSourceNote =
-      blocks.length && !fullText
-        ? looksRussian(`${doc.name} ${blocksSample}`)
+    const ru = looksRussian(`${doc.name} ${blocksSample}`);
+    const fileThere = source.uploadId !== null;
+    let noSourceNote: string | null = null;
+    if (blocks.length && !fullText) {
+      if (fileThere && /\.pdf$/i.test(doc.name)) {
+        noSourceNote = ru
+          ? 'Этот договор загружен сканом или фото: ниже только пункты из ИИ-разбора с правками. Полный текст скана распознаёт ИИ, и в файл он не переносится — чтобы ошибка распознавания в сумме или дате не попала в документ.'
+          : 'This contract was uploaded as a scan or photo: only the clauses from the AI review are included below. The full text of a scan is recognized by AI and is not copied into the file, so a recognition error in an amount or date cannot reach the document.';
+      } else if (fileThere) {
+        noSourceNote = ru
+          ? 'Полный текст исходного файла прочитать не удалось, поэтому ниже только пункты из ИИ-разбора с правками.'
+          : 'The full text of the source file could not be read, so only the clauses from the AI review are included below.';
+      } else if (uploadId !== null || redlines.length > 0) {
+        noSourceNote = ru
           ? 'Внимание: исходный файл этого документа отсутствует в хранилище, поэтому ниже приведены только пункты из ИИ-разбора с правками. Загрузите файл заново и запустите анализ, чтобы экспортировать полный договор.'
-          : 'Note: the source file of this document is no longer in storage, so only the clauses from the AI review are included below. Re-upload the file and run an analysis to export the full contract.'
-        : null;
+          : 'Note: the source file of this document is no longer in storage, so only the clauses from the AI review are included below. Re-upload the file and run an analysis to export the full contract.';
+      }
+      // иначе — договор, созданный по запросу: его документ и есть весь договор.
+    }
 
     if (format === 'pdf') {
       // PDF — always the flattened final document: the FULL original text with
       // accepted redlines applied; only the review excerpt when the source
       // upload is gone.
+      // Каждая строка — свой абзац листа: генератор PDF склеивает переносы
+      // внутри абзаца в пробелы, и строки таблицы слились бы в одну.
       const sections = fullText
-        ? fullText.split(/\n{2,}/).map((t) => ({ text: t.trim() })).filter((s) => s.text)
+        ? fullText.split(/\n+/).map((t) => ({ text: t.trim() })).filter((s) => s.text)
         : blocks.length
           ? [...(noSourceNote ? [{ text: noSourceNote }] : []), ...resolveSections(blocks, redlines)]
           : [{ text: `No AI review has been run for “${doc.name}” yet — export the document after running an analysis.` }];
@@ -580,7 +553,13 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
       mode === 'clean' && fullText
         ? [
             new Paragraph({ text: doc.name, heading: HeadingLevel.HEADING_1 }),
-            ...fullText.split('\n').map((line) => new Paragraph({ children: [new TextRun(line)] })),
+            // Абзац — по пустой строке; переносы внутри (строки таблицы, ручной
+            // перенос) — разрывом строки, а не новым абзацем.
+            ...fullText
+              .split(/\n[ \t]*\n/)
+              .map((para) => para.trim())
+              .filter(Boolean)
+              .map((para) => new Paragraph({ children: para.split('\n').map((line, i) => new TextRun({ text: line, break: i > 0 ? 1 : 0 })) })),
           ]
         : blocks.length
           ? [
@@ -662,4 +641,46 @@ export async function checkRetention(db: Db): Promise<void> {
       target: { type: 'document', id: doc.id, label: doc.name },
     });
   }
+}
+
+/**
+ * Загрузки-«сироты» (аудит загрузок 2026-10-18): файл сохранён, а разбор так и
+ * не случился — анализ сорвался, упёрся в лимит, вкладку закрыли посреди
+ * работы. Такой файл навсегда занимал место в лимите хранилища тарифа, а
+ * удалить его пользователю было нечем: в интерфейсе его не видно.
+ *
+ * Удаляется загрузка старше суток, на которую НИЧТО не ссылается: ни разбор
+ * (analyses.upload_id), ни пакетная проверка (batch_items), ни старый разбор
+ * без привязки, который находит свой файл по имени. Строки удаляются с
+ * повторной проверкой (разбор мог появиться между выборкой и удалением), байты —
+ * после, по возвращённым строкам. Идемпотентно; ежедневно (index.ts).
+ */
+export async function purgeOrphanUploads(db: Db): Promise<number> {
+  const candidates = await db.query<{ id: string }>(
+    `SELECT u.id FROM uploads u
+      WHERE u.created_at < now() - interval '24 hours'
+        AND NOT EXISTS (SELECT 1 FROM analyses a WHERE a.upload_id = u.id)
+        AND NOT EXISTS (SELECT 1 FROM batch_items b WHERE b.upload_id = u.id)
+        AND NOT EXISTS (SELECT 1 FROM analyses a WHERE a.upload_id IS NULL AND a.user_id = u.user_id AND a.file_name = u.file_name)
+      ORDER BY u.created_at
+      LIMIT 500`,
+  );
+  if (!candidates.rows.length) return 0;
+  const removed = await db.query<{ id: string; storage: 's3' | 'local' | 'supabase'; storage_key: string }>(
+    `DELETE FROM uploads u
+      WHERE u.id = ANY($1::text[])
+        AND NOT EXISTS (SELECT 1 FROM analyses a WHERE a.upload_id = u.id)
+        AND NOT EXISTS (SELECT 1 FROM batch_items b WHERE b.upload_id = u.id)
+      RETURNING u.id, u.storage, u.storage_key`,
+    [candidates.rows.map((r) => r.id)],
+  );
+  for (const row of removed.rows) {
+    try {
+      await deleteFile(row.storage, row.storage_key);
+    } catch (err) {
+      console.warn(`[uploads] orphan file delete failed for ${row.storage_key}: ${(err as Error).message}`);
+    }
+  }
+  if (removed.rows.length) console.log(`[uploads] removed ${removed.rows.length} orphan upload(s) never used by an analysis`);
+  return removed.rows.length;
 }

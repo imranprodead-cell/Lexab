@@ -162,6 +162,7 @@ export function inboundRoutes(app: FastifyInstance, db: Db): void {
           const storedText = text === null ? null : await encText(db, user.id, text);
           // Storage counts against the plan quota, same as POST /uploads — a
           // rejected reservation deletes the just-saved bytes (no orphan).
+          const uploadId = newId('up');
           await withStorageReservation(
             db,
             user.id,
@@ -171,7 +172,7 @@ export function inboundRoutes(app: FastifyInstance, db: Db): void {
                 .query(
                   `INSERT INTO uploads (id, user_id, file_name, size_bytes, mime, storage, storage_key, url, extracted_text)
                    VALUES ($1, $2, $3, $4, NULL, $5, $6, NULL, $7)`,
-                  [newId('up'), user.id, fileName, buffer.length, stored!.storage, stored!.key, storedText],
+                  [uploadId, user.id, fileName, buffer.length, stored!.storage, stored!.key, storedText],
                 )
                 .then(() => undefined),
             () => deleteFile(stored!.storage, stored!.key),
@@ -194,6 +195,9 @@ export function inboundRoutes(app: FastifyInstance, db: Db): void {
             sizeBytes: buffer.length,
             text,
             pdf: fileExtension(fileName) === '.pdf' ? buffer : null,
+            // Документ — по этому файлу, а не по имени вложения: «Договор.pdf» из
+            // письма не должен лечь в чужую одноимённую карточку.
+            uploadId,
           };
           // Договор из почты — тот же разбор: одна единица лимита ДОКУМЕНТОВ
           // (внутри persistAnalysis). Приём по почте не должен быть лазейкой в

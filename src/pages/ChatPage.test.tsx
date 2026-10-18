@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { I18nProvider } from '@/i18n/I18nProvider';
 
 vi.mock('@/api', () => ({ USE_MOCK: false, analysisApi: { get: vi.fn() } }));
@@ -135,5 +135,69 @@ describe('ChatPage — reopening an analyzed-document chat from the sidebar', ()
     const html = document.body.innerHTML;
     expect(html).toContain('Draft an NDA'); // подсказки приветствия на месте (тестовая локаль — en)
     expect(useChatStore.getState().analysis?.id).toBe('draft_st_w'); // канвас цел
+  });
+
+  // Аудит загрузок 2026-10-18: в чате с двумя разборами пузырёк брался от
+  // ПЕРВОГО файла, а карточка — от ПОСЛЕДНЕГО разбора (имя одного договора,
+  // разбор другого).
+  it('пузырёк файла — того договора, чей разбор показан', async () => {
+    mockMessages.mockResolvedValue([
+      { id: 'm1', role: 'user', kind: 'file', file: { name: 'Первый-договор.pdf', size: '1 KB' } },
+      { id: 'm2', role: 'assistant', kind: 'analysis', analysisId: 'an_first' },
+      { id: 'm3', role: 'user', kind: 'file', file: { name: 'Второй-договор.pdf', size: '2 KB' } },
+      { id: 'm4', role: 'assistant', kind: 'analysis', analysisId: 'an_second' },
+    ]);
+    mockGetAnalysis.mockResolvedValue({ ...ANALYSIS, id: 'an_second', fileName: 'Второй-договор.pdf' });
+
+    await act(async () => {
+      root.render(
+        <I18nProvider>
+          <MemoryRouter initialEntries={['/chat/s2']}>
+            <Routes>
+              <Route path="/chat/:sessionId" element={<ChatPage />} />
+            </Routes>
+          </MemoryRouter>
+        </I18nProvider>,
+      );
+    });
+    await flush();
+    await flush();
+
+    expect(mockGetAnalysis).toHaveBeenCalledWith('an_second');
+    expect(document.body.innerHTML).toContain('Второй-договор.pdf');
+    expect(document.body.innerHTML).not.toContain('Первый-договор.pdf');
+  });
+
+  it('новый договор открыл новый чат — адрес страницы переходит на него без перезагрузки', async () => {
+    mockMessages.mockResolvedValue(ANALYZED_CHAT);
+    mockGetAnalysis.mockResolvedValue(ANALYSIS);
+    let path = '';
+    function Probe() {
+      path = useLocation().pathname;
+      return null;
+    }
+
+    await act(async () => {
+      root.render(
+        <I18nProvider>
+          <MemoryRouter initialEntries={['/chat/s1']}>
+            <Probe />
+            <Routes>
+              <Route path="/chat/:sessionId" element={<ChatPage />} />
+            </Routes>
+          </MemoryRouter>
+        </I18nProvider>,
+      );
+    });
+    await flush();
+    expect(path).toBe('/chat/s1');
+
+    // Стор назначил канвасу чат нового договора (startAnalysis с newSession).
+    await act(async () => {
+      useChatStore.setState({ serverSessionId: 's_new' });
+    });
+    await flush();
+    expect(path).toBe('/chat/s_new');
+    expect(mockMessages).not.toHaveBeenCalledWith('s_new'); // канвас не перезагружался
   });
 });

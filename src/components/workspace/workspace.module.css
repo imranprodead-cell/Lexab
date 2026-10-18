@@ -356,6 +356,47 @@
   white-space: pre-wrap;
 }
 
+/* «Весь договор»: пометка над текстом (скан распознан ИИ / текста нет) и
+   список принятых правок, которые не нашлись в тексте автоматически. */
+.fullNote {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 22px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
+  color: var(--text);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+.fullNote svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--warn);
+}
+.fullUnapplied {
+  margin-top: 28px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text);
+}
+.fullUnappliedTitle {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.fullUnapplied ul {
+  margin: 0;
+  padding-left: 18px;
+}
+.fullUnapplied li {
+  margin-bottom: 6px;
+  white-space: pre-wrap;
+}
+
 /* Redlines ---------------------------------------------------------------- */
 .redlinePending {
   display: inline;

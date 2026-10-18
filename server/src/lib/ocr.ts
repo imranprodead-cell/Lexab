@@ -17,6 +17,7 @@
  *  - текст шифруется ключом ВЛАДЕЛЬЦА загрузки, как и текст обычных файлов.
  */
 import type { Db } from '../db.ts';
+import { fileExtension, usablePdfText } from '../extract.ts';
 import { transcribeScan } from '../llm.ts';
 import { readFileBytes } from '../storage.ts';
 import { encText } from './docCrypto.ts';
@@ -32,6 +33,32 @@ interface Claimed {
   user_id: string;
   storage: 's3' | 'local' | 'supabase';
   storage_key: string;
+}
+
+/**
+ * Сохранённый текст загрузки → текст для модели. У PDF — без служебных пометок
+ * страниц и null, если это по сути скан (usablePdfText). Многостраничные сканы,
+ * загруженные до исправления, хранят «текст» из одних пометок «-- 1 of 2 --»:
+ * такой мусор стирается из базы — распознавание ждёт extracted_text IS NULL и
+ * иначе не запустилось бы для них никогда. Стирается только та самая
+ * шифровка, что прочитана (гонка с распознаванием её не заденет).
+ */
+export async function readableUploadText(
+  db: Db,
+  upload: { id: string; fileName: string; stored: string | null },
+  decrypted: string | null,
+): Promise<string | null> {
+  if (decrypted === null || fileExtension(upload.fileName) !== '.pdf') return decrypted;
+  const text = usablePdfText(decrypted);
+  if (text === null && upload.stored !== null) {
+    await db
+      .query('UPDATE uploads SET extracted_text = NULL WHERE id = $1 AND extracted_text = $2 AND ocr_status IS NULL', [
+        upload.id,
+        upload.stored,
+      ])
+      .catch(() => undefined);
+  }
+  return text;
 }
 
 /**

@@ -23,18 +23,17 @@ import { billingApi } from '@/api/billing.api';
 import { analysisApi } from '@/api/analysis.api';
 import { useAsync } from '@/hooks/useAsync';
 import { useChatStore } from '@/store/useChatStore';
-import { useChatHistoryStore } from '@/store/useChatHistoryStore';
 import { useUIStore } from '@/store/useUIStore';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { useI18n } from '@/i18n/I18nProvider';
 import { formatFileSize } from '@/lib/format';
+import { isDocFile, MAX_DOC_BYTES } from '@/lib/docFormats';
 import { plansLabel } from '@/lib/planFeatures';
 import { MAX_PHOTO_BYTES, MAX_PHOTOS } from '@/api/uploads.api';
 import { COUNTRIES } from '@/data/countries';
 import type { ChatMessage } from '@/types/domain';
 import chat from '@/components/chat/chat.module.css';
 
-const ACCEPTED = /\.(pdf|docx?|txt)$/i;
 /** Фото страниц договора: по расширению или типу (HEIC в Chrome приходит без типа). */
 const PHOTO = /\.(jpe?g|png|webp|heic|heif)$/i;
 const isPhoto = (f: File) => PHOTO.test(f.name) || f.type.startsWith('image/');
@@ -137,7 +136,6 @@ export function ChatPage() {
   const sessionLoadFailed = useChatStore((s) => s.sessionLoadFailed);
   const serverSessionId = useChatStore((s) => s.serverSessionId);
   const adoptAnalysis = useChatStore((s) => s.adoptAnalysis);
-  const addSession = useChatHistoryStore((s) => s.addSession);
 
   const pushToast = useUIStore((s) => s.pushToast);
   const country = useUIStore((s) => s.country);
@@ -256,29 +254,40 @@ export function ChatPage() {
     }
   };
 
-  const setServerSession = useChatStore((s) => s.setServerSession);
   const analysisStartedAt = useChatStore((s) => s.analysisStartedAt);
   const cancelAnalysis = useChatStore((s) => s.cancelAnalysis);
 
   const analyze = (file: { name: string; size: string }, rawFile?: File, opts?: { uploadId?: string; photos?: File[] }) => {
-    // Create the sidebar entry and tie it to this canvas, so follow-up
-    // questions land in the same session instead of creating a second one.
-    void addSession(file.name).then((session) => {
-      if (session) setServerSession(session.id);
-    });
-    void startAnalysis(file, rawFile, opts);
+    // Новый договор — новый чат в боковой панели. Создаёт его и привязывает
+    // к нему анализ сам стор (newSession): раньше чат создавался здесь
+    // параллельно с анализом, и разбор нового договора мог прицепиться к
+    // чату, открытому в момент загрузки.
+    void startAnalysis(file, rawFile, { ...opts, newSession: true });
   };
+
+  // Адрес страницы следует за чатом нового договора: иначе после обновления
+  // открывался прежний чат (а в панели подсвечивался не тот). Чат, открытый
+  // по ссылке, сюда не попадает — его загружает loadSession по адресу.
+  const urlSyncedOnce = useRef(false);
+  useEffect(() => {
+    const firstRun = !urlSyncedOnce.current;
+    urlSyncedOnce.current = true;
+    if (!serverSessionId || serverSessionId === sessionId || ghost) return;
+    if (firstRun && sessionId) return;
+    navigate(`/chat/${serverSessionId}`, { replace: true, state: { keepPage: true } });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serverSessionId]);
 
   const handleFile = (file: File) => {
     if (ghost) {
       pushToast(t('ghost.noFiles'), 'default');
       return;
     }
-    if (!ACCEPTED.test(file.name)) {
+    if (!isDocFile(file.name)) {
       pushToast(t('chat.fileTypes'), 'error');
       return;
     }
-    if (file.size > 10 * 1024 * 1024) {
+    if (file.size > MAX_DOC_BYTES) {
       pushToast(t('chat.fileTooBig'), 'error');
       return;
     }
@@ -343,7 +352,12 @@ export function ChatPage() {
     pushToast(t('ghost.left'), 'default');
   };
 
-  const fileMessage = messages.find((m) => m.kind === 'file');
+  // Пузырёк файла — того договора, чей разбор показан: в чате с двумя
+  // разборами раньше брался ПЕРВЫЙ файл, а карточка — ПОСЛЕДНЕГО разбора.
+  const analysisAt = analysis ? messages.findIndex((m) => m.kind === 'analysis' && m.analysisId === analysis.id) : -1;
+  const fileMessage =
+    (analysisAt > 0 ? messages.slice(0, analysisAt).reverse().find((m) => m.kind === 'file') : undefined) ??
+    [...messages].reverse().find((m) => m.kind === 'file');
   const textMessages = messages.filter((m) => m.kind === 'text');
 
   // Пустой канвас: ни сообщений, ни идущего анализа, ни загрузки сессии.
@@ -534,7 +548,11 @@ export function ChatPage() {
                 <Avatar size={30} />
                 <div className={chat.aiBody}>
                   {phase === 'error' ? (
-                    <ErrorState message={error ?? t('common.error')} onRetry={() => fileMessage?.file && void startAnalysis(fileMessage.file)} />
+                    <ErrorState
+                      message={error ?? t('common.error')}
+                      // Неудачный анализ удаляет свой пустой чат — повтор заводит новый.
+                      onRetry={() => fileMessage?.file && void startAnalysis(fileMessage.file, undefined, { newSession: !serverSessionId })}
+                    />
                   ) : (
                     <>
                       <AnalysisCard

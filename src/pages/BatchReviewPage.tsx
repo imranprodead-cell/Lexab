@@ -17,10 +17,10 @@ import { usePageTitle } from '@/hooks/usePageTitle';
 import { useReveal } from '@/hooks/useReveal';
 import { useUIStore } from '@/store/useUIStore';
 import { useI18n } from '@/i18n/I18nProvider';
+import { DOC_ACCEPT, isDocFile, MAX_DOC_BYTES } from '@/lib/docFormats';
 import type { BatchItem, BatchJob } from '@/types/domain';
 import styles from './pages.module.css';
 
-const ACCEPT = '.pdf,.doc,.docx,.txt,.md';
 const MAX_FILES = 20;
 const POLL_MS = 2500;
 
@@ -33,11 +33,6 @@ interface Picked {
    *  прямо в строке файла, а не глотается молча. */
   error?: string;
 }
-
-/** Типы и размер как в одиночной загрузке чата — чтобы негодный файл падал
- *  сразу с понятной причиной, а не тихо выпадал из задания на старте. */
-const BATCH_ACCEPTED = /\.(pdf|docx?|txt)$/i;
-const BATCH_MAX_BYTES = 10 * 1024 * 1024;
 
 const ITEM_TONE: Record<BatchItem['status'], string> = {
   queued: 'var(--mut)',
@@ -128,11 +123,13 @@ export function BatchReviewPage() {
   const addFiles = (list: FileList | File[]) => {
     const all = Array.from(list);
     const incoming = all.filter((file) => {
-      if (!BATCH_ACCEPTED.test(file.name)) {
+      // Типы и размер как в одиночной загрузке чата (lib/docFormats) — чтобы
+      // негодный файл падал сразу с понятной причиной, а не выпадал из задания.
+      if (!isDocFile(file.name)) {
         pushToast(`${file.name}: ${t('chat.fileTypes')}`, 'error');
         return false;
       }
-      if (file.size > BATCH_MAX_BYTES) {
+      if (file.size > MAX_DOC_BYTES) {
         pushToast(`${file.name}: ${t('chat.fileTooBig')}`, 'error');
         return false;
       }
@@ -369,7 +366,7 @@ export function BatchReviewPage() {
         <input
           ref={inputRef}
           type="file"
-          accept={ACCEPT}
+          accept={DOC_ACCEPT}
           multiple
           style={{ display: 'none' }}
           onChange={(e) => {

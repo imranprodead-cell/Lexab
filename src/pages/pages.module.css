@@ -2054,8 +2054,9 @@
   line-height: 1.55;
 }
 
+/* Здесь целый договор (не 2–3 пункта разбора) — окно чтения выше, с прокруткой. */
 .signDoc {
-  max-height: 320px;
+  max-height: min(60vh, 640px);
   overflow-y: auto;
   padding: 16px 18px;
   border-radius: 12px;

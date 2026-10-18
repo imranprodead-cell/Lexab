@@ -21,7 +21,8 @@ import { recalibrateRisk } from '../lib/riskScore.ts';
 import { openSSE, wantsSSE } from '../lib/sse.ts';
 import { asObject, optionalString, requireOneOf, requireString } from '../lib/validate.ts';
 import { generateAnalysis, generateContractDraft, readsScans, type GeneratedAnalysis } from '../llm.ts';
-import { startScanOcr } from '../lib/ocr.ts';
+import { readableUploadText, startScanOcr } from '../lib/ocr.ts';
+import { blockSourceText, finalContractText, loadSourceText } from '../lib/fullText.ts';
 import { jurisdictionCode, retrieveLegalContext } from '../rag/retrieve.ts';
 import type { RetrievedChunk } from '../rag/types.ts';
 import { validateFindings } from '../rag/validate-citations.ts';
@@ -178,20 +179,34 @@ export async function sourceFromAnalysis(db: Db, userId: string, analysisId: str
   const linked = await db.query<{ upload_id: string | null }>('SELECT upload_id FROM analyses WHERE id = $1', [analysisId]);
   const uploadId = linked.rows[0]?.upload_id ?? null;
   let fullText: string | null = null;
+  let scanPdf: Buffer | null = null;
   if (uploadId) {
-    const up = await db.query<{ extracted_text: string | null }>(
-      'SELECT extracted_text FROM uploads WHERE id = $1 AND user_id = $2',
+    const up = await db.query<{ file_name: string; storage: 's3' | 'local' | 'supabase'; storage_key: string; extracted_text: string | null }>(
+      'SELECT file_name, storage, storage_key, extracted_text FROM uploads WHERE id = $1 AND user_id = $2',
       [uploadId, ownerId],
     );
-    const raw = up.rows[0]?.extracted_text ?? null;
-    fullText = raw === null ? null : await decTextStrict(db, ownerId, raw);
+    const row = up.rows[0];
+    const raw = row?.extracted_text ?? null;
+    const decrypted = raw === null ? null : await decTextStrict(db, ownerId, raw);
+    fullText = row ? await readableUploadText(db, { id: uploadId, fileName: row.file_name, stored: raw }, decrypted) : null;
+    // Скан без распознанного текста: повторный анализ должен читать САМ скан
+    // (как первый), а не 2–5 пунктов из прошлого разбора — иначе договор
+    // «похудеет» до этих пунктов и может получить заниженный риск.
+    if (row && fullText === null && fileExtension(row.file_name) === '.pdf') {
+      try {
+        scanPdf = await readFileBytes(row.storage, row.storage_key);
+      } catch (err) {
+        if (err instanceof Error && /decrypt|DATA_ENCRYPTION|integrity/i.test(err.message)) throw err;
+        scanPdf = null; // файла уже нет — остаётся прежний путь по пунктам разбора
+      }
+    }
   }
   return {
     fileName: a.fileName,
     fileSizeLabel: a.fileSize,
     sizeBytes: 0,
-    text: fullText ?? blocksToDraftText(a.document, a.redlines),
-    pdf: null,
+    text: fullText ?? (scanPdf ? null : blocksToDraftText(a.document, a.redlines)),
+    pdf: scanPdf,
     ownerUserId: ownerId,
     uploadId,
   };
@@ -234,7 +249,10 @@ async function resolveUploadedContent(
   // plaintext it always saw (answers may not change because of encryption).
   // A PRESENT-but-undecryptable value throws (decTextStrict), so a corrupted
   // row can't silently downgrade the model input to "from the file name only".
-  const text = row.extracted_text === null ? null : await decTextStrict(db, userId, row.extracted_text);
+  const decrypted = row.extracted_text === null ? null : await decTextStrict(db, userId, row.extracted_text);
+  // Старый многостраничный скан хранит вместо текста пометки страниц — это
+  // скан, а не текст (и мусор стирается, чтобы распознавание запустилось).
+  const text = await readableUploadText(db, { id: row.id, fileName, stored: row.extracted_text }, decrypted);
   return { text, pdf, sizeBytes: Number(row.size_bytes), uploadId: row.id };
 }
 
@@ -325,6 +343,79 @@ export async function readSource(db: Db, req: FastifyRequest): Promise<AnalysisS
   return { fileName, fileSizeLabel, sizeBytes: uploaded.sizeBytes, text: uploaded.text, pdf: uploaded.pdf, jurisdiction, uploadId: uploaded.uploadId };
 }
 
+/** Последний разбор ЭТОЙ загрузки в живом документе владельца (или null). */
+async function priorAnalysisOfUpload(
+  db: Db,
+  ownerId: string,
+  uploadId: string,
+): Promise<{ analysisId: string; documentId: string } | null> {
+  const res = await db.query<{ id: string; document_id: string }>(
+    `SELECT a.id, a.document_id FROM analyses a JOIN documents d ON d.id = a.document_id
+      WHERE a.upload_id = $1 AND d.user_id = $2 AND d.deleted_at IS NULL
+      ORDER BY a.created_at DESC LIMIT 1`,
+    [uploadId, ownerId],
+  );
+  const row = res.rows[0];
+  return row ? { analysisId: row.id, documentId: row.document_id } : null;
+}
+
+/**
+ * В какой документ ложится разбор. Документ — это КОНКРЕТНЫЙ файл, а не имя:
+ * раньше он искался по имени, и два разных «Договор.pdf» (скажем, от разных
+ * контрагентов) склеивались в одну карточку — открывали её и видели не тот
+ * договор (аудит загрузок 2026-10-18).
+ *  1. Эта же загрузка уже разобрана (повторный анализ, сценарий) → её документ.
+ *  2. Тот же файл байт в байт, загруженный заново под тем же именем → тот же
+ *     документ (повторная загрузка не плодит карточки-дубли).
+ *  3. Иначе — null: новый документ.
+ * Источник без загрузки (черновик из промпта, JSON публичного API, старые
+ * разборы без upload_id) — по имени, как раньше: файла, по которому можно
+ * сличить, у него нет.
+ */
+async function findTargetDocument(db: Db, ownerId: string, source: AnalysisSource): Promise<string | null> {
+  if (!source.uploadId) {
+    const byName = await db.query<{ id: string }>(
+      'SELECT id FROM documents WHERE user_id = $1 AND name = $2 AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1',
+      [ownerId, source.fileName],
+    );
+    return byName.rows[0]?.id ?? null;
+  }
+  const prior = await priorAnalysisOfUpload(db, ownerId, source.uploadId);
+  if (prior) return prior.documentId;
+
+  // Кандидаты на «тот же файл»: одноимённые живые документы, чьи загрузки
+  // совпадают по размеру. Байты читаются только для них (редкий случай).
+  const candidates = await db.query<{ document_id: string; storage: 's3' | 'local' | 'supabase'; storage_key: string }>(
+    `SELECT DISTINCT ON (d.id) d.id AS document_id, u.storage, u.storage_key
+       FROM documents d
+       JOIN analyses a ON a.document_id = d.id
+       JOIN uploads u ON u.id = a.upload_id
+       JOIN uploads src ON src.id = $3 AND src.user_id = d.user_id
+      WHERE d.user_id = $1 AND d.name = $2 AND d.deleted_at IS NULL
+        AND u.id <> src.id AND u.size_bytes = src.size_bytes
+      ORDER BY d.id, a.created_at DESC
+      LIMIT 5`,
+    [ownerId, source.fileName, source.uploadId],
+  );
+  if (!candidates.rows.length) return null;
+  const src = await db.query<{ storage: 's3' | 'local' | 'supabase'; storage_key: string }>(
+    'SELECT storage, storage_key FROM uploads WHERE id = $1',
+    [source.uploadId],
+  );
+  if (!src.rows[0]) return null;
+  let mine: Buffer;
+  try {
+    mine = await readFileBytes(src.rows[0].storage, src.rows[0].storage_key);
+  } catch {
+    return null; // не сличить — честнее завести отдельный документ, чем склеить вслепую
+  }
+  for (const c of candidates.rows) {
+    const theirs = await readFileBytes(c.storage, c.storage_key).catch(() => null);
+    if (theirs && theirs.equals(mine)) return c.document_id;
+  }
+  return null;
+}
+
 /** Persist the generated analysis and all side effects; return the wire shape.
  *  Exported for the inbound-email pipeline. `chargeUserId` is who spends the
  *  AI quota and gets the analytics events — for shared team documents that is
@@ -375,6 +466,9 @@ export async function persistAnalysis(
   // ДО транзакции (encText/decText ходят в БД за ключом; вложенный запрос
   // внутри withTx на односоединённой PGlite зависает).
   const terms = gen.terms ?? null;
+  // Документ, в который ляжет разбор, — по самому файлу, а не по имени (см.
+  // findTargetDocument). Ищется ДО транзакции: сличение байт читает хранилище.
+  const targetDocId = await findTargetDocument(db, userId, source);
   const encContractValue = terms?.contractValue ? await encText(db, userId, terms.contractValue) : null;
   const encObligations: { textEnc: string; dueDate: string | null; responsible: string | null; done: boolean; reminded: boolean }[] = [];
   // Документ, из которого перенесены отметки done/reminded (для TOCTOU-проверки
@@ -389,15 +483,11 @@ export async function persistAnalysis(
     // в переносе не участвует (его отметки не должны перетекать на свежий).
     const prior = new Map<string, { done: boolean; reminded: boolean }>();
     const carryKey = (text: string, dueDate: string | null) => `${text}\u0000${dueDate ?? ''}`;
-    const priorDoc = await db.query<{ id: string }>(
-      'SELECT id FROM documents WHERE user_id = $1 AND name = $2 AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1',
-      [userId, source.fileName],
-    );
-    carriedFromDocId = priorDoc.rows[0]?.id ?? null;
-    if (priorDoc.rows[0]) {
+    carriedFromDocId = targetDocId;
+    if (targetDocId) {
       const old = await db.query<{ text_enc: string; due_date: string | null; done: boolean; reminded: boolean }>(
         "SELECT text_enc, to_char(due_date, 'YYYY-MM-DD') AS due_date, done, reminded FROM contract_obligations WHERE document_id = $1",
-        [priorDoc.rows[0].id],
+        [targetDocId],
       );
       for (const o of old.rows) {
         const t = await decText(db, userId, o.text_enc);
@@ -420,13 +510,12 @@ export async function persistAnalysis(
   // stats) commit together or not at all — a mid-write failure never leaves a
   // half-saved analysis. Notifications are non-critical and run after commit.
   await db.withTx(async (tx) => {
-    // Upsert the document row backing the Documents page. A soft-deleted doc of
-    // the same name is skipped, so re-analysing a file whose old copy is in the
-    // retention trash creates a fresh document instead of reviving the deleted one.
-    const existingDoc = await tx.query<{ id: string }>(
-      'SELECT id FROM documents WHERE user_id = $1 AND name = $2 AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1',
-      [userId, source.fileName],
-    );
+    // Upsert the document row backing the Documents page. The target was picked
+    // by the FILE (findTargetDocument); re-checked here so a document trashed
+    // in the gap is not revived — a fresh document is created instead.
+    const existingDoc = targetDocId
+      ? await tx.query<{ id: string }>('SELECT id FROM documents WHERE id = $1 AND deleted_at IS NULL', [targetDocId])
+      : { rows: [] as { id: string }[] };
     if (existingDoc.rows[0]) {
       documentId = existingDoc.rows[0].id;
       await tx.query(
@@ -820,10 +909,6 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
     // a teammate's shared document is falsely blocked by the REQUESTER's personal
     // document limit even though no new document row is created.
     const docOwnerId = source.ownerUserId ?? req.currentUser.id;
-    const existingDoc = await db.query<{ id: string }>(
-      'SELECT id FROM documents WHERE user_id = $1 AND name = $2 AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1',
-      [docOwnerId, source.fileName],
-    );
     /**
      * ПОВТОРНЫЙ РАЗБОР ТОГО ЖЕ ФАЙЛА ОТДАЁТ ГОТОВЫЙ РАЗБОР И НЕ ЖЁТ НИЧЕГО.
      *
@@ -847,16 +932,11 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
     // force: от него зависит не только кэш, но и решение «списывать ли единицу
     // документа». Упрощать до «документ есть и загрузка есть» нельзя — тогда
     // НОВЫЙ файл под СТАРЫМ именем перестал бы тратить квоту, а это ровно та
-    // дыра, которую закрыл аудит 2026-08-03.
-    const priorAnalysisId =
-      existingDoc.rows[0] && source.uploadId
-        ? ((
-            await db.query<{ id: string }>(
-              'SELECT id FROM analyses WHERE document_id = $1 AND upload_id = $2 ORDER BY created_at DESC LIMIT 1',
-              [existingDoc.rows[0].id, source.uploadId],
-            )
-          ).rows[0]?.id ?? null)
-        : null;
+    // дыра, которую закрыл аудит 2026-08-03. Ищется по самой загрузке, а не
+    // по имени документа (одноимённых документов теперь может быть несколько).
+    const priorAnalysisId = source.uploadId
+      ? ((await priorAnalysisOfUpload(db, docOwnerId, source.uploadId))?.analysisId ?? null)
+      : null;
     const cachedId = wantsFresh ? null : priorAnalysisId;
     if (cachedId) {
       const cached = await loadAnalysis(db, req.currentUser.id, cachedId);
@@ -912,6 +992,53 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
   app.get('/analysis/:id', { preHandler: [app.authenticate] }, async (req) => {
     const { id } = req.params as { id: string };
     return loadAnalysis(db, req.currentUser.id, id);
+  });
+
+  /**
+   * «Весь договор» в рабочей области: полный текст исходного файла с
+   * принятыми правками — тот же, что уходит в «чистый» экспорт. В разборе
+   * (document) лежат лишь 0–5 пунктов, которые ИИ процитировал под правки, —
+   * показывать их как «весь договор» было неправдой.
+   *
+   * Скан: текст, распознанный ИИ, показывается с пометкой (в экспорт файлом он
+   * не идёт). Нет распознанного текста — распознавание запускается здесь же
+   * (как при вопросе в чате), если тариф читает сканы.
+   */
+  app.get('/analysis/:id/full-text', { preHandler: [app.authenticate] }, async (req) => {
+    const { id } = req.params as { id: string };
+    const access = await resolveAnalysisAccess(db, req.currentUser.id, id);
+    const analysis = await loadAnalysis(db, req.currentUser.id, id);
+    const link = await db.query<{ upload_id: string | null }>('SELECT upload_id FROM analyses WHERE id = $1', [id]);
+    const source = await loadSourceText(db, access.analysisUserId, {
+      fileName: analysis.fileName,
+      uploadId: link.rows[0]?.upload_id ?? null,
+      // Поиск по имени — только для старых разборов договоров (у них есть правки).
+      nameFallback: analysis.redlines.length > 0,
+    });
+    let ocrStatus = source.ocrStatus;
+    if (!source.text && source.uploadId) {
+      const { plan } = await quotaOwnerFor(db, req.currentUser.id);
+      if (planHasFeature(plan, 'scans') && readsScans(plan) && (await startScanOcr(db, source.uploadId, { log: (m) => req.log.warn(m) }))) {
+        ocrStatus = 'pending';
+      }
+    }
+    if (!source.text) {
+      // fromFile: разбор сделан из файла, но полного текста нет (скан без
+      // распознавания, файл удалён) — интерфейс честно скажет, что видны
+      // только пункты с правками. Черновик из промпта (файла не было) —
+      // его документ и есть весь договор.
+      return { text: null, recognizedByAi: false, ocrStatus, fromFile: source.uploadId !== null, unapplied: [], unplacedEdits: [] };
+    }
+    // Исходный файл → ручные правки пунктов → принятые правки ИИ.
+    const merged = await finalContractText(db, access.analysisUserId, id, source.text, analysis.document, analysis.redlines);
+    return {
+      text: merged.text,
+      recognizedByAi: source.ocrStatus === 'done',
+      ocrStatus,
+      fromFile: true,
+      unapplied: merged.unapplied.map((r) => ({ id: r.id, delText: r.delText, insText: r.insText })),
+      unplacedEdits: merged.unplacedEdits,
+    };
   });
 
   // Latest analysis for a document — powers "Open workspace" on the detail page.
@@ -973,11 +1100,31 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
       }
     }
     const patchAccess = await resolveAnalysisAccess(db, req.currentUser.id, id, true);
+    // Первая ручная правка: запомнить тексты пунктов «как в договоре» (места
+    // правок ИИ — исходной формулировкой), пока правка не убрала предложения
+    // ИИ вместе с этой формулировкой. По ним правка переносится в полный текст
+    // («Весь договор», экспорт, согласование) — см. lib/fullText.ts.
+    let originalParam: string | null = null;
+    const prior = await db.query<{ document_blocks: unknown; has_original: boolean }>(
+      'SELECT document_blocks, original_blocks IS NOT NULL AS has_original FROM analyses WHERE id = $1',
+      [id],
+    );
+    if (prior.rows[0] && !prior.rows[0].has_original) {
+      const owner = patchAccess.analysisUserId;
+      const before = (await decJsonFromJsonb(db, owner, prior.rows[0].document_blocks)) as DocBlock[] | null;
+      if (before) {
+        const rl = await db.query<{ id: string; del_text: string }>('SELECT id, del_text FROM redlines WHERE analysis_id = $1', [id]);
+        const delTextById = new Map<string, string>();
+        for (const r of rl.rows) delTextById.set(r.id, (await decText(db, owner, r.del_text)) ?? '');
+        originalParam = await encJsonForJsonb(db, owner, before.map((b) => blockSourceText(b, delTextById)));
+      }
+    }
     // Validation above ran on the plaintext structure; only the stored value is
     // encrypted — with the analysis OWNER's key (teammates share the owner key).
-    await db.query('UPDATE analyses SET document_blocks = $2 WHERE id = $1', [
+    await db.query('UPDATE analyses SET document_blocks = $2, original_blocks = COALESCE(original_blocks, $3) WHERE id = $1', [
       id,
       await encJsonForJsonb(db, patchAccess.analysisUserId, blocks),
+      originalParam,
     ]);
     // A manual edit can flatten a paragraph and drop its {redlineId} slots —
     // retire the pending suggestions that no longer appear anywhere, so the

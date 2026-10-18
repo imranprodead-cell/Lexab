@@ -10,6 +10,7 @@ import {
 } from 'react';
 import { Icon } from '@/components/icons/Icon';
 import { Badge } from '@/components/ui/Badge';
+import type { FullContractText } from '@/api/analysis.api';
 import type { AnalysisResult, DocBlock, DocBlockType, DocSegment, TextRun } from '@/types/domain';
 import { isRedlineSlot, isTextRun } from '@/types/domain';
 import { RedlineSpan } from './RedlineSpan';
@@ -61,8 +62,13 @@ interface DocumentViewerProps {
   /** «Весь договор»: принудительно чистый финальный текст (пометки правок
    *  скрыты независимо от переключателя showEdits) — режим чтения целиком. */
   forceClean?: boolean;
+  /** «Весь договор»: полный текст исходного файла с принятыми правками (тот
+   *  же, что в «чистом» экспорте). Без него на листе только пункты разбора. */
+  fullContract?: FullContractView | null;
   children?: ReactNode; // floating toolbar slot
 }
+
+export type FullContractView = { status: 'loading' } | { status: 'error' } | { status: 'ready'; data: FullContractText };
 
 /** Render one formatted text run with its marks + optional link. */
 function FormattedRun({ run }: { run: TextRun }) {
@@ -139,7 +145,7 @@ function BlockEditor({
 /** The right-hand paper view: renders the contract with inline AI redlines and
  *  a rich contentEditable editor driven by the top toolbar. */
 export const DocumentViewer = forwardRef<DocEditorHandle, DocumentViewerProps>(function DocumentViewer(
-  { analysis, pendingCount, canEdit, onChange, onActiveChange, anchor, topBar, hideHeader, forceClean, children },
+  { analysis, pendingCount, canEdit, onChange, onActiveChange, anchor, topBar, hideHeader, forceClean, fullContract, children },
   ref,
 ) {
   const { t } = useI18n();
@@ -392,6 +398,61 @@ export const DocumentViewer = forwardRef<DocEditorHandle, DocumentViewerProps>(f
     );
   };
 
+  /** «Весь договор»: полный текст файла — или честная пометка, почему его
+   *  нет, и пункты разбора под ней (черновик из промпта — без пометки: его
+   *  документ и есть весь договор). */
+  const renderFullContract = (view: FullContractView): ReactNode => {
+    const note = (text: string) => (
+      <div className={styles.fullNote} role="note">
+        <Icon name="alert" size={14} />
+        <span>{text}</span>
+      </div>
+    );
+    if (view.status === 'loading') return [<Fragment key="n">{note(t('ws.fullLoading'))}</Fragment>, ...rendered];
+    if (view.status === 'error') return [<Fragment key="n">{note(t('ws.fullError'))}</Fragment>, ...rendered];
+    const { data } = view;
+    if (data.text === null) {
+      if (!data.fromFile) return rendered;
+      const why = data.ocrStatus === 'pending' ? t('ws.fullOcrPending') : t('ws.fullUnavailable');
+      return [<Fragment key="n">{note(why)}</Fragment>, ...rendered];
+    }
+    // Ручные правки пунктов и принятые правки ИИ, которые не нашлись в тексте.
+    const unplaced = [
+      ...(data.unplacedEdits ?? []).map((e, i) => ({ key: `edit-${i}`, was: e.was, now: e.now })),
+      ...data.unapplied.map((r) => ({ key: r.id, was: r.delText, now: r.insText })),
+    ];
+    return (
+      <>
+        {data.recognizedByAi ? note(t('ws.fullOcrNote')) : null}
+        {data.text
+          .split(/\n[ \t]*\n/)
+          .map((para) => para.trim())
+          .filter(Boolean)
+          .map((para, i) => (
+            <p key={i} className={styles.clause}>
+              {para}
+            </p>
+          ))}
+        {unplaced.length ? (
+          <div className={styles.fullUnapplied}>
+            <div className={styles.fullUnappliedTitle}>{t('ws.fullUnapplied')}</div>
+            <ul>
+              {unplaced.map((u) => (
+                <li key={u.key}>
+                  {!u.was.trim()
+                    ? t('ws.fullAdd', { text: u.now })
+                    : !u.now.trim()
+                      ? t('ws.fullRemove', { text: u.was })
+                      : t('ws.fullWasNow', { was: u.was, now: u.now })}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </>
+    );
+  };
+
   // Walk the blocks, grouping consecutive list items into a single <ul>/<ol>.
   const rendered: ReactNode[] = [];
   const doc = analysis.document;
@@ -444,7 +505,7 @@ export const DocumentViewer = forwardRef<DocEditorHandle, DocumentViewerProps>(f
               {analysis.fileName.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ')}
             </div>
           </header>
-          {rendered}
+          {forceClean && fullContract ? renderFullContract(fullContract) : rendered}
         </article>
       </div>
 

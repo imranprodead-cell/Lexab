@@ -9,7 +9,7 @@ import { SkeletonRows } from '@/components/ui/States';
 import { Spinner } from '@/components/ui/Spinner';
 import { ChatInput } from '@/components/chat/ChatInput';
 import { MarkdownMessage } from '@/components/chat/MarkdownMessage';
-import { DocumentViewer, type ActiveBlock, type DocEditorHandle } from '@/components/workspace/DocumentViewer';
+import { DocumentViewer, type ActiveBlock, type DocEditorHandle, type FullContractView } from '@/components/workspace/DocumentViewer';
 import { EditorToolbar } from '@/components/workspace/EditorToolbar';
 import { FloatingToolbar } from '@/components/workspace/FloatingToolbar';
 import { SendForSignatureModal } from '@/components/workspace/SendForSignatureModal';
@@ -20,7 +20,6 @@ import { Modal } from '@/components/ui/Modal';
 import { downloadBlob } from '@/lib/download';
 import { formatFileSize } from '@/lib/format';
 import { draftBlocksToText, useChatStore } from '@/store/useChatStore';
-import { useChatHistoryStore } from '@/store/useChatHistoryStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { usePageTitle } from '@/hooks/usePageTitle';
@@ -54,8 +53,6 @@ export function WorkspacePage() {
   const phase = useChatStore((s) => s.phase);
   const analysisError = useChatStore((s) => s.error);
   const startAnalysis = useChatStore((s) => s.startAnalysis);
-  const setServerSession = useChatStore((s) => s.setServerSession);
-  const addSession = useChatHistoryStore((s) => s.addSession);
   const acceptAll = useChatStore((s) => s.acceptAllRedlines);
   const revertRedlines = useChatStore((s) => s.revertRedlines);
   const updateDocument = useChatStore((s) => s.updateDocument);
@@ -159,6 +156,44 @@ export function WorkspacePage() {
     };
   }, [analysisId]);
 
+  // «Весь договор»: полный текст исходного файла с принятыми правками (тот же,
+  // что в «чистом» экспорте). Перезапрашивается, когда меняется набор принятых
+  // правок; пока скан распознаётся — сам обновляется каждые 15 секунд.
+  const [fullContract, setFullContract] = useState<FullContractView | null>(null);
+  /** Чей разбор сейчас в fullContract — чужой текст нельзя показывать даже миг. */
+  const fullContractFor = useRef<string | null>(null);
+  const [fullRefresh, setFullRefresh] = useState(0);
+  const documentBlocks = analysis?.document;
+  const acceptedKey = analysis?.redlines
+    .filter((r) => r.status === 'accepted')
+    .map((r) => r.id)
+    .join(',');
+  useEffect(() => {
+    if (!fullView || !analysisId || analysisId.startsWith('draft_')) {
+      setFullContract(null);
+      return;
+    }
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // Тот же разбор — прежний текст остаётся на экране, пока грузится новый.
+    setFullContract((prev) => (prev?.status === 'ready' && fullContractFor.current === analysisId ? prev : { status: 'loading' }));
+    analysisApi
+      .fullText(analysisId, controller.signal)
+      .then((data) => {
+        fullContractFor.current = analysisId;
+        setFullContract({ status: 'ready', data });
+        if (data.text === null && data.ocrStatus === 'pending') timer = setTimeout(() => setFullRefresh((n) => n + 1), 15_000);
+      })
+      .catch((err: unknown) => {
+        if (!(err instanceof DOMException && err.name === 'AbortError')) setFullContract({ status: 'error' });
+      });
+    return () => {
+      controller.abort();
+      if (timer) clearTimeout(timer);
+    };
+    // documentBlocks — отмена/повтор ручной правки меняет полный текст.
+  }, [fullView, analysisId, acceptedKey, documentBlocks, fullRefresh]);
+
   const runReanalysis = () => {
     if (analysisReadOnly()) {
       pushToast(t('ws.readOnly'), 'error');
@@ -183,10 +218,8 @@ export function WorkspacePage() {
     const base = src.title.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120) || 'template';
     const name = `${base}.txt`;
     const file = new File([src.content], name, { type: 'text/plain' });
-    void addSession(name).then((session) => {
-      if (session) setServerSession(session.id);
-    });
-    void startAnalysis({ name, size: formatFileSize(file.size) }, file, { keepCanvas: true });
+    // Новый чат под этот анализ создаёт и привязывает сам стор (newSession).
+    void startAnalysis({ name, size: formatFileSize(file.size) }, file, { keepCanvas: true, newSession: true });
   };
 
   const downloadDraft = async () => {
@@ -487,6 +520,7 @@ export function WorkspacePage() {
         anchor={anchor}
         hideHeader={isDraft}
         forceClean={fullView}
+        fullContract={fullView ? fullContract : null}
         topBar={
           isDraft ? (
             // Черновик шаблона: вместо тулбара редактирования — панель действий.

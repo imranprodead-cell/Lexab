@@ -11,11 +11,10 @@ import { usePageTitle } from '@/hooks/usePageTitle';
 import { useReveal } from '@/hooks/useReveal';
 import { apiErrorMessage } from '@/i18n/apiError';
 import { useFeatureFlags } from '@/hooks/useFeatureFlags';
+import { DOC_ACCEPT } from '@/lib/docFormats';
 import { planAllows, plansLabel } from '@/lib/planFeatures';
 import { useI18n } from '@/i18n/I18nProvider';
 import styles from './compare.module.css';
-
-const ACCEPT = '.pdf,.doc,.docx,.txt';
 
 /**
  * Word-level diff between two strings. Returns tokens tagged same/removed/added
@@ -84,7 +83,7 @@ function FilePick({
       <input
         ref={ref}
         type="file"
-        accept={ACCEPT}
+        accept={DOC_ACCEPT}
         style={{ display: 'none' }}
         onChange={(e) => {
           const f = e.target.files?.[0];

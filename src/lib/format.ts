@@ -14,3 +14,9 @@ export function initialsOf(name: string): string {
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
+
+/** Формат файла по расширению имени: «PDF», «DOCX», «TXT»… ('' — расширения нет). */
+export function fileKind(name: string): string {
+  const ext = /\.([a-z0-9]{1,5})$/i.exec(name.trim())?.[1];
+  return ext ? ext.toUpperCase() : '';
+}

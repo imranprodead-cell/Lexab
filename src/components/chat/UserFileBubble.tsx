@@ -1,4 +1,5 @@
 import { Icon } from '@/components/icons/Icon';
+import { fileKind } from '@/lib/format';
 import styles from './chat.module.css';
 
 interface FileBubbleProps {
@@ -6,8 +7,10 @@ interface FileBubbleProps {
   size: string;
 }
 
-/** Right-aligned user message showing an uploaded contract file. */
+/** Right-aligned user message showing an uploaded contract file. Формат — по
+ *  имени файла: раньше на любом файле (PDF, фото, TXT) стояло «DOCX». */
 export function UserFileBubble({ name, size }: FileBubbleProps) {
+  const kind = fileKind(name);
   return (
     <div className={styles.userRow}>
       <div className={styles.fileBubble}>
@@ -16,7 +19,7 @@ export function UserFileBubble({ name, size }: FileBubbleProps) {
         </div>
         <div style={{ minWidth: 0 }}>
           <div className={styles.fileName}>{name}</div>
-          <div className={styles.fileMeta}>DOCX · {size}</div>
+          <div className={styles.fileMeta}>{kind ? `${kind} · ${size}` : size}</div>
         </div>
       </div>
     </div>

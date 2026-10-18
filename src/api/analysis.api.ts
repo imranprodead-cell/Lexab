@@ -21,6 +21,22 @@ export interface AnalyzeInput {
   uploadId?: string;
 }
 
+/** «Весь договор»: полный текст исходного файла с принятыми правками —
+ *  тот же, что уходит в «чистый» экспорт. */
+export interface FullContractText {
+  /** null — полного текста нет (см. fromFile / ocrStatus). */
+  text: string | null;
+  /** Текст скана распознан ИИ — возможны ошибки в цифрах и именах. */
+  recognizedByAi: boolean;
+  ocrStatus?: 'pending' | 'done' | 'failed' | null;
+  /** Разбор сделан из файла. false — черновик из промпта: его документ и есть весь договор. */
+  fromFile: boolean;
+  /** Принятые правки, которые не удалось найти в тексте автоматически. */
+  unapplied: { id: string; delText: string; insText: string }[];
+  /** Ручные правки пунктов, исходную редакцию которых не удалось найти в тексте. */
+  unplacedEdits?: { was: string; now: string }[];
+}
+
 async function analyzeMock(_input: AnalyzeInput): Promise<AnalysisResult> {
   // Matches the prototype timing: three ~1.15s steps before the report lands.
   await delay(3450);
@@ -42,6 +58,15 @@ export const analysisApi = {
   get(id: string, signal?: AbortSignal): Promise<AnalysisResult> {
     if (USE_MOCK) return getAnalysisMock(id);
     return http<AnalysisResult>(`/analysis/${id}`, { signal });
+  },
+
+  /** Полный текст договора для «Весь договор» (демо-режим: текста файла нет). */
+  async fullText(id: string, signal?: AbortSignal): Promise<FullContractText> {
+    if (USE_MOCK) {
+      await delay(40);
+      return { text: null, recognizedByAi: false, ocrStatus: null, fromFile: false, unapplied: [], unplacedEdits: [] };
+    }
+    return http<FullContractText>(`/analysis/${id}/full-text`, { signal });
   },
 
   /** Generate a fresh contract from a prompt; returns it as an editable analysis. */

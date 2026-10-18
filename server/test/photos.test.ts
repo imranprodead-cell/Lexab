@@ -34,6 +34,7 @@ const { detectPhotoKind, photosToPdf } = await import('../src/lib/photos.ts');
 const { photoDocName } = await import('../src/routes/uploads.routes.ts');
 const { startScanOcr } = await import('../src/lib/ocr.ts');
 const { buildAnalysisContext } = await import('../src/routes/chats.routes.ts');
+const { sourceFromAnalysis } = await import('../src/routes/analysis.routes.ts');
 const { encText } = await import('../src/lib/docCrypto.ts');
 
 const db = await getDb();
@@ -258,5 +259,125 @@ describe('распознавание текста скана', () => {
     }
     assert.ok(xml.length > 0, 'document.xml найден');
     assert.ok(!xml.includes('неустойку 0,5%'), 'текст, распознанный ИИ, не уезжает в экспорт файлом');
+    // Пометка правдивая: файл на месте, это скан, а не «исходник утрачен».
+    assert.match(xml, /uploaded as a scan or photo|загружен сканом или фото/);
+    assert.ok(!/no longer in storage|отсутствует в хранилище/.test(xml), 'у скана нет ложной пометки «файл утрачен»');
+  });
+});
+
+describe('многостраничный скан PDF (загружен файлом, а не фото)', () => {
+  /** Скан из `pages` страниц: только картинка, текстового слоя нет. */
+  async function scanPdf(pages: number): Promise<Buffer> {
+    const doc = await PDFDocument.create();
+    const img = await doc.embedJpg(await page('scan'));
+    for (let i = 0; i < pages; i++) doc.addPage([595, 842]).drawImage(img, { x: 0, y: 0, width: 595, height: 842 });
+    return Buffer.from(await doc.save());
+  }
+
+  async function uploadPdf(token: string, name: string, data: Buffer) {
+    const boundary = '----lexabScanBoundary3';
+    const payload = Buffer.concat([
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${name}"\r\nContent-Type: application/pdf\r\n\r\n`),
+      data,
+      Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/uploads',
+      headers: { ...auth(token), 'content-type': `multipart/form-data; boundary=${boundary}` },
+      payload,
+    });
+    assert.equal(res.statusCode, 201, res.body);
+    return JSON.parse(res.body) as { id: string; fileName: string; fileSize: string };
+  }
+
+  const uploadRow = async (id: string) =>
+    (await db.query<{ extracted_text: string | null; ocr_status: string | null }>('SELECT extracted_text, ocr_status FROM uploads WHERE id = $1', [id]))
+      .rows[0];
+
+  it('новая загрузка: текста нет — скан, распознавание можно запустить', async () => {
+    const u = await makeUser('Standard');
+    const up = await uploadPdf(u.token, 'Скан договора 3 стр.pdf', await scanPdf(3));
+    assert.equal((await uploadRow(up.id)).extracted_text, null, 'пометки страниц не сохраняются как «текст»');
+    assert.equal(await startScanOcr(db, up.id), true);
+  });
+
+  it('старая загрузка с пометками вместо текста: анализ чистит мусор, распознавание запускается', async () => {
+    const u = await makeUser('Standard');
+    const up = await uploadPdf(u.token, 'Старый скан.pdf', await scanPdf(2));
+    // Как сохраняла прежняя версия: «текст» из одних пометок pdf-parse.
+    await db.query('UPDATE uploads SET extracted_text = $2 WHERE id = $1', [up.id, await encText(db, u.id, '-- 1 of 2 --\n\n\n\n-- 2 of 2 --')]);
+    assert.equal(await startScanOcr(db, up.id), false, 'до исправления распознавание было заблокировано мусором');
+
+    const an = await app.inject({
+      method: 'POST',
+      url: '/api/analysis',
+      headers: auth(u.token),
+      payload: { fileName: up.fileName, fileSize: up.fileSize, uploadId: up.id },
+    });
+    assert.equal(an.statusCode, 201, an.body);
+    assert.equal((await uploadRow(up.id)).extracted_text, null, 'мусор стёрт');
+    assert.equal(await startScanOcr(db, up.id), true, 'теперь распознавание запускается');
+
+    // Повторный анализ читает сам скан, а не 2–5 пунктов прошлого разбора.
+    const source = await sourceFromAnalysis(db, u.id, JSON.parse(an.body).id);
+    assert.equal(source.text, null);
+    assert.ok(source.pdf && source.pdf.subarray(0, 5).toString('latin1') === '%PDF-', 'повторному анализу передан PDF скана');
+  });
+
+  it('чат не принимает пометки страниц за «полный текст договора»', async () => {
+    const u = await makeUser('Standard');
+    const up = await uploadPdf(u.token, 'Скан для чата.pdf', await scanPdf(2));
+    const an = await app.inject({
+      method: 'POST',
+      url: '/api/analysis',
+      headers: auth(u.token),
+      payload: { fileName: up.fileName, fileSize: up.fileSize, uploadId: up.id },
+    });
+    assert.equal(an.statusCode, 201, an.body);
+    await db.query('UPDATE uploads SET extracted_text = $2 WHERE id = $1', [up.id, await encText(db, u.id, '-- 1 of 2 --\n\n\n\n-- 2 of 2 --')]);
+    const ctx = await buildAnalysisContext(db, u.id, JSON.parse(an.body).id);
+    assert.ok(!ctx?.includes('-- 1 of 2 --'), 'пометок страниц в контексте чата нет');
+    assert.match(ctx ?? '', /FULL CONTRACT TEXT UNAVAILABLE/);
+    assert.equal((await uploadRow(up.id)).extracted_text, null, 'мусор стёрт и здесь');
+  });
+
+  it('«Весь договор» у скана: без текста — честная пометка, после распознавания — текст с пометкой ИИ', async () => {
+    const u = await makeUser('Standard');
+    const up = await uploadPdf(u.token, 'Скан для просмотра.pdf', await scanPdf(2));
+    const an = await app.inject({
+      method: 'POST',
+      url: '/api/analysis',
+      headers: auth(u.token),
+      payload: { fileName: up.fileName, fileSize: up.fileSize, uploadId: up.id },
+    });
+    assert.equal(an.statusCode, 201, an.body);
+    const id = JSON.parse(an.body).id as string;
+    const before = JSON.parse((await app.inject({ method: 'GET', url: `/api/analysis/${id}/full-text`, headers: auth(u.token) })).body);
+    assert.equal(before.text, null);
+    assert.equal(before.fromFile, true, 'интерфейс скажет, что видны только пункты с правками');
+
+    const recognized = 'Пункт 4.2. Покупатель оплачивает товар в течение 10 банковских дней.';
+    await db.query(`UPDATE uploads SET extracted_text = $2, ocr_status = 'done' WHERE id = $1`, [up.id, await encText(db, u.id, recognized)]);
+    const after = JSON.parse((await app.inject({ method: 'GET', url: `/api/analysis/${id}/full-text`, headers: auth(u.token) })).body);
+    assert.equal(after.text, recognized);
+    assert.equal(after.recognizedByAi, true, 'пометка «распознано ИИ — сверяйте с оригиналом»');
+  });
+
+  it('согласование скана: без текста — пометка над пунктами, после распознавания — весь текст с пометкой ИИ', async () => {
+    const u = await makeUser('Pro');
+    const up = await uploadPdf(u.token, 'Скан на согласование.pdf', await scanPdf(2));
+    const an = JSON.parse(
+      (await app.inject({ method: 'POST', url: '/api/analysis', headers: auth(u.token), payload: { fileName: up.fileName, fileSize: up.fileSize, uploadId: up.id } })).body,
+    ) as { documentId: string };
+    const { renderApprovalText } = await import('../src/routes/approvals.routes.ts');
+    const before = await renderApprovalText(db, u.id, an.documentId);
+    assert.match(before ?? '', /full text of the file is unavailable|Полного текста файла нет/);
+
+    const recognized = 'Пункт 4.2. Покупатель оплачивает товар в течение 10 банковских дней.';
+    await db.query(`UPDATE uploads SET extracted_text = $2, ocr_status = 'done' WHERE id = $1`, [up.id, await encText(db, u.id, recognized)]);
+    const after = await renderApprovalText(db, u.id, an.documentId);
+    assert.ok(after?.includes(recognized), 'согласующий видит весь распознанный текст');
+    assert.match(after ?? '', /Текст распознан ИИ/);
   });
 });

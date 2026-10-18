@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { MotionConfig, motion } from 'motion/react';
 import { EASE } from '@/lib/motion';
@@ -30,6 +30,12 @@ export function AppShell() {
   const location = useLocation();
   useKeyboardShortcuts();
   useNetworkStatus();
+
+  // Ключ анимации перехода. Навигация с state.keepPage (адрес догоняет только
+  // что созданный чат нового договора) НЕ пересоздаёт страницу: иначе чат с
+  // идущим анализом мигал бы и перерисовывался посреди работы.
+  const pageKeyRef = useRef(location.pathname);
+  if (!(location.state as { keepPage?: boolean } | null)?.keepPage) pageKeyRef.current = location.pathname;
 
   const resetChat = useChatStore((s) => s.reset);
   const authUser = useAuthStore((s) => s.user);
@@ -98,7 +104,7 @@ export function AppShell() {
         {/* Переход между разделами — дословно эталонный AppShell:
             motion.div key={pathname}, opacity 0→1 + y 10→0, 0.35s EASE. */}
         <motion.div
-          key={location.pathname}
+          key={pageKeyRef.current}
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.35, ease: EASE }}

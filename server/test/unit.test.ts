@@ -4,7 +4,7 @@ import test from 'node:test';
 import { fallbackAnalysis, fallbackChatReply, fallbackCompare, fallbackTemplateDraft } from '../src/fallback.ts';
 import { extractJsonObject, isDeepSeekModel } from '../src/llm.ts';
 import zlib from 'node:zlib';
-import { ALLOWED_EXTENSIONS, extractText, fileExtension, verifyFileSignature, zipRealDecompressedSize } from '../src/extract.ts';
+import { ALLOWED_EXTENSIONS, extractText, fileExtension, usablePdfText, verifyFileSignature, zipRealDecompressedSize } from '../src/extract.ts';
 import { formatSize, relativeTimeRu } from '../src/lib/format.ts';
 import { newId } from '../src/lib/ids.ts';
 import { hashPassword, verifyPassword } from '../src/lib/passwords.ts';
@@ -77,6 +77,173 @@ test('extractText: a real .docx passes the bomb guard and yields its text', asyn
   assert.ok(size === null || (typeof size === 'number' && size < 120 * 1024 * 1024), 'real docx not flagged as a bomb');
   const text = await extractText(buf, 'agreement.docx');
   assert.ok(text && text.includes('Confidential Agreement'), 'text extracted from a real docx');
+});
+
+/** PDF «скан»: страницы без текстового слоя (только графика), по желанию — со
+ *  штампом сканера внизу каждой страницы, как у бесплатного CamScanner. */
+async function scanLikePdf(pages: number, stamp?: string): Promise<Buffer> {
+  const { PDFDocument, StandardFonts } = await import('pdf-lib');
+  const doc = await PDFDocument.create();
+  const font = await doc.embedFont(StandardFonts.Helvetica);
+  for (let i = 0; i < pages; i++) {
+    const page = doc.addPage([595, 842]);
+    page.drawRectangle({ x: 40, y: 40, width: 515, height: 760, borderWidth: 2 });
+    if (stamp) page.drawText(stamp, { x: 420, y: 12, size: 8, font });
+  }
+  return Buffer.from(await doc.save());
+}
+
+test('extractText: скан из 2+ страниц — это скан, а не «текст» из пометок страниц', async () => {
+  // pdf-parse 2.x ставит между страницами «-- 1 of 2 --»: раньше одни эти
+  // пометки проходили порог, и многостраничный скан считался текстовым.
+  for (const pages of [1, 2, 5]) {
+    assert.equal(await extractText(await scanLikePdf(pages), `scan-${pages}.pdf`), null, `${pages} стр.`);
+  }
+  // Штамп сканера на каждой странице — тоже не текст договора.
+  assert.equal(await extractText(await scanLikePdf(3, 'Scanned with CamScanner'), 'cam.pdf'), null);
+});
+
+test('extractText: текстовый PDF читается целиком и без служебных пометок страниц', async () => {
+  const pdf = await buildSimplePdf('Договор поставки', [
+    { heading: '1. Предмет договора' },
+    { text: 'Поставщик обязуется поставить оборудование до 31 декабря, неустойка 0,5% в день.' },
+  ]);
+  const text = await extractText(pdf, 'contract.pdf');
+  assert.ok(text?.includes('неустойка 0,5% в день'), String(text));
+  assert.ok(!/-- \d+ of \d+ --/.test(text ?? ''), 'пометок страниц в тексте нет');
+});
+
+test('usablePdfText: текст, сохранённый до исправления, чистится так же', () => {
+  // Старый многостраничный скан: в базе одни пометки → это скан.
+  assert.equal(usablePdfText('-- 1 of 2 --\n\n\n\n-- 2 of 2 --'), null);
+  assert.equal(usablePdfText('Scanned with CamScanner\n\n-- 1 of 3 --\n\nScanned with CamScanner\n\n-- 2 of 3 --\n\n-- 3 of 3 --'), null);
+  // Настоящий текст остаётся, пометки уходят.
+  const clause = '1.1. Поставщик обязуется поставить Покупателю цемент марки М400 в срок до 31 декабря.';
+  assert.equal(usablePdfText(`${clause}\n\n-- 1 of 1 --`), clause);
+  assert.equal(usablePdfText(null), null);
+});
+
+test('extractText: TXT в старой кодировке Windows читается, а не превращается в «�����»', async () => {
+  // Windows-1251 — Блокнот, 1С, «Сохранить как текст» в старом Word.
+  const cp1251 = (s: string) =>
+    Buffer.from(
+      [...s].map((ch) => {
+        const c = ch.codePointAt(0) ?? 0;
+        if (c < 0x80) return c;
+        if (c >= 0x410 && c <= 0x44f) return c - 0x350; // А…я → 0xC0…0xFF
+        return ({ Ё: 0xa8, ё: 0xb8, '№': 0xb9, '—': 0x97 } as Record<string, number>)[ch] ?? 0x3f;
+      }),
+    );
+  const ru = 'ДОГОВОР ПОСТАВКИ № 17\n3.1. Неустойка 0,5% за каждый день просрочки. Ёмкость склада — 120 т.';
+  assert.equal(await extractText(cp1251(ru), 'dogovor.txt'), ru);
+  // Windows-1252 (западноевропейский) — не превращается в «cafй».
+  const fr = 'Contrat de vente: Société Müller & Café, prix 5 000.';
+  assert.equal(await extractText(Buffer.from(fr, 'latin1'), 'contrat.txt'), fr);
+  // UTF-8 и UTF-8 с BOM — как были.
+  assert.equal(await extractText(Buffer.from(ru, 'utf8'), 'utf8.txt'), ru);
+  assert.equal(await extractText(Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(ru, 'utf8')]), 'bom.md'), ru);
+});
+
+test('reflowPdfText: строки страницы PDF склеиваются в абзацы, пункты и таблицы — отдельно', async () => {
+  const { reflowPdfText } = await import('../src/lib/fullText.ts');
+  const lines = [
+    'ДОГОВОР ПОСТАВКИ № 17',
+    '1.1. Поставщик обязуется поставить Покупателю цемент марки М400 в количестве и в',
+    'сроки, согласованные сторонами в спецификациях, являющихся неотъемлемой частью',
+    'настоящего договора, а Покупатель обязуется принять и оплатить товар.',
+    '1.2. Цена договора составляет 150 000 000 (сто пятьдесят миллионов) сум, включая НДС,',
+    '150 000 000 сум уплачиваются частями, расходы на доставку несёт Поставщик по договору.',
+    'Наименование Кол-во Цена',
+    'Цемент М400 100 т 1 500 000 сум',
+  ];
+  assert.deepEqual(reflowPdfText(lines.join('\n')).split('\n\n'), [
+    'ДОГОВОР ПОСТАВКИ № 17',
+    '1.1. Поставщик обязуется поставить Покупателю цемент марки М400 в количестве и в сроки, согласованные сторонами в спецификациях, являющихся неотъемлемой частью настоящего договора, а Покупатель обязуется принять и оплатить товар.',
+    // Строка-продолжение с числа — не новый пункт.
+    '1.2. Цена договора составляет 150 000 000 (сто пятьдесят миллионов) сум, включая НДС, 150 000 000 сум уплачиваются частями, расходы на доставку несёт Поставщик по договору.',
+    'Наименование Кол-во Цена',
+    'Цемент М400 100 т 1 500 000 сум',
+  ]);
+});
+
+test('applyManualEdits: правка пункта переносится в полный текст; ненайденная — в список; сопоставление при другом числе пунктов', async () => {
+  const { applyManualEdits, applyAcceptedRedlines } = await import('../src/lib/fullText.ts');
+  const source = 'Пункт 1. Стороны.\n\nПункт 2. Неустойка 0,5% в день.\n\nПункт 3. Срок — 1 год.';
+  const del = new Map([['r1', '0,5%']]);
+  const original = ['Пункт 2. Неустойка 0,5% в день.', 'Пункт 9. Чего нет в тексте.'];
+  const blocks = [
+    { type: 'paragraph' as const, segments: ['Пункт 2. Неустойка ', { redlineId: 'r1' }, ' в день, но не более 10%.'] },
+    { type: 'paragraph' as const, segments: ['Пункт 9. Чего нет в тексте, дополнено.'] },
+  ];
+  const edited = applyManualEdits(source, original, blocks, del);
+  assert.equal(edited.text, 'Пункт 1. Стороны.\n\nПункт 2. Неустойка 0,5% в день, но не более 10%.\n\nПункт 3. Срок — 1 год.');
+  assert.deepEqual(edited.unplaced, [{ was: 'Пункт 9. Чего нет в тексте.', now: 'Пункт 9. Чего нет в тексте, дополнено.' }]);
+  // Затем принятая правка ИИ — уже поверх ручной.
+  const merged = applyAcceptedRedlines(edited.text, [{ delText: '0,5%', insText: '0,1%', status: 'accepted' as const }]);
+  assert.ok(merged.text.includes('Неустойка 0,1% в день, но не более 10%.'));
+  // Без ручных правок текст не трогается.
+  assert.equal(applyManualEdits(source, null, blocks, del).text, source);
+  // Другое число пунктов: неизменные сопоставляются по тексту, правка — по месту.
+  const lcs = applyManualEdits(source, ['Пункт 1. Стороны.', 'Пункт 3. Срок — 1 год.'], [
+    { type: 'paragraph' as const, segments: ['Пункт 1. Стороны.'] },
+    { type: 'heading' as const, text: 'Новый заголовок' },
+    { type: 'paragraph' as const, segments: ['Пункт 3. Срок — 2 года.'] },
+  ], del);
+  assert.ok(lcs.text.includes('Пункт 3. Срок — 2 года.'), lcs.text);
+  assert.ok(lcs.text.includes('Пункт 1. Стороны.'));
+});
+
+test('applyAcceptedRedlines: пробелы нестрого, все вхождения, «$&» буквально — и линейное время на враждебном тексте', async () => {
+  const { applyAcceptedRedlines } = await import('../src/lib/fullText.ts');
+  const acc = (delText: string, insText: string) => ({ delText, insText, status: 'accepted' as const });
+  // Перенос строки, двойной пробел и NBSP внутри формулировки — та же формулировка.
+  assert.equal(
+    applyAcceptedRedlines('Неустойка 0,5%\nза  каждый\u00a0день. И снова: неустойка 0,5% за каждый день.', [acc('0,5% за каждый день', '0,1% за каждый день')]).text,
+    'Неустойка 0,1% за каждый день. И снова: неустойка 0,1% за каждый день.',
+  );
+  // Ведущий пробел в формулировке требует пробела перед ней (как прежнее \s+).
+  assert.equal(applyAcceptedRedlines('ограничена суммой договора.', [acc(' суммой договора', ' двойной суммой договора')]).text, 'ограничена двойной суммой договора.');
+  // Спецсимволы замены вставляются буквально.
+  assert.equal(applyAcceptedRedlines('Цена X.', [acc('X', '$& и $$')]).text, 'Цена $& и $$.');
+  // Не найдено — в списке «не встали».
+  assert.equal(applyAcceptedRedlines('Текст.', [acc('нет такого', 'y')]).unapplied.length, 1);
+  // Враждебный текст: «a a a …» и формулировка «a a … a b». Прежнее регулярное
+  // выражение перебирало бы это минутами; теперь — один проход.
+  const started = Date.now();
+  const res = applyAcceptedRedlines('a '.repeat(1_000_000), [acc(`${'a '.repeat(3000)}b`, 'c')]);
+  assert.equal(res.unapplied.length, 1);
+  assert.ok(Date.now() - started < 2000, `${Date.now() - started} мс`);
+});
+
+test('applyManualEdits: замены — по исходному тексту разом (новая редакция одного пункта не «ловит» другой)', async () => {
+  const { applyManualEdits } = await import('../src/lib/fullText.ts');
+  const source = 'Пункт А. Срок 10 дней.\n\nПункт Б. Оплата.';
+  const res = applyManualEdits(
+    source,
+    ['Пункт А. Срок 10 дней.', 'Пункт Б. Оплата.'],
+    [
+      // Новая редакция А содержит СТАРЫЙ текст Б — он не должен стать местом правки Б.
+      { type: 'paragraph' as const, segments: ['Пункт А. Срок 10 дней. Пункт Б. Оплата.'] },
+      { type: 'paragraph' as const, segments: ['Пункт Б. Оплата в течение 5 дней.'] },
+    ],
+    new Map(),
+  );
+  assert.equal(res.text, 'Пункт А. Срок 10 дней. Пункт Б. Оплата.\n\nПункт Б. Оплата в течение 5 дней.');
+  assert.deepEqual(res.unplaced, []);
+});
+
+test('reflowPdfText: перенос со знаком «-» не превращается в «слово- продолжение»', async () => {
+  const { reflowPdfText } = await import('../src/lib/fullText.ts');
+  const lines = [
+    'Поставщик обязуется поставить товар на склад, расположенный в Северо-',
+    'западном районе города, в сроки, согласованные сторонами в спецификации к договору,',
+    'а Покупатель обязуется принять товар и оплатить его в течение десяти дней.',
+    '2. Прочие условия.',
+  ];
+  assert.equal(
+    reflowPdfText(lines.join('\n')).split('\n\n')[0],
+    'Поставщик обязуется поставить товар на склад, расположенный в Северо-западном районе города, в сроки, согласованные сторонами в спецификации к договору, а Покупатель обязуется принять товар и оплатить его в течение десяти дней.',
+  );
 });
 
 test('formatSize matches the UI display style', () => {

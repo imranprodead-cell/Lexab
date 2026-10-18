@@ -2759,3 +2759,436 @@ describe('projects (дела юристов)', () => {
     assert.equal(JSON.parse(asOwner.body).projectId, proj.id, 'владелец видит своё дело');
   });
 });
+
+describe('документ = конкретный файл, а не имя (аудит загрузок 2026-10-18)', () => {
+  async function uploadText(token: string, name: string, content: string): Promise<string> {
+    const boundary = '----lexabSameNameBoundary';
+    const payload = Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${name}"\r\n` +
+        `Content-Type: text/plain\r\n\r\n${content}\r\n--${boundary}--\r\n`,
+    );
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/uploads',
+      headers: { ...auth(token), 'content-type': `multipart/form-data; boundary=${boundary}` },
+      payload,
+    });
+    assert.equal(res.statusCode, 201, res.body);
+    return JSON.parse(res.body).id;
+  }
+  async function analyze(token: string, payload: Record<string, unknown>): Promise<{ id: string; documentId: string }> {
+    const res = await app.inject({ method: 'POST', url: '/api/analysis', headers: auth(token), payload: { fileSize: '1 KB', jurisdiction: 'GB', ...payload } });
+    assert.equal(res.statusCode, 201, res.body);
+    return JSON.parse(res.body);
+  }
+  const uploadOf = async (analysisId: string) =>
+    (await db.query<{ upload_id: string }>('SELECT upload_id FROM analyses WHERE id = $1', [analysisId])).rows[0].upload_id;
+
+  it('два разных договора с одним именем — две карточки, у каждой свой файл', async () => {
+    const u = await makeProUser();
+    const upA = await uploadText(u.token, 'Договор.txt', 'Договор поставки цемента с ООО «Альфа». Цена 100 000 000 сум.');
+    const anA = await analyze(u.token, { fileName: 'Договор.txt', uploadId: upA });
+    const upB = await uploadText(u.token, 'Договор.txt', 'Договор аренды склада с ООО «Бета». Аренда 5 000 000 сум в месяц.');
+    const anB = await analyze(u.token, { fileName: 'Договор.txt', uploadId: upB });
+    assert.notEqual(anB.documentId, anA.documentId, 'чужой договор не ложится в карточку тёзки');
+    assert.equal(await uploadOf(anA.id), upA);
+    assert.equal(await uploadOf(anB.id), upB);
+    const docs = JSON.parse((await app.inject({ method: 'GET', url: '/api/documents', headers: auth(u.token) })).body) as { name: string }[];
+    assert.equal(docs.filter((d) => d.name === 'Договор.txt').length, 2, 'в «Документах» две карточки');
+  });
+
+  it('тот же файл, загруженный заново, — та же карточка (без дублей)', async () => {
+    const u = await makeProUser();
+    const text = 'Договор подряда с ИП Каримов. Срок выполнения работ 30 календарных дней.';
+    const an1 = await analyze(u.token, { fileName: 'Подряд.txt', uploadId: await uploadText(u.token, 'Подряд.txt', text) });
+    const an2 = await analyze(u.token, { fileName: 'Подряд.txt', uploadId: await uploadText(u.token, 'Подряд.txt', text) });
+    assert.equal(an2.documentId, an1.documentId);
+  });
+
+  it('повторный анализ остаётся в своём документе, даже когда есть свежий тёзка', async () => {
+    const u = await makeProUser();
+    const anA = await analyze(u.token, { fileName: 'Соглашение.txt', uploadId: await uploadText(u.token, 'Соглашение.txt', 'Соглашение о конфиденциальности, сторона А.') });
+    const anB = await analyze(u.token, { fileName: 'Соглашение.txt', uploadId: await uploadText(u.token, 'Соглашение.txt', 'Соглашение о сотрудничестве, сторона Б.') });
+    const again = await analyze(u.token, { analysisId: anA.id, force: true });
+    assert.equal(again.documentId, anA.documentId, 'новый разбор договора А не уехал в карточку Б');
+    assert.notEqual(again.documentId, anB.documentId);
+  });
+
+  it('согласование показывает СВОЙ договор, а не одноимённого соседа', async () => {
+    const u = await makeProUser();
+    const anA = await analyze(u.token, { fileName: 'Оферта.txt', uploadId: await uploadText(u.token, 'Оферта.txt', 'Оферта на поставку, версия А.') });
+    const anB = await analyze(u.token, { fileName: 'Оферта.txt', uploadId: await uploadText(u.token, 'Оферта.txt', 'Оферта на услуги, версия Б.') });
+    const edit = await app.inject({
+      method: 'PATCH',
+      url: `/api/analysis/${anB.id}/document`,
+      headers: auth(u.token),
+      payload: { document: [{ type: 'paragraph', segments: ['ТЕКСТ СОСЕДНЕГО ДОГОВОРА Б'] }] },
+    });
+    assert.equal(edit.statusCode, 200, edit.body);
+    const flow = await app.inject({
+      method: 'POST',
+      url: '/api/approvals',
+      headers: auth(u.token),
+      payload: { documentId: anA.documentId, steps: [{ name: 'Партнёр', email: 'appr@firm.com' }] },
+    });
+    assert.equal(flow.statusCode, 201, flow.body);
+    const page = await app.inject({ method: 'GET', url: `/api/approve/${JSON.parse(flow.body).steps[0].token}` });
+    assert.equal(page.statusCode, 200, page.body);
+    const text = JSON.parse(page.body).documentText as string;
+    assert.ok(text && !text.includes('ТЕКСТ СОСЕДНЕГО ДОГОВОРА Б'), 'согласующий видит договор А');
+  });
+
+  it('договор из входящей почты привязан к своей загрузке, а не к тёзке', async () => {
+    const { config } = await import('../src/config.ts');
+    const saved = { token: config.inboundEmailToken, auth: config.inboundRequireAuth, sign: config.inboundEmailSigningSecret };
+    Object.assign(config, { inboundEmailToken: 'inbound-test-token', inboundRequireAuth: false, inboundEmailSigningSecret: '' });
+    try {
+      const u = await makeProUser();
+      const manual = await analyze(u.token, { fileName: 'Договор.txt', uploadId: await uploadText(u.token, 'Договор.txt', 'Договор, загруженный вручную.') });
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/inbound/email',
+        headers: { 'x-inbound-token': 'inbound-test-token' },
+        payload: {
+          from: u.email,
+          attachments: [{ filename: 'Договор.txt', contentBase64: Buffer.from('Другой договор, пришедший письмом от контрагента.').toString('base64') }],
+        },
+      });
+      assert.ok(res.statusCode < 300, res.body);
+      const analysisId = JSON.parse(res.body).results?.[0]?.analysisId as string;
+      assert.ok(analysisId, res.body);
+      assert.ok(await uploadOf(analysisId), 'у разбора из почты есть upload_id');
+      const doc = (await db.query<{ document_id: string }>('SELECT document_id FROM analyses WHERE id = $1', [analysisId])).rows[0].document_id;
+      assert.notEqual(doc, manual.documentId, 'письмо не легло в карточку ручного договора');
+    } finally {
+      Object.assign(config, { inboundEmailToken: saved.token, inboundRequireAuth: saved.auth, inboundEmailSigningSecret: saved.sign });
+    }
+  });
+});
+
+describe('«Весь договор» — полный текст файла с принятыми правками (аудит загрузок 2026-10-18)', () => {
+  async function uploadText(token: string, name: string, content: string): Promise<string> {
+    const boundary = '----lexabFullTextBoundary';
+    const payload = Buffer.from(
+      `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${name}"\r\n` +
+        `Content-Type: text/plain\r\n\r\n${content}\r\n--${boundary}--\r\n`,
+    );
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/uploads',
+      headers: { ...auth(token), 'content-type': `multipart/form-data; boundary=${boundary}` },
+      payload,
+    });
+    assert.equal(res.statusCode, 201, res.body);
+    return JSON.parse(res.body).id;
+  }
+
+  it('показывает ВЕСЬ договор, а не только пункты с правками; принятые правки — внутри текста', async () => {
+    const u = await makeProUser();
+    // Тестовая «модель» предлагает правки r1 («one (1) week's» → «one (1) month's»)
+    // и r3 (её формулировки в тексте нет — она должна попасть в список «не встали»).
+    const contract = [
+      '1. Parties. This agreement is made between Alpha LLC and Beta LLC.',
+      "2. Termination. Either party may terminate on one (1) week's written notice.",
+      '3. Payment. The price is 100 000 USD payable within 10 banking days.',
+      '4. Governing law. This agreement is governed by the laws of England.',
+    ].join('\n\n');
+    const uploadId = await uploadText(u.token, 'full-contract.txt', contract);
+    const an = await app.inject({
+      method: 'POST',
+      url: '/api/analysis',
+      headers: auth(u.token),
+      payload: { fileName: 'full-contract.txt', fileSize: '1 KB', jurisdiction: 'GB', uploadId },
+    });
+    assert.equal(an.statusCode, 201, an.body);
+    const analysis = JSON.parse(an.body) as { id: string; documentId: string };
+    for (const rid of ['r1', 'r3']) {
+      const ok = await app.inject({ method: 'PATCH', url: `/api/analysis/${analysis.id}/redlines/${rid}`, headers: auth(u.token), payload: { status: 'accepted' } });
+      assert.equal(ok.statusCode, 200, ok.body);
+    }
+
+    const res = await app.inject({ method: 'GET', url: `/api/analysis/${analysis.id}/full-text`, headers: auth(u.token) });
+    assert.equal(res.statusCode, 200, res.body);
+    const full = JSON.parse(res.body) as { text: string; fromFile: boolean; recognizedByAi: boolean; unapplied: { id: string }[] };
+    assert.equal(full.fromFile, true);
+    assert.equal(full.recognizedByAi, false);
+    for (const clause of ['1. Parties.', '3. Payment. The price is 100 000 USD', '4. Governing law.']) {
+      assert.ok(full.text.includes(clause), `пункт без правок тоже на месте: ${clause}`);
+    }
+    assert.ok(full.text.includes("one (1) month's written notice"), 'принятая правка вставлена в текст');
+    assert.ok(!full.text.includes("one (1) week's"), 'старая формулировка заменена');
+    assert.deepEqual(full.unapplied.map((r) => r.id), ['r3'], 'не найденная в тексте правка — в отдельном списке');
+
+    // Что на экране, то и в файле: «чистый» экспорт несёт тот же текст.
+    const exp = await app.inject({
+      method: 'POST',
+      url: `/api/documents/${analysis.documentId}/export`,
+      headers: auth(u.token),
+      payload: { format: 'pdf' },
+    });
+    assert.equal(exp.statusCode, 200, exp.body);
+    const { extractText } = await import('../src/extract.ts');
+    const exported = await extractText(Buffer.from(exp.rawPayload), 'export.pdf');
+    for (const clause of ['3. Payment.', "one (1) month's written notice"]) {
+      assert.ok(exported?.includes(clause), `экспорт содержит: ${clause}`);
+    }
+  });
+
+  it('согласующий видит ВЕСЬ договор и только ПРИНЯТЫЕ правки (решение владельца 2026-10-18)', async () => {
+    const u = await makeProUser();
+    const contract = [
+      '1. Parties. This agreement is made between Alpha LLC and Beta LLC.',
+      "2. Termination. Either party may terminate on one (1) week's written notice.",
+      '3. Non-compete. The employee shall not compete for twelve (12) months after termination.',
+      '4. Governing law. This agreement is governed by the laws of England.',
+    ].join('\n\n');
+    const uploadId = await uploadText(u.token, 'approval-contract.txt', contract);
+    const an = JSON.parse(
+      (await app.inject({ method: 'POST', url: '/api/analysis', headers: auth(u.token), payload: { fileName: 'approval-contract.txt', fileSize: '1 KB', jurisdiction: 'GB', uploadId } })).body,
+    ) as { id: string; documentId: string };
+    // r1 принята владельцем, r2 («twelve (12) months» → «six (6) months») — ещё нет.
+    await app.inject({ method: 'PATCH', url: `/api/analysis/${an.id}/redlines/r1`, headers: auth(u.token), payload: { status: 'accepted' } });
+    const flow = await app.inject({
+      method: 'POST',
+      url: '/api/approvals',
+      headers: auth(u.token),
+      payload: { documentId: an.documentId, steps: [{ name: 'Партнёр', email: 'partner@firm.com' }] },
+    });
+    assert.equal(flow.statusCode, 201, flow.body);
+    const page = JSON.parse((await app.inject({ method: 'GET', url: `/api/approve/${JSON.parse(flow.body).steps[0].token}` })).body);
+    const text = page.documentText as string;
+    for (const clause of ['1. Parties.', '4. Governing law.']) assert.ok(text.includes(clause), `пункт без правок на месте: ${clause}`);
+    assert.ok(text.includes("one (1) month's written notice"), 'принятая правка вставлена');
+    assert.ok(text.includes('twelve (12) months'), 'непринятое предложение ИИ не выдаётся за текст договора');
+    assert.ok(!text.includes('six (6) months'), 'непринятая формулировка ИИ в тексте отсутствует');
+  });
+
+  it('договор, сгенерированный по запросу (без файла): fromFile=false — его документ и есть весь договор', async () => {
+    const u = await makeProUser();
+    const draft = await app.inject({ method: 'POST', url: '/api/analysis/draft', headers: auth(u.token), payload: { prompt: 'Договор оказания услуг по уборке офиса' } });
+    assert.equal(draft.statusCode, 201, draft.body);
+    const res = await app.inject({ method: 'GET', url: `/api/analysis/${JSON.parse(draft.body).id}/full-text`, headers: auth(u.token) });
+    assert.equal(res.statusCode, 200, res.body);
+    const full = JSON.parse(res.body);
+    assert.equal(full.text, null);
+    assert.equal(full.fromFile, false);
+  });
+
+  it('скачанный Word из PDF — абзацы целиком, а не строка страницы на абзац', async () => {
+    const u = await makeProUser();
+    const { buildSimplePdf } = await import('../src/lib/pdf.ts');
+    const sentence =
+      'Поставщик обязуется поставить Покупателю цемент марки М400 в количестве и в сроки, согласованные сторонами в спецификациях, являющихся неотъемлемой частью настоящего договора, а Покупатель обязуется принять и оплатить товар.';
+    const pdf = await buildSimplePdf('Договор поставки', [{ heading: '1. ПРЕДМЕТ ДОГОВОРА' }, { text: `1.1. ${sentence}` }, { text: '1.2. Срок поставки — 30 дней.' }]);
+    const boundary = '----lexabReflowBoundary';
+    const up = await app.inject({
+      method: 'POST',
+      url: '/api/uploads',
+      headers: { ...auth(u.token), 'content-type': `multipart/form-data; boundary=${boundary}` },
+      payload: Buffer.concat([
+        Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="reflow.pdf"\r\nContent-Type: application/pdf\r\n\r\n`),
+        pdf,
+        Buffer.from(`\r\n--${boundary}--\r\n`),
+      ]),
+    });
+    assert.equal(up.statusCode, 201, up.body);
+    const an = JSON.parse(
+      (await app.inject({ method: 'POST', url: '/api/analysis', headers: auth(u.token), payload: { fileName: 'reflow.pdf', fileSize: '5 KB', jurisdiction: 'UZ', uploadId: JSON.parse(up.body).id } })).body,
+    ) as { id: string; documentId: string };
+    const exp = await app.inject({
+      method: 'POST',
+      url: `/api/documents/${an.documentId}/export`,
+      headers: auth(u.token),
+      payload: { format: 'docx', mode: 'clean' },
+    });
+    assert.equal(exp.statusCode, 200, exp.body);
+    const mammoth = await import('mammoth');
+    const paras = (await mammoth.extractRawText({ buffer: Buffer.from(exp.rawPayload) })).value.split('\n').filter((l) => l.trim());
+    assert.ok(paras.includes(`1.1. ${sentence}`), `пункт 1.1 — одним абзацем:\n${paras.join('\n')}`);
+    assert.ok(paras.includes('1.2. Срок поставки — 30 дней.'), paras.join('\n'));
+    assert.ok(!paras.some((p) => /-- \d+ of \d+ --/.test(p)), 'служебных пометок страниц нет');
+  });
+
+  it('договор, созданный по запросу: в «Весь договор» и в скачивании нет ни чужого текста одноимённого файла, ни ложной пометки', async () => {
+    const u = await makeProUser();
+    const draft = JSON.parse(
+      (await app.inject({ method: 'POST', url: '/api/analysis/draft', headers: auth(u.token), payload: { prompt: 'Договор оказания услуг по уборке офиса' } })).body,
+    ) as { id: string; documentId: string; fileName: string };
+    // Загружен файл с ТЕМ ЖЕ названием, что у черновика, — с чужим текстом.
+    const boundary = '----lexabDraftNameBoundary';
+    await app.inject({
+      method: 'POST',
+      url: '/api/uploads',
+      headers: { ...auth(u.token), 'content-type': `multipart/form-data; boundary=${boundary}` },
+      payload: Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${draft.fileName}"\r\nContent-Type: text/plain\r\n\r\nЧУЖОЙ ДОГОВОР АРЕНДЫ, совсем другой текст.\r\n--${boundary}--\r\n`,
+      ),
+    });
+    const full = JSON.parse((await app.inject({ method: 'GET', url: `/api/analysis/${draft.id}/full-text`, headers: auth(u.token) })).body);
+    assert.equal(full.text, null, 'черновик не подменён одноимённым файлом');
+    assert.equal(full.fromFile, false);
+    const exp = await app.inject({ method: 'POST', url: `/api/documents/${draft.documentId}/export`, headers: auth(u.token), payload: { format: 'docx', mode: 'clean' } });
+    const mammoth = await import('mammoth');
+    const text = (await mammoth.extractRawText({ buffer: Buffer.from(exp.rawPayload) })).value;
+    assert.ok(!text.includes('ЧУЖОЙ ДОГОВОР'), text);
+    assert.ok(!/отсутствует в хранилище|no longer in storage/.test(text), 'у черновика нет исходного файла — и пометки нет');
+    // И чат по черновику не получает чужой текст как «полный текст договора».
+    const { buildAnalysisContext } = await import('../src/routes/chats.routes.ts');
+    const ctx = (await buildAnalysisContext(db, u.id, draft.id)) ?? '';
+    assert.ok(!ctx.includes('ЧУЖОЙ ДОГОВОР'), ctx);
+  });
+
+  it('ручные правки пунктов попадают в «Весь договор», скачанный Word и согласование', async () => {
+    const u = await makeProUser();
+    // Договор, в котором дословно стоят пункты, которые цитирует тестовая «модель».
+    const contract = [
+      '1. Parties. This agreement is made between Alpha LLC and Beta LLC.',
+      '5. Termination',
+      "Either party may terminate this Agreement by giving one (1) week's written notice to the other. Upon termination, the Employee shall promptly return all Company property and confidential materials.",
+      '8. Post-Termination Restrictions',
+      'The Employee shall not, for a period of twelve (12) months following the Termination Date, solicit or entice away any client with whom the Employee dealt during the twelve (12) months prior to termination.',
+      '12. Governing law. This agreement is governed by the laws of England.',
+    ].join('\n\n');
+    const uploadId = await uploadText(u.token, 'manual-edits.txt', contract);
+    const an = JSON.parse(
+      (await app.inject({ method: 'POST', url: '/api/analysis', headers: auth(u.token), payload: { fileName: 'manual-edits.txt', fileSize: '1 KB', jurisdiction: 'GB', uploadId } })).body,
+    ) as { id: string; documentId: string; document: { type: string; text?: string; segments?: unknown[] }[] };
+    await app.inject({ method: 'PATCH', url: `/api/analysis/${an.id}/redlines/r1`, headers: auth(u.token), payload: { status: 'accepted' } });
+
+    const doc = an.document.map((b) => ({ ...b }));
+    const patch = (document: unknown) => app.inject({ method: 'PATCH', url: `/api/analysis/${an.id}/document`, headers: auth(u.token), payload: { document } });
+    // 1-я правка: юрист дописал условие в пункт о расторжении (слот правки ИИ на месте).
+    doc[1] = { ...doc[1], segments: [...(doc[1].segments ?? []), ' Notice must be sent by registered mail.'] };
+    // Пункт про отпуск в этом договоре отсутствует — его правка не найдётся.
+    doc[5] = { ...doc[5], segments: [...(doc[5].segments ?? []), ' Plus two extra days.'] };
+    assert.equal((await patch(doc)).statusCode, 200);
+    // 2-я правка: дописал ещё и переписал пункт 8 целиком — предложение ИИ из него ушло.
+    doc[1] = { ...doc[1], segments: [...(doc[1].segments ?? []), { text: ' Or by courier.', marks: ['b'] }] };
+    doc[3] = { type: 'paragraph', segments: ['The Employee shall not solicit any client for six (6) months after termination.'] };
+    assert.equal((await patch(doc)).statusCode, 200);
+
+    const full = JSON.parse((await app.inject({ method: 'GET', url: `/api/analysis/${an.id}/full-text`, headers: auth(u.token) })).body) as {
+      text: string;
+      unplacedEdits: { was: string; now: string }[];
+    };
+    assert.ok(
+      full.text.includes("by giving one (1) month's written notice to the other. Upon termination, the Employee shall promptly return all Company property and confidential materials. Notice must be sent by registered mail. Or by courier."),
+      full.text,
+    );
+    assert.ok(full.text.includes('The Employee shall not solicit any client for six (6) months after termination.'), 'пункт 8 переписан целиком');
+    assert.ok(!full.text.includes('solicit or entice away'), 'старая редакция пункта 8 ушла');
+    assert.ok(full.text.includes('1. Parties.') && full.text.includes('12. Governing law.'), 'остальной договор на месте');
+    assert.equal(full.unplacedEdits.length, 1, 'ненайденная правка — в списке «внесите вручную»');
+    assert.match(full.unplacedEdits[0].now, /Plus two extra days\./);
+
+    const exp = await app.inject({ method: 'POST', url: `/api/documents/${an.documentId}/export`, headers: auth(u.token), payload: { format: 'docx', mode: 'clean' } });
+    const mammoth = await import('mammoth');
+    const word = (await mammoth.extractRawText({ buffer: Buffer.from(exp.rawPayload) })).value;
+    assert.ok(word.includes('Notice must be sent by registered mail. Or by courier.'), 'ручная правка в скачанном «чистом» Word');
+    assert.ok(word.includes('Plus two extra days.'), 'ненайденная — видимой припиской «внесите вручную»');
+
+    const flow = await app.inject({
+      method: 'POST',
+      url: '/api/approvals',
+      headers: auth(u.token),
+      payload: { documentId: an.documentId, steps: [{ name: 'Партнёр', email: 'partner@firm.com' }] },
+    });
+    const page = JSON.parse((await app.inject({ method: 'GET', url: `/api/approve/${JSON.parse(flow.body).steps[0].token}` })).body);
+    assert.ok((page.documentText as string).includes('Notice must be sent by registered mail. Or by courier.'), 'согласующий видит ручную правку');
+  });
+
+  it('чужой разбор не отдаётся', async () => {
+    const owner = await makeProUser();
+    const stranger = await makeUser();
+    const uploadId = await uploadText(owner.token, 'secret.txt', 'Secret contract between Alpha and Beta, price 1 USD.');
+    const an = await app.inject({ method: 'POST', url: '/api/analysis', headers: auth(owner.token), payload: { fileName: 'secret.txt', fileSize: '1 KB', jurisdiction: 'GB', uploadId } });
+    const res = await app.inject({ method: 'GET', url: `/api/analysis/${JSON.parse(an.body).id}/full-text`, headers: auth(stranger.token) });
+    assert.equal(res.statusCode, 404, res.body);
+  });
+});
+
+describe('.doc (Word 97–2003) через загрузку — аудит загрузок 2026-10-18', () => {
+  async function upload(token: string, name: string, data: Buffer) {
+    const boundary = '----lexabDocBoundary';
+    const payload = Buffer.concat([
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${name}"\r\nContent-Type: application/msword\r\n\r\n`),
+      data,
+      Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]);
+    return app.inject({
+      method: 'POST',
+      url: '/api/uploads',
+      headers: { ...auth(token), 'content-type': `multipart/form-data; boundary=${boundary}` },
+      payload,
+    });
+  }
+
+  it('.doc загружается с текстом и разбирается', async () => {
+    const u = await makeProUser();
+    const res = await upload(u.token, 'Договор поставки.doc', fs.readFileSync(new URL('./fixtures/dogovor-ru-uz.doc', import.meta.url)));
+    assert.equal(res.statusCode, 201, res.body);
+    const up = JSON.parse(res.body) as { id: string; fileName: string };
+    const an = await app.inject({
+      method: 'POST',
+      url: '/api/analysis',
+      headers: auth(u.token),
+      payload: { fileName: up.fileName, fileSize: '19 KB', jurisdiction: 'UZ', uploadId: up.id },
+    });
+    assert.equal(an.statusCode, 201, an.body);
+    const full = JSON.parse((await app.inject({ method: 'GET', url: `/api/analysis/${JSON.parse(an.body).id}/full-text`, headers: auth(u.token) })).body);
+    assert.ok(full.text?.includes('неустойку 0,5% за каждый день'), JSON.stringify(full));
+  });
+
+  it('.doc под паролем — сразу отказ с подсказкой, на сервере ничего не остаётся', async () => {
+    const u = await makeProUser();
+    const doc = Buffer.from(fs.readFileSync(new URL('./fixtures/dogovor-ru-uz.doc', import.meta.url)));
+    let fib = -1;
+    for (let off = 512; off + 512 <= doc.length && fib < 0; off += 512) if (doc.readUInt16LE(off) === 0xa5ec) fib = off;
+    doc.writeUInt16LE(doc.readUInt16LE(fib + 0x0a) | 0x0100, fib + 0x0a); // fEncrypted
+    const res = await upload(u.token, 'Секретный.doc', doc);
+    assert.equal(res.statusCode, 400, res.body);
+    assert.match(JSON.parse(res.body).error ?? res.body, /паролем/);
+    const rows = await db.query('SELECT 1 FROM uploads WHERE user_id = $1', [u.id]);
+    assert.equal(rows.rows.length, 0, 'файл не сохранён и не занимает место');
+  });
+});
+
+describe('загрузки-«сироты» — аудит загрузок 2026-10-18', () => {
+  it('удаляется только старая загрузка, на которую ничто не ссылается; нужные — на месте', async () => {
+    const { purgeOrphanUploads } = await import('../src/routes/documents.routes.ts');
+    const { readFileBytes } = await import('../src/storage.ts');
+    const u = await makeProUser();
+    const boundary = '----lexabOrphanBoundary';
+    const upload = async (name: string, text: string): Promise<string> => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/uploads',
+        headers: { ...auth(u.token), 'content-type': `multipart/form-data; boundary=${boundary}` },
+        payload: Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${name}"\r\nContent-Type: text/plain\r\n\r\n${text}\r\n--${boundary}--\r\n`),
+      });
+      assert.equal(res.statusCode, 201, res.body);
+      return JSON.parse(res.body).id;
+    };
+    const orphan = await upload('сорвался.txt', 'Договор, анализ которого сорвался.');
+    const analysed = await upload('разобран.txt', 'Договор, который разобран.');
+    const fresh = await upload('свежий.txt', 'Только что загружен, анализ ещё идёт.');
+    const legacy = await upload('старый-разбор.txt', 'Файл старого разбора без привязки.');
+    const an = await app.inject({ method: 'POST', url: '/api/analysis', headers: auth(u.token), payload: { fileName: 'разобран.txt', fileSize: '1 KB', jurisdiction: 'GB', uploadId: analysed } });
+    assert.equal(an.statusCode, 201, an.body);
+    // Старый разбор (до привязки upload_id) находит файл по имени — его файл нужен.
+    await db.query(
+      `INSERT INTO analyses (id, user_id, document_id, file_name, file_size, summary, risk_score, risk_level, clauses_reviewed, document_blocks)
+       VALUES ('an_legacy_orphan', $1, NULL, 'старый-разбор.txt', '1 KB', 's', 10, 'Low', 1, '[]')`,
+      [u.id],
+    );
+    await db.query(`UPDATE uploads SET created_at = now() - interval '2 days' WHERE id = ANY($1::text[])`, [[orphan, analysed, legacy]]);
+    const key = (id: string) => db.query<{ storage: 's3' | 'local' | 'supabase'; storage_key: string }>('SELECT storage, storage_key FROM uploads WHERE id = $1', [id]);
+    const orphanFile = (await key(orphan)).rows[0];
+
+    assert.ok((await purgeOrphanUploads(db)) >= 1);
+    const left = (await db.query<{ id: string }>('SELECT id FROM uploads WHERE user_id = $1', [u.id])).rows.map((r) => r.id).sort();
+    assert.deepEqual(left, [analysed, fresh, legacy].sort(), 'удалена только сирота');
+    await assert.rejects(readFileBytes(orphanFile.storage, orphanFile.storage_key), 'байты сироты удалены из хранилища');
+    assert.equal(await purgeOrphanUploads(db), 0, 'повторный запуск ничего не трогает');
+  });
+});

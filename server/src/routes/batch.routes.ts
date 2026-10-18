@@ -13,7 +13,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../db.ts';
 import { config } from '../config.ts';
-import { fileExtension } from '../extract.ts';
+import { fileExtension, usablePdfText } from '../extract.ts';
 import { badRequest, HttpError, notFound } from '../lib/errors.ts';
 import { decTextStrict } from '../lib/docCrypto.ts';
 import { formatSize } from '../lib/format.ts';
@@ -117,7 +117,9 @@ async function resolveUploadById(
       pdf = null;
     }
   }
-  const text = row.extracted_text === null ? null : await decTextStrict(db, userId, row.extracted_text);
+  const decrypted = row.extracted_text === null ? null : await decTextStrict(db, userId, row.extracted_text);
+  // Пометки страниц многостраничного скана — не текст (см. usablePdfText).
+  const text = fileExtension(row.file_name) === '.pdf' ? usablePdfText(decrypted) : decrypted;
   return { fileName: row.file_name, text, pdf, sizeBytes: Number(row.size_bytes) };
 }
 

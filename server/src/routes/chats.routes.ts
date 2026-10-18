@@ -12,7 +12,7 @@ import { badRequest, HttpError, notFound } from '../lib/errors.ts';
 import { audit } from '../lib/audit.ts';
 import { decJsonFromJsonb, decText, decTextStrict, encText } from '../lib/docCrypto.ts';
 import { bumpUsage, planHasFeature, releaseAiRequest, reserveAiRequest, withAiRequest } from '../lib/limits.ts';
-import { startScanOcr, type OcrStatus } from '../lib/ocr.ts';
+import { readableUploadText, startScanOcr, type OcrStatus } from '../lib/ocr.ts';
 import { resolveAnalysisAccess } from '../lib/teamAccess.ts';
 import { toIso } from '../lib/format.ts';
 import { newId } from '../lib/ids.ts';
@@ -78,7 +78,7 @@ export async function buildAnalysisContext(
   const ownerId = row.user_id;
   const summary = await decText(db, ownerId, row.summary);
   const rawBlocks = (await decJsonFromJsonb(db, ownerId, row.document_blocks)) as
-    | { type: string; text?: string; segments?: (string | { redlineId: string })[] }[]
+    | { type: string; text?: string; segments?: (string | { redlineId: string } | { text: string })[] }[]
     | null;
   if (summary === null || rawBlocks === null) {
     throw new HttpError(500, 'Document cannot be decrypted — data key mismatch');
@@ -102,6 +102,9 @@ export async function buildAnalysisContext(
       return (b.segments ?? [])
         .map((seg) => {
           if (typeof seg === 'string') return seg;
+          // Оформленный фрагмент ручной правки (жирный, ссылка) — это текст
+          // юриста, а не слот правки ИИ: раньше он молча выпадал из контекста.
+          if (!('redlineId' in seg)) return seg.text;
           const rl = byId.get(seg.redlineId);
           return rl ? (rl.status === 'accepted' ? rl.ins_text : rl.del_text) : '';
         })
@@ -113,19 +116,29 @@ export async function buildAnalysisContext(
   // EXACT upload this analysis was built from (upload_id) so "translate the whole
   // contract" grounds in the right file even when two uploads share a name; fall
   // back to newest-by-name for legacy analyses without a link.
+  // Поиск по имени — только для старых разборов ДОГОВОРА (у них есть правки):
+  // у договора, созданного по запросу, файла нет, и одноимённая загрузка
+  // подсунула бы чату чужой текст как «полный текст договора».
   const upload = row.upload_id
-    ? await db.query<{ extracted_text: string | null; ocr_status: OcrStatus | null }>(
-        'SELECT extracted_text, ocr_status FROM uploads WHERE id = $1 AND user_id = $2',
+    ? await db.query<{ id: string; extracted_text: string | null; ocr_status: OcrStatus | null }>(
+        'SELECT id, extracted_text, ocr_status FROM uploads WHERE id = $1 AND user_id = $2',
         [row.upload_id, row.user_id],
       )
-    : await db.query<{ extracted_text: string | null; ocr_status: OcrStatus | null }>(
-        'SELECT extracted_text, ocr_status FROM uploads WHERE user_id = $1 AND file_name = $2 ORDER BY created_at DESC LIMIT 1',
-        [row.user_id, row.file_name],
-      );
+    : redlines.rows.length
+      ? await db.query<{ id: string; extracted_text: string | null; ocr_status: OcrStatus | null }>(
+          'SELECT id, extracted_text, ocr_status FROM uploads WHERE user_id = $1 AND file_name = $2 ORDER BY created_at DESC LIMIT 1',
+          [row.user_id, row.file_name],
+        )
+      : { rows: [] as { id: string; extracted_text: string | null; ocr_status: OcrStatus | null }[] };
   // Present-but-undecryptable text must throw, not silently drop the "Full
   // contract text" block from the grounding context.
   const rawFull = upload.rows[0]?.extracted_text ?? null;
-  const fullText = rawFull === null ? null : await decTextStrict(db, ownerId, rawFull);
+  const decryptedFull = rawFull === null ? null : await decTextStrict(db, ownerId, rawFull);
+  // Пометки страниц старого многостраничного скана — не текст договора: без
+  // этого чат принимал их за «полный текст» и распознавание не запускалось.
+  const fullText = upload.rows[0]
+    ? await readableUploadText(db, { id: upload.rows[0].id, fileName: row.file_name, stored: rawFull }, decryptedFull)
+    : null;
   let ocrStatus = upload.rows[0]?.ocr_status ?? null;
   // Скан, разобранный до появления распознавания (или прошлый сбой): запускаем
   // сейчас — этот ответ ещё без полного текста, следующий уже с ним.

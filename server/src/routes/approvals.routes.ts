@@ -17,7 +17,8 @@ import type { Db } from '../db.ts';
 import { badRequest, HttpError, notFound } from '../lib/errors.ts';
 import { audit } from '../lib/audit.ts';
 import { decJsonFromJsonb, decText, encText } from '../lib/docCrypto.ts';
-import { toIso } from '../lib/format.ts';
+import { looksRussian, toIso } from '../lib/format.ts';
+import { finalContractText, loadSourceText, unappliedNote } from '../lib/fullText.ts';
 import { newId } from '../lib/ids.ts';
 import { assertFeature } from '../lib/limits.ts';
 import { notify } from '../lib/notify.ts';
@@ -25,6 +26,7 @@ import { resolveDocumentAccess } from '../lib/teamAccess.ts';
 import { asObject, requireString } from '../lib/validate.ts';
 import { biBody, biLine, biSubject, escapeMailHtml, mailLayout, sendMail } from '../mail.ts';
 import { getUserByEmail } from '../plugins/auth.ts';
+import type { DocBlock, Redline } from '../types.ts';
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -157,7 +159,7 @@ export async function startApprovalFlow(
   const flowId = newId('af');
   // Замораживаем текст на момент запуска: согласующий увидит и одобрит именно
   // эту редакцию, что бы владелец ни правил дальше.
-  const snapshot = await renderApprovalText(db, owner.id, document.name);
+  const snapshot = await renderApprovalText(db, owner.id, document.id);
   const storedSnapshot = snapshot === null ? null : await encText(db, owner.id, snapshot);
   await db.query(
     `INSERT INTO approval_flows (id, document_id, owner_user_id, status, content_snapshot) VALUES ($1, $2, $3, 'active', $4)`,
@@ -189,45 +191,74 @@ export async function startApprovalFlow(
   };
 }
 
-/** Текст документа на момент вызова (правки применены) — для согласования.
- *  Используется дважды: при СОЗДАНИИ маршрута (снимок замораживается) и как
- *  запасной путь для маршрутов, созданных до появления снимков. */
-export async function renderApprovalText(db: Db, ownerId: string, fileName: string): Promise<string | null> {
-  const a = await db.query<{ id: string; document_blocks: unknown }>(
-    `SELECT id, document_blocks FROM analyses
-     WHERE user_id = $1 AND file_name = $2 ORDER BY created_at DESC LIMIT 1`,
-    [ownerId, fileName],
+/** Текст документа на момент вызова — для согласования. Используется дважды:
+ *  при СОЗДАНИИ маршрута (снимок замораживается) и как запасной путь для
+ *  маршрутов, созданных до появления снимков.
+ *
+ *  Согласующий видит ВЕСЬ договор — тот же текст, что уходит в «чистый»
+ *  экспорт: исходный файл + только ПРИНЯТЫЕ правки (решение владельца
+ *  2026-10-18). Раньше здесь были лишь 0–5 пунктов разбора, а в них — и правки
+ *  ИИ, по которым владелец ещё не решил, словно они уже часть договора.
+ *  Разбор берётся по id ДОКУМЕНТА: одноимённых документов может быть несколько. */
+export async function renderApprovalText(db: Db, ownerId: string, documentId: string): Promise<string | null> {
+  const a = await db.query<{ id: string; document_blocks: unknown; file_name: string; upload_id: string | null }>(
+    `SELECT id, document_blocks, file_name, upload_id FROM analyses
+     WHERE user_id = $1 AND document_id = $2 ORDER BY created_at DESC LIMIT 1`,
+    [ownerId, documentId],
   );
   const row = a.rows[0];
   if (!row) return null;
-  // Encrypted at rest — decrypt with the document owner's data key.
-  const blocks = (await decJsonFromJsonb(db, ownerId, row.document_blocks)) as
-    | { type: string; text?: string; segments?: (string | { redlineId: string })[] }[]
-    | null;
-  if (blocks === null) throw new HttpError(500, 'Document cannot be decrypted — data key mismatch');
-  const redlines = await db.query<{ id: string; del_text: string; ins_text: string; status: string }>(
+  const redlineRows = await db.query<{ id: string; del_text: string; ins_text: string; status: Redline['status'] }>(
     'SELECT id, del_text, ins_text, status FROM redlines WHERE analysis_id = $1 ORDER BY ord',
     [row.id],
   );
-  const byId = new Map<string, { del_text: string; ins_text: string; status: string }>();
-  for (const r of redlines.rows) {
+  const redlines: { id: string; delText: string; insText: string; status: Redline['status'] }[] = [];
+  for (const r of redlineRows.rows) {
     const delText = await decText(db, ownerId, r.del_text);
     const insText = await decText(db, ownerId, r.ins_text);
     if (delText === null || insText === null) throw new HttpError(500, 'Document cannot be decrypted — data key mismatch');
-    byId.set(r.id, { del_text: delText, ins_text: insText, status: r.status });
+    redlines.push({ id: r.id, delText, insText, status: r.status });
   }
-  return blocks
+
+  const blocks = (await decJsonFromJsonb(db, ownerId, row.document_blocks)) as DocBlock[] | null;
+  if (blocks === null) throw new HttpError(500, 'Document cannot be decrypted — data key mismatch');
+  const source = await loadSourceText(db, ownerId, { fileName: row.file_name, uploadId: row.upload_id, nameFallback: redlines.length > 0 });
+  if (source.text) {
+    // Исходный файл → ручные правки пунктов → только принятые правки ИИ.
+    const merged = await finalContractText(db, ownerId, row.id, source.text, blocks, redlines);
+    const ru = looksRussian(merged.text);
+    // Текст скана переписан ИИ — согласующий должен знать это до решения.
+    const ocrNote =
+      source.ocrStatus === 'done'
+        ? ru
+          ? '[Текст распознан ИИ со скана или фото — сверяйте суммы, даты и имена с оригиналом.]\n\n'
+          : '[This text was recognized by AI from a scan or photo — check amounts, dates and names against the original.]\n\n'
+        : '';
+    return ocrNote + merged.text + unappliedNote(merged.text, merged.unapplied, merged.unplacedEdits);
+  }
+
+  // Полного текста нет (скан без распознавания, файл удалён) или договор
+  // создан по запросу — тогда весь договор и есть документ разбора.
+  const byId = new Map(redlines.map((r) => [r.id, r]));
+  const body = blocks
     .map((b) => {
       if (b.type === 'heading') return `## ${b.text ?? ''}`;
       return (b.segments ?? [])
         .map((seg) => {
           if (typeof seg === 'string') return seg;
+          if (!('redlineId' in seg)) return seg.text; // оформленный фрагмент ручной правки
           const rl = byId.get(seg.redlineId);
-          return rl ? (rl.status === 'rejected' ? rl.del_text : rl.ins_text) : '';
+          // Только принятое владельцем; непринятое предложение ИИ — не текст договора.
+          return rl ? (rl.status === 'accepted' ? rl.insText : rl.delText) : '';
         })
         .join('');
     })
     .join('\n\n');
+  if (!source.uploadId) return body;
+  const note = looksRussian(body)
+    ? '[Полного текста файла нет — ниже только пункты договора из ИИ-разбора.]\n\n'
+    : '[The full text of the file is unavailable — only the clauses from the AI review are shown below.]\n\n';
+  return note + body;
 }
 
 /**
@@ -241,7 +272,10 @@ export async function renderApprovalText(db: Db, ownerId: string, fileName: stri
  * Маршруты, созданные ДО появления снимка, честно рендерятся вживую.
  */
 async function approvalDocumentText(db: Db, row: { flow_id: string; owner_id: string; document_name: string }): Promise<string | null> {
-  const snap = await db.query<{ content_snapshot: string | null }>('SELECT content_snapshot FROM approval_flows WHERE id = $1', [row.flow_id]);
+  const snap = await db.query<{ content_snapshot: string | null; document_id: string }>(
+    'SELECT content_snapshot, document_id FROM approval_flows WHERE id = $1',
+    [row.flow_id],
+  );
   const stored = snap.rows[0]?.content_snapshot ?? null;
   if (stored) {
     const text = await decText(db, row.owner_id, stored);
@@ -251,7 +285,8 @@ async function approvalDocumentText(db: Db, row: { flow_id: string; owner_id: st
     if (text === null) throw new HttpError(500, 'Снимок документа не расшифровывается — обратитесь к владельцу');
     return text;
   }
-  return renderApprovalText(db, row.owner_id, row.document_name);
+  const documentId = snap.rows[0]?.document_id;
+  return documentId ? renderApprovalText(db, row.owner_id, documentId) : null;
 }
 
 export function approvalRoutes(app: FastifyInstance, db: Db): void {

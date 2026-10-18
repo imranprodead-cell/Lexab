@@ -6,6 +6,7 @@ import { useVoiceInput } from '@/hooks/useVoiceInput';
 import { useI18n } from '@/i18n/I18nProvider';
 import { useUIStore } from '@/store/useUIStore';
 import { COMMANDS } from '@/data/seed';
+import { DOC_ACCEPT } from '@/lib/docFormats';
 import type { Command } from '@/types/domain';
 import { SlashMenu } from './SlashMenu';
 import styles from './chat.module.css';
@@ -285,7 +286,7 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFiles, onCloud
             ref={fileInputRef}
             type="file"
             multiple
-            accept=".pdf,.doc,.docx,.txt,.jpg,.jpeg,.png,.webp,.heic,.heif,image/*"
+            accept={`${DOC_ACCEPT},.jpg,.jpeg,.png,.webp,.heic,.heif,image/*`}
             style={{ display: 'none' }}
             onChange={(e) => {
               const files = Array.from(e.target.files ?? []);

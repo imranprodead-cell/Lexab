@@ -1,16 +1,20 @@
 /**
  * Text extraction for uploaded contracts.
  * - .txt/.md      → UTF-8 text
- * - .docx         → mammoth raw text
+ * - .docx         → свой разбор (lib/docxText.ts: номера пунктов, сноски, таблицы,
+ *                   непринятые исправления обеими версиями), страховка — mammoth
  * - .pdf          → text layer via pdf-parse (digital PDFs). Scanned PDFs have
  *                   no text layer — those are still analysed by Claude, which
  *                   reads the pages visually (built-in OCR) when the PDF bytes
  *                   are passed as a native document block.
- * - .doc (legacy) → unsupported; analysis proceeds from the file name only
+ * - .doc (Word 97–2003) → свой разбор (lib/docText.ts); под паролем или Word 6/95 —
+ *                   понятный отказ «сохраните как .docx» сразу при загрузке
  */
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { badRequest } from './lib/errors.ts';
+import { docxToText } from './lib/docxText.ts';
+import { DocEncryptedError, docToText } from './lib/docText.ts';
 
 export const ALLOWED_EXTENSIONS = ['.pdf', '.doc', '.docx', '.txt', '.md'];
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // ≤ ~10 MB per the handoff
@@ -21,6 +25,17 @@ const MAX_DECOMPRESSED_BYTES = 120 * 1024 * 1024;
 /** Hard ceiling on extracted text length — bounds memory for any pathological
  *  input and is far above any real contract (~1M chars ≈ hundreds of pages). */
 const MAX_TEXT_CHARS = 5_000_000;
+/** Служебная строка pdf-parse 2.x между страницами: «-- 2 of 5 --». */
+const PDF_PAGE_MARKER = /^[ \t]*-- \d+ of (\d+) --[ \t]*$/gm;
+/** Меньше букв на страницу в среднем — у PDF по сути нет текстового слоя:
+ *  это скан, на котором есть разве что штамп сканера («Scanned with
+ *  CamScanner») или номер страницы. Страница настоящего договора — сотни букв. */
+const MIN_LETTERS_PER_PAGE = 40;
+
+/** Сколько букв в тексте (без массива из миллионов совпадений). */
+function countLetters(s: string): number {
+  return s.replace(/[^\p{L}]+/gu, '').length;
+}
 
 /**
  * A docx IS a ZIP, so a decompression bomb (a few compressed MB → many GB) can
@@ -151,6 +166,50 @@ export function assertValidFileContent(buffer: Buffer, fileName: string): void {
   }
 }
 
+/**
+ * Текстовый слой PDF → текст для модели, или null, если это скан.
+ *
+ * pdf-parse 2.x по умолчанию вставляет между страницами «-- 1 of 2 --», и у
+ * скана из 2+ страниц одни эти пометки проходили старый порог «> 20 символов»:
+ * скан считался текстовым — распознавание не запускалось, чат, экспорт и
+ * повторный анализ видели пустой договор. Поэтому пометки вырезаются, а скан
+ * определяется по буквам на страницу. Принимает и текст, сохранённый в базе до
+ * исправления (пометки внутри, число страниц берётся из них).
+ */
+export function usablePdfText(raw: string | null, pages?: number): string | null {
+  if (raw === null) return null;
+  let markedPages = 0;
+  const text = raw
+    .replace(PDF_PAGE_MARKER, (_line, total: string) => {
+      markedPages = Math.max(markedPages, Number(total));
+      return '';
+    })
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  const pageCount = Math.max(1, pages ?? markedPages);
+  return countLetters(text) >= pageCount * MIN_LETTERS_PER_PAGE ? text : null;
+}
+
+/**
+ * TXT без BOM: UTF-8, а если это не UTF-8 — старая кодировка Windows.
+ * Блокнот, выгрузки из 1С и «Сохранить как текст» в старом Word пишут
+ * кириллицу в Windows-1251; раньше такой файл читался как UTF-8 и вместо
+ * договора модель получала сплошные «�����» (аудит загрузок 2026-10-18).
+ * Западноевропейский текст (Windows-1252: «café», «Müller») отличается по
+ * словам, где латиница смешалась с кириллицей, — у верной кодировки их нет.
+ */
+export function decodeTextWithoutBom(buffer: Buffer): string {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+  } catch {
+    /* не UTF-8 — ниже старые кодировки Windows */
+  }
+  const cyrillic = new TextDecoder('windows-1251').decode(buffer);
+  const latin = new TextDecoder('windows-1252').decode(buffer);
+  const mixedWords = (s: string) => (s.match(/\p{L}+/gu) ?? []).filter((w) => /\p{Script=Latin}/u.test(w) && /\p{Script=Cyrillic}/u.test(w)).length;
+  return mixedWords(latin) < mixedWords(cyrillic) ? latin : cyrillic;
+}
+
 export async function extractText(buffer: Buffer, fileName: string): Promise<string | null> {
   const ext = fileExtension(fileName);
   if (ext === '.txt' || ext === '.md') {
@@ -163,7 +222,7 @@ export async function extractText(buffer: Buffer, fileName: string): Promise<str
       return swapped.toString('utf16le');
     }
     if (buffer[0] === 0xef && buffer[1] === 0xbb && buffer[2] === 0xbf) return buffer.subarray(3).toString('utf8');
-    return buffer.toString('utf8');
+    return decodeTextWithoutBom(buffer);
   }
   if (ext === '.docx') {
     // Reject a decompression bomb BEFORE mammoth inflates it (OOM protection).
@@ -174,23 +233,60 @@ export async function extractText(buffer: Buffer, fileName: string): Promise<str
         'Файл слишком большой в распакованном виде (возможно, повреждён). / File is too large when decompressed.',
       );
     }
+    // Свой разбор (docxText.ts) сохраняет номера пунктов, сноски, колонтитулы
+    // и таблицы — mammoth всё это терял. mammoth остаётся страховкой: если в
+    // нашем тексте заметно меньше букв, значит необычная разметка что-то
+    // спрятала от разбора, и лучше прежний текст, чем неполный.
+    let own: string | null = null;
+    try {
+      own = docxToText(buffer);
+    } catch {
+      own = null;
+    }
+    let plain: string | null = null;
     try {
       const mammoth = await import('mammoth');
-      const result = await mammoth.extractRawText({ buffer });
-      return result.value ? result.value.slice(0, MAX_TEXT_CHARS) : null;
+      plain = (await mammoth.extractRawText({ buffer })).value || null;
     } catch {
-      return null;
+      plain = null;
     }
+    const text = own && (!plain || countLetters(own) >= countLetters(plain) * 0.97) ? own : plain;
+    return text ? text.slice(0, MAX_TEXT_CHARS) : null;
+  }
+  if (ext === '.doc') {
+    // Раньше .doc принимался, а текста из него не было: файл занимал место, а
+    // анализ падал с неверным «похоже, PDF-скан». Теперь — текст, а если его
+    // не достать, честный отказ сразу, с подсказкой, что сделать.
+    let text: string | null = null;
+    try {
+      text = docToText(buffer);
+    } catch (err) {
+      if (err instanceof DocEncryptedError) {
+        throw badRequest(
+          'Файл .doc защищён паролем — снимите пароль в Word или сохраните документ без пароля как .docx. / ' +
+            'The .doc file is password-protected — remove the password in Word or save it as .docx.',
+        );
+      }
+      text = null;
+    }
+    if (!text?.trim()) {
+      throw badRequest(
+        'Не удалось прочитать этот файл .doc (очень старая версия Word 6/95 или файл повреждён) — откройте его в Word и сохраните как .docx. / ' +
+          'Could not read this .doc file (Word 6/95 or a damaged file) — open it in Word and save it as .docx.',
+      );
+    }
+    return text.slice(0, MAX_TEXT_CHARS);
   }
   if (ext === '.pdf') {
     try {
       const { PDFParse } = await import('pdf-parse');
       const parser = new PDFParse({ data: new Uint8Array(buffer) });
-      const result = await parser.getText();
+      // pageJoiner '' — без служебных «-- 1 of 2 --» между страницами.
+      const result = await parser.getText({ pageJoiner: '' });
       await parser.destroy();
-      const text = result.text?.trim();
-      // scans yield empty/near-empty text; cap the rest to bound memory.
-      return text && text.length > 20 ? text.slice(0, MAX_TEXT_CHARS) : null;
+      // Скан (букв почти нет) → null; остальное — с потолком по памяти.
+      const text = usablePdfText(result.text ?? '', result.total);
+      return text === null ? null : text.slice(0, MAX_TEXT_CHARS);
     } catch {
       return null;
     }

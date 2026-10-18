@@ -18,11 +18,20 @@ vi.mock('@/api/chats.api', () => ({
     sendGhostMessage: vi.fn(),
     linkAnalysis: vi.fn().mockResolvedValue(undefined),
     setFeedback: vi.fn(),
+    remove: vi.fn().mockResolvedValue(undefined),
   },
 }));
-vi.mock('@/api/uploads.api', () => ({ uploadsApi: { upload: vi.fn(), uploadPhotos: vi.fn() } }));
+// Загрузка отвечает как сервер — с id: анализ идёт именно по этой загрузке.
+vi.mock('@/api/uploads.api', () => ({
+  uploadsApi: {
+    upload: vi.fn(async (file: File) => ({ id: `up_${file.name}`, fileName: file.name, fileSize: '1 KB' })),
+    uploadPhotos: vi.fn(),
+  },
+}));
+// Боковая панель чатов: addSession — «создать чат под новый договор».
+const history = vi.hoisted(() => ({ load: vi.fn(), addSession: vi.fn() }));
 vi.mock('@/store/useChatHistoryStore', () => ({
-  useChatHistoryStore: { getState: () => ({ load: vi.fn() }) },
+  useChatHistoryStore: { getState: () => history },
 }));
 
 import { analysisApi } from '@/api';
@@ -416,5 +425,189 @@ describe('chat store — фото страниц договора', () => {
     expect(s.phase).toBe('error');
     expect(s.error).toMatch(/Standard, Pro и Business/);
     expect(analysisApi.analyze).not.toHaveBeenCalled();
+  });
+});
+
+describe('chat store — файл договора', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useChatStore.setState({
+      phase: 'idle', messages: [], analysis: null, activeStep: -1, error: null,
+      serverSessionId: null, sessionLoading: false, ghost: false,
+    });
+  });
+
+  it('анализ идёт по номеру ЭТОЙ загрузки, а «Повторить» не грузит файл второй раз', async () => {
+    // Раньше номер загрузки выбрасывался, и сервер брал «последний файл с
+    // таким именем» — при двух «Договор.pdf» мог разобрать не тот.
+    const { uploadsApi } = await import('@/api/uploads.api');
+    const mockUpload = uploadsApi.upload as ReturnType<typeof vi.fn>;
+    const mockAnalyze = (analysisApi as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze;
+    mockUpload.mockResolvedValueOnce({ id: 'up_dogovor_1', fileName: 'Договор.pdf', fileSize: '2 KB' });
+    mockAnalyze.mockRejectedValueOnce(new Error('model down')).mockResolvedValueOnce({ ...ANALYSIS, id: 'an_doc', fileName: 'Договор.pdf' });
+    const raw = new File(['%PDF-1.4 contract'], 'Договор.pdf');
+    const file = { name: 'Договор.pdf', size: '2 KB' };
+
+    await useChatStore.getState().startAnalysis(file, raw);
+    expect(mockUpload).toHaveBeenCalledTimes(1);
+    expect(mockAnalyze.mock.calls[0][0]).toMatchObject({ fileName: 'Договор.pdf', uploadId: 'up_dogovor_1' });
+    expect(useChatStore.getState().phase).toBe('error');
+
+    // «Повторить» с карточки ошибки — та же загрузка, без новой копии файла.
+    await useChatStore.getState().startAnalysis(file);
+    expect(mockUpload).toHaveBeenCalledTimes(1);
+    expect(mockAnalyze.mock.calls[1][0]).toMatchObject({ uploadId: 'up_dogovor_1' });
+    expect(useChatStore.getState().phase).toBe('analyzed');
+  });
+
+  it('«Повторить» после ошибки у файла из облака — та же загрузка, а не одноимённый файл с компьютера', async () => {
+    const { uploadsApi } = await import('@/api/uploads.api');
+    const mockUpload = uploadsApi.upload as ReturnType<typeof vi.fn>;
+    const mockAnalyze = (analysisApi as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze;
+    // Раньше прикрепляли «Договор.docx» с компьютера (старая версия)…
+    mockUpload.mockResolvedValueOnce({ id: 'up_local_old', fileName: 'Договор.docx', fileSize: '1 KB' });
+    mockAnalyze.mockResolvedValueOnce({ ...ANALYSIS, id: 'an_local', fileName: 'Договор.docx' });
+    await useChatStore.getState().startAnalysis({ name: 'Договор.docx', size: '1 KB' }, new File(['old'], 'Договор.docx'));
+    // …теперь — новая версия из Google Drive; её анализ сорвался.
+    mockAnalyze.mockRejectedValueOnce(new Error('model down')).mockResolvedValueOnce({ ...ANALYSIS, id: 'an_cloud', fileName: 'Договор.docx' });
+    const file = { name: 'Договор.docx', size: '2 KB' };
+    await useChatStore.getState().startAnalysis(file, undefined, { uploadId: 'up_cloud_new' });
+    expect(useChatStore.getState().phase).toBe('error');
+    mockUpload.mockClear();
+
+    await useChatStore.getState().startAnalysis(file); // «Повторить» с карточки ошибки
+    expect(mockUpload).not.toHaveBeenCalled(); // старый файл с компьютера не отправлен
+    expect(mockAnalyze.mock.calls[mockAnalyze.mock.calls.length - 1][0]).toMatchObject({ uploadId: 'up_cloud_new' });
+    expect(useChatStore.getState().analysis?.id).toBe('an_cloud');
+  });
+
+  it('сервер отказал по существу (например, .doc под паролем) — человек видит причину, а не общее «не загрузилось»', async () => {
+    const { uploadsApi } = await import('@/api/uploads.api');
+    const { ApiError } = await import('@/api/util');
+    (uploadsApi.upload as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+      new ApiError('Файл .doc защищён паролем — снимите пароль в Word или сохраните документ без пароля как .docx.', 400),
+    );
+    await useChatStore.getState().startAnalysis({ name: 'Секретный.doc', size: '20 KB' }, new File(['x'], 'Секретный.doc'));
+    expect(useChatStore.getState().phase).toBe('error');
+    expect(useChatStore.getState().error).toMatch(/защищён паролем/);
+    expect(analysisApi.analyze).not.toHaveBeenCalled();
+  });
+});
+
+describe('chat store — новый договор в уже открытом чате', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useChatStore.setState({
+      phase: 'analyzed',
+      // Открыт старый чат со своим договором.
+      messages: [{ id: 'old_f', role: 'user', kind: 'file', file: { name: 'Старый.pdf', size: '1 KB' } }],
+      analysis: { ...ANALYSIS, id: 'an_old', fileName: 'Старый.pdf' } as AnalysisResult,
+      activeStep: -1, error: null, serverSessionId: 's_old', sessionLoading: false, ghost: false,
+    });
+  });
+
+  it('разбор привязывается к НОВОМУ чату, даже если тот создаётся дольше анализа', async () => {
+    // Раньше: анализ брал «текущий» чат (старый), пока новый ещё создавался, —
+    // и в старом чате оказывался разбор чужого договора.
+    let createSession!: (s: { id: string; title: string; updatedAt: string }) => void;
+    history.addSession.mockReturnValueOnce(new Promise((r) => { createSession = r; }));
+    const mockAnalyze = (analysisApi as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze;
+    mockAnalyze.mockResolvedValueOnce({ ...ANALYSIS, id: 'an_new', fileName: 'Новый.pdf' });
+
+    const run = useChatStore.getState().startAnalysis({ name: 'Новый.pdf', size: '2 KB' }, new File(['x'], 'Новый.pdf'), { newSession: true });
+    expect(useChatStore.getState().serverSessionId).toBeNull(); // старый чат больше не «текущий»
+    await new Promise((r) => setTimeout(r, 5)); // анализ уже готов, чат ещё создаётся
+    createSession({ id: 's_new', title: 'Новый', updatedAt: '' });
+    await run;
+
+    const linked = (chatsApi.linkAnalysis as ReturnType<typeof vi.fn>).mock.calls;
+    expect(linked.some(([sid]) => sid === 's_old')).toBe(false);
+    expect(linked.some(([sid, an]) => sid === 's_new' && an === 'an_new')).toBe(true);
+    expect(useChatStore.getState().serverSessionId).toBe('s_new');
+    expect(useChatStore.getState().analysis?.id).toBe('an_new');
+  });
+
+  it('загрузка сорвалась раньше, чем создан чат, — пустой чат удаляется, а не висит в панели', async () => {
+    let createSession!: (s: { id: string; title: string; updatedAt: string }) => void;
+    history.addSession.mockReturnValueOnce(new Promise((r) => { createSession = r; }));
+    const { uploadsApi } = await import('@/api/uploads.api');
+    (uploadsApi.upload as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('offline'));
+
+    const run = useChatStore.getState().startAnalysis({ name: 'Сбой.pdf', size: '2 KB' }, new File(['x'], 'Сбой.pdf'), { newSession: true });
+    await new Promise((r) => setTimeout(r, 5));
+    createSession({ id: 's_dead', title: 'Сбой', updatedAt: '' });
+    await run;
+
+    expect(chatsApi.remove).toHaveBeenCalledWith('s_dead');
+    expect(chatsApi.remove).not.toHaveBeenCalledWith('s_old');
+    expect(useChatStore.getState().phase).toBe('error');
+    expect(useChatStore.getState().serverSessionId).toBeNull();
+  });
+
+  it('отмена до того, как чат создан, — чат удаляется, когда появится', async () => {
+    let createSession!: (s: { id: string; title: string; updatedAt: string }) => void;
+    history.addSession.mockReturnValueOnce(new Promise((r) => { createSession = r; }));
+    const mockAnalyze = (analysisApi as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze;
+    mockAnalyze.mockReturnValueOnce(new Promise(() => undefined)); // анализ «идёт»
+
+    void useChatStore.getState().startAnalysis({ name: 'Отмена.pdf', size: '2 KB' }, new File(['x'], 'Отмена.pdf'), { newSession: true });
+    await new Promise((r) => setTimeout(r, 5));
+    useChatStore.getState().cancelAnalysis();
+    createSession({ id: 's_cancelled', title: 'Отмена', updatedAt: '' });
+    await new Promise((r) => setTimeout(r, 5));
+
+    expect(chatsApi.remove).toHaveBeenCalledWith('s_cancelled');
+    expect(useChatStore.getState().serverSessionId).toBeNull();
+  });
+});
+
+describe('chat store — создание чата повисло в сети', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useChatStore.setState({
+      phase: 'idle', messages: [], analysis: null, activeStep: -1, error: null,
+      serverSessionId: null, sessionLoading: false, ghost: false,
+    });
+  });
+
+  it('анализ упал — ошибка видна через 15 с, а не никогда; опоздавший пустой чат удаляется', async () => {
+    vi.useFakeTimers();
+    try {
+      let createSession!: (s: { id: string; title: string; updatedAt: string }) => void;
+      history.addSession.mockReturnValueOnce(new Promise((r) => { createSession = r; }));
+      const mockAnalyze = (analysisApi as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze;
+      mockAnalyze.mockRejectedValueOnce(new Error('model down'));
+      const run = useChatStore.getState().startAnalysis({ name: 'Висит.pdf', size: '1 KB' }, new File(['x'], 'Висит.pdf'), { newSession: true });
+      await vi.advanceTimersByTimeAsync(15_000);
+      await run;
+      expect(useChatStore.getState().phase).toBe('error');
+      createSession({ id: 's_late', title: 'Висит', updatedAt: '' });
+      await vi.advanceTimersByTimeAsync(10);
+      expect(chatsApi.remove).toHaveBeenCalledWith('s_late');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('анализ удался — результат виден, а привязка к чату — когда тот наконец создан', async () => {
+    vi.useFakeTimers();
+    try {
+      let createSession!: (s: { id: string; title: string; updatedAt: string }) => void;
+      history.addSession.mockReturnValueOnce(new Promise((r) => { createSession = r; }));
+      const mockAnalyze = (analysisApi as unknown as { analyze: ReturnType<typeof vi.fn> }).analyze;
+      mockAnalyze.mockResolvedValueOnce({ ...ANALYSIS, id: 'an_slow_session', fileName: 'Медленно.pdf' });
+      const run = useChatStore.getState().startAnalysis({ name: 'Медленно.pdf', size: '1 KB' }, new File(['x'], 'Медленно.pdf'), { newSession: true });
+      await vi.advanceTimersByTimeAsync(15_000);
+      await run;
+      expect(useChatStore.getState().phase).toBe('analyzed');
+      expect(useChatStore.getState().analysis?.id).toBe('an_slow_session');
+      createSession({ id: 's_slow', title: 'Медленно', updatedAt: '' });
+      await vi.advanceTimersByTimeAsync(10);
+      const linked = (chatsApi.linkAnalysis as ReturnType<typeof vi.fn>).mock.calls;
+      expect(linked.some(([sid, an]) => sid === 's_slow' && an === 'an_slow_session')).toBe(true);
+      expect(useChatStore.getState().serverSessionId).toBe('s_slow');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

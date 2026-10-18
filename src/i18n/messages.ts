@@ -1519,6 +1519,15 @@ export const MESSAGES: Dict = {
   // Публичная ссылка на отчёт
   'ws.share': { ru: 'Поделиться', en: 'Share' },
   'ws.fullView': { ru: 'Весь договор', en: 'Full contract' },
+  'ws.fullLoading': { ru: 'Загружаю полный текст договора…', en: 'Loading the full contract text…' },
+  'ws.fullError': { ru: 'Не удалось загрузить полный текст — ниже только пункты с правками.', en: 'Could not load the full text — only the clauses with suggested edits are shown below.' },
+  'ws.fullOcrNote': { ru: 'Текст распознан ИИ со скана или фото — сверяйте суммы, даты и имена с оригиналом.', en: 'This text was recognized by AI from a scan or photo — check amounts, dates and names against the original.' },
+  'ws.fullOcrPending': { ru: 'Текст скана ещё распознаётся — примерно через минуту здесь появится весь договор. Пока ниже только пункты с правками.', en: 'The scan is still being recognized — the full contract will appear here in about a minute. For now only the clauses with suggested edits are shown below.' },
+  'ws.fullUnavailable': { ru: 'Полного текста этого файла нет (скан без распознанного текста или файл удалён) — ниже только пункты с правками.', en: 'The full text of this file is unavailable (a scan without recognized text, or the file was deleted) — only the clauses with suggested edits are shown below.' },
+  'ws.fullUnapplied': { ru: 'Правки, которые не удалось найти в тексте автоматически (внесите вручную):', en: 'Edits that could not be located in the text automatically (apply them manually):' },
+  'ws.fullWasNow': { ru: 'Было: «{was}» → Стало: «{now}»', en: 'Was: “{was}” → Now: “{now}”' },
+  'ws.fullAdd': { ru: 'Добавить: «{text}»', en: 'Add: “{text}”' },
+  'ws.fullRemove': { ru: 'Удалить: «{text}»', en: 'Remove: “{text}”' },
   'ws.shareTitle': { ru: 'Ссылка на отчёт', en: 'Report link' },
   'ws.shareBody': {
     ru: 'Любой, у кого есть эта ссылка, увидит краткий отчёт: балл риска, резюме и находки с цитатами норм. Текст договора и правки не показываются.',
