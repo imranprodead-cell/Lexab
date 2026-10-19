@@ -47,6 +47,26 @@ import { lawRoutes } from './routes/law.routes.ts';
 import { shareRoutes } from './routes/share.routes.ts';
 import { webhookSettingsRoutes } from './routes/webhooks.routes.ts';
 
+/**
+ * TRUST_PROXY → настройка fastify. «true» — доверять прокси перед сервером
+ * (Railway, CDN); список адресов/подсетей через запятую — доверять только им.
+ * Число («сколько прокси») fastify 5.12 больше не поддерживает: по нему любой
+ * клиент мог подделать свой адрес в X-Forwarded-For, и fastify молча перестал
+ * доверять вовсе. Такое значение здесь тоже «не доверять», но с предупреждением
+ * в журнале — иначе все пользователи незаметно получили бы адрес прокси, а
+ * ограничения «N попыток с одного адреса» били бы по всем сразу.
+ */
+export function trustProxySetting(raw: string | undefined): boolean | string {
+  const value = (raw ?? '').trim();
+  if (!value || value === 'false') return false;
+  if (value === 'true') return true;
+  if (/^\d+$/.test(value)) {
+    console.warn('[config] TRUST_PROXY=<число> больше не поддерживается (fastify 5.12) — укажите true или адреса прокси; пока заголовкам прокси не доверяем');
+    return false;
+  }
+  return value;
+}
+
 export async function buildApp(db: Db): Promise<FastifyInstance> {
   const app = Fastify({
     logger: { level: process.env.LOG_LEVEL ?? 'info' },
@@ -61,8 +81,8 @@ export async function buildApp(db: Db): Promise<FastifyInstance> {
     requestTimeout: 180_000,
     // Behind a trusted reverse proxy/CDN, honour X-Forwarded-For so req.ip is
     // the real client. Off by default (direct exposure must not trust a
-    // spoofable header); set TRUST_PROXY=true (or a hop count) in that deploy.
-    trustProxy: process.env.TRUST_PROXY === 'true' ? true : Number(process.env.TRUST_PROXY) || false,
+    // spoofable header); set TRUST_PROXY=true in that deploy (см. trustProxySetting).
+    trustProxy: trustProxySetting(process.env.TRUST_PROXY),
   });
 
   // Security headers. This is a JSON API (the SPA is served separately), so the

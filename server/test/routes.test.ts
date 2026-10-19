@@ -3192,3 +3192,15 @@ describe('загрузки-«сироты» — аудит загрузок 2026
     assert.equal(await purgeOrphanUploads(db), 0, 'повторный запуск ничего не трогает');
   });
 });
+
+describe('TRUST_PROXY под fastify 5.12', () => {
+  it('true и адреса прокси — как задано; число (больше не поддерживается) — «не доверять», а не молча что-то иное', async () => {
+    const { trustProxySetting } = await import('../src/app.ts');
+    assert.equal(trustProxySetting(undefined), false);
+    assert.equal(trustProxySetting(''), false);
+    assert.equal(trustProxySetting('false'), false);
+    assert.equal(trustProxySetting('true'), true);
+    assert.equal(trustProxySetting(' 10.0.0.0/8, 127.0.0.1 '), '10.0.0.0/8, 127.0.0.1');
+    assert.equal(trustProxySetting('1'), false);
+  });
+});
