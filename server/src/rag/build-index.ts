@@ -17,6 +17,7 @@ import OpenAI from 'openai';
 import { config } from '../config.ts';
 import { extractJsonObject, isDeepSeekModel } from '../llm.ts';
 import { getDb, migrate, type Db } from '../db.ts';
+import { MODELS, noThinking } from '../models.ts';
 import { EMBEDDING_MODEL, embeddingsEnabled, embedTexts, toVectorLiteral } from './embeddings.ts';
 
 const CONTEXT_SCHEMA = {
@@ -114,6 +115,8 @@ async function generateContext(
     const msg = await annot.api.beta.messages.create({
       model: annot.model,
       max_tokens: 300,
+      // 1-2 предложения: размышления (по умолчанию у Haiku 5.5) съели бы бюджет.
+      ...noThinking(annot.model),
       system,
       output_config: { format: { type: 'json_schema', schema: CONTEXT_SCHEMA as unknown as Record<string, unknown> } },
       messages: [{ role: 'user', content: userContent }],
@@ -254,7 +257,7 @@ async function main(): Promise<void> {
   const maxArg = process.argv.find((a) => a.startsWith('--max-annotate='));
   const maxAnnotate = maxArg ? Number(maxArg.slice(15)) : Number.MAX_SAFE_INTEGER;
   const modelArg = process.argv.find((a) => a.startsWith('--annotate-model='));
-  const annotModel = modelArg ? modelArg.slice('--annotate-model='.length) : 'claude-haiku-4-5';
+  const annotModel = modelArg ? modelArg.slice('--annotate-model='.length) : MODELS.haiku;
   const db = await getDb();
   await migrate(db);
   const chunkStats = embedOnly ? { built: 0, annotated: 0 } : await buildChunks(db, docsFilter, maxAnnotate, annotModel);

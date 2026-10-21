@@ -64,7 +64,7 @@ The important ones:
 | `DATABASE_URL` | Postgres connection string (empty → embedded PGlite) |
 | `JWT_SECRET` | Token signing secret — **must** be set in production |
 | `AUTH_MODE` | `demo` (unauthenticated → demo user) or `required` |
-| `ANTHROPIC_API_KEY` | Enables real LLM analysis + chat (`claude-opus-4-8`) |
+| `ANTHROPIC_API_KEY` | Enables real LLM analysis + chat (models per plan — `src/models.ts`) |
 | `S3_BUCKET` / `S3_REGION` / `S3_ENDPOINT` | S3 uploads (empty bucket → local disk under `DATA_DIR/uploads`) |
 | `CORS_ORIGIN` | Allowed frontend origins (comma-separated) |
 | `API_PREFIX` | Route prefix, default `/api` |

@@ -1,5 +1,6 @@
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { MODELS } from './models.ts';
 
 function env(name: string, fallback = ''): string {
   const v = process.env[name];
@@ -101,7 +102,7 @@ function resolveDataEncryptionKey(): string {
    key is configured; otherwise Free stays on Haiku. */
 const deepseekApiKey = env('DEEPSEEK_API_KEY');
 const deepseekModel = env('DEEPSEEK_MODEL', 'deepseek-v4-pro');
-const freeModel = env('MODEL_FREE', deepseekApiKey ? deepseekModel : 'claude-haiku-4-5');
+const freeModel = env('MODEL_FREE', deepseekApiKey ? deepseekModel : MODELS.haiku);
 
 export const config = {
   port: Number(env('PORT', '8080')),
@@ -162,7 +163,7 @@ export const config = {
   apiMonthlyLimit: Math.max(1, Number(env('API_MONTHLY_LIMIT', '100')) || 100),
 
   anthropicApiKey: env('ANTHROPIC_API_KEY'),
-  anthropicModel: env('ANTHROPIC_MODEL', 'claude-opus-4-8'),
+  anthropicModel: env('ANTHROPIC_MODEL', MODELS.opus),
 
   deepseekApiKey,
   deepseekBaseUrl: env('DEEPSEEK_BASE_URL', 'https://api.deepseek.com'),
@@ -178,19 +179,20 @@ export const config = {
   /** Распознавание текста сканов и фото (llm.ts transcribeScan): работа
    *  «переписать со страницы», а не рассуждать, — поэтому самая дешёвая модель,
    *  читающая PDF. Один вызов на документ. */
-  ocrModel: env('OCR_MODEL', 'claude-haiku-5-5'),
+  ocrModel: env('OCR_MODEL', MODELS.haiku),
   /** Per-plan model: better plan → smarter model (see llm.ts modelForPlan).
    *  Models prefixed "deepseek" route to the DeepSeek client, everything else
    *  to Anthropic. Free defaults to DeepSeek when DEEPSEEK_API_KEY is set. */
   planModels: {
     Free: env('ANTHROPIC_MODEL_FREE', freeModel),
-    Standard: env('ANTHROPIC_MODEL_STANDARD', 'claude-sonnet-5'),
+    Standard: env('ANTHROPIC_MODEL_STANDARD', MODELS.sonnet),
     // Pro намеренно на той же модели, что Standard: решение владельца
     // 2026-08-06. Opus стоил впятеро дороже Sonnet при 500 запросах в месяц —
     // тариф $50 не окупал модель (см. расчёт экономики того же дня).
-    Pro: env('ANTHROPIC_MODEL_PRO', 'claude-sonnet-5'),
-    Business: env('ANTHROPIC_MODEL_BUSINESS', 'claude-fable-5'),
-    Enterprise: env('ANTHROPIC_MODEL_ENTERPRISE', env('ANTHROPIC_MODEL_BUSINESS', 'claude-fable-5')),
+    Pro: env('ANTHROPIC_MODEL_PRO', MODELS.sonnet),
+    // Business/Enterprise: Opus 5.5 вместо Fable 5 — решение владельца 2026-10-21.
+    Business: env('ANTHROPIC_MODEL_BUSINESS', MODELS.opus),
+    Enterprise: env('ANTHROPIC_MODEL_ENTERPRISE', env('ANTHROPIC_MODEL_BUSINESS', MODELS.opus)),
   } as Record<string, string>,
 
   /** Voyage AI — dense embeddings for the legal corpus (empty = FTS-only search). */

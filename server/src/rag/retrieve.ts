@@ -11,6 +11,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import OpenAI from 'openai';
 import { config } from '../config.ts';
 import type { Db } from '../db.ts';
+import { MODELS, noThinking } from '../models.ts';
 import { embeddingsEnabled, embedTexts, rerankTexts, toVectorLiteral } from './embeddings.ts';
 import type { RetrieveParams, RetrievedChunk } from './types.ts';
 import { normalizeUzDocNumber } from './uz-doc-number.ts';
@@ -54,10 +55,14 @@ export async function rewriteQuery(query: string, jurisdiction: string = 'UK'): 
       // Live request path (analysis/chat): a hung rewrite must degrade to the raw
       // query fast, not block the reply (the SDK default timeout is 10 minutes).
       const api = new Anthropic({ apiKey: config.anthropicApiKey, timeout: 5_000, maxRetries: 0 });
+      // Haiku 5.5: temperature можно только по умолчанию (иначе 400 — и поиск
+      // молча шёл бы без переписывания), размышления выключены — ответ из 2-3
+      // строк, а 5-секундный таймаут не ждёт раздумий. Потолок 400: тот же текст
+      // у Haiku 5.5 ≈ на 30% больше токенов.
       const msg = await api.beta.messages.create({
-        model: 'claude-haiku-4-5',
-        max_tokens: 300,
-        temperature: 0, // deterministic rewrites — retrieval quality must be reproducible for eval
+        model: MODELS.haiku,
+        max_tokens: 400,
+        ...noThinking(MODELS.haiku),
         system,
         output_config: { format: { type: 'json_schema', schema: REWRITE_SCHEMA as unknown as Record<string, unknown> } },
         messages: [{ role: 'user', content: query.slice(0, 2000) }],

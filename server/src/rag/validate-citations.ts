@@ -14,12 +14,13 @@ import OpenAI from 'openai';
 import { config } from '../config.ts';
 import { extractJsonObject, isDeepSeekModel } from '../llm.ts';
 import type { Db } from '../db.ts';
+import { MODELS, noThinking } from '../models.ts';
 import type { Finding } from '../types.ts';
 import { resolveCitationText } from './retrieve.ts';
 
 /* Judge model: RAG_VALIDATE_MODEL overrides (ids with "deepseek" route to the
-   DeepSeek client). Default stays claude-haiku-4-5 — prod behaviour unchanged. */
-const JUDGE_MODEL = process.env.RAG_VALIDATE_MODEL || 'claude-haiku-4-5';
+   DeepSeek client). Default: Haiku (models.ts). */
+const JUDGE_MODEL = process.env.RAG_VALIDATE_MODEL || MODELS.haiku;
 
 type JudgeApi =
   | { kind: 'anthropic'; api: Anthropic }
@@ -81,10 +82,14 @@ async function unitSupportsFinding(
       const parsed = extractJsonObject(res.choices[0]?.message?.content ?? '') as { supported?: boolean };
       return Boolean(parsed.supported);
     }
+    // Haiku 5.5 принимает temperature только по умолчанию: прежний
+    // temperature: 0 дал бы 400, а сбой судьи = цитата «не подтверждена» —
+    // все находки молча ушли бы в «обратите внимание». Размышления выключены:
+    // вердикт из одного поля, а 100 токенов они съели бы целиком.
     const msg = await judge.api.beta.messages.create({
       model: JUDGE_MODEL,
       max_tokens: 100,
-      temperature: 0, // deterministic verdicts — the same citation must always validate the same way
+      ...noThinking(JUDGE_MODEL),
       system,
       output_config: { format: { type: 'json_schema', schema: VERDICT_SCHEMA as unknown as Record<string, unknown> } },
       messages: [{ role: 'user', content: userContent }],

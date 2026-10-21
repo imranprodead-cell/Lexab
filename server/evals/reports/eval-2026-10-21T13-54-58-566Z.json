@@ -1,0 +1,18 @@
+{
+  "at": "2026-10-21T13:53:21.981Z",
+  "model": "claude-sonnet-5",
+  "golden": "uk-contract-law.jsonl",
+  "questions": 18,
+  "retrieval": {
+    "hit@5": 1,
+    "hit@10": 1,
+    "recall@10": 0.972
+  },
+  "corpus": {
+    "jurisdiction": "UK",
+    "documents": 8,
+    "chunks": 417,
+    "contextCoverage": 1,
+    "embeddingCoverage": 1
+  }
+}

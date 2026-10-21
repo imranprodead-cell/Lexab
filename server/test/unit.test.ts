@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { fallbackAnalysis, fallbackChatReply, fallbackCompare, fallbackTemplateDraft } from '../src/fallback.ts';
 import { extractJsonObject, isDeepSeekModel } from '../src/llm.ts';
+import { MODELS, noThinking, serverFallback } from '../src/models.ts';
 import zlib from 'node:zlib';
 import { ALLOWED_EXTENSIONS, extractText, fileExtension, usablePdfText, verifyFileSignature, zipRealDecompressedSize } from '../src/extract.ts';
 import { formatSize, relativeTimeRu } from '../src/lib/format.ts';
@@ -478,9 +479,24 @@ test('llm provider routing: models route by id, not by config', () => {
   assert.equal(isDeepSeekModel('deepseek-v4-pro'), true);
   assert.equal(isDeepSeekModel('deepseek-chat'), true);
   assert.equal(isDeepSeekModel('deepseek-ai/DeepSeek-V3.2'), true); // western-host ids
-  assert.equal(isDeepSeekModel('claude-haiku-4-5'), false);
-  assert.equal(isDeepSeekModel('claude-opus-4-8'), false);
-  assert.equal(isDeepSeekModel('claude-fable-5'), false);
+  assert.equal(isDeepSeekModel('claude-haiku-5-5'), false);
+  assert.equal(isDeepSeekModel('claude-opus-5-5'), false);
+  assert.equal(isDeepSeekModel('claude-sonnet-5-5'), false);
+});
+
+test('models: per-model "no thinking" and refusal-fallback params (2026-10-21 switch)', () => {
+  // Новое поколение: Haiku 4.5 / Sonnet 5 / Fable 5 / Opus 4.8 из кода убраны.
+  assert.deepEqual(MODELS, { opus: 'claude-opus-5-5', sonnet: 'claude-sonnet-5-5', haiku: 'claude-haiku-5-5' });
+  // Как выключить размышления, у каждой модели своё; чужой способ = 400.
+  assert.deepEqual(noThinking('claude-haiku-5-5'), { thinking: { type: 'disabled' } });
+  assert.deepEqual(noThinking('claude-sonnet-5-5'), { thinking: { type: 'between_tools' } });
+  assert.deepEqual(noThinking('claude-opus-5-5'), {}); // выключить нельзя вовсе
+  assert.deepEqual(noThinking('deepseek-v4-pro'), {});
+  // Серверная страховка от ложного отказа — у Opus/Sonnet 5.5; у Haiku 5.5 её нет (400).
+  const fb = { betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default' };
+  assert.deepEqual(serverFallback('claude-opus-5-5'), fb);
+  assert.deepEqual(serverFallback('claude-sonnet-5-5'), fb);
+  assert.deepEqual(serverFallback('claude-haiku-5-5'), {});
 });
 
 test('extractJsonObject: plain, fenced, prose-wrapped and broken JSON', () => {

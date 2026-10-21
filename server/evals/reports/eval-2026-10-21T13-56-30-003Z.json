@@ -1,0 +1,56 @@
+{
+  "at": "2026-10-21T13:55:01.132Z",
+  "model": "claude-sonnet-5",
+  "golden": "ae-contract-law.jsonl",
+  "questions": 16,
+  "retrieval": {
+    "hit@5": 0.875,
+    "hit@10": 0.875,
+    "recall@10": 0.875
+  },
+  "misses": [
+    {
+      "question": "What is a contract of sale?",
+      "expected_unit_ids": [
+        "lu_ae_civil_art-489"
+      ],
+      "top10_unit_ids": [
+        "lu_ae_civil_art-506",
+        "lu_ae_civil_art-491",
+        "lu_ae_civil_art-511",
+        "lu_ae_civil_art-606",
+        "lu_ae_civil_art-507",
+        "lu_ae_civil_art-595",
+        "lu_ae_civil_art-608",
+        "lu_ae_civil_art-513",
+        "lu_ae_civil_art-582",
+        "lu_ae_civil_art-518"
+      ]
+    },
+    {
+      "question": "What is a contract of hire or lease?",
+      "expected_unit_ids": [
+        "lu_ae_civil_art-742"
+      ],
+      "top10_unit_ids": [
+        "lu_ae_civil_art-791",
+        "lu_ae_civil_art-758",
+        "lu_ae_civil_art-781",
+        "lu_ae_civil_art-809",
+        "lu_ae_civil_art-782",
+        "lu_ae_civil_art-848",
+        "lu_ae_civil_art-773",
+        "lu_ae_civil_art-801",
+        "lu_ae_civil_art-842",
+        "lu_ae_civil_art-843"
+      ]
+    }
+  ],
+  "corpus": {
+    "jurisdiction": "AE",
+    "documents": 1,
+    "chunks": 1526,
+    "contextCoverage": 0,
+    "embeddingCoverage": 1
+  }
+}

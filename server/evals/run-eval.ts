@@ -12,7 +12,7 @@
  *
  *   npm run eval                       # everything (retrieval + both modes)
  *   npm run eval -- --retrieval-only
- *   npm run eval -- --model claude-opus-4-8
+ *   npm run eval -- --model claude-opus-5-5
  *
  * RULE (also in CLAUDE.md): run this before and after ANY change to ranking,
  * prompts or the index; reports land in evals/reports/.
@@ -25,6 +25,7 @@ import OpenAI from 'openai';
 import { config } from '../src/config.ts';
 import { getDb, migrate } from '../src/db.ts';
 import { extractJsonObject, isDeepSeekModel } from '../src/llm.ts';
+import { MODELS } from '../src/models.ts';
 import { resolveCitationText, retrieveLegalContext } from '../src/rag/retrieve.ts';
 import { validateFindings } from '../src/rag/validate-citations.ts';
 import type { Finding } from '../src/types.ts';
@@ -121,12 +122,14 @@ async function askModel(
     model,
     max_tokens: 2000,
     thinking: { type: 'adaptive' },
+    // Явно, как в продукте (llm.ts startStream): у Opus 5.5 умолчание 'medium',
+    // у прежних Fable 5 / Sonnet 5 было 'high' — без этого замеры несравнимы.
+    output_config: { effort: 'high', format: { type: 'json_schema', schema: FINDINGS_SCHEMA(Boolean(contextBlock)) } },
     system:
       (ASK_SYSTEM[jurisdiction] ?? ASK_SYSTEM.UK) +
       (contextBlock
         ? ' Use ONLY the provisions in LEGAL CONTEXT for citations and set unitId to the id in square brackets ("" if none applies). Never invent ids.'
         : ''),
-    output_config: { format: { type: 'json_schema', schema: FINDINGS_SCHEMA(Boolean(contextBlock)) } },
     messages: [{ role: 'user', content: contextBlock ? `${question}\n\nLEGAL CONTEXT:\n${contextBlock}` : question }],
   });
   const text = msg.content.find((b) => b.type === 'text');
@@ -137,7 +140,7 @@ async function askModel(
 async function main(): Promise<void> {
   const retrievalOnly = process.argv.includes('--retrieval-only');
   const modelFlag = process.argv.indexOf('--model');
-  const model = modelFlag > -1 ? process.argv[modelFlag + 1] : 'claude-sonnet-5';
+  const model = modelFlag > -1 ? process.argv[modelFlag + 1] : MODELS.sonnet;
   const goldenArg = process.argv.find((a) => a.startsWith('--golden='));
   const goldenFile = goldenArg ? goldenArg.slice(9) : 'uk-contract-law.jsonl';
   // --limit N: only the first N golden questions (cheap paid-model sampling —

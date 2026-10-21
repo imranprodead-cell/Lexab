@@ -17,6 +17,7 @@ import { config } from './config.ts';
 import { HttpError, serviceUnavailable } from './lib/errors.ts';
 import { recordLlmUsage } from './lib/aiUsage.ts';
 import { featureLocked, planHasFeature } from './lib/limits.ts';
+import { MODELS, noThinking, serverFallback } from './models.ts';
 import {
   fallbackAnalysis,
   fallbackChatReply,
@@ -175,10 +176,14 @@ export function modelForPlan(plan?: string | null): string {
   return (plan && config.planModels[plan]) || config.anthropicModel;
 }
 
-/** Haiku 4.5 (and other pre-4.6 models) reject `thinking: adaptive` — omit it there. */
-function supportsAdaptiveThinking(model: string): boolean {
-  return !/haiku|-4-5/.test(model);
-}
+/**
+ * Потолок ответа для длинных документов (анализ, сравнение, шаблон, черновик).
+ * 32 000, а не прежние 16 000: размышления считаются в этот же потолок —
+ * живой прогон шаблона NDA на Opus 5.5 (effort 'high') упёрся в 16 000, договор
+ * обрезался и ушёл на повтор (2026-10-21; Sonnet 5.5 написал его в ~12 400).
+ * Это аварийный потолок, а не квота: платим только за реально выданные токены.
+ */
+const LONG_DOC_MAX_TOKENS = 32_000;
 
 interface LlmCall {
   op: string;
@@ -194,26 +199,32 @@ interface LlmCall {
 }
 
 /**
- * Start a streamed request with per-model parameters. On Fable 5 a server-side
- * fallback re-runs a safety-refused request on Opus 4.8 within the same call —
- * contract texts occasionally trip its classifiers on benign legal work.
+ * Start a streamed request with per-model parameters.
+ *
+ * Opus/Sonnet: adaptive thinking with an EXPLICIT effort — Opus 5.5 defaults to
+ * 'medium' (Fable 5 and Sonnet 5 defaulted to 'high'), so without it the
+ * analysis would quietly think less than before the model switch. Plus the
+ * server-side refusal fallback (see serverFallback): contract texts
+ * occasionally trip safety classifiers on benign legal work.
+ *
+ * Haiku (only a backup model here — Free when DeepSeek fails): no thinking,
+ * exactly as Haiku 4.5 ran; Haiku 5.5 would otherwise think by default and
+ * spend the token budget on it.
  */
 function startStream(api: Anthropic, call: LlmCall) {
-  const fable = call.model.includes('fable') || call.model.includes('mythos');
-  const adaptive = supportsAdaptiveThinking(call.model);
+  const haiku = /haiku/.test(call.model);
   const outputConfig = {
     ...(call.schema ? { format: { type: 'json_schema' as const, schema: call.schema } } : {}),
-    // effort is a thinking control — only valid on adaptive-thinking models.
-    ...(call.effort && adaptive ? { effort: call.effort } : {}),
+    ...(haiku ? {} : { effort: call.effort ?? ('high' as const) }),
   };
   return api.beta.messages.stream({
     model: call.model,
     max_tokens: call.maxTokens,
     system: call.system,
     messages: call.messages,
-    ...(adaptive ? { thinking: { type: 'adaptive' as const } } : {}),
+    ...(haiku ? noThinking(call.model) : { thinking: { type: 'adaptive' as const } }),
     ...(Object.keys(outputConfig).length ? { output_config: outputConfig } : {}),
-    ...(fable ? { betas: ['server-side-fallback-2026-06-01'], fallbacks: [{ model: 'claude-opus-4-8' }] } : {}),
+    ...serverFallback(call.model),
   });
 }
 
@@ -231,14 +242,14 @@ function textOf(message: Anthropic.Beta.BetaMessage): string {
  * Раньше ретрай ВСЕГДА уходил на config.anthropicModel — самую дорогую модель
  * в конфиге. Сбой DeepSeek переводил ВЕСЬ бесплатный тариф на Opus, и для
  * оператора это выглядело обычной работой (аудит 2026-08-03). Теперь запасная
- * модель сопоставима по цене с основной: Free/Standard уходят на Haiku,
- * платные — на Sonnet. Дороже основной ретрай не бывает.
+ * модель сопоставима по цене с основной: Free (DeepSeek) уходит на Haiku,
+ * платные — на ступень ниже, на Sonnet (как раньше Fable 5 уходил на Opus 4.8).
+ * Дороже основной ретрай не бывает.
  */
 function fallbackModelFor(model: string): string {
-  if (isDeepSeekModel(model)) return 'claude-haiku-4-5';
-  if (/haiku/.test(model)) return 'claude-sonnet-5';
-  if (/sonnet/.test(model)) return 'claude-sonnet-5';
-  return config.anthropicModel;
+  if (isDeepSeekModel(model)) return MODELS.haiku;
+  if (/fable|mythos/.test(model)) return MODELS.opus;
+  return MODELS.sonnet;
 }
 
 /**
@@ -562,7 +573,7 @@ export async function generateAnalysis(input: AnalysisInput): Promise<GeneratedA
       const stream = startStream(api, {
         op: 'analysis',
         model,
-        maxTokens: 16000,
+        maxTokens: LONG_DOC_MAX_TOKENS,
         system: ANALYSIS_SYSTEM,
         schema: ANALYSIS_SCHEMA as unknown as Record<string, unknown>,
         messages: [{ role: 'user', content }],
@@ -642,8 +653,8 @@ async function transcribeChunk(api: Anthropic, pdf: Buffer): Promise<string> {
     max_tokens: 16000,
     system: OCR_SYSTEM,
     // Переписывание со страницы не требует рассуждений: без них весь бюджет
-    // уходит в сам текст. Haiku принимает disabled; другим моделям не шлём.
-    ...(/haiku/.test(model) ? { thinking: { type: 'disabled' as const } } : {}),
+    // уходит в сам текст. Как выключить — зависит от модели (models.ts).
+    ...noThinking(model),
     messages: [
       {
         role: 'user',
@@ -976,7 +987,7 @@ export async function generateHistorySummary(
   plan?: string | null,
 ): Promise<string | null> {
   if (!hasAnyLlm() || dropped.length === 0) return prevSummary;
-  const model = plan === 'Free' ? (config.planModels.Free ?? 'claude-haiku-4-5') : 'claude-haiku-4-5';
+  const model = plan === 'Free' ? (config.planModels.Free ?? MODELS.haiku) : MODELS.haiku;
   try {
     const convo = dropped
       .map((t) => `${t.role === 'user' ? 'User' : 'Lexab'}: ${t.text}`)
@@ -1003,9 +1014,13 @@ export async function generateHistorySummary(
       if (!api) return prevSummary; // summary model unavailable — non-fatal
       const stream = api.beta.messages.stream({
         model,
-        max_tokens: 500,
+        // 120 слов сводки. Запас 800: у Haiku 5.5 тот же текст ≈ на 30% больше
+        // токенов, чем у Haiku 4.5, — обрезанная сводка теряет контекст навсегда.
+        max_tokens: 800,
         system: SUMMARY_SYSTEM,
         messages: [{ role: 'user', content: userContent }],
+        // Микрозапрос: размышления Haiku 5.5 (включены по умолчанию) съели бы бюджет.
+        ...noThinking(model),
       });
       const message = await stream.finalMessage();
       logUsage('history-summary', model, message);
@@ -1062,13 +1077,16 @@ export async function improvePrompt(draft: string): Promise<string> {
     const api = getClient();
     if (!api) throw serviceUnavailable(LLM_UNAVAILABLE);
     const stream = api.beta.messages.stream({
-      model: 'claude-haiku-4-5',
-      max_tokens: 2000,
+      model: MODELS.haiku,
+      // 2600, а не 2000: у Haiku 5.5 тот же текст ≈ на 30% больше токенов, а
+      // длинный черновик, упёршийся в потолок, ниже честно падает ошибкой.
+      max_tokens: 2600,
       system: IMPROVE_PROMPT_SYSTEM,
       messages: [{ role: 'user', content: draft }],
+      ...noThinking(MODELS.haiku),
     });
     const message = await stream.finalMessage();
-    logUsage('improve-prompt', 'claude-haiku-4-5', message);
+    logUsage('improve-prompt', MODELS.haiku, message);
     if (message.stop_reason === 'max_tokens') {
       // Тот же принцип, что failOnLength: не подменяем текст пользователя обрубком.
       throw new Error('improve-prompt output truncated at max_tokens');
@@ -1175,7 +1193,7 @@ export async function generateCompare(
       const stream = startStream(api, {
         op: 'compare',
         model,
-        maxTokens: 16000,
+        maxTokens: LONG_DOC_MAX_TOKENS,
         system: COMPARE_SYSTEM,
         schema: COMPARE_SCHEMA as unknown as Record<string, unknown>,
         messages: [{ role: 'user', content: userContent }],
@@ -1253,7 +1271,7 @@ Contract brief from the user (what the deal is about + key terms — reflect ALL
       const stream = startStream(api, {
         op: 'template',
         model,
-        maxTokens: 16000,
+        maxTokens: LONG_DOC_MAX_TOKENS,
         system: TEMPLATE_SYSTEM,
         messages: [{ role: 'user', content: userContent }],
       });
@@ -1374,7 +1392,7 @@ export async function generateContractDraft(
       const stream = startStream(api, {
         op: 'draft',
         model,
-        maxTokens: 16000,
+        maxTokens: LONG_DOC_MAX_TOKENS,
         system: DRAFT_SYSTEM,
         schema: DRAFT_SCHEMA as unknown as Record<string, unknown>,
         messages: [{ role: 'user', content: userContent }],

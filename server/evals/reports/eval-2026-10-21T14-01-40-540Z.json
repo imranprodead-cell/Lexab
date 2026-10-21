@@ -1,0 +1,18 @@
+{
+  "at": "2026-10-21T14:00:30.279Z",
+  "model": "claude-sonnet-5",
+  "golden": "us-contract-law.jsonl",
+  "questions": 14,
+  "retrieval": {
+    "hit@5": 1,
+    "hit@10": 1,
+    "recall@10": 1
+  },
+  "corpus": {
+    "jurisdiction": "US",
+    "documents": 2,
+    "chunks": 41,
+    "contextCoverage": 0,
+    "embeddingCoverage": 1
+  }
+}
