@@ -1,0 +1,38 @@
+{
+  "at": "2026-10-21T15:19:56.011Z",
+  "model": "claude-sonnet-5-5",
+  "golden": "uz-contract-law.jsonl",
+  "questions": 120,
+  "retrieval": {
+    "hit@5": 0.967,
+    "hit@10": 0.992,
+    "recall@10": 0.985
+  },
+  "misses": [
+    {
+      "question": "Какими вообще способами государственный заказчик вправе выбирать поставщика — какие форматы проведения закупок для госзаказа допускает закон?",
+      "expected_unit_ids": [
+        "lu_uz_5382983_st-30"
+      ],
+      "top10_unit_ids": [
+        "lu_uz_5382983_st-71",
+        "lu_uz_5382983_st-51",
+        "lu_uz_5382983_st-56",
+        "lu_uz_5382983_st-511",
+        "lu_uz_5382983_st-64",
+        "lu_uz_5382983_st-58",
+        "lu_uz_5382983_st-19",
+        "lu_uz_5382983_st-72",
+        "lu_uz_5382983_st-20",
+        "lu_uz_180550_st-459"
+      ]
+    }
+  ],
+  "corpus": {
+    "jurisdiction": "UZ",
+    "documents": 83,
+    "chunks": 7343,
+    "contextCoverage": 1,
+    "embeddingCoverage": 1
+  }
+}
