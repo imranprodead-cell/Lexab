@@ -8,9 +8,17 @@ import { useI18n } from '@/i18n/I18nProvider';
 import { Flag } from './Flag';
 import styles from './layout.module.css';
 
+interface CountrySelectorProps {
+  /** «composer» — нижний ряд поля ввода чата: флаг + название страны,
+   *  меню открывается вверх и только по клику (наведение при движении мыши
+   *  вдоль кнопок открывало бы его случайно). Логика выбора та же. */
+  variant?: 'topbar' | 'composer';
+}
+
 /** Searchable jurisdiction picker shown in the top bar. Opens on hover.
  *  The chosen country becomes the default law context for AI analyses & chat. */
-export function CountrySelector() {
+export function CountrySelector({ variant = 'topbar' }: CountrySelectorProps) {
+  const inComposer = variant === 'composer';
   const { t, lang } = useI18n();
   const country = useUIStore((s) => s.country);
   const setCountry = useUIStore((s) => s.setCountry);
@@ -60,9 +68,14 @@ export function CountrySelector() {
   };
 
   return (
-    <div className={styles.country} ref={ref} onMouseEnter={hoverOpen} onMouseLeave={hoverClose}>
+    <div
+      className={styles.country}
+      ref={ref}
+      onMouseEnter={inComposer ? undefined : hoverOpen}
+      onMouseLeave={inComposer ? undefined : hoverClose}
+    >
       <div
-        className={styles.countryTrigger}
+        className={inComposer ? styles.countryTriggerComposer : styles.countryTrigger}
         role="button"
         tabIndex={0}
         aria-haspopup="listbox"
@@ -79,14 +92,23 @@ export function CountrySelector() {
           }
         }}
       >
-        <Flag code={current.code} size={28} />
-        <span className={`${styles.countryChevron} ${open ? styles.countryChevronOpen : ''}`}>
-          <Icon name="chevron" size={15} strokeWidth={2} />
-        </span>
+        {inComposer ? (
+          <>
+            <Flag code={current.code} size={18} />
+            <span className={styles.countryComposerName}>{countryName(current, lang)}</span>
+          </>
+        ) : (
+          <>
+            <Flag code={current.code} size={28} />
+            <span className={`${styles.countryChevron} ${open ? styles.countryChevronOpen : ''}`}>
+              <Icon name="chevron" size={15} strokeWidth={2} />
+            </span>
+          </>
+        )}
       </div>
 
       {open ? (
-        <GlassCard className={styles.countryMenu}>
+        <GlassCard className={`${styles.countryMenu} ${inComposer ? styles.countryMenuUp : ''}`}>
           <div className={styles.countrySearch}>
             <span className={styles.countrySearchIcon}>
               <Icon name="search" size={15} />

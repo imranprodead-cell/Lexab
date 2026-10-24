@@ -1095,6 +1095,9 @@ export const MESSAGES: Dict = {
   'chat.micStop': { ru: 'Остановить запись', en: 'Stop recording' },
   'chat.attach': { ru: 'Прикрепить договор', en: 'Attach contract' },
   'chat.sendLabel': { ru: 'Отправить сообщение', en: 'Send message' },
+  'chat.scrollDown': { ru: 'Прокрутить вниз', en: 'Scroll to bottom' },
+  'chat.filesLabel': { ru: 'Файлы', en: 'Files' },
+  'chat.improveLabel': { ru: 'Улучшить', en: 'Improve' },
   'chat.improve': { ru: 'Улучшить промпт', en: 'Improve prompt' },
   'chat.improveShort': {
     ru: 'Опишите запрос подробнее — минимум 5 слов',

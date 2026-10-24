@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { Icon } from '@/components/icons/Icon';
+import { Icon, type IconName } from '@/components/icons/Icon';
 import { Spinner } from '@/components/ui/Spinner';
 import { promptsApi } from '@/api/prompts.api';
 import { useVoiceInput } from '@/hooks/useVoiceInput';
@@ -70,13 +70,15 @@ interface ChatInputProps {
   /** Спрятать подпись «может ошибаться»: на welcome-экране она стоит ниже
    *  карточек (эталон), а не под плашкой. */
   hideDisclaimer?: boolean;
+  /** Выбор юрисдикции в нижнем ряду рядом с «Файлы» (чат передаёт CountrySelector). */
+  jurisdiction?: ReactNode;
 }
 
 /**
  * The chat composer: auto-growing textarea, attach button, and slash-command
  * autocomplete with full keyboard control (↑/↓ to move, ↵ to pick, Esc to close).
  */
-export function ChatInput({ compact = false, onAnalyze, onSend, onFiles, onCloudImport, draftKey = 'chat', hideAttach = false, ephemeral = false, banner, bare = false, hideDisclaimer = false }: ChatInputProps) {
+export function ChatInput({ compact = false, onAnalyze, onSend, onFiles, onCloudImport, draftKey = 'chat', hideAttach = false, ephemeral = false, banner, bare = false, hideDisclaimer = false, jurisdiction }: ChatInputProps) {
   const { t } = useI18n();
   const [value, setValue] = useState(() => (ephemeral ? '' : loadDraft(draftKey)));
   const [slashOpen, setSlashOpen] = useState(false);
@@ -185,6 +187,12 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFiles, onCloud
     return COMMANDS.filter((c) => c.cmd.startsWith(q));
   }, [value]);
 
+  // Выбранная команда видна плашкой, а не текстом «/draft »: в value она
+  // остаётся префиксом, поэтому отправка, черновик, ✦ и диктовка не меняются.
+  const chip = useMemo(() => COMMANDS.find((c) => value.startsWith(`${c.cmd} `)) ?? null, [value]);
+  const chipPrefix = chip ? `${chip.cmd} ` : '';
+  const shownValue = value.slice(chipPrefix.length);
+
   const updateValue = (next: string) => {
     applyValue(next);
   };
@@ -230,6 +238,15 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFiles, onCloud
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // Backspace в самом начале строки снимает плашку команды, текст остаётся.
+    if (chip && !improving && e.key === 'Backspace') {
+      const ta = e.currentTarget;
+      if (ta.selectionStart === 0 && ta.selectionEnd === 0) {
+        e.preventDefault();
+        updateValue(shownValue);
+        return;
+      }
+    }
     if (slashOpen && filtered.length > 0) {
       if (e.key === 'ArrowDown') {
         e.preventDefault();
@@ -295,30 +312,44 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFiles, onCloud
             }}
           />
 
-          <textarea
-            ref={textareaRef}
-            className={styles.textarea}
-            rows={1}
-            value={value}
-            placeholder={t('chat.input.placeholder')}
-            onChange={(e) => updateValue(e.target.value)}
-            onKeyDown={onKeyDown}
-            aria-label={t('a11y.messageInput')}
-            data-chat-input
-            readOnly={improving}
-          />
+          {/* Обёртка есть всегда: если бы она появлялась только с плашкой,
+              React пересоздал бы textarea и курсор терял бы фокус. */}
+          <div className={styles.inputTextRow}>
+            {chip ? (
+              <span className={styles.cmdChip}>
+                <Icon name={chip.icon as IconName} size={15} strokeWidth={1.8} />
+                <span className={styles.cmdChipLabel}>{chip.cmd.slice(1)}</span>
+              </span>
+            ) : null}
+            <textarea
+              ref={textareaRef}
+              className={styles.textarea}
+              rows={1}
+              value={shownValue}
+              placeholder={chip ? '' : t('chat.input.placeholder')}
+              onChange={(e) => updateValue(chipPrefix + e.target.value)}
+              onKeyDown={onKeyDown}
+              aria-label={t('a11y.messageInput')}
+              data-chat-input
+              readOnly={improving}
+            />
+          </div>
 
+          {/* Нижний ряд: слева «Файлы · облако · страна · Улучшить» (кнопки с
+              подписями), справа микрофон и отправка. На узком поле подписи
+              прячутся, остаются иконки (container query в chat.module.css). */}
           <div className={styles.inputControlsRow}>
-            <div className={styles.inputControlsGroup}>
+            <div className={`${styles.inputControlsGroup} ${styles.toolGroup}`}>
               {hideAttach ? null : (
                 <button
                   type="button"
                   title={t('chat.attach')}
                   aria-label={t('chat.attach')}
                   onClick={onAttach}
-                  className={styles.attachBtn}
+                  className={styles.toolBtn}
                 >
-                  <Icon name="plus" size={20} />
+                  <Icon name="attach" size={16} />
+                  <span className={styles.toolLabel}>{t('chat.filesLabel')}</span>
                 </button>
               )}
 
@@ -328,26 +359,29 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFiles, onCloud
                   title={t('cloud.title')}
                   aria-label={t('cloud.title')}
                   onClick={onCloudImport}
-                  className={styles.attachBtn}
+                  className={`${styles.toolBtn} ${styles.toolBtnIcon}`}
                 >
-                  <Icon name="cloud" size={18} />
+                  <Icon name="cloud" size={17} />
                 </button>
               ) : null}
+
+              {jurisdiction}
+
+              <button
+                type="button"
+                className={styles.toolBtn}
+                aria-label={t('chat.improve')}
+                title={improveHint}
+                onClick={onImprove}
+                disabled={!improveReady || improving}
+                style={{ color: improving ? 'var(--accent)' : undefined, opacity: improveReady || improving ? 1 : 0.45 }}
+              >
+                {improving ? <Spinner size={15} /> : <Icon name="wand" size={16} />}
+                <span className={styles.toolLabel}>{t('chat.improveLabel')}</span>
+              </button>
             </div>
 
             <div className={styles.inputControlsGroup}>
-            <button
-              type="button"
-              className={styles.micBtn}
-              aria-label={t('chat.improve')}
-              title={improveHint}
-              onClick={onImprove}
-              disabled={!improveReady || improving}
-              style={{ color: improving ? 'var(--accent)' : 'var(--dim)', opacity: improveReady || improving ? 1 : 0.45 }}
-            >
-              {improving ? <Spinner size={16} /> : <Icon name="sparkle" size={18} />}
-            </button>
-
             {voice.supported ? (
               <button
                 type="button"

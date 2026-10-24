@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, type DragEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { EASE } from '@/lib/motion';
 import { TopBar } from '@/components/layout/TopBar';
 import { TopBarActions } from '@/components/layout/TopBarActions';
+import { CountrySelector } from '@/components/layout/CountrySelector';
 import { BrandMenu } from '@/components/layout/BrandMenu';
 import { Icon } from '@/components/icons/Icon';
 import { WelcomeScreen } from '@/components/chat/WelcomeScreen';
@@ -89,6 +90,13 @@ function ContractBackdrop() {
 // Сигнатура ids инвалидирует запись, как только переписка изменилась.
 const savedScroll = new Map<string, { top: number; ids: string }>();
 
+/** Кнопка «вниз»: показ, когда ниже экрана спрятано больше JUMP_SHOW_PX текста
+ *  (заметно ушли вверх), скрытие — ближе JUMP_HIDE_PX к концу. Разрыв между
+ *  порогами не даёт ей мигать на границе. */
+const JUMP_SHOW_PX = 360;
+const JUMP_HIDE_PX = 80;
+const JUMP_DELAY_MS = 180;
+
 /** User message bubble; long texts collapse with an inline "Expand ⌄" link. */
 function UserBubble({ text }: { text: string }) {
   const { t } = useI18n();
@@ -139,7 +147,14 @@ export function ChatPage() {
 
   const pushToast = useUIStore((s) => s.pushToast);
   const country = useUIStore((s) => s.country);
-  const threadRef = useRef<HTMLDivElement>(null);
+  const threadRef = useRef<HTMLDivElement | null>(null);
+  // Тот же узел ленты в state: за ним следит ResizeObserver кнопки «вниз»
+  // (лента монтируется и пропадает при смене экранов чата).
+  const [threadEl, setThreadEl] = useState<HTMLDivElement | null>(null);
+  const attachThread = useCallback((node: HTMLDivElement | null) => {
+    threadRef.current = node;
+    setThreadEl(node);
+  }, []);
   const [dragging, setDragging] = useState(false);
   const [cloudOpen, setCloudOpen] = useState(false);
   const [ghostConfirm, setGhostConfirm] = useState(false);
@@ -177,13 +192,101 @@ export function ChatPage() {
   const scrollKeyRef = useRef(scrollKey);
   scrollKeyRef.current = scrollKey;
 
+  // ── Кнопка «вниз» ─────────────────────────────────────────────────────────
+  // Появляется, только когда пользователь заметно ушёл вверх от конца
+  // переписки. Защита от ложных появлений, пока ИИ пишет ответ:
+  //  • «сколько спрятано ниже» меряется по низу последнего сообщения, а не по
+  //    scrollHeight: под свежим вопросом лежит пустой запас tailPad под ответ;
+  //  • пока лента сама следует за ответом (stickRef), кнопки нет;
+  //  • показ — с задержкой и перепроверкой, поэтому кадр «текст уже вырос,
+  //    а лента ещё не догнала» её не зажигает. Прячется сразу.
+  const [showJump, setShowJump] = useState(false);
+  const showJumpRef = useRef(false);
+  const jumpTimerRef = useRef<number | undefined>(undefined);
+  /** Идёт плавный спуск по кнопке — промежуточные позиции не сбрасывают следование. */
+  const jumpingRef = useRef(false);
+  const lastTopRef = useRef(0);
+
+  const updateJump = useCallback(() => {
+    const hiddenBelow = () => {
+      const el = threadRef.current;
+      const last = el?.firstElementChild?.lastElementChild;
+      if (!el || !last) return 0;
+      return last.getBoundingClientRect().bottom - el.getBoundingClientRect().bottom;
+    };
+    const following = () => stickRef.current || jumpingRef.current;
+    if (showJumpRef.current) {
+      if (following() || hiddenBelow() < JUMP_HIDE_PX) {
+        showJumpRef.current = false;
+        setShowJump(false);
+      }
+      return;
+    }
+    if (jumpTimerRef.current !== undefined || following() || hiddenBelow() < JUMP_SHOW_PX) return;
+    jumpTimerRef.current = window.setTimeout(() => {
+      jumpTimerRef.current = undefined;
+      if (!following() && hiddenBelow() >= JUMP_SHOW_PX) {
+        showJumpRef.current = true;
+        setShowJump(true);
+      }
+    }, JUMP_DELAY_MS);
+  }, []);
+
   const onThreadScroll = () => {
     const el = threadRef.current;
     if (!el) return;
-    stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    if (jumpingRef.current) {
+      // Плавный спуск по кнопке: дошли до низа — готово; поехали вверх —
+      // пользователь перехватил прокрутку, следование снимаем.
+      if (atBottom || el.scrollTop < lastTopRef.current - 2) jumpingRef.current = false;
+      stickRef.current = atBottom || jumpingRef.current;
+    } else {
+      stickRef.current = atBottom;
+    }
+    lastTopRef.current = el.scrollTop;
     // Сохраняем в слушателе, не в cleanup: при размонтировании threadRef уже null.
     savedScroll.set(scrollKeyRef.current, { top: el.scrollTop, ids: prevIdsRef.current });
+    updateJump();
   };
+
+  const jumpToBottom = () => {
+    const el = threadRef.current;
+    if (!el) return;
+    window.clearTimeout(jumpTimerRef.current);
+    jumpTimerRef.current = undefined;
+    showJumpRef.current = false;
+    setShowJump(false);
+    // Пустой запас под ответ больше не нужен: текста ниже и так больше экрана,
+    // а с ним «самый низ» оказался бы пустым полем.
+    setTailPad(0);
+    jumpingRef.current = true;
+    stickRef.current = true; // догоняем ответ и дальше, если он ещё пишется
+    lastTopRef.current = el.scrollTop;
+    const smooth =
+      !useUIStore.getState().reduceMotion && !window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    requestAnimationFrame(() => el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' }));
+    // Страховка: спуск, который ничем не завершился, не держит следование вечно.
+    window.setTimeout(() => {
+      if (!jumpingRef.current) return;
+      jumpingRef.current = false;
+      stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    }, 1500);
+  };
+
+  // Рост текста (ответ пишется, карточка раскрылась) и смена размера окна
+  // прокрутку не вызывают — за ними следит ResizeObserver.
+  useEffect(() => {
+    showJumpRef.current = false;
+    setShowJump(false);
+    if (!threadEl || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => updateJump());
+    ro.observe(threadEl);
+    if (threadEl.firstElementChild) ro.observe(threadEl.firstElementChild);
+    return () => ro.disconnect();
+  }, [threadEl, updateJump]);
+
+  useEffect(() => () => window.clearTimeout(jumpTimerRef.current), []);
 
   useEffect(() => {
     const el = threadRef.current;
@@ -199,6 +302,7 @@ export function ChatPage() {
         anchorRef.current = [...messages].reverse().find((m) => m.role === 'user')?.id ?? null;
         el.scrollTop = saved.top;
         stickRef.current = el.scrollHeight - saved.top - el.clientHeight < 80;
+        jumpingRef.current = false;
         return;
       }
     }
@@ -212,6 +316,7 @@ export function ChatPage() {
         // Just sent: reserve room below, then pin the message to the top.
         setTailPad(Math.max(0, el.clientHeight - 150));
         stickRef.current = false;
+        jumpingRef.current = false;
         requestAnimationFrame(() => {
           const node = el.querySelector<HTMLElement>(`[data-mid="${lastUser.id}"]`);
           if (node) {
@@ -223,6 +328,7 @@ export function ChatPage() {
       }
       // Whole conversation replaced (opened a saved session): classic bottom.
       setTailPad(0);
+      jumpingRef.current = false;
       el.scrollTop = el.scrollHeight;
       return;
     }
@@ -383,6 +489,7 @@ export function ChatPage() {
       onAnalyze={() => pushToast(ghost ? t('ghost.noFiles') : t('chat.attachFirst'), 'default')}
       onFiles={ghost ? undefined : (files) => handleFiles(files)}
       onCloudImport={ghost ? undefined : () => setCloudOpen(true)}
+      jurisdiction={<CountrySelector variant="composer" />}
       onSend={(text) => {
         const lower = text.trim().toLowerCase();
         if (lower.startsWith('/compare')) return navigate('/compare');
@@ -470,7 +577,7 @@ export function ChatPage() {
             >
               <Icon name="ghost" size={18} />
             </button>
-            <TopBarActions />
+            <TopBarActions hideCountry />
           </div>
         }
       />
@@ -535,7 +642,7 @@ export function ChatPage() {
           />
         )
       ) : (
-        <div className={`${chat.thread} scroll`} ref={threadRef} onScroll={onThreadScroll}>
+        <div className={`${chat.thread} scroll`} ref={attachThread} onScroll={onThreadScroll}>
           <div className={chat.threadInner} style={{ paddingBottom: tailPad }}>
             {fileMessage?.file ? (
               <div data-mid={fileMessage.id}>
@@ -592,6 +699,17 @@ export function ChatPage() {
         // welcome → диалог motion сам ведёт FLIP из середины экрана вниз
         // (эталон: transition 0.5s EASE на layoutId="composer").
         <div className={chat.composer}>
+          {/* Скрытая кнопка остаётся в DOM (visibility: hidden — вне фокуса и
+              диктора), чтобы появление и исчезновение шли плавно. */}
+          <button
+            type="button"
+            className={`${chat.jumpBtn} ${showJump ? chat.jumpBtnOn : ''}`}
+            onClick={jumpToBottom}
+            aria-label={t('chat.scrollDown')}
+            title={t('chat.scrollDown')}
+          >
+            <Icon name="arrowDown" size={18} strokeWidth={2} />
+          </button>
           <motion.div layoutId="composer" transition={{ duration: 0.5, ease: EASE }} className={chat.dockSlide}>
             {composerEl}
           </motion.div>

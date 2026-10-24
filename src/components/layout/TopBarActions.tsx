@@ -8,14 +8,15 @@ import styles from './layout.module.css';
  * feedback / plans), jurisdiction. Used as the default `right` slot of every
  * TopBar. The plans CTA lives inside the settings menu.
  */
-export function TopBarActions() {
+export function TopBarActions({ hideCountry = false }: { hideCountry?: boolean }) {
   return (
     <div className={styles.topActions}>
       <NotificationBell />
 
       <SettingsMenu />
 
-      <CountrySelector />
+      {/* В чате страна выбирается в нижнем ряду поля ввода — тут не дублируем. */}
+      {hideCountry ? null : <CountrySelector />}
     </div>
   );
 }
