@@ -321,13 +321,6 @@ curl ${apiBase}/drafts/apireq_XXXXXXXX -H "Authorization: Bearer YOUR_API_KEY"
 curl ${apiBase}/compares/apireq_XXXXXXXX -H "Authorization: Bearer YOUR_API_KEY"
 # → { "status": "done", "summary": "…", "changes": [{ "heading": "…",
 #     "kind": "modified", "severity": "High", "before": "…", "after": "…" }] }`;
-  const curlTemplate = `curl ${apiBase}/templates -H "Authorization: Bearer YOUR_API_KEY"
-# → { "items": [{ "id": "t1", "name": "Mutual NDA", "category": "…" }, … ] }
-curl -X POST ${apiBase}/templates/t1/generate \\
-  -H "Authorization: Bearer YOUR_API_KEY" -H "Content-Type: application/json" \\
-  -d '{"partyA": "Acme Ltd", "partyB": "Globex Inc", "details": "Pilot NDA"}'
-# → 202 { "id": "apireq_…" }  →  GET ${apiBase}/templates/requests/apireq_…
-#    → { "status": "done", "title": "…", "content": "…full contract…" }`;
   const curlWebhook = `# Регистрируем вебхук — секрет подписи вернётся ОДИН раз:
 curl -X POST ${apiBase}/webhooks \\
   -H "Authorization: Bearer YOUR_API_KEY" -H "Content-Type: application/json" \\
@@ -581,10 +574,6 @@ curl "${apiBase}/analyses/apireq_XXXXXXXX?report=1" -H "Authorization: Bearer YO
                   <strong>{t('api.docsCompare')}</strong>
                 </p>
                 <CodeBlock code={curlCompare} onCopied={() => pushToast(t('api.copiedCmd'), 'success')} onFailed={() => pushToast(t('api.copyFail'), 'error')} />
-                <p className={styles.apiDocText}>
-                  <strong>{t('api.docsTemplate')}</strong>
-                </p>
-                <CodeBlock code={curlTemplate} onCopied={() => pushToast(t('api.copiedCmd'), 'success')} onFailed={() => pushToast(t('api.copyFail'), 'error')} />
 
                 <h3 className={styles.apiSubTitle}>{t('api.docsWebhooks')}</h3>
                 <p className={styles.apiDocText}>{t('api.docsWebhooksBody')}</p>

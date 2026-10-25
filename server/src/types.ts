@@ -81,6 +81,35 @@ export interface ChatMessage {
   analysisId?: string;
   /** User's thumbs rating of an assistant reply. */
   feedback?: 'up' | 'down' | null;
+  /** Файлы, прикреплённые к вопросу (имя и размер). */
+  attachments?: { name: string; size: string }[];
+  /** Статьи законов, найденные в базе для этого ответа ИИ; url — статья на
+   *  официальном сайте (lex.uz, legislation.gov.uk, …). */
+  refs?: { label: string; doc: string; url?: string }[];
+}
+
+/**
+ * Шаг работы над ответом чата (SSE-событие `step`): клиент показывает их
+ * списком «Работаю…», как процесс у Claude. Только то, что сервер реально
+ * делает, — подписи шагов клиент берёт из своих переводов по id.
+ */
+export interface ChatStep {
+  id: 'prompt' | 'contract' | 'files' | 'memory' | 'search' | 'mode' | 'answer';
+  status: 'active' | 'done';
+  data?: {
+    /** contract: имя договора или черновика. */
+    name?: string;
+    /** files: имена файлов чата, которые читает модель. */
+    files?: string[];
+    /** search: код базы законов (UZ, KZ, …) и поисковые запросы. */
+    jurisdiction?: string;
+    queries?: string[];
+    found?: number;
+    refs?: { label: string; doc: string; url?: string }[];
+    failed?: boolean;
+    /** mode: plan | slides | approve. */
+    mode?: string;
+  };
 }
 
 export interface ChatSession {
@@ -113,20 +142,8 @@ export interface ContractDocument {
   projectId?: string | null;
 }
 
-export interface Template {
-  id: string;
-  name: string;
-  /** Russian display name (shown to ru/kk/uz users; English `name` drives the LLM). */
-  nameRu?: string | null;
-  category: string;
-  description: string;
-  descriptionRu?: string | null;
-  jurisdiction: string;
-  clauses: number;
-}
-
-/** A generated contract the user chose to keep in their personal library. */
-export interface SavedTemplate {
+/** Документ из чата, который человек сохранил (Vault → Documents). */
+export interface SavedDoc {
   id: string;
   title: string;
   content: string;

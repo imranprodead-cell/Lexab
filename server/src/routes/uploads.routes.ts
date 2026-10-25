@@ -9,7 +9,7 @@
 import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../db.ts';
-import { ALLOWED_EXTENSIONS, assertValidFileContent, extractText, fileExtension, MAX_UPLOAD_BYTES } from '../extract.ts';
+import { ATTACHMENT_EXTENSIONS, assertValidFileContent, extractText, fileExtension, MAX_UPLOAD_BYTES } from '../extract.ts';
 import { badRequest, HttpError, notFound } from '../lib/errors.ts';
 import { audit } from '../lib/audit.ts';
 import { scanUpload } from '../lib/scan.ts';
@@ -26,6 +26,9 @@ const MIME_BY_EXT: Record<string, string> = {
   '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   '.txt': 'text/plain; charset=utf-8',
   '.md': 'text/markdown; charset=utf-8',
+  '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  '.pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  '.csv': 'text/csv; charset=utf-8',
 };
 
 /** Все снимки одной загрузки вместе: 20 фото по 15 МБ держать в памяти нельзя,
@@ -83,8 +86,8 @@ export function uploadRoutes(app: FastifyInstance, db: Db): void {
 
       const fileName = part.filename || 'document';
       const ext = fileExtension(fileName);
-      if (!ALLOWED_EXTENSIONS.includes(ext)) {
-        throw badRequest(`Unsupported file type. Allowed: ${ALLOWED_EXTENSIONS.join(', ')}`);
+      if (!ATTACHMENT_EXTENSIONS.includes(ext)) {
+        throw badRequest(`Unsupported file type. Allowed: ${ATTACHMENT_EXTENSIONS.join(', ')}`);
       }
       let buffer: Buffer;
       try {

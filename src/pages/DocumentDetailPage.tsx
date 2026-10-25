@@ -25,15 +25,8 @@ import { useChatStore } from '@/store/useChatStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useI18n } from '@/i18n/I18nProvider';
 import { localeFor } from '@/i18n/dates';
-import type { ContractRow, ContractStatus, Severity, WorkflowRun, WorkflowStepInput } from '@/types/domain';
+import type { ContractRow, Severity, WorkflowRun, WorkflowStepInput } from '@/types/domain';
 import styles from './pages.module.css';
-
-const STATUS_TONE: Record<ContractStatus, string> = {
-  Draft: 'var(--mut)',
-  'In review': 'var(--sev-med)',
-  Reviewed: 'var(--chart-accent)',
-  Signed: 'var(--sev-low)',
-};
 
 const WORKFLOW_POLL_MS = 2500;
 
@@ -467,6 +460,7 @@ export function DocumentDetailPage() {
     <div className={styles.page}>
       <TopBar
         title={t('nav.documents')}
+        hideCountry
         left={
           <button
             className={styles.backBtn}
@@ -498,11 +492,11 @@ export function DocumentDetailPage() {
               <div className={styles.docMetaGrid}>
                 <div className={styles.docMetaCell}>
                   <span className={styles.docMetaLabel}>{t('docs.col.status')}</span>
-                  <Badge color={STATUS_TONE[doc.status]} plain>{t(`status.${doc.status}`)}</Badge>
+                  <Badge>{t(`status.${doc.status}`)}</Badge>
                 </div>
                 <div className={styles.docMetaCell}>
                   <span className={styles.docMetaLabel}>{t('docs.col.risk')}</span>
-                  <RiskBadge risk={doc.risk} plain />
+                  <RiskBadge risk={doc.risk} />
                 </div>
                 <div className={styles.docMetaCell}>
                   <span className={styles.docMetaLabel}>{t('docs.col.jurisdiction')}</span>
@@ -600,7 +594,6 @@ export function DocumentDetailPage() {
                               ? 'var(--sev-high)'
                               : 'var(--chart-accent)'
                         }
-                        plain
                       >
                         {run.status === 'done'
                           ? t('workflow.badgeDone')
@@ -671,7 +664,6 @@ export function DocumentDetailPage() {
                                 ? 'var(--mut)'
                                 : 'var(--chart-accent)'
                         }
-                        plain
                       >
                         {t(`appr.flow.${flow.status}`)}
                       </Badge>

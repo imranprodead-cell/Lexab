@@ -129,7 +129,7 @@ ${
   const templatesHtml = templates
     .map((t) => `<article class="card"><h3>${dash(t.title)}</h3><p class="meta">${dash(t.jurisdiction)} · ${fmtDate(t.createdAt)}</p><pre>${esc(t.content ?? '')}</pre></article>`)
     .join('');
-  sections.push(`<section><h2>Сохранённые шаблоны · Saved templates (${templates.length})</h2>${templatesHtml || '<p class="empty">— нет данных / no data —</p>'}</section>`);
+  sections.push(`<section><h2>Сохранённые документы · Saved documents (${templates.length})</h2>${templatesHtml || '<p class="empty">— нет данных / no data —</p>'}</section>`);
 
   const playbooksHtml = playbooks
     .map((p) => `<article class="card"><h3>${dash(p.name)}</h3><p class="meta">${dash(p.jurisdiction ?? 'все юрисдикции / all jurisdictions')}</p><ol>${(p.rules ?? [])

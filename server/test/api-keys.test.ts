@@ -412,7 +412,7 @@ describe('public api — анализ договора', () => {
   });
 });
 
-describe('public api — расширенные возможности (draft/compare/template)', () => {
+describe('public api — расширенные возможности (draft/compare)', () => {
   const pollJob = async (key: string, url: string): Promise<Record<string, unknown>> => {
     for (let i = 0; i < 100; i++) {
       const res = await app.inject({ method: 'GET', url, headers: keyAuth(key) });
@@ -483,43 +483,22 @@ describe('public api — расширенные возможности (draft/co
     assert.equal(stolen.statusCode, 404, 'чужое сравнение невидимо');
   });
 
-  it('шаблон: каталог → generate → poll → done { title, content }; квота растёт', async () => {
+  // Шаблоны сняты 2026-10-25: адресов нет, право ключа на них не выдаётся.
+  it('шаблонов в API больше нет: адреса 404, право templates:write не выдаётся', async () => {
     const u = await makeBusinessUser();
     const { key } = await makeKey(u.token);
-    await db.query(
-      "INSERT INTO templates (id, name, name_ru, category, description, description_ru, jurisdiction, clauses) VALUES ('t_api_test', 'API Test NDA', 'Тест NDA', 'Confidentiality', 'Test template for API.', 'Тест-шаблон.', 'UK', 8) ON CONFLICT (id) DO NOTHING",
-    );
-    const list = await app.inject({ method: 'GET', url: '/api/v1/templates', headers: keyAuth(key) });
-    assert.equal(list.statusCode, 200);
-    const items = JSON.parse(list.body).items as { id: string }[];
-    assert.ok(items.some((t) => t.id === 't_api_test'), 'шаблон в каталоге');
-    const post = await app.inject({
-      method: 'POST',
-      url: '/api/v1/templates/t_api_test/generate',
-      headers: { ...keyAuth(key), 'content-type': 'application/json' },
-      payload: { partyA: 'Acme Ltd', partyB: 'Globex Inc', details: 'Mutual NDA for a pilot integration project.' },
-    });
-    assert.equal(post.statusCode, 202, post.body);
-    const { id } = JSON.parse(post.body);
-    const done = await pollJob(key, `/api/v1/templates/requests/${id}`);
-    assert.equal(done.status, 'done', JSON.stringify(done));
-    assert.equal(typeof done.title, 'string');
-    assert.ok(typeof done.content === 'string' && (done.content as string).length > 50, 'есть текст договора');
-    const usage = JSON.parse((await app.inject({ method: 'GET', url: '/api/v1/usage', headers: keyAuth(key) })).body);
-    assert.equal(usage.used, 1, 'вызов шаблона списал один месячный юнит');
-  });
-
-  it('несуществующий шаблон → 404 { error }', async () => {
-    const u = await makeBusinessUser();
-    const { key } = await makeKey(u.token);
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/v1/templates/nope/generate',
-      headers: { ...keyAuth(key), 'content-type': 'application/json' },
-      payload: { partyA: 'A', partyB: 'B', details: 'details here for the deal' },
-    });
-    assert.equal(res.statusCode, 404);
-    assert.equal(JSON.parse(res.body).error.code, 'not_found');
+    for (const [method, url] of [
+      ['GET', '/api/v1/templates'],
+      ['POST', '/api/v1/templates/t1/generate'],
+      ['GET', '/api/v1/templates/requests/apireq_x'],
+    ] as const) {
+      const res = await app.inject({ method, url, headers: { ...keyAuth(key), 'content-type': 'application/json' }, payload: method === 'POST' ? {} : undefined });
+      assert.equal(res.statusCode, 404, `${method} ${url}`);
+    }
+    const scopes = JSON.parse((await app.inject({ method: 'GET', url: '/api/api-keys/scopes', headers: auth(u.token) })).body).scopes as string[];
+    assert.ok(!scopes.includes('templates:write'), 'права на шаблоны нет в каталоге');
+    const bad = await app.inject({ method: 'POST', url: '/api/api-keys', headers: auth(u.token), payload: { label: 'x', scopes: ['templates:write'] } });
+    assert.equal(bad.statusCode, 400, 'ключ с правом на шаблоны не создаётся');
   });
 });
 
@@ -997,9 +976,10 @@ describe('фаза 3 — идемпотентность', () => {
     assert.equal(res.statusCode, 200, res.body);
     const spec = JSON.parse(res.body);
     assert.equal(spec.openapi, '3.1.0');
-    for (const p of ['/v1/analyses', '/v1/drafts', '/v1/compares', '/v1/templates', '/v1/webhooks', '/v1/usage']) {
+    for (const p of ['/v1/analyses', '/v1/drafts', '/v1/compares', '/v1/webhooks', '/v1/usage']) {
       assert.ok(spec.paths[p], `путь ${p} описан`);
     }
+    assert.ok(!Object.keys(spec.paths).some((p) => p.startsWith('/v1/templates')), 'шаблонов в спеке нет');
     // Секретов в спеке нет, а ключ для её чтения не нужен.
     assert.ok(!res.body.includes('lxb_secret') && !res.body.includes('signing_secret_enc'));
   });

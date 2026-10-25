@@ -120,6 +120,45 @@ export interface ChatMessage {
   streaming?: boolean;
   /** User's thumbs rating of an assistant reply. */
   feedback?: 'up' | 'down' | null;
+  /** Файлы, прикреплённые к вопросу (имя и размер). */
+  attachments?: { name: string; size: string }[];
+  /** Ход работы над ответом («Работаю…»): шаги с сервера, живут до перезагрузки. */
+  work?: ChatWork;
+  /** Статьи законов, найденные в базе для этого ответа ИИ (хранятся у ответа);
+   *  url — статья на официальном сайте (lex.uz, legislation.gov.uk, …). */
+  refs?: { label: string; doc: string; url?: string }[];
+}
+
+/** Отметки выполненных шагов одобренного плана (правая колонка «Progress»). */
+export interface PlanProgress {
+  messageId: string;
+  done: number[];
+}
+
+/**
+ * Шаг работы над ответом (SSE-событие `step`, зеркало ChatStep на сервере).
+ * Подписи — из переводов по id; данные — то, что сервер реально сделал.
+ */
+export interface ChatStep {
+  id: 'prompt' | 'contract' | 'files' | 'memory' | 'search' | 'mode' | 'answer';
+  status: 'active' | 'done';
+  data?: {
+    name?: string;
+    files?: string[];
+    jurisdiction?: string;
+    queries?: string[];
+    found?: number;
+    refs?: { label: string; doc: string; url?: string }[];
+    failed?: boolean;
+    mode?: string;
+  };
+}
+
+export interface ChatWork {
+  steps: ChatStep[];
+  startedAt: number;
+  /** Когда пошли первые слова ответа — работа закончена. */
+  endedAt?: number;
 }
 
 /** A saved review session shown in the sidebar, grouped by recency. */
@@ -166,20 +205,8 @@ export interface Project {
   docsCount: number;
 }
 
-export interface Template {
-  id: string;
-  name: string;
-  /** Russian display name (ru/kk/uz users); English `name` drives generation. */
-  nameRu?: string | null;
-  category: string;
-  description: string;
-  descriptionRu?: string | null;
-  jurisdiction: string;
-  clauses: number;
-}
-
-/** A generated contract the user chose to keep in their personal library. */
-export interface SavedTemplate {
+/** Документ из чата, который человек сохранил (Vault → Documents). */
+export interface SavedDoc {
   id: string;
   title: string;
   content: string;

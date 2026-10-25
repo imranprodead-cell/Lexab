@@ -15,6 +15,13 @@
   --panel: #ffffff;
   --panel-2: #f5f4f2;
   --doc-bg: #f2f1ef;
+  /* Пузырь вопроса в чате — светло-серый, как у Harvey (решение владельца
+     2026-10-25; раньше — графитовый акцент). */
+  --user-bubble: #f0efec;
+  /* Фон чата — белый, меню слева — чуть серое (как у Harvey, решение
+     владельца 2026-10-25). Остальные страницы — на --bg. */
+  --chat-bg: #ffffff;
+  --rail-bg: #f4f3f1;
 
   /* Hairlines & text */
   --border: #e8e6e3;
@@ -109,8 +116,6 @@
   --spark: rgba(124, 58, 237, 0.45);
 
   /* Decorative contract lines (chat backdrop) */
-  --contract-line: rgba(27, 42, 74, 0.055);
-  --contract-gold: rgba(176, 141, 87, 0.35);
 
   /* Type */
   --font-sans: 'Inter', 'Inter Fallback', ui-sans-serif, system-ui, -apple-system, sans-serif;
@@ -139,6 +144,9 @@ html.dark {
   --panel: #121110;
   --panel-2: #1a1918;
   --doc-bg: #080807;
+  --user-bubble: #201f1d;
+  --chat-bg: #0b0b0a;
+  --rail-bg: #121110;
 
   --border: #282623;
   --panel-edge: rgba(255, 255, 255, 0.06);
@@ -187,8 +195,6 @@ html.dark {
   --bloom-c: rgba(244, 114, 182, 0.22);
   --spark: rgba(255, 255, 255, 0.9);
 
-  --contract-line: rgba(248, 247, 245, 0.05);
-  --contract-gold: rgba(176, 141, 87, 0.42);
 
   --chart-mid: #8f8f8f;
   --chart-low: #3d3d3d;

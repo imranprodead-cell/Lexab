@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent, type ReactNode } from 'react';
 import { Icon, type IconName } from '@/components/icons/Icon';
 import { Spinner } from '@/components/ui/Spinner';
 import { promptsApi } from '@/api/prompts.api';
@@ -6,9 +6,10 @@ import { useVoiceInput } from '@/hooks/useVoiceInput';
 import { useI18n } from '@/i18n/I18nProvider';
 import { useUIStore } from '@/store/useUIStore';
 import { COMMANDS } from '@/data/seed';
-import { DOC_ACCEPT } from '@/lib/docFormats';
+import { ATTACH_ACCEPT } from '@/lib/docFormats';
 import type { Command } from '@/types/domain';
 import { SlashMenu } from './SlashMenu';
+import { AttachmentChip, type ComposerAttachment } from './Attachments';
 import styles from './chat.module.css';
 
 /* Unsent text survives page switches (and reloads) until it is sent. */
@@ -48,8 +49,15 @@ interface ChatInputProps {
   compact?: boolean;
   /** Fired for /analyze or the attach button. */
   onAnalyze: () => void;
-  /** Fired for a plain (non-command) submitted message. */
-  onSend?: (text: string) => void;
+  /** Fired for a plain (non-command) submitted message. Пустая строка — когда
+   *  отправляют одни прикреплённые файлы. Вернуть false — отправка не принята
+   *  (файлы ещё грузятся): текст остаётся в поле. */
+  onSend?: (text: string) => boolean | void;
+  /** Файлы, прикреплённые к полю ввода (карточки над текстом). */
+  attachments?: ComposerAttachment[];
+  onRemoveAttachment?: (key: string) => void;
+  /** Подсказка в пустом поле вместо обычной (например, когда прикреплён файл). */
+  placeholder?: string;
   /** When provided, the attach button opens a file picker and passes the chosen
    *  files here: один документ или несколько фото страниц договора. */
   onFiles?: (files: File[]) => void;
@@ -60,8 +68,6 @@ interface ChatInputProps {
   /** Спрятать кнопку «Прикрепить»: в воркспейсе она проваливалась в onAnalyze
    *  (= платный повторный анализ) — ловушка под видом скрепки. */
   hideAttach?: boolean;
-  /** Ghost mode: never touch localStorage — the draft dies with the canvas. */
-  ephemeral?: boolean;
   /** Optional slot rendered above the input bar (e.g. the Free-plan upsell). */
   banner?: ReactNode;
   /** Без внешней рамки-дока: позицией и шириной управляет родитель (нужно
@@ -78,9 +84,9 @@ interface ChatInputProps {
  * The chat composer: auto-growing textarea, attach button, and slash-command
  * autocomplete with full keyboard control (↑/↓ to move, ↵ to pick, Esc to close).
  */
-export function ChatInput({ compact = false, onAnalyze, onSend, onFiles, onCloudImport, draftKey = 'chat', hideAttach = false, ephemeral = false, banner, bare = false, hideDisclaimer = false, jurisdiction }: ChatInputProps) {
+export function ChatInput({ compact = false, onAnalyze, onSend, onFiles, onCloudImport, draftKey = 'chat', hideAttach = false, banner, bare = false, hideDisclaimer = false, jurisdiction, attachments = [], onRemoveAttachment, placeholder }: ChatInputProps) {
   const { t } = useI18n();
-  const [value, setValue] = useState(() => (ephemeral ? '' : loadDraft(draftKey)));
+  const [value, setValue] = useState(() => loadDraft(draftKey));
   const [slashOpen, setSlashOpen] = useState(false);
   const [slashIndex, setSlashIndex] = useState(0);
   const [improving, setImproving] = useState(false);
@@ -122,13 +128,13 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFiles, onCloud
   const applyValue = useCallback(
     (next: string) => {
       setValue(next);
-      if (!ephemeral) saveDraft(draftKey, next);
+      saveDraft(draftKey, next);
       setSlashOpen(next.startsWith('/') && !next.includes(' '));
       setSlashIndex(0);
       // Высоту меряет layout-эффект на [value] — здесь замер был бы по
       // СТАРОМУ DOM (React 18 батчит setValue в программных путях).
     },
-    [draftKey, ephemeral],
+    [draftKey],
   );
 
   // «Обсудить в чате» с карточки находки: вопрос кладётся прямо в плашку
@@ -199,7 +205,7 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFiles, onCloud
 
   const clearValue = () => {
     setValue('');
-    if (!ephemeral) saveDraft(draftKey, '');
+    saveDraft(draftKey, '');
     // Схлопывание к одной строке делает layout-эффект на [value].
   };
 
@@ -226,15 +232,25 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFiles, onCloud
   const submit = () => {
     cancelImprove();
     const trimmed = value.trim();
-    if (!trimmed) return;
+    // Без текста отправляются только прикреплённые файлы.
+    if (!trimmed && !attachments.length) return;
     if (trimmed.startsWith('/analyze')) {
       clearValue();
       onAnalyze();
       return;
     }
-    onSend?.(trimmed);
+    if (onSend?.(trimmed) === false) return;
     clearValue();
     setSlashOpen(false);
+  };
+
+  /** Cmd/Ctrl+V файла (скриншот, файл из Finder) — прикрепить, как через «Файлы». */
+  const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+    if (!onFiles || hideAttach) return;
+    const files = Array.from(e.clipboardData?.files ?? []);
+    if (!files.length) return;
+    e.preventDefault();
+    onFiles(files);
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -275,6 +291,7 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFiles, onCloud
   };
 
   const hasText = value.trim().length > 0;
+  const canSend = hasText || attachments.length > 0;
   // ✦ активна только когда пользователь реально описал запрос (≥5 слов) —
   // на обрывке из пары слов модели нечего улучшать, она начнёт додумывать.
   // И не длиннее серверного лимита — иначе кнопка выглядит рабочей, а сервер
@@ -303,7 +320,7 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFiles, onCloud
             ref={fileInputRef}
             type="file"
             multiple
-            accept={`${DOC_ACCEPT},.jpg,.jpeg,.png,.webp,.heic,.heif,image/*`}
+            accept={`${ATTACH_ACCEPT},.jpg,.jpeg,.png,.webp,.heic,.heif,image/*`}
             style={{ display: 'none' }}
             onChange={(e) => {
               const files = Array.from(e.target.files ?? []);
@@ -312,11 +329,25 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFiles, onCloud
             }}
           />
 
+          {attachments.length ? (
+            <div className={styles.attRow}>
+              {attachments.map((a) => (
+                <AttachmentChip
+                  key={a.key}
+                  name={a.name}
+                  size={a.size}
+                  status={a.status}
+                  onRemove={onRemoveAttachment ? () => onRemoveAttachment(a.key) : undefined}
+                />
+              ))}
+            </div>
+          ) : null}
+
           {/* Обёртка есть всегда: если бы она появлялась только с плашкой,
               React пересоздал бы textarea и курсор терял бы фокус. */}
           <div className={styles.inputTextRow}>
             {chip ? (
-              <span className={styles.cmdChip}>
+              <span className={styles.cmdChip} data-tone={chip.cmd.slice(1)}>
                 <Icon name={chip.icon as IconName} size={15} strokeWidth={1.8} />
                 <span className={styles.cmdChipLabel}>{chip.cmd.slice(1)}</span>
               </span>
@@ -326,9 +357,10 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFiles, onCloud
               className={styles.textarea}
               rows={1}
               value={shownValue}
-              placeholder={chip ? '' : t('chat.input.placeholder')}
+              placeholder={chip ? '' : (placeholder ?? t('chat.input.placeholder'))}
               onChange={(e) => updateValue(chipPrefix + e.target.value)}
               onKeyDown={onKeyDown}
+              onPaste={onPaste}
               aria-label={t('a11y.messageInput')}
               data-chat-input
               readOnly={improving}
@@ -404,8 +436,8 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFiles, onCloud
                 aria-label={t('chat.sendLabel')}
                 onClick={submit}
                 style={{
-                  background: hasText ? 'var(--accent)' : 'var(--hover-2)',
-                  color: hasText ? 'var(--on-accent)' : 'var(--mut)',
+                  background: canSend ? 'var(--accent)' : 'var(--hover-2)',
+                  color: canSend ? 'var(--on-accent)' : 'var(--mut)',
                 }}
               >
                 <Icon name="send" size={16} strokeWidth={2} />

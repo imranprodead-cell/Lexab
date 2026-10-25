@@ -409,7 +409,7 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
     return res.rows.map((r) => ({ id: r.id, label: r.label, author: r.author, createdAt: toIso(r.created_at), note: r.note }));
   });
 
-  /** Универсальный DOCX из простого текста (шаблоны, черновики): старый трюк
+  /** Универсальный DOCX из простого текста (сохранённые документы, черновики): старый трюк
    *  «HTML с расширением .doc» не открывается на телефонах и в мессенджерах —
    *  отдаём настоящий Word-файл. */
   app.post('/export/docx', { preHandler: [app.authenticate] }, async (req, reply) => {
@@ -426,6 +426,24 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
     reply.header('Content-Disposition', attachmentDisposition(title, 'docx'));
     reply.header('Cache-Control', 'no-store');
     return reply.send(buffer);
+  });
+
+  /** PDF из простого текста (документы из боковой панели чата). Сборщик PDF
+   *  склеивает переносы, поэтому каждая непустая строка — свой абзац. Шрифты
+   *  Noto: кириллица и арабица печатаются (lib/pdf.ts). */
+  app.post('/export/pdf', { preHandler: [app.authenticate] }, async (req, reply) => {
+    const body = asObject(req.body);
+    const title = requireString(body, 'title', { min: 1, max: 300 });
+    const content = requireString(body, 'content', { min: 1, max: 200_000 });
+    const sections = content
+      .split('\n')
+      .filter((line) => line.trim())
+      .map((text) => ({ text }));
+    const pdf = await buildSimplePdf(title, sections);
+    reply.header('Content-Type', 'application/pdf');
+    reply.header('Content-Disposition', attachmentDisposition(title, 'pdf'));
+    reply.header('Cache-Control', 'no-store');
+    return reply.send(pdf);
   });
 
   app.post('/documents/:id/export', { preHandler: [app.authenticate] }, async (req, reply) => {

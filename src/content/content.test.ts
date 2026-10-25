@@ -18,7 +18,6 @@ import { pricing } from './pages/pricing';
 import { legalBase } from './pages/legal-base';
 import { documentChat } from './pages/document-chat';
 import { versionCompare } from './pages/version-compare';
-import { contractTemplates } from './pages/contract-templates';
 import { clausePlaybooks } from './pages/clause-playbooks';
 import { approvalsAndDeadlines } from './pages/approvals-and-deadlines';
 import { bulkReview } from './pages/bulk-review';
@@ -36,7 +35,6 @@ const PAGES: PageContent[] = [
   legalBase,
   documentChat,
   versionCompare,
-  contractTemplates,
   clausePlaybooks,
   approvalsAndDeadlines,
   bulkReview,

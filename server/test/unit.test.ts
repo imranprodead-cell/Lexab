@@ -1,7 +1,7 @@
 /** Unit tests for pure server modules: `npm test` (runs on plain node --test). */
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { fallbackAnalysis, fallbackChatReply, fallbackCompare, fallbackTemplateDraft } from '../src/fallback.ts';
+import { fallbackAnalysis, fallbackChatReply, fallbackCompare } from '../src/fallback.ts';
 import { extractJsonObject, isDeepSeekModel } from '../src/llm.ts';
 import { MODELS, noThinking, serverFallback } from '../src/models.ts';
 import zlib from 'node:zlib';
@@ -425,7 +425,6 @@ test('fallbacks stay well-formed (used when no LLM key is set)', () => {
   }
   assert.ok(fallbackChatReply('/draft').length > 0);
   assert.ok(fallbackCompare().changes.length > 0);
-  assert.ok(fallbackTemplateDraft('NDA', { partyA: 'A', partyB: 'B', jurisdiction: '', term: '', details: '' }).includes('NDA'));
 });
 
 test('storage: local deleteFile is idempotent and stays inside uploads/', async () => {

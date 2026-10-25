@@ -12,7 +12,8 @@
  */
 export type PlanFeature =
   | 'docxExport'
-  | 'templates'
+  /** Договор по описанию сразу в редакторе (/draft в чате). */
+  | 'drafting'
   | 'compare'
   | 'signatures'
   | 'versions'
@@ -33,7 +34,7 @@ const BUSINESS = ['Business', 'Enterprise'];
 
 export const FEATURE_MIN_PLAN: Record<PlanFeature, string[]> = {
   docxExport: PAID,
-  templates: PAID,
+  drafting: PAID,
   compare: PRO,
   signatures: PRO,
   versions: PRO,

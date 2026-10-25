@@ -92,7 +92,6 @@ export const FOOTER_COLUMNS: FooterColumn[] = [
   {
     title: { ru: 'Работа команды', en: 'Teamwork', de: 'Teamarbeit', ar: 'عمل الفريق', kk: 'Команда жұмысы', uz: 'Jamoa ishi' },
     items: [
-      { kind: 'route', slug: 'contract-templates', label: { ru: 'Шаблоны договоров', en: 'Contract templates', de: 'Vertragsvorlagen', ar: 'قوالب العقود', kk: 'Шарт үлгілері', uz: 'Shartnoma shablonlari' } },
       { kind: 'route', slug: 'clause-playbooks', label: { ru: 'Правила по пунктам', en: 'Clause playbooks', de: 'Klausel-Playbooks', ar: 'أدلة البنود', kk: 'Тармақтар бойынша ережелер', uz: 'Bandlar boʻyicha qoidalar' } },
       { kind: 'route', slug: 'approvals-and-deadlines', label: { ru: 'Согласования и сроки', en: 'Approvals & deadlines', de: 'Freigaben und Fristen', ar: 'الموافقات والمواعيد', kk: 'Келісулер мен мерзімдер', uz: 'Kelishuvlar va muddatlar' } },
       { kind: 'route', slug: 'team-access', label: { ru: 'Доступы в команде', en: 'Team access', de: 'Teamzugriff', ar: 'صلاحيات الفريق', kk: 'Командадағы рұқсаттар', uz: 'Jamoadagi ruxsatlar' } },

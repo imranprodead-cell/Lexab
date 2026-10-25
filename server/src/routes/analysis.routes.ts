@@ -221,18 +221,24 @@ async function resolveUploadedContent(
   fileName: string,
   uploadId?: string | null,
 ): Promise<{ text: string | null; pdf: Buffer | null; sizeBytes: number; uploadId: string | null }> {
+  type UploadRow = { id: string; file_name: string; storage: 's3' | 'local' | 'supabase'; storage_key: string; extracted_text: string | null; size_bytes: number };
   const res = uploadId
-    ? await db.query<{ id: string; storage: 's3' | 'local' | 'supabase'; storage_key: string; extracted_text: string | null; size_bytes: number }>(
-        'SELECT id, storage, storage_key, extracted_text, size_bytes FROM uploads WHERE id = $1 AND user_id = $2',
+    ? await db.query<UploadRow>(
+        'SELECT id, file_name, storage, storage_key, extracted_text, size_bytes FROM uploads WHERE id = $1 AND user_id = $2',
         [uploadId, userId],
       )
-    : await db.query<{ id: string; storage: 's3' | 'local' | 'supabase'; storage_key: string; extracted_text: string | null; size_bytes: number }>(
-        `SELECT id, storage, storage_key, extracted_text, size_bytes FROM uploads
+    : await db.query<UploadRow>(
+        `SELECT id, file_name, storage, storage_key, extracted_text, size_bytes FROM uploads
          WHERE user_id = $1 AND file_name = $2 ORDER BY created_at DESC LIMIT 1`,
         [userId, fileName],
       );
   const row = res.rows[0];
   if (!row) return { text: null, pdf: null, sizeBytes: 0, uploadId: null };
+  // Таблицы и презентации — вложения чата, а не договор: разбор рисков по
+  // Excel дал бы «находки» в столбцах цифр и списал бы анализ с квоты.
+  if (!ALLOWED_EXTENSIONS.includes(fileExtension(row.file_name))) {
+    throw badRequest(`Risk review works with contracts only. Allowed: ${ALLOWED_EXTENSIONS.join(', ')}`);
+  }
   let pdf: Buffer | null = null;
   if (fileExtension(fileName) === '.pdf') {
     try {
@@ -855,7 +861,7 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
   // persist it as an analysis, so it opens directly in the editable workspace
   // sheet (edit / review / download). Fails loud if the AI is unavailable.
   app.post('/analysis/draft', { preHandler: [app.authenticateReal], config: RATE_LIMIT }, async (req, reply) => {
-    await assertFeature(db, req.currentUser.id, 'templates');
+    await assertFeature(db, req.currentUser.id, 'drafting');
     const body = asObject(req.body);
     const prompt = requireString(body, 'prompt', { min: 1, max: 4000 });
     const jurisdiction = optionalString(body, 'jurisdiction')?.slice(0, 120) || null;

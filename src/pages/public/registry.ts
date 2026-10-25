@@ -37,10 +37,6 @@ export const PUBLIC_PAGES: PublicPageEntry[] = [
     Component: lazy(() => import('./pages/VersionComparePage').then((m) => ({ default: m.VersionComparePage }))),
   },
   {
-    slug: 'contract-templates',
-    Component: lazy(() => import('./pages/ContractTemplatesPage').then((m) => ({ default: m.ContractTemplatesPage }))),
-  },
-  {
     slug: 'clause-playbooks',
     Component: lazy(() => import('./pages/ClausePlaybooksPage').then((m) => ({ default: m.ClausePlaybooksPage }))),
   },

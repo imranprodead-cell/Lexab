@@ -242,18 +242,6 @@ export const clausePlaybooks: PageContent = {
           },
           to: '/team-access',
         },
-        {
-          title: { ru: 'Шаблоны договоров', en: 'Contract templates', de: 'Vertragsvorlagen', ar: 'قوالب العقود', kk: 'Шарт үлгілері', uz: 'Shartnoma shablonlari' },
-          body: {
-            ru: 'Закрепить те же позиции в собственных заготовках документов.',
-            en: 'Lock the same positions into your own document starters.',
-            de: 'Dieselben Positionen in eigenen Dokumentvorlagen verankern.',
-            ar: 'ثبّت المواقف نفسها في قوالبك الخاصة.',
-            kk: 'Сол ұстанымдарды өз құжат дайындамаларыңызда бекіту.',
-            uz: 'Oʻsha pozitsiyalarni oʻz hujjat zagotovkalaringizda mustahkamlash.',
-          },
-          to: '/contract-templates',
-        },
       ],
     },
 

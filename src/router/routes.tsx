@@ -46,7 +46,6 @@ const loaders = {
   DocumentDetailPage: () => import('@/pages/DocumentDetailPage'),
   ProjectsPage: () => import('@/pages/ProjectsPage'),
   ProjectDetailPage: () => import('@/pages/ProjectDetailPage'),
-  TemplatesPage: () => import('@/pages/TemplatesPage'),
   PlaybooksPage: () => import('@/pages/PlaybooksPage'),
   ContractsPage: () => import('@/pages/ContractsPage'),
   BatchReviewPage: () => import('@/pages/BatchReviewPage'),
@@ -157,6 +156,9 @@ const appRoutes: RouteObject[] = [
   // страница добавляется одним файлом контента и одной строкой в реестре.
   // Префикс пока пустой — задел под языковые адреса (/en/…) на будущее.
   ...makePublicRoutes(),
+  // Страница «Шаблоны договоров» снята вместе с разделом — адрес мог остаться
+  // в поиске и закладках, поэтому ведёт на главную, а не в «не найдено».
+  { path: '/contract-templates', element: <Navigate to="/" replace /> },
   {
     path: '/terms',
     lazy: async () => {
@@ -232,8 +234,10 @@ const appRoutes: RouteObject[] = [
             lazy: async () => ({ Component: (await loaders.ProjectDetailPage()).ProjectDetailPage }),
           },
           {
+            // Шаблонов больше нет (2026-10-25): старые ссылки и закладки ведут
+            // в Vault → Documents, где лежат сохранённые из чата документы.
             path: 'templates',
-            lazy: async () => ({ Component: (await loaders.TemplatesPage()).TemplatesPage }),
+            element: <Navigate to="/documents" replace />,
           },
           {
             path: 'playbooks',

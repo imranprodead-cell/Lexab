@@ -1,6 +1,7 @@
 import { Fragment, useMemo, useState, type MouseEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
+import { VaultHeader } from '@/components/vault/VaultHeader';
 import { Icon, type IconName } from '@/components/icons/Icon';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -13,7 +14,6 @@ import { ApiError } from '@/api/util';
 import { useAsync } from '@/hooks/useAsync';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { usePageTitle } from '@/hooks/usePageTitle';
-import { useReveal } from '@/hooks/useReveal';
 import { useI18n } from '@/i18n/I18nProvider';
 import { localeFor } from '@/i18n/dates';
 import type { ContractRow } from '@/types/domain';
@@ -132,13 +132,10 @@ export function ContractsPage() {
 
   return (
     <div className={styles.page}>
-      <TopBar title={t('contracts.title')} />
+      <TopBar title={t('nav.documents')} hideCountry />
       <div className={`${styles.body} scroll`}>
         <div className={styles.container}>
-          <div className={styles.pageHead} ref={useReveal()}>
-            <h1 className={styles.pageTitle}>{t('contracts.title')}</h1>
-            <p className={styles.pageSub}>{t('contracts.sub')}</p>
-          </div>
+          <VaultHeader active="contracts" />
 
           {loading ? (
             <SkeletonRows rows={4} height={96} />

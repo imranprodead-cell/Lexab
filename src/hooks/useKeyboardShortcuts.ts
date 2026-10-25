@@ -4,7 +4,7 @@ import { useUIStore } from '@/store/useUIStore';
 
 /**
  * Global keyboard shortcuts (Linear-inspired):
- *   g then c/d/t/e/a/s → navigate to a section
+ *   g then c/d/e/a/s → navigate to a section
  *   \                  → pin / unpin the side rail
  *
  * Shortcuts are ignored while typing in an input, textarea, or contenteditable.
@@ -12,7 +12,6 @@ import { useUIStore } from '@/store/useUIStore';
 const NAV_MAP: Record<string, string> = {
   c: '/chat',
   d: '/documents',
-  t: '/templates',
   e: '/signatures',
   a: '/analytics',
   s: '/settings',

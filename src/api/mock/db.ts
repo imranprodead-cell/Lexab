@@ -13,7 +13,6 @@ import {
   DEMO_ANALYSIS,
   DOCUMENTS,
   SIGNATURES,
-  TEMPLATES,
   VERSIONS,
 } from '@/data/seed';
 import { clone } from '../util';
@@ -23,7 +22,6 @@ export const db = {
   sessions: clone(CHAT_SESSIONS),
   analysis: clone(DEMO_ANALYSIS),
   documents: clone(DOCUMENTS),
-  templates: clone(TEMPLATES),
   signatures: clone(SIGNATURES),
   versions: clone(VERSIONS),
   analytics: clone(ANALYTICS),

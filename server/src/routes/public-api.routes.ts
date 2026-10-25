@@ -23,7 +23,7 @@ import { badRequest, HttpError } from '../lib/errors.ts';
 import { formatSize } from '../lib/format.ts';
 import { newId } from '../lib/ids.ts';
 import { apiMonthlyUsage, planFor, releaseApiRequest, reserveApiRequest } from '../lib/limits.ts';
-import { generateCompare, generateContractDraft, generateTemplateDraft, type GeneratedAnalysis, type TemplateFields } from '../llm.ts';
+import { generateCompare, generateContractDraft, type GeneratedAnalysis } from '../llm.ts';
 import { createWebhookEndpoint, enqueueJobWebhooks, listWebhookEndpoints, revokeWebhookEndpoint } from '../lib/apiWebhooks.ts';
 import { asObject, optionalString, requireString } from '../lib/validate.ts';
 import { deleteFile } from '../storage.ts';
@@ -157,11 +157,11 @@ function baseWire(row: ApiRequestRow) {
 }
 
 /**
- * Общий каркас фонового API-задания (analysis/draft/compare/template): атомарный
+ * Общий каркас фонового API-задания (analysis/draft/compare): атомарный
  * клейм queued→processing, heartbeat раз в минуту, единый разбор ошибки (пометка
  * error под гардом статуса + возврат месячного юнита + аудит). `work(plan)` сам
  * генерирует и помечает задание done — analysis/draft делают это внутри
- * транзакции persistAnalysis (apiRequestId), compare/template одним UPDATE со
+ * транзакции persistAnalysis (apiRequestId), compare одним UPDATE со
  * status+result (см. markResultDone). Текст договора в api_requests не хранится.
  */
 async function runApiJob(
@@ -228,7 +228,7 @@ async function runApiJob(
   }
 }
 
-/** Пометить задание done со своим результатом (compare/template): результат
+/** Пометить задание done со своим результатом (compare): результат
  *  ШИФРУЕТСЯ at-rest (envelope как document_blocks — может содержать текст
  *  договора). status и result — в одном UPDATE, поэтому «сохранено, но помечено
  *  error» невозможно; гард status='processing' уважает recovery. */
@@ -290,14 +290,6 @@ async function runApiCompare(db: Db, requestId: string, userId: string, keyId: s
   });
 }
 
-/** Генерация по шаблону: результат { title, content } шифруется в result. */
-async function runApiTemplate(db: Db, requestId: string, userId: string, keyId: string, templateName: string, templateDescription: string, fields: TemplateFields): Promise<void> {
-  await runApiJob(db, requestId, userId, keyId, 'ai.template', templateName.slice(0, 300), async (plan) => {
-    const content = await generateTemplateDraft(templateName, templateDescription, fields, plan);
-    await markResultDone(db, requestId, userId, { title: `${templateName} — ${fields.partyA} / ${fields.partyB}`, content });
-  });
-}
-
 /** Дешёвый предварительный отказ по месячному лимиту ДО дорогой работы. */
 async function assertApiLimit(db: Db, userId: string): Promise<void> {
   const pre = await apiMonthlyUsage(db, userId);
@@ -337,7 +329,7 @@ async function insertApiJob(
   });
 }
 
-/** Ответ по compare/template-заданию: расшифровка result или wire-ошибка. */
+/** Ответ по compare-заданию: расшифровка result или wire-ошибка. */
 async function resultJobResponse(db: Db, id: string, userId: string, kind: string, label: string): Promise<Record<string, unknown>> {
   const row = (
     await db.query<ApiRequestRow & { result: unknown }>(
@@ -697,56 +689,6 @@ export function publicApiRoutes(app: FastifyInstance, db: Db): void {
       v1.get('/compares/:id', { preHandler: [v1.authenticateApiKey, requireScope('compares:write')], config: KEY_RATE_LIMIT }, async (req) => {
         const { id } = req.params as { id: string };
         return resultJobResponse(db, id, req.currentUser.id, 'compare', 'Comparison');
-      });
-
-      // ── Шаблоны договоров ────────────────────────────────────────────────
-      v1.get('/templates', { preHandler: [v1.authenticateApiKey], config: KEY_RATE_LIMIT }, async () => {
-        const rows = await db.query<{ id: string; name: string; nameRu: string | null; category: string; description: string; jurisdiction: string | null }>(
-          'SELECT id, name, name_ru AS "nameRu", category, description, jurisdiction FROM templates ORDER BY category, name',
-        );
-        return { items: rows.rows };
-      });
-
-      v1.post('/templates/:id/generate', { preHandler: [v1.authenticateApiKey, requireScope('templates:write')], config: KEY_RATE_LIMIT }, async (req, reply) => {
-        const userId = req.currentUser.id;
-        const keyId = req.apiKeyId as string;
-        const { id } = req.params as { id: string };
-        const tpl = (
-          await db.query<{ id: string; name: string; description: string; jurisdiction: string | null }>(
-            'SELECT id, name, description, jurisdiction FROM templates WHERE id = $1',
-            [id],
-          )
-        ).rows[0];
-        if (!tpl) throw new HttpError(404, 'Template not found.', 'not_found');
-        const body = asObject(req.body);
-        const fields: TemplateFields = {
-          partyA: requireString(body, 'partyA', { min: 1, max: 200 }),
-          partyB: requireString(body, 'partyB', { min: 1, max: 200 }),
-          jurisdiction: optionalString(body, 'jurisdiction')?.trim() || tpl.jurisdiction || '',
-          term: optionalString(body, 'term')?.trim() || '',
-          details: requireString(body, 'details', { min: 5, max: 4000 }),
-        };
-        const idemHash = idemHashFrom(req, keyId);
-        if (idemHash) {
-          const replay = await findIdempotentReplay(db, userId, idemHash, 'template');
-          if (replay) {
-            reply.code(202);
-            return replay;
-          }
-        }
-        await assertApiLimit(db, userId);
-        const requestId = newId('apireq');
-        const createdAt = new Date().toISOString();
-        const label = tpl.name.slice(0, 300);
-        await insertApiJob(db, requestId, userId, keyId, 'template', label, idemHash);
-        void runApiTemplate(db, requestId, userId, keyId, tpl.name, tpl.description, fields).catch((err) => req.log.error(err, 'api template failed'));
-        reply.code(202);
-        return { id: requestId, status: 'processing', fileName: label, createdAt };
-      });
-
-      v1.get('/templates/requests/:id', { preHandler: [v1.authenticateApiKey, requireScope('templates:write')], config: KEY_RATE_LIMIT }, async (req) => {
-        const { id } = req.params as { id: string };
-        return resultJobResponse(db, id, req.currentUser.id, 'template', 'Template request');
       });
 
       // ── Callback-вебхуки: уведомлять систему клиента о завершении заданий ──

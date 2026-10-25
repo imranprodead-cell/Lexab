@@ -59,4 +59,7 @@ export interface RetrieveParams {
   asOfDate?: string;
   topK?: number;
   language?: string;
+  /** Наблюдение (не влияет на поиск): запросы, по которым реально идёт поиск
+   *  — вопрос и его переформулировки. Чат показывает их пользователю. */
+  onQueries?: (queries: string[]) => void;
 }

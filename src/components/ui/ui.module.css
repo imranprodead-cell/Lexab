@@ -106,43 +106,58 @@
 
 /* Badge — статусная пилюля эталона: rounded-full, uppercase, точка currentColor.
    Сам цвет приходит пропом (var(--sev-*) и т.п.) и здесь НЕ задаётся. */
-.badge {
+/* Отметка статуса / риска (Badge) — одна на весь сайт. Эталон: Full
+   Compliance / Partial / Non-Compliant. Цвет — только у смысла «хорошо /
+   внимание / плохо», и он приглушён (шалфей, охра, кирпич), без сиреневого и
+   «конфетных» пастелей; всё прочее нейтральное. Пары текст/подложка
+   подобраны по контрасту: ≥ 5,2 в светлой теме и ≥ 7,5 в тёмной (норма AA — 4,5). */
+.badgeSoft {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-family: var(--font-label);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  padding: 3px 10px;
+  padding: 2px 10px;
   border-radius: 999px;
-  border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.55;
   white-space: nowrap;
+  color: #57534e;
+  background: #f1f0ee;
+  border: 1px solid #e6e4e0;
 }
-/* Filled: тонированная подложка от currentColor вместо обводки. */
-.badgeFilled {
-  border-color: transparent;
-  background: color-mix(in srgb, currentColor 12%, transparent);
+.badgeSoft[data-tone='low'] {
+  color: #3f6b4a;
+  background: #edf3ee;
+  border-color: #dbe6dd;
 }
-.badgeDot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: currentColor;
-  flex-shrink: 0;
+.badgeSoft[data-tone='elevated'] {
+  color: #7f5d1e;
+  background: #f5efe3;
+  border-color: #e9dfca;
 }
-/* Frameless badge: coloured dot + coloured text, label-face, no box. */
-.badgePlain {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-family: var(--font-label);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  white-space: nowrap;
+.badgeSoft[data-tone='high'] {
+  color: #9c3b31;
+  background: #f7ebea;
+  border-color: #ecd6d3;
+}
+:global(html.dark) .badgeSoft {
+  color: #b8b4ad;
+  background: #1f1e1c;
+  border-color: #2d2b28;
+}
+:global(html.dark) .badgeSoft[data-tone='low'] {
+  color: #94be9e;
+  background: #172119;
+  border-color: #243427;
+}
+:global(html.dark) .badgeSoft[data-tone='elevated'] {
+  color: #d3b074;
+  background: #251f14;
+  border-color: #3a301f;
+}
+:global(html.dark) .badgeSoft[data-tone='high'] {
+  color: #e39a91;
+  background: #291716;
+  border-color: #42241f;
 }
 
 /* Citation chip ----------------------------------------------------------- */

@@ -70,6 +70,20 @@ export const documentsApi = {
     return [...byId.values()];
   },
 
+  /** Последние свои документы (сервер по умолчанию сортирует по -updatedAt):
+   *  одна короткая страница вместо обхода всей библиотеки. Командные документы
+   *  сервер дописывает к каждой странице — они в «недавние» не входят. */
+  async recent(limit: number, signal?: AbortSignal): Promise<ContractDocument[]> {
+    if (USE_MOCK) {
+      await delay(50);
+      return clone(db.documents)
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+        .slice(0, limit);
+    }
+    const rows = await http<ContractDocument[]>(`/documents?pageSize=${limit}&page=1`, { signal });
+    return rows.filter((d) => !d.sharedBy).slice(0, limit);
+  },
+
   async get(id: string, signal?: AbortSignal): Promise<ContractDocument> {
     if (USE_MOCK) {
       await delay(40);

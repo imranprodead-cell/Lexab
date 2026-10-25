@@ -17,3 +17,22 @@ export function isDocFile(name: string): boolean {
   const lower = name.toLowerCase();
   return DOC_EXTENSIONS.some((ext) => lower.endsWith(ext));
 }
+
+/**
+ * Вложения чата: договоры + таблицы и презентации, о которых можно спросить
+ * ИИ (зеркало ATTACHMENT_EXTENSIONS на сервере). На разбор рисков идут только
+ * DOC_EXTENSIONS — Excel и PowerPoint договором не являются.
+ */
+export const ATTACH_EXTENSIONS = [...DOC_EXTENSIONS, '.xlsx', '.pptx', '.csv'] as const;
+
+export const ATTACH_ACCEPT = ATTACH_EXTENSIONS.join(',');
+
+export function isAttachFile(name: string): boolean {
+  const lower = name.toLowerCase();
+  return ATTACH_EXTENSIONS.some((ext) => lower.endsWith(ext));
+}
+
+/** Сколько файлов можно прикрепить к одному сообщению (как на сервере). */
+export function maxAttachments(plan: string | null | undefined): number {
+  return !plan || plan === 'Free' ? 2 : 5;
+}

@@ -133,7 +133,6 @@ function sampleBody(schema: SchemaObj): Record<string, unknown> {
 
 /** Подставить понятный пример вместо {id} в путь. */
 function samplePath(path: string): string {
-  if (path.includes('/templates/{id}')) return path.replace('{id}', 't1');
   if (path.includes('/webhooks/{id}')) return path.replace('{id}', 'whep_XXXXXXXX');
   return path.replace('{id}', 'apireq_XXXXXXXX');
 }

@@ -8,16 +8,19 @@ interface TopBarProps {
   /** Right-hand slot; defaults to the upgrade / theme / jurisdiction cluster. */
   right?: ReactNode;
   left?: ReactNode;
+  /** Без флага страны: в разделах, где страна ни на что не влияет (Vault,
+   *  Projects, E-signatures, Analytics, Team — решение владельца 2026-10-25). */
+  hideCountry?: boolean;
 }
 
-export function TopBar({ title, right, left }: TopBarProps) {
+export function TopBar({ title, right, left, hideCountry = false }: TopBarProps) {
   return (
     <header className={styles.topBar}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         {left}
         {typeof title === 'string' ? <span className={styles.topTitle}>{title}</span> : title}
       </div>
-      {right ?? <TopBarActions />}
+      {right ?? <TopBarActions hideCountry={hideCountry} />}
     </header>
   );
 }

@@ -159,7 +159,7 @@ export function TeamPage() {
 
   return (
     <div className={styles.page}>
-      <TopBar title={t('team.title')} />
+      <TopBar title={t('team.title')} hideCountry />
       <div className={`${styles.body} scroll`}>
         <div className={styles.container}>
           <div
@@ -224,7 +224,7 @@ export function TeamPage() {
               <div className={styles.inviteBannerText}>
                 {t('team.invitedYou', { name: inv.inviterName, firm: inv.inviterFirm })}
                 {' · '}
-                <Badge color={ROLE_COLORS[inv.role] ?? 'var(--mut)'} plain>
+                <Badge>
                   {inv.title || t(inv.roleKey)}
                 </Badge>
               </div>

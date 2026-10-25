@@ -95,7 +95,7 @@ export function SharePage() {
                 {report.findings.map((f, i) => (
                   <div key={i} className={styles.rowCard} style={{ cursor: 'default' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                      <Badge color={SEV_COLOR[f.severity]} plain>
+                      <Badge color={SEV_COLOR[f.severity]}>
                         {t(`sev.${f.severity}`)}
                       </Badge>
                       <strong style={{ fontSize: 14 }}>{f.title}</strong>

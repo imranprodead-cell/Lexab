@@ -15,15 +15,8 @@ import { useReveal } from '@/hooks/useReveal';
 import { useChatStore } from '@/store/useChatStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useI18n } from '@/i18n/I18nProvider';
-import type { ContractDocument, ContractStatus } from '@/types/domain';
+import type { ContractDocument } from '@/types/domain';
 import styles from './pages.module.css';
-
-const STATUS_TONE: Record<ContractStatus, string> = {
-  Draft: 'var(--mut)',
-  'In review': 'var(--sev-med)',
-  Reviewed: 'var(--chart-accent)',
-  Signed: 'var(--sev-low)',
-};
 
 /**
  * Страница проекта (дела): договоры одного клиента/спора. Список — в стиле
@@ -168,7 +161,7 @@ export function ProjectDetailPage() {
 
   return (
     <div className={styles.page}>
-      <TopBar title={project?.name ?? t('projects.title')} />
+      <TopBar title={project?.name ?? t('projects.title')} hideCountry />
       <div className={`${styles.body} scroll`}>
         <div className={styles.container}>
           {notFound ? (
@@ -230,8 +223,8 @@ export function ProjectDetailPage() {
                         {removeBtn(d)}
                       </div>
                       <div className={styles.rowCardBadges}>
-                        <Badge color={STATUS_TONE[d.status]} plain>{t(`status.${d.status}`)}</Badge>
-                        <RiskBadge risk={d.risk} plain />
+                        <Badge>{t(`status.${d.status}`)}</Badge>
+                        <RiskBadge risk={d.risk} />
                       </div>
                       <div className={styles.rowCardMeta}>
                         <span>{d.jurisdiction}</span>
@@ -267,10 +260,10 @@ export function ProjectDetailPage() {
                             </div>
                           </td>
                           <td className={`${styles.td} ${styles.hideSm}`}>
-                            <Badge color={STATUS_TONE[d.status]} plain>{t(`status.${d.status}`)}</Badge>
+                            <Badge>{t(`status.${d.status}`)}</Badge>
                           </td>
                           <td className={styles.td}>
-                            <RiskBadge risk={d.risk} plain />
+                            <RiskBadge risk={d.risk} />
                           </td>
                           <td className={`${styles.td} ${styles.hideSm} ${styles.metaText}`}>{timeAgo(d.updatedAt)}</td>
                           <td className={styles.td} style={{ width: 44 }}>

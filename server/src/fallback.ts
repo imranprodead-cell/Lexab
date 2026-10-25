@@ -4,7 +4,7 @@
  * frontend seed, parameterised by file name so repeated runs feel plausible.
  */
 import crypto from 'node:crypto';
-import type { CompareResult, ContractDraft, GeneratedAnalysis, TemplateFields } from './llm.ts';
+import type { CompareResult, ContractDraft, GeneratedAnalysis } from './llm.ts';
 import type { DocBlock } from './types.ts';
 
 function hashInt(input: string): number {
@@ -127,6 +127,44 @@ export function fallbackChatReply(text: string, hasDocument = false): string {
   if (t.startsWith('/translate')) {
     return 'Готов перевести и локализовать текст. Укажите целевой язык и юрисдикцию — я адаптирую терминологию и ссылки на нормы под местное право.';
   }
+  if (t.startsWith('/plan')) {
+    return [
+      '### Цель',
+      'Получить оплату по договору и сохранить право на неустойку (для полноценного плана подключите ИИ на сервере).',
+      '',
+      '### План действий',
+      '1. **Соберите доказательства** — договор, акты, переписку о просрочке.',
+      '2. **Направьте письменную претензию** с требованием оплаты и сроком ответа.',
+      '3. **Начислите неустойку** по условиям договора и приложите расчёт.',
+      '4. **Подготовьте иск**, если ответа нет в установленный срок.',
+      '',
+      '### Риски',
+      '- Пропуск претензионного порядка может задержать суд.',
+      '',
+      '### Первый шаг сегодня',
+      'Отправьте претензию заказным письмом с уведомлением.',
+    ].join('\n');
+  }
+  if (t.startsWith('/slides')) {
+    return [
+      '# Дело: взыскание задолженности по договору',
+      'Краткая презентация для встречи (подключите ИИ на сервере для полной версии)',
+      '',
+      '## Суть дела',
+      '- Контрагент не оплатил поставку в срок',
+      '- Задолженность подтверждена актами',
+      '> Начните с цифр: сумма долга и срок просрочки.',
+      '',
+      '## Что делать',
+      '- Направить письменную претензию',
+      '- Начислить неустойку по договору',
+      '- При отказе — подать иск',
+      '',
+      '## Следующие шаги',
+      '- Согласовать текст претензии',
+      '- Назначить ответственного и срок',
+    ].join('\n');
+  }
   return 'Принял. Уточните детали контракта или пункта — и я подготовлю ответ со ссылками на применимые нормы. Для полного обзора рисков загрузите документ или используйте /analyze.';
 }
 
@@ -162,39 +200,6 @@ export function fallbackCompare(): CompareResult {
       },
     ],
   };
-}
-
-/** Skeleton contract used when no LLM is configured. */
-export function fallbackTemplateDraft(templateName: string, f: TemplateFields): string {
-  return `${templateName.toUpperCase()}
-
-This ${templateName} ("Agreement") is entered into between:
-(1) ${f.partyA || 'Party A'} ("Party A"); and
-(2) ${f.partyB || 'Party B'} ("Party B").
-
-1. PURPOSE
-   The parties wish to set out the terms governing their relationship under this ${templateName}.
-
-2. TERM
-   This Agreement takes effect on the date of last signature and continues for ${f.term || 'twelve (12) months'} unless terminated earlier in accordance with clause 5.
-
-3. OBLIGATIONS
-   Each party shall perform its obligations diligently, in good faith and in accordance with applicable law.
-   ${f.details ? 'Additional terms agreed by the parties: ' + f.details : ''}
-
-4. CONFIDENTIALITY
-   Each party shall keep confidential all non-public information received from the other and use it solely for the purposes of this Agreement.
-
-5. TERMINATION
-   Either party may terminate this Agreement on one (1) month’s written notice to the other.
-
-6. GOVERNING LAW
-   This Agreement is governed by the laws of ${f.jurisdiction || 'England and Wales'}, and the courts of that jurisdiction have exclusive jurisdiction.
-
-SIGNED by the duly authorised representatives of the parties.
-
-—
-Черновик сгенерирован в демо-режиме. Подключите ANTHROPIC_API_KEY на сервере, чтобы получать полные договоры, составленные ИИ под ваши условия.`;
 }
 
 /** Deterministic contract draft (blocks) used when no LLM is configured. */

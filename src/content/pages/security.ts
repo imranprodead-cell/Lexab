@@ -5,7 +5,7 @@
  *  - конвертное шифрование: у каждого пользователя свой ключ данных (таблица
  *    data_keys), сам он лежит под мастер-ключом сервера; алгоритм AES-256-GCM;
  *  - ЗАШИФРОВАНЫ: извлечённый текст документа, резюме анализа, блоки разбора,
- *    тексты правок (del_text/ins_text), сохранённые шаблоны, правила плейбука;
+ *    тексты правок (del_text/ins_text), сохранённые из чата документы, правила плейбука;
  *  - ОТКРЫТЫ (намеренно, иначе не работают списки, поиск и сортировка):
  *    имя документа, контрагент, статус, юрисдикция, уровень риска, размер,
  *    а также заголовок и цитата находки (таблица findings);
@@ -158,7 +158,7 @@ export const security: PageContent = {
           { ru: 'Это фрагменты договора и ваша позиция', en: 'They are contract fragments and your position', de: 'Sie sind Vertragsauszüge und Ihre Position', ar: 'هي مقاطع من العقد وموقفك', kk: 'Бұл шарт үзінділері және ұстанымыңыз', uz: 'Bu shartnoma parchalari va pozitsiyangiz' },
         ],
         [
-          { ru: 'Шаблоны и правила фирмы', en: 'Templates and firm rules', de: 'Vorlagen und Kanzleiregeln', ar: 'القوالب وقواعد المكتب', kk: 'Үлгілер мен фирма ережелері', uz: 'Shablonlar va firma qoidalari' },
+          { ru: 'Сохранённые документы и правила фирмы', en: 'Saved documents and firm rules', de: 'Gespeicherte Dokumente und Kanzleiregeln', ar: 'المستندات المحفوظة وقواعد المكتب', kk: 'Сақталған құжаттар мен фирма ережелері', uz: 'Saqlangan hujjatlar va firma qoidalari' },
           { ru: 'Зашифрованы', en: 'Encrypted', de: 'Verschlüsselt', ar: 'مشفَّرة', kk: 'Шифрланған', uz: 'Shifrlangan' },
           { ru: 'Ноу-хау практики, а не служебные данные', en: 'The practice’s know-how, not housekeeping data', de: 'Know-how der Kanzlei, keine Verwaltungsdaten', ar: 'خبرة المكتب لا بيانات إدارية', kk: 'Тәжірибенің ноу-хауы, қызметтік дерек емес', uz: 'Amaliyot nou-xausi, xizmat maʼlumoti emas' },
         ],

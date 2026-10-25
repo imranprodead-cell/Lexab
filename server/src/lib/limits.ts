@@ -98,7 +98,7 @@ export async function effectiveLimits(db: Queryable, quotaUserId: string, plan: 
 export const DOC_COST = {
   /** Разбор одного договора (загрузка, массовый разбор, агентный сценарий). */
   analysis: 1,
-  /** Создание договора: из промпта или по шаблону. */
+  /** Создание договора по описанию (/draft, POST /analysis/draft, API /v1/drafts). */
   draft: 2,
   /** Сравнение версий — самая дорогая операция: два полных текста в одном запросе. */
   compare: 5,
@@ -217,7 +217,9 @@ const upgradeHint = 'Обновите план в разделе «Тарифы�
  *  Cloud integrations (Google Drive / M365 / Dropbox) are open to EVERY plan. */
 export type PlanFeature =
   | 'docxExport'
-  | 'templates'
+  /** Договор по описанию сразу в редакторе (/draft в чате, POST /analysis/draft).
+   *  До 2026-10-25 назывался 'templates' — вместе с каталогом шаблонов. */
+  | 'drafting'
   | 'compare'
   | 'signatures'
   | 'versions'
@@ -234,7 +236,7 @@ export type PlanFeature =
 
 const FEATURE_MIN_PLAN: Record<PlanFeature, string[]> = {
   docxExport: ['Standard', 'Pro', 'Business', 'Enterprise'],
-  templates: ['Standard', 'Pro', 'Business', 'Enterprise'],
+  drafting: ['Standard', 'Pro', 'Business', 'Enterprise'],
   compare: ['Pro', 'Business', 'Enterprise'],
   signatures: ['Pro', 'Business', 'Enterprise'],
   versions: ['Pro', 'Business', 'Enterprise'],
@@ -254,7 +256,7 @@ const FEATURE_MIN_PLAN: Record<PlanFeature, string[]> = {
 
 const FEATURE_LABEL: Record<PlanFeature, { ru: string; en: string; plans: string }> = {
   docxExport: { ru: 'Экспорт в DOCX', en: 'DOCX export', plans: 'Standard, Pro и Business' },
-  templates: { ru: 'Генератор договоров', en: 'Contract generator', plans: 'Standard, Pro и Business' },
+  drafting: { ru: 'Договор по описанию (/draft)', en: 'Contract drafting (/draft)', plans: 'Standard, Pro и Business' },
   compare: { ru: 'Сравнение версий (Redline)', en: 'Version compare (Redline)', plans: 'Pro и Business' },
   signatures: { ru: 'Электронная подпись', en: 'E-signatures', plans: 'Pro и Business' },
   versions: { ru: 'История версий', en: 'Version history', plans: 'Pro и Business' },

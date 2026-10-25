@@ -22,7 +22,6 @@ export const API_SCOPES = [
   'analyses:write',
   'drafts:write',
   'compares:write',
-  'templates:write',
   'webhooks:manage',
 ] as const;
 export type ApiScope = (typeof API_SCOPES)[number];

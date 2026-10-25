@@ -15,7 +15,6 @@ vi.mock('@/api/chats.api', () => ({
     messages: vi.fn(),
     create: vi.fn(),
     sendMessage: vi.fn(),
-    sendGhostMessage: vi.fn(),
     linkAnalysis: vi.fn().mockResolvedValue(undefined),
     setFeedback: vi.fn(),
     remove: vi.fn().mockResolvedValue(undefined),
@@ -55,7 +54,7 @@ describe('chat store — reopening a saved session', () => {
     vi.clearAllMocks();
     useChatStore.setState({
       phase: 'idle', messages: [], analysis: null, activeStep: -1, error: null,
-      serverSessionId: null, sessionLoading: false, ghost: false,
+      serverSessionId: null, sessionLoading: false,
     });
   });
 
@@ -120,7 +119,7 @@ describe('chat store — live streaming', () => {
     vi.clearAllMocks();
     useChatStore.setState({
       phase: 'idle', messages: [], analysis: null, activeStep: -1, error: null,
-      serverSessionId: 's_live', sessionLoading: false, ghost: false,
+      serverSessionId: 's_live', sessionLoading: false,
     });
   });
 
@@ -141,7 +140,58 @@ describe('chat store — live streaming', () => {
     expect(assistant?.text).toBe('Hello'); // authoritative final text
     expect(assistant?.streaming).toBeFalsy(); // no bubble left stuck streaming
     // The streaming path is taken: an onToken callback is passed through.
-    expect(mockSend).toHaveBeenCalledWith('s_live', 'hi', undefined, expect.anything(), expect.any(Function), undefined);
+    expect(mockSend).toHaveBeenCalledWith('s_live', 'hi', undefined, expect.anything(), expect.any(Function), undefined, undefined, expect.any(Function));
+  });
+
+  // «Работаю…» (2026-10-25): шаги с сервера копятся на заглушке ответа,
+  // первое слово модели закрывает работу.
+  it('collects server work steps on the reply and closes them on the first token', async () => {
+    const mockSend = chatsApi.sendMessage as ReturnType<typeof vi.fn>;
+    let release: () => void = () => undefined;
+    mockSend.mockImplementation(
+      async (_sid, _text, _aid, _jur, onToken?: (d: string) => void, _draft?: unknown, _ids?: unknown, onStep?: (s: unknown) => void) => {
+        onStep?.({ id: 'prompt', status: 'done' });
+        onStep?.({ id: 'search', status: 'active', data: { jurisdiction: 'UZ' } });
+        onStep?.({ id: 'search', status: 'active', data: { queries: ['неустойка поставка'] } });
+        onStep?.({ id: 'search', status: 'done', data: { found: 2 } });
+        onStep?.({ id: 'answer', status: 'active' });
+        await new Promise<void>((r) => (release = r));
+        onToken?.('Ответ');
+        return { id: 'srv_w', role: 'assistant', kind: 'text', text: 'Ответ' };
+      },
+    );
+
+    useChatStore.getState().sendMessage('Какая неустойка?');
+    await new Promise((r) => setTimeout(r, 20));
+    let work = useChatStore.getState().messages.find((m) => m.role === 'assistant')?.work;
+    expect(work?.steps.map((s) => `${s.id}:${s.status}`)).toEqual(['prompt:done', 'search:done', 'answer:active']);
+    // Данные поиска слились из трёх событий: база, запросы, найдено.
+    expect(work?.steps[1].data).toEqual({ jurisdiction: 'UZ', queries: ['неустойка поставка'], found: 2 });
+    expect(work?.endedAt).toBeUndefined();
+
+    release();
+    await new Promise((r) => setTimeout(r, 120));
+    work = useChatStore.getState().messages.find((m) => m.role === 'assistant')?.work;
+    expect(work?.endedAt).toBeTypeOf('number');
+    expect(work?.steps.every((s) => s.status === 'done')).toBe(true);
+  });
+
+  // Вложения (2026-10-25): файлы видны над вопросом сразу, на сервер уходят их id.
+  it('sends attached files with the question and shows them on the bubble', async () => {
+    const mockSend = chatsApi.sendMessage as ReturnType<typeof vi.fn>;
+    mockSend.mockResolvedValue({ id: 'srv_2', role: 'assistant', kind: 'text', text: 'Неустойка 0,1%.' });
+
+    useChatStore.getState().sendMessage('Какая неустойка?', [
+      { uploadId: 'up_1', name: 'Договор.docx', size: '48 KB' },
+      { uploadId: 'up_2', name: 'Сроки.xlsx', size: '12 KB' },
+    ]);
+    const user = useChatStore.getState().messages.find((m) => m.role === 'user');
+    expect(user?.attachments).toEqual([
+      { name: 'Договор.docx', size: '48 KB' },
+      { name: 'Сроки.xlsx', size: '12 KB' },
+    ]);
+    await new Promise((r) => setTimeout(r, 60));
+    expect(mockSend.mock.calls[0][6]).toEqual(['up_1', 'up_2']);
   });
 
   it('a mid-stream failure shows an honest error, not a half-written answer', async () => {
@@ -172,7 +222,7 @@ describe('chat store — editor toggles & document undo/redo', () => {
     vi.clearAllMocks();
     useChatStore.setState({
       phase: 'analyzed', messages: [], analysis: analysisWith(baseDoc), activeStep: -1, error: null,
-      serverSessionId: null, sessionLoading: false, ghost: false, showEdits: true, docUndo: [], docRedo: [],
+      serverSessionId: null, sessionLoading: false, showEdits: true, docUndo: [], docRedo: [],
     });
   });
 
@@ -239,7 +289,7 @@ describe('chat store — editor toggles & document undo/redo', () => {
   });
 });
 
-describe('chat store — template draft in the workspace', () => {
+describe('chat store — saved draft in the workspace', () => {
   it('adoptDraft opens an editable draft with heading/paragraph blocks and no findings', () => {
     useChatStore.getState().adoptDraft({
       id: 'st_1',
@@ -248,7 +298,7 @@ describe('chat store — template draft in the workspace', () => {
     });
     const s = useChatStore.getState();
     expect(s.draftSource?.savedTemplateId).toBe('st_1');
-    expect(s.analysis?.canEdit).toBe(true); // правки сохраняются в сам шаблон
+    expect(s.analysis?.canEdit).toBe(true); // правки сохраняются в сам документ
     expect(s.analysis?.findings).toEqual([]);
     const types = (s.analysis?.document ?? []).map((b) => b.type);
     expect(types).toEqual(['heading', 'heading', 'paragraph']); // CAPS + «1. …» → заголовки
@@ -259,7 +309,7 @@ describe('chat store — template draft in the workspace', () => {
     useChatStore.getState().adoptDraft({ id: 'st_rt', title: 'Договор', content });
     const doc = useChatStore.getState().analysis!.document;
     expect(draftBlocksToText(doc)).toBe(content); // блоки ↔ текст без потерь
-    // Жирный TextRun сплющивается в обычный текст (шаблон хранится как plain text).
+    // Жирный TextRun сплющивается в обычный текст (документ хранится как plain text).
     expect(draftBlocksToText([{ type: 'paragraph', segments: ['Срок: ', { text: '30 дней', marks: ['b'] }] }]))
       .toBe('Срок: 30 дней');
   });
@@ -319,30 +369,7 @@ describe('chat store — template draft in the workspace', () => {
     expect(s.phase).toBe('analyzed');
   });
 
-  it('enterGhost over a half-loaded chat does not resurrect the stale session id', () => {
-    // Скелетон ещё ждал сообщений — его fetch убьёт смена эпохи; восстановленный
-    // id вёл бы в «невидимую» сессию (сообщения уходят в чат, которого не видно).
-    useChatStore.setState({ serverSessionId: 's_half', sessionLoading: true, phase: 'idle', messages: [] });
-    useChatStore.getState().enterGhost();
-    useChatStore.getState().exitGhost();
-    const s = useChatStore.getState();
-    expect(s.serverSessionId).toBeNull();
-    expect(s.sessionLoading).toBe(false);
-  });
-
-  it('ghost mode round-trip preserves the template-draft canvas and error text', () => {
-    useChatStore.getState().adoptDraft({ id: 'st_g', title: 'NDA', content: 'Текст соглашения.' });
-    useChatStore.setState({ phase: 'error', error: 'Понятная ошибка' });
-    useChatStore.getState().enterGhost();
-    expect(useChatStore.getState().draftSource).toBeNull(); // в госте канвас чистый
-    useChatStore.getState().exitGhost();
-    const s = useChatStore.getState();
-    expect(s.draftSource?.savedTemplateId).toBe('st_g'); // кнопки черновика вернулись
-    expect(s.analysis?.id).toBe('draft_st_g');
-    expect(s.error).toBe('Понятная ошибка'); // текст ошибки не деградировал
-  });
-
-  it('sendMessage grounds a draft question in the template text, not a phantom analysis id', async () => {
+  it('sendMessage grounds a draft question in the saved draft text, not a phantom analysis id', async () => {
     const mockCreate = chatsApi.create as ReturnType<typeof vi.fn>;
     const mockSend = chatsApi.sendMessage as ReturnType<typeof vi.fn>;
     mockCreate.mockResolvedValue({ id: 's_draft' });
@@ -356,7 +383,7 @@ describe('chat store — template draft in the workspace', () => {
   });
 
   it('adoptDraft clears a stuck sessionLoading from an abandoned loadSession', () => {
-    // Гонка: открыли несохранённый чат (скелетон), не дождались и открыли шаблон.
+    // Гонка: открыли несохранённый чат (скелетон), не дождались и открыли сохранённый документ.
     useChatStore.setState({ sessionLoading: true });
     useChatStore.getState().adoptDraft({ id: 'st_race', title: 'NDA', content: 'Текст.' });
     expect(useChatStore.getState().sessionLoading).toBe(false); // не вечный скелетон
@@ -386,7 +413,7 @@ describe('chat store — фото страниц договора', () => {
     vi.clearAllMocks();
     useChatStore.setState({
       phase: 'idle', messages: [], analysis: null, activeStep: -1, error: null,
-      serverSessionId: null, sessionLoading: false, ghost: false,
+      serverSessionId: null, sessionLoading: false,
     });
   });
 
@@ -433,7 +460,7 @@ describe('chat store — файл договора', () => {
     vi.clearAllMocks();
     useChatStore.setState({
       phase: 'idle', messages: [], analysis: null, activeStep: -1, error: null,
-      serverSessionId: null, sessionLoading: false, ghost: false,
+      serverSessionId: null, sessionLoading: false,
     });
   });
 
@@ -502,7 +529,7 @@ describe('chat store — новый договор в уже открытом ч
       // Открыт старый чат со своим договором.
       messages: [{ id: 'old_f', role: 'user', kind: 'file', file: { name: 'Старый.pdf', size: '1 KB' } }],
       analysis: { ...ANALYSIS, id: 'an_old', fileName: 'Старый.pdf' } as AnalysisResult,
-      activeStep: -1, error: null, serverSessionId: 's_old', sessionLoading: false, ghost: false,
+      activeStep: -1, error: null, serverSessionId: 's_old', sessionLoading: false,
     });
   });
 
@@ -566,7 +593,7 @@ describe('chat store — создание чата повисло в сети', 
     vi.clearAllMocks();
     useChatStore.setState({
       phase: 'idle', messages: [], analysis: null, activeStep: -1, error: null,
-      serverSessionId: null, sessionLoading: false, ghost: false,
+      serverSessionId: null, sessionLoading: false,
     });
   });
 

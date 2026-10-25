@@ -56,9 +56,8 @@ export function CommandPalette() {
       setOpen(false);
     };
     return [
-      { id: 'chat', label: t('nav.chat'), icon: 'chat', group: t('palette.nav'), run: go('/chat') },
+      { id: 'chat', label: t('nav.chat'), icon: 'home', group: t('palette.nav'), run: go('/chat') },
       { id: 'documents', label: t('nav.documents'), icon: 'docs', group: t('palette.nav'), run: go('/documents') },
-      { id: 'templates', label: t('nav.templates'), icon: 'layout', group: t('palette.nav'), run: go('/templates') },
       { id: 'signatures', label: t('nav.signatures'), icon: 'esign', group: t('palette.nav'), run: go('/signatures') },
       { id: 'analytics', label: t('nav.analytics'), icon: 'analytics', group: t('palette.nav'), run: go('/analytics') },
       { id: 'team', label: t('nav.team'), icon: 'users', group: t('palette.nav'), run: go('/team') },

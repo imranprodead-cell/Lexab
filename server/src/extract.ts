@@ -9,14 +9,21 @@
  *                   are passed as a native document block.
  * - .doc (Word 97–2003) → свой разбор (lib/docText.ts); под паролем или Word 6/95 —
  *                   понятный отказ «сохраните как .docx» сразу при загрузке
+ * - .xlsx/.pptx/.csv — только вложения чата (ATTACHMENT_EXTENSIONS):
+ *                   таблицы и слайды текстом (lib/officeText.ts), CSV — как TXT
  */
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { badRequest } from './lib/errors.ts';
 import { docxToText } from './lib/docxText.ts';
 import { DocEncryptedError, docToText } from './lib/docText.ts';
+import { pptxToText, xlsxToText } from './lib/officeText.ts';
 
+/** Форматы ДОГОВОРА: анализ, сравнение, пакетная проверка, публичный API. */
 export const ALLOWED_EXTENSIONS = ['.pdf', '.doc', '.docx', '.txt', '.md'];
+/** Вложения чата (POST /uploads): договоры + таблицы и презентации, о которых
+ *  можно спросить ИИ. На разбор рисков Excel и PowerPoint не идут. */
+export const ATTACHMENT_EXTENSIONS = [...ALLOWED_EXTENSIONS, '.xlsx', '.pptx', '.csv'];
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024; // ≤ ~10 MB per the handoff
 /** Cap on a docx's total DEcompressed size — a ZIP that expands past this is a
  *  decompression bomb (a few MB → many GB), so it's rejected before mammoth
@@ -145,11 +152,14 @@ export function verifyFileSignature(buffer: Buffer, fileName: string): boolean {
       // offset 0 (a leading BOM or whitespace is tolerated).
       return buffer.subarray(0, 1024).includes(Buffer.from('%PDF'));
     case '.docx': // ZIP container: "PK" + 03/05/07
+    case '.xlsx':
+    case '.pptx':
       return buffer.length >= 4 && buffer[0] === 0x50 && buffer[1] === 0x4b && [0x03, 0x05, 0x07].includes(buffer[2]);
     case '.doc': // legacy OLE compound file
       return buffer.length >= 8 && buffer[0] === 0xd0 && buffer[1] === 0xcf && buffer[2] === 0x11 && buffer[3] === 0xe0;
     case '.txt':
     case '.md':
+    case '.csv':
       return looksLikeText(buffer);
     default:
       return false;
@@ -212,7 +222,7 @@ export function decodeTextWithoutBom(buffer: Buffer): string {
 
 export async function extractText(buffer: Buffer, fileName: string): Promise<string | null> {
   const ext = fileExtension(fileName);
-  if (ext === '.txt' || ext === '.md') {
+  if (ext === '.txt' || ext === '.md' || ext === '.csv') {
     // Decode by BOM so a UTF-16 file (e.g. Windows Notepad "Unicode") isn't mangled.
     if (buffer[0] === 0xff && buffer[1] === 0xfe) return buffer.subarray(2).toString('utf16le');
     if (buffer[0] === 0xfe && buffer[1] === 0xff) {
@@ -252,6 +262,28 @@ export async function extractText(buffer: Buffer, fileName: string): Promise<str
     }
     const text = own && (!plain || countLetters(own) >= countLetters(plain) * 0.97) ? own : plain;
     return text ? text.slice(0, MAX_TEXT_CHARS) : null;
+  }
+  if (ext === '.xlsx' || ext === '.pptx') {
+    // Тот же гейт от ZIP-бомбы, что и у .docx, — до любой распаковки частей.
+    const decompressed = zipRealDecompressedSize(buffer);
+    if (decompressed !== null && decompressed > MAX_DECOMPRESSED_BYTES) {
+      throw badRequest(
+        'Файл слишком большой в распакованном виде (возможно, повреждён). / File is too large when decompressed.',
+      );
+    }
+    let text: string | null = null;
+    try {
+      text = ext === '.xlsx' ? xlsxToText(buffer) : pptxToText(buffer);
+    } catch {
+      text = null;
+    }
+    if (!text?.trim()) {
+      throw badRequest(
+        'Не удалось прочитать текст из этого файла (пустой, защищён паролем или повреждён) — откройте его и сохраните заново. / ' +
+          'Could not read any text from this file (empty, password-protected or damaged) — open it and save it again.',
+      );
+    }
+    return text.slice(0, MAX_TEXT_CHARS);
   }
   if (ext === '.doc') {
     // Раньше .doc принимался, а текста из него не было: файл занимал место, а

@@ -4,8 +4,8 @@
 !.env.example
 
 # Runtime data (embedded PGlite DB + local file uploads).
-# ТОЛЬКО корневой server/data/ — НЕ src/data/ (там код: playbookPacks,
-# sampleAnalysis), иначе git молча не коммитил бы исходники.
+# ТОЛЬКО корневой server/data/ — НЕ src/data/ (если там появится код,
+# git молча не коммитил бы исходники).
 /data/
 /data-*/
 

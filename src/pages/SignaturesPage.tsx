@@ -85,7 +85,7 @@ export function SignaturesPage() {
 
   return (
     <div className={styles.page}>
-      <TopBar title={t('sig.title')} />
+      <TopBar title={t('sig.title')} hideCountry />
       <div className={`${styles.body} scroll`}>
         <div className={styles.container}>
           <div className={styles.pageHead} ref={useReveal()}>
@@ -117,7 +117,7 @@ export function SignaturesPage() {
                       <div className={styles.docCellName} style={{ flex: 1, minWidth: 0 }}>{s.documentName}</div>
                     </div>
                     <div className={styles.rowCardBadges}>
-                      <Badge color={STATUS_TONE[s.status]} plain>{t(`sigstatus.${s.status}`)}</Badge>
+                      <Badge color={STATUS_TONE[s.status]}>{t(`sigstatus.${s.status}`)}</Badge>
                     </div>
                     <div className={styles.rowCardMeta}>
                       <span>{t('sig.signed', { a: signed, b: s.recipients.length })}</span>
@@ -152,7 +152,7 @@ export function SignaturesPage() {
                           </div>
                         </td>
                         <td className={styles.td}>
-                          <Badge color={STATUS_TONE[s.status]} plain>{t(`sigstatus.${s.status}`)}</Badge>
+                          <Badge color={STATUS_TONE[s.status]}>{t(`sigstatus.${s.status}`)}</Badge>
                         </td>
                         <td className={`${styles.td} ${styles.hideSm} ${styles.metaText}`}>
                           {t('sig.signed', { a: signed, b: s.recipients.length })}
@@ -186,7 +186,7 @@ export function SignaturesPage() {
                   {t('sig.col.sent')}: {formatDateFull(selected.sentAt, locale)}
                 </div>
               </div>
-              <Badge color={STATUS_TONE[selected.status]} plain>
+              <Badge color={STATUS_TONE[selected.status]}>
                 {t(`sigstatus.${selected.status}`)}
               </Badge>
             </div>

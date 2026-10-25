@@ -33,7 +33,7 @@ import { signatureRoutes } from './routes/signatures.routes.ts';
 import { teamRoutes } from './routes/team.routes.ts';
 import { auditRoutes } from './routes/audit.routes.ts';
 import { ssoRoutes } from './routes/sso.routes.ts';
-import { templateRoutes } from './routes/templates.routes.ts';
+import { savedDocRoutes } from './routes/saved-docs.routes.ts';
 import { playbookRoutes } from './routes/playbooks.routes.ts';
 import { contractRoutes } from './routes/contracts.routes.ts';
 import { batchRoutes } from './routes/batch.routes.ts';
@@ -245,7 +245,7 @@ export async function buildApp(db: Db): Promise<FastifyInstance> {
       projectRoutes(api, db);
       signRoutes(api, db);
       approvalRoutes(api, db);
-      templateRoutes(api, db);
+      savedDocRoutes(api, db);
       playbookRoutes(api, db);
       contractRoutes(api, db);
       batchRoutes(api, db);

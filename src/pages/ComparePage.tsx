@@ -211,7 +211,7 @@ export function ComparePage() {
                 return (
                   <div key={idx}>
                     <div className={styles.changeMeta}>
-                      <Badge color={c.severity} plain>
+                      <Badge color={c.severity}>
                         {c.severity}
                       </Badge>
                       <span className={styles.changeComment}>{c.comment}</span>

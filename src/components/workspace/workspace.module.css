@@ -304,18 +304,19 @@
 .docBody {
   flex: 1;
   overflow-y: auto;
-  padding: 40px 28px 120px;
+  /* Низ — место под плавающую панель инструментов. */
+  padding: 24px 24px 120px;
 }
-/* Лист документа: белая карточка эталона (panel + border) на --doc-bg,
-   тень темы вместо жёсткой чёрной из старой тёмной темы. */
+/* Лист документа — как лист в боковой панели чата (решение владельца
+   2026-10-25): белая бумага с тонкой рамкой, скругление 6px, лёгкая тень. */
 .paper {
   max-width: 720px;
   margin: 0 auto;
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: var(--r-xl);
-  padding: 56px 60px;
-  box-shadow: var(--shadow-pop);
+  border-radius: 6px;
+  padding: 40px 48px;
+  box-shadow: var(--shadow-card);
   animation: wsIn 0.5s var(--ease) both;
 }
 .paperHeader {
@@ -347,9 +348,11 @@
 }
 .clause {
   font-family: var(--font-serif);
-  font-size: 15.5px;
-  line-height: 1.95;
-  color: #c9c9d2;
+  font-size: 15px;
+  line-height: 1.7;
+  /* Обычный цвет текста: бледный #c9c9d2 остался от старой тёмной темы и
+     на белом листе почти не читался. */
+  color: var(--text);
   margin: 0 0 8px;
   /* Honor '\n' the user put in a clause — visible both in the static render and
      in the re-seeded editor (segmentsToHtml keeps them as literal newlines). */
@@ -519,6 +522,9 @@
   bottom: 24px;
   left: 50%;
   transform: translateX(-50%);
+  /* Своя ширина: кнопки делят её поровну (см. ниже), а не сжимаются по
+     длине подписи. */
+  width: min(760px, calc(100% - 32px));
   z-index: 20;
 }
 .toolbarInner {
@@ -554,6 +560,41 @@
 }
 .toolbarBtn:hover {
   background: var(--hover-2);
+}
+/* Все кнопки панели одного размера (решение владельца 2026-10-25): равная
+   ширина и высота, подпись по центру — короткая «Поделиться» больше не
+   выделяется среди двухстрочных «Скачать Word», «История версий». */
+.toolbarInner {
+  display: grid; /* колонки задаёт FloatingToolbar (gridTemplateColumns) */
+  align-items: stretch;
+}
+.toolbarInner > .toolbarBtn,
+.toolbarInner > .toolbarMenuWrap {
+  min-width: 0;
+}
+.toolbarInner .toolbarBtn {
+  justify-content: center;
+  text-align: center;
+  line-height: 1.25;
+  padding-inline: 10px;
+}
+.toolbarInner > .toolbarMenuWrap > .toolbarBtn {
+  width: 100%;
+}
+/* Узкие колонки: значок над подписью у всех кнопок (ставит FloatingToolbar). */
+.toolbar[data-compact] .toolbarInner .toolbarBtn {
+  flex-direction: column;
+  gap: 4px;
+  padding: 7px 4px;
+  font-size: 12.5px;
+  overflow-wrap: anywhere; /* крайний случай: совсем узкое окно */
+}
+.toolbarInner > .toolbarDivider {
+  align-self: center;
+}
+/* «Только просмотр» — по центру строки, а не растянутой во всю высоту. */
+.toolbarInner > span:not(.toolbarDivider) {
+  align-self: center;
 }
 
 /* Download menu (tracked vs clean) ---------------------------------------- */
@@ -799,10 +840,16 @@
   .toolbar {
     left: 8px;
     right: 8px;
+    width: auto;
+    transform: none;
   }
   .toolbarInner {
     flex-wrap: wrap;
     justify-content: center;
+  }
+  .toolbarInner {
+    /* сильнее inline-колонок из FloatingToolbar */
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
   }
 }
 
@@ -837,6 +884,12 @@
     left: 8px;
     right: 8px;
     bottom: 10px;
+    width: auto;
+    transform: none;
+  }
+  .toolbarInner {
+    /* сильнее inline-колонок из FloatingToolbar */
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
   }
 
   .toolbarInner {
@@ -941,9 +994,9 @@
 /* Lists inside the document. */
 .clauseList {
   font-family: var(--font-serif);
-  font-size: 15.5px;
-  line-height: 1.95;
-  color: #c9c9d2;
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--text);
   margin: 0 0 8px;
   padding-inline-start: 26px;
 }

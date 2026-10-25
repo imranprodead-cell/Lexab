@@ -176,6 +176,7 @@ export async function retrieveLegalContext(db: Db, params: RetrieveParams): Prom
   const rewrites = await rewriteQuery(params.query, params.jurisdiction);
   // Original question + rewrites (deduped) all participate in the search.
   const queries = [...new Set([params.query, ...rewrites])].slice(0, 4);
+  params.onQueries?.(queries);
 
   const lists: ChunkRow[][] = [];
   const filters = `c.jurisdiction = $2

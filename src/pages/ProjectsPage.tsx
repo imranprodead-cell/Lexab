@@ -126,7 +126,7 @@ export function ProjectsPage() {
 
   return (
     <div className={styles.page}>
-      <TopBar title={t('projects.title')} />
+      <TopBar title={t('projects.title')} hideCountry />
       <div className={`${styles.body} scroll`}>
         <div className={styles.container}>
           <div

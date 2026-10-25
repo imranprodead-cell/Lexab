@@ -7,7 +7,7 @@
  * больше, чем сервер даёт: цифру некуда вписать руками.
  *
  * Состав возможностей по ступеням — зеркало FEATURE_MIN_PLAN (planFeatures.ts),
- * проверено 05.08.2026 (+17.10.2026 фото и сканы): Standard+ — выгрузка DOCX, шаблоны,
+ * проверено 05.08.2026 (+17.10.2026 фото и сканы): Standard+ — выгрузка DOCX, договор по описанию (/draft),
  * фото и сканы договоров; Pro+ — сравнение
  * редакций, история версий, согласования, плейбуки, обязательства и сроки,
  * пакетная проверка, сценарии; Business+ — команда, журнал действий, единый
@@ -141,12 +141,12 @@ export const pricing: PageContent = {
         {
           title: { ru: 'Standard', en: 'Standard', de: 'Standard', ar: 'Standard', kk: 'Standard', uz: 'Standard' },
           body: {
-            ru: 'Добавляются выгрузка разбора в DOCX, библиотека шаблонов с черновиком по форме и проверка фото и сканов договоров.',
-            en: 'Adds DOCX export of the review, the template library with form-driven drafts, and review of contract photos and scans.',
-            de: 'Ergänzt den DOCX-Export der Prüfung, die Vorlagenbibliothek mit Entwurf per Formular und die Prüfung von Vertragsfotos und Scans.',
-            ar: 'يضيف تصدير المراجعة إلى DOCX، ومكتبة القوالب مع مسودة عبر نموذج، ومراجعة صور العقود ونسخها الممسوحة ضوئيًا.',
-            kk: 'Талдауды DOCX-ке шығару, форма бойынша жобасы бар үлгілер кітапханасы және шарттардың фотолары мен скандарын тексеру қосылады.',
-            uz: 'Tahlilni DOCX ga chiqarish, shakl boʻyicha loyihasi bor shablonlar kutubxonasi va shartnomalarning fotosurat va skanlarini tekshirish qoʻshiladi.',
+            ru: 'Добавляются выгрузка разбора в DOCX, договор по описанию сразу в редакторе (команда /draft) и проверка фото и сканов договоров.',
+            en: 'Adds DOCX export of the review, a contract drafted from your description straight into the editor (the /draft command), and review of contract photos and scans.',
+            de: 'Ergänzt den DOCX-Export der Prüfung, einen Vertrag nach Ihrer Beschreibung direkt im Editor (Befehl /draft) und die Prüfung von Vertragsfotos und Scans.',
+            ar: 'يضيف تصدير المراجعة إلى DOCX، وعقدًا يُصاغ من وصفك مباشرة في المحرر (الأمر /draft)، ومراجعة صور العقود ونسخها الممسوحة ضوئيًا.',
+            kk: 'Талдауды DOCX-ке шығару, сипаттамаңыз бойынша бірден редакторда жасалатын шарт (/draft командасы) және шарттардың фотолары мен скандарын тексеру қосылады.',
+            uz: 'Tahlilni DOCX ga chiqarish, tavsifingiz boʻyicha darhol muharrirda tuziladigan shartnoma (/draft buyrugʻi) va shartnomalarning fotosurat va skanlarini tekshirish qoʻshiladi.',
           },
         },
         {
@@ -244,12 +244,12 @@ export const pricing: PageContent = {
         {
           q: { ru: 'Что считается одним обращением к ИИ?', en: 'What counts as one AI request?', de: 'Was zählt als eine KI-Anfrage?', ar: 'ما الذي يُحتسب طلبًا واحدًا؟', kk: 'Бір ИИ өтініші деп не саналады?', uz: 'Bitta AI murojaati deb nima sanaladi?' },
           a: {
-            ru: 'Один разбор договора, одно сравнение редакций, один черновик по шаблону или один вопрос в диалоге. Если модель не ответила, обращение возвращается в лимит — за сбой вы не платите.',
-            en: 'One contract review, one version comparison, one template draft or one question in a conversation. If the model fails, the request is returned to your allowance — you do not pay for a failure.',
-            de: 'Eine Vertragsprüfung, ein Versionsvergleich, ein Vorlagenentwurf oder eine Frage im Dialog. Antwortet das Modell nicht, wird die Anfrage gutgeschrieben — für einen Fehlschlag zahlen Sie nicht.',
-            ar: 'مراجعة عقد واحدة، أو مقارنة نسختين، أو مسودة من قالب، أو سؤال في محادثة. وإن لم يستجب النموذج يُعاد الطلب إلى حصتك — فلا تدفع مقابل الإخفاق.',
-            kk: 'Бір шарт талдауы, бір редакция салыстыруы, үлгі бойынша бір жоба немесе диалогтағы бір сұрақ. Модель жауап бермесе, өтініш лимитке қайтарылады — сәтсіздік үшін төлемейсіз.',
-            uz: 'Bitta shartnoma tahlili, bitta tahrir solishtiruvi, shablon boʻyicha bitta loyiha yoki suhbatdagi bitta savol. Model javob bermasa, murojaat limitga qaytariladi — muvaffaqiyatsizlik uchun toʻlamaysiz.',
+            ru: 'Один разбор договора, одно сравнение редакций, один черновик договора или один вопрос в диалоге. Если модель не ответила, обращение возвращается в лимит — за сбой вы не платите.',
+            en: 'One contract review, one version comparison, one contract draft or one question in a conversation. If the model fails, the request is returned to your allowance — you do not pay for a failure.',
+            de: 'Eine Vertragsprüfung, ein Versionsvergleich, ein Vertragsentwurf oder eine Frage im Dialog. Antwortet das Modell nicht, wird die Anfrage gutgeschrieben — für einen Fehlschlag zahlen Sie nicht.',
+            ar: 'مراجعة عقد واحدة، أو مقارنة نسختين، أو مسودة عقد، أو سؤال في محادثة. وإن لم يستجب النموذج يُعاد الطلب إلى حصتك — فلا تدفع مقابل الإخفاق.',
+            kk: 'Бір шарт талдауы, бір редакция салыстыруы, бір шарт жобасы немесе диалогтағы бір сұрақ. Модель жауап бермесе, өтініш лимитке қайтарылады — сәтсіздік үшін төлемейсіз.',
+            uz: 'Bitta shartnoma tahlili, bitta tahrir solishtiruvi, bitta shartnoma loyihasi yoki suhbatdagi bitta savol. Model javob bermasa, murojaat limitga qaytariladi — muvaffaqiyatsizlik uchun toʻlamaysiz.',
           },
         },
         {

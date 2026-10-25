@@ -1,28 +1,30 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { CountrySelector } from '@/components/layout/CountrySelector';
 import { TopBar } from '@/components/layout/TopBar';
+import { VaultHeader } from '@/components/vault/VaultHeader';
 import { Icon } from '@/components/icons/Icon';
 import { Badge } from '@/components/ui/Badge';
 import { Button, IconButton } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { TextField } from '@/components/ui/TextField';
 import { EmptyState, ErrorState, SkeletonRows } from '@/components/ui/States';
-import { SelectMenu } from '@/components/ui/SelectMenu';
 import { playbooksApi } from '@/api';
 import { ApiError } from '@/api/util';
 import { useAsync } from '@/hooks/useAsync';
 import { usePageTitle } from '@/hooks/usePageTitle';
-import { useReveal } from '@/hooks/useReveal';
 import { Reveal } from './Reveal';
 import { useUIStore } from '@/store/useUIStore';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { Playbook } from '@/types/domain';
 import styles from './pages.module.css';
 
-/** Corpus jurisdiction codes a playbook can target (plus "All" = null). */
-const JURISDICTIONS = ['UK', 'UZ', 'KZ', 'DE', 'US', 'CA', 'AE'] as const;
-/** Sentinel used by the <select> to represent the null (global) jurisdiction. */
+/** Sentinel used by the picker to represent the null (global) jurisdiction.
+ *  Страны плейбука — коды базы законов (UK, UZ, KZ, DE, US, CA, AE). */
 const ALL = 'ALL';
+/** Британия: в базе законов UK, у флагов и списка стран — GB. */
+const toFlagCode = (code: string) => (code === 'UK' ? 'GB' : code);
+const fromFlagCode = (code: string) => (code === 'GB' ? 'UK' : code);
 
 interface EditorForm {
   name: string;
@@ -40,7 +42,7 @@ const emptyForm: EditorForm = { name: '', jurisdiction: ALL, active: true, rules
  * — the API answers 402 on lower plans, surfaced here as an upsell.
  */
 export function PlaybooksPage() {
-  const { t, lang } = useI18n();
+  const { t } = useI18n();
   const navigate = useNavigate();
   const pushToast = useUIStore((s) => s.pushToast);
   usePageTitle(t('playbooks.title'));
@@ -62,27 +64,6 @@ export function PlaybooksPage() {
   );
   const locked = view?.locked === true;
   const data = view && !view.locked ? view.rows : null;
-
-  // Готовые экспертные наборы: живут в модалке за кнопкой «Готовые наборы»
-  // (в шапке и на пустом экране), установка — один клик.
-  const { data: packs } = useAsync((signal) => playbooksApi.packs(signal), []);
-  const [packsOpen, setPacksOpen] = useState(false);
-  const [installing, setInstalling] = useState<string | null>(null);
-  const installedNames = new Set((data ?? []).map((p) => p.name));
-  const install = async (packId: string) => {
-    if (installing) return;
-    setInstalling(packId);
-    try {
-      const pb = await playbooksApi.installPack(packId, lang);
-      mutate((v) => (v && !v.locked ? { locked: false, rows: [pb, ...v.rows.filter((r) => r.id !== pb.id)] } : v));
-      pushToast(t('playbooks.packInstalled'), 'success');
-      reload();
-    } catch (err) {
-      pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
-    } finally {
-      setInstalling(null);
-    }
-  };
 
   // Editor modal state — `editing` is the playbook being edited, or null on create.
   const [editorOpen, setEditorOpen] = useState(false);
@@ -187,33 +168,21 @@ export function PlaybooksPage() {
 
   return (
     <div className={styles.page}>
-      <TopBar title={t('playbooks.title')} />
+      <TopBar title={t('nav.documents')} hideCountry />
       <div className={`${styles.body} scroll`}>
         <div className={styles.container}>
-          <div
-            className={styles.pageHead}
-            ref={useReveal()}
-            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: 16, flexWrap: 'wrap' }}
-          >
-            <div>
-              <h1 className={styles.pageTitle}>{t('playbooks.title')}</h1>
-              <p className={styles.pageSub}>{t('playbooks.sub')}</p>
-            </div>
-            {/* Кнопки в шапке — только при непустом списке: на пустом экране
-                свои кнопки в центре, две одинаковые рядом не нужны. */}
-            {!locked && !loading && !error && (data ?? []).length > 0 ? (
-              <div style={{ display: 'inline-flex', gap: 10, flexWrap: 'wrap' }}>
-                {(packs ?? []).length > 0 ? (
-                  <Button variant="secondary" icon="layout" onClick={() => setPacksOpen(true)}>
-                    {t('playbooks.packsTitle')}
-                  </Button>
-                ) : null}
+          {/* Кнопки раздела — под вкладками Vault, только при непустом списке:
+              на пустом экране свои кнопки в центре, две одинаковые не нужны. */}
+          <VaultHeader
+            active="playbooks"
+            actions={
+              !locked && !loading && !error && (data ?? []).length > 0 ? (
                 <Button variant="primary" icon="plus" onClick={openCreate}>
                   {t('playbooks.new')}
                 </Button>
-              </div>
-            ) : null}
-          </div>
+              ) : undefined
+            }
+          />
 
           {loading ? (
             <SkeletonRows rows={3} height={110} />
@@ -236,16 +205,9 @@ export function PlaybooksPage() {
               title={t('playbooks.empty')}
               body={t('playbooks.emptyBody')}
               action={
-                <div style={{ display: 'inline-flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
-                  {(packs ?? []).length > 0 ? (
-                    <Button variant="secondary" icon="layout" onClick={() => setPacksOpen(true)}>
-                      {t('playbooks.packsTitle')}
-                    </Button>
-                  ) : null}
-                  <Button variant="primary" icon="plus" onClick={openCreate}>
-                    {t('playbooks.new')}
-                  </Button>
-                </div>
+                <Button variant="primary" icon="plus" onClick={openCreate}>
+                  {t('playbooks.new')}
+                </Button>
               }
             />
           ) : (
@@ -269,7 +231,7 @@ export function PlaybooksPage() {
                   <div className={styles.cardFoot}>
                     <span>{jurisdictionLabel(pb.jurisdiction)}</span>
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                      <Badge color={pb.active ? 'Low' : 'var(--mut)'} plain>
+                      <Badge color={pb.active ? 'Low' : 'var(--mut)'}>
                         {pb.active ? t('playbooks.activeBadge') : t('playbooks.inactiveBadge')}
                       </Badge>
                       {t('playbooks.rulesCount', { n: pb.rules.length })}
@@ -281,40 +243,6 @@ export function PlaybooksPage() {
           )}
         </div>
       </div>
-
-      {/* Витрина готовых наборов: не закрывается после установки — часто
-          ставят несколько; карточка сама переключается на «установлено». */}
-      <Modal open={packsOpen} title={t('playbooks.packsTitle')} onClose={() => setPacksOpen(false)} maxWidth={640}>
-        <p className={styles.pageSub} style={{ margin: '0 0 14px' }}>{t('playbooks.packsSub')}</p>
-        <div className={styles.grid}>
-          {(packs ?? []).map((pack) => {
-            const name = lang === 'en' ? pack.nameEn : pack.nameRu;
-            const installed = installedNames.has(name);
-            return (
-              <div key={pack.id} className={styles.card} style={{ cursor: 'default' }}>
-                <div className={styles.cardIcon}>
-                  <Icon name="layout" size={20} />
-                </div>
-                <div className={styles.cardTitle}>{name}</div>
-                <p className={styles.pageSub} style={{ margin: '4px 0 10px', fontSize: 13 }}>
-                  {lang === 'en' ? pack.descEn : pack.descRu}
-                </p>
-                <div className={styles.cardFoot}>
-                  <span>{jurisdictionLabel(pack.jurisdiction)} · {t('playbooks.rulesCount', { n: pack.rulesCount })}</span>
-                  <Button
-                    size="sm"
-                    variant={installed ? 'secondary' : 'primary'}
-                    disabled={installed || installing === pack.id}
-                    onClick={() => void install(pack.id)}
-                  >
-                    {installed ? t('playbooks.packInstalledBadge') : installing === pack.id ? t('common.loading') : t('playbooks.packInstall')}
-                  </Button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </Modal>
 
       <Modal
         open={editorOpen}
@@ -374,14 +302,14 @@ export function PlaybooksPage() {
 
           <div className={styles.field}>
             <span className={styles.label}>{t('playbooks.jurisdiction')}</span>
-            <SelectMenu
+            {/* Как в чате: круглые флаги, поиск, галочка; первой строкой —
+                «Все юрисдикции». Британия в базе законов — UK, у флагов — GB. */}
+            <CountrySelector
+              variant="field"
               ariaLabel={t('playbooks.jurisdiction')}
-              value={form.jurisdiction}
-              onChange={(v) => setForm((f) => ({ ...f, jurisdiction: v }))}
-              options={[
-                { value: ALL, label: t('playbooks.allJurisdictions') },
-                ...JURISDICTIONS.map((c) => ({ value: c, label: c })),
-              ]}
+              value={toFlagCode(form.jurisdiction)}
+              onChange={(code) => setForm((f) => ({ ...f, jurisdiction: fromFlagCode(code) }))}
+              allOption={{ value: ALL, label: t('playbooks.allJurisdictions') }}
             />
           </div>
 

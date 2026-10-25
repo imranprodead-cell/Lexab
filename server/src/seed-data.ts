@@ -175,26 +175,6 @@ export async function seedDatabase(db: Db): Promise<void> {
     [newId('m'), hoursAgo(3)],
   );
 
-  // ── Templates ───────────────────────────────────────────────────────────────
-  // The original six (English name/description drive the LLM; *_ru shown to
-  // ru/kk/uz users). t7–t26 are added by migration 033 on every DB, so seed and
-  // migration cover disjoint ids; ON CONFLICT keeps them safe together anyway.
-  const templates: [string, string, string, string, string, string, string, number][] = [
-    ['t1', 'Mutual NDA', 'Двусторонний NDA', 'Confidentiality', 'Two-way non-disclosure for early commercial talks.', 'Взаимное соглашение о неразглашении для ранних переговоров.', 'UK', 11],
-    ['t2', 'Employment Contract', 'Трудовой договор', 'Employment', 'Full-time permanent employee agreement, UK-compliant.', 'Бессрочный трудовой договор с сотрудником (право Великобритании).', 'UK', 24],
-    ['t3', 'Master Services Agreement', 'Рамочный договор услуг (MSA)', 'Commercial', 'Framework agreement for recurring professional services.', 'Рамочное соглашение о регулярных профессиональных услугах.', 'UK', 32],
-    ['t4', 'Data Processing Addendum', 'Соглашение об обработке данных', 'Privacy', 'GDPR Article 28 processor terms.', 'Условия обработчика по статье 28 GDPR.', 'EU', 18],
-    ['t5', 'SAFE (Post-Money)', 'SAFE (Post-Money)', 'Fundraising', 'Simple agreement for future equity.', 'Простое соглашение о будущем участии в капитале.', 'US', 9],
-    ['t6', 'Consultancy Agreement', 'Договор консультационных услуг', 'Commercial', 'Independent contractor engagement terms.', 'Условия привлечения независимого консультанта.', 'UK', 16],
-  ];
-  for (const [id, name, nameRu, category, description, descriptionRu, jurisdiction, clauses] of templates) {
-    await db.query(
-      `INSERT INTO templates (id, name, name_ru, category, description, description_ru, jurisdiction, clauses)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (id) DO NOTHING`,
-      [id, name, nameRu, category, description, descriptionRu, jurisdiction, clauses],
-    );
-  }
-
   // ── Signature requests ──────────────────────────────────────────────────────
   await db.query(
     `INSERT INTO signature_requests (id, user_id, document_name, status, sent_at, created_at)

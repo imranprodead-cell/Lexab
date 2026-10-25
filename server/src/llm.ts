@@ -23,10 +23,10 @@ import {
   fallbackChatReply,
   fallbackCompare,
   fallbackContractDraft,
-  fallbackTemplateDraft,
 } from './fallback.ts';
 import type { RetrievedChunk } from './rag/types.ts';
 import type { DocBlock, Finding, Redline, Severity } from './types.ts';
+import { modeInstructions, modeMaxTokens, type ChatMode } from './lib/chatModes.ts';
 
 let client: Anthropic | null = null;
 function getClient(): Anthropic | null {
@@ -92,7 +92,7 @@ interface DeepseekCall {
   schema?: Record<string, unknown>;
   /** Streaming: fires per text delta (chat). */
   onToken?: (delta: string) => void;
-  /** Бросить при усечении по max_tokens (шаблон/драфт: молча обрезанный
+  /** Бросить при усечении по max_tokens (черновик договора: молча обрезанный
    *  договор хуже честной ошибки — withModelRetry переиграет на Anthropic). */
   failOnLength?: boolean;
   /** Отключить «размышления» reasoning-модели (deepseek-v4-pro). На микро-бюджете
@@ -177,7 +177,7 @@ export function modelForPlan(plan?: string | null): string {
 }
 
 /**
- * Потолок ответа для длинных документов (анализ, сравнение, шаблон, черновик).
+ * Потолок ответа для длинных документов (анализ, сравнение, черновик).
  * 32 000, а не прежние 16 000: размышления считаются в этот же потолок —
  * живой прогон шаблона NDA на Opus 5.5 (effort 'high') упёрся в 16 000, договор
  * обрезался и ушёл на повтор (2026-10-21; Sonnet 5.5 написал его в ~12 400).
@@ -837,7 +837,14 @@ FORMAT: write in clean Markdown and structure for scanability. Lead with the dir
 GROUNDING: when asked to translate, quote or summarise the contract, use ONLY the text inside the <contract> block — never reconstruct or invent clauses that are not there. If the context says the full contract text is unavailable, state that openly and work only with the excerpts you have.
 STRICT SCOPE — legal work only: contracts and documents (analysis, risks, redlines, drafting, comparison, templates, signatures, approvals), legislation, compliance, negotiations, and questions about the Lexab product itself.
 If the user asks anything outside that scope (write code, recipes, homework, small talk, general trivia, etc.), do NOT answer it even partially. Reply with ONE short, polite sentence in the user's language saying you only help with legal questions and contract/document analysis, and invite a legal question instead.
-You are not the user's solicitor — for high-stakes decisions, recommend review by qualified counsel in one short sentence at most.`;
+You are not the user's solicitor — for high-stakes decisions, recommend review by qualified counsel in one short sentence at most.
+CLARIFYING QUESTIONS: when the right answer depends materially on facts the user has not given and you cannot safely assume them (which side they are on, key contract terms, dates, amounts, the governing law), do not guess. Give a brief preliminary answer — what holds regardless and what depends on the missing facts — then END the reply with at most 3 clarifying questions in exactly this block, with nothing after it:
+\`\`\`questions
+? <question>
+- <short answer option>
+- <short answer option>
+\`\`\`
+Give each question 2–4 short, mutually exclusive options (the user can also type their own answer). Typical case to ask: the user asks what to do in their own situation but has not said which side they are on, what their contract says, or the key dates and amounts. Ask only when the answers would genuinely change the advice: never for simple or definitional questions, never when the conversation already contains the facts, and never twice in a row — if your previous reply asked questions and the user answered them, give the full answer. Write the questions and options in the user's language.`;
 
 export interface ChatTurn {
   role: 'user' | 'assistant';
@@ -858,6 +865,8 @@ export async function generateChatReply(
   plan?: string | null,
   historySummary?: string | null,
   legalContext?: string | null,
+  /** /plan или /slides — инструкция режима (lib/chatModes.ts); null — обычный чат. */
+  mode?: ChatMode | null,
 ): Promise<string> {
   if (!hasAnyLlm()) {
     if (!llmFallbackAllowed()) throw serviceUnavailable(LLM_UNAVAILABLE);
@@ -908,6 +917,10 @@ export async function generateChatReply(
         text: `Relevant provisions from Lexab's verified statute database (official sources; each starts with its [unit id]):\n<legal_context>\n${legalContext}\n</legal_context>\nWhen you cite legislation of this jurisdiction, cite ONLY provisions present in this legal context, with the exact article/section/point numbers shown (Uzbek presidential decrees are cited as «п. <N> УП-<№>»/«п. <N> ПП-<№>»). If none of them covers the question, say the database has no matching provision, then answer from general principles and note the citation is not verified. Never invent article numbers.`,
       });
     }
+    // Режим /plan или /slides — последним блоком: он задаёт форму ответа и
+    // не сбивает кэш блока с договором (тот стоит раньше).
+    if (mode) system.push({ type: 'text', text: modeInstructions(mode) });
+    const maxTokens = modeMaxTokens(mode);
     // Retry on the default model only while nothing has streamed to the client
     // yet — a mid-stream retry would duplicate the visible reply.
     let streamed = false;
@@ -918,7 +931,10 @@ export async function generateChatReply(
         return runDeepseek({
           op: 'chat',
           model,
-          maxTokens: 4096,
+          // DeepSeek рассуждает, и раздумья входят в max_tokens: при 4096
+          // длинный ответ (документ после одобрения плана) обрывался — в
+          // потоке пользователь видел недописанный текст (проверено 24.10).
+          maxTokens: Math.max(maxTokens, 8000),
           system: system.map((b) => b.text).join('\n\n'),
           messages: turns,
           onToken: onToken
@@ -934,7 +950,7 @@ export async function generateChatReply(
       if (!api) throw new Error('ANTHROPIC_API_KEY is not set');
       // effort 'medium': visibly faster replies at no extra cost — chat answers
       // are short and grounded, they don't need deep deliberation.
-      const stream = startStream(api, { op: 'chat', model, maxTokens: 4096, system, messages: turns, effort: 'medium' });
+      const stream = startStream(api, { op: 'chat', model, maxTokens, system, messages: turns, effort: 'medium' });
       if (onToken) {
         stream.on('text', (delta) => {
           streamed = true;
@@ -1212,81 +1228,6 @@ export async function generateCompare(
       return fallbackCompare();
     }
     console.error(`[llm] compare failed (failing loud, no fabrication): ${(err as Error).message}`);
-    throw serviceUnavailable(LLM_UNAVAILABLE);
-  }
-}
-
-/* ── Contract generation from a template ────────────────────────────────────── */
-
-export interface TemplateFields {
-  partyA: string;
-  partyB: string;
-  jurisdiction: string;
-  term: string;
-  details: string;
-}
-
-const TEMPLATE_SYSTEM = `You are Lexab, a senior commercial contracts lawyer. Draft a COMPLETE, ready-to-review contract of the given template type — the professional register a qualified lawyer would sign off, not a layman's summary.
-Structure: title; parties block with placeholders like [ПОЛНОЕ НАИМЕНОВАНИЕ / FULL LEGAL NAME] for requisites you were not given (NEVER invent registration numbers, addresses or bank details); numbered clauses with headings covering at least: definitions (Defined Terms, capitalised and used consistently), subject matter, term, obligations of each party, price and payment, confidentiality, liability (with a sensible cap), termination, force majeure, dispute resolution, governing law, notices, entire agreement; signature blocks.
-Consistency: cross-references must point only to sections that exist; numbering continuous; a term defined once and used with the same meaning throughout — no clause may contradict another.
-Legal accuracy: use the drafting terminology of the governing jurisdiction. Do NOT cite specific statute article numbers unless you are certain they exist — prefer wording like «в соответствии с действующим законодательством» over an invented citation.
-Write in the language of the user-provided details (default: English). Output plain text only — no markdown syntax.`;
-
-export async function generateTemplateDraft(
-  templateName: string,
-  templateDescription: string,
-  fields: TemplateFields,
-  plan?: string | null,
-): Promise<string> {
-  if (!hasAnyLlm()) {
-    if (llmFallbackAllowed()) return fallbackTemplateDraft(templateName, fields);
-    throw serviceUnavailable(LLM_UNAVAILABLE);
-  }
-  try {
-    const userContent = `Template: ${templateName} — ${templateDescription}
-Party A: ${fields.partyA}
-Party B: ${fields.partyB}
-Governing jurisdiction: ${fields.jurisdiction}
-Term / duration: ${fields.term}
-Contract brief from the user (what the deal is about + key terms — reflect ALL of it in the clauses): ${fields.details || '—'}`;
-
-    return await withModelRetry(modelForPlan(plan), async (model) => {
-      if (isDeepSeekModel(model)) {
-        const raw = await runDeepseek({
-          op: 'template',
-          model,
-          maxTokens: 8000,
-          system: TEMPLATE_SYSTEM,
-          messages: [{ role: 'user', content: userContent }],
-          failOnLength: true, // обрезанный посреди клаузы договор → ретрай на Anthropic
-          // Размышления v4-pro горят в счёт max_tokens — на длинных русских
-          // шаблонах это гарантированный failOnLength. Весь бюджет — в текст.
-          thinkingDisabled: true,
-        });
-        return raw.trim();
-      }
-
-      const api = getClient();
-      if (!api) throw new Error('ANTHROPIC_API_KEY is not set');
-      const stream = startStream(api, {
-        op: 'template',
-        model,
-        maxTokens: LONG_DOC_MAX_TOKENS,
-        system: TEMPLATE_SYSTEM,
-        messages: [{ role: 'user', content: userContent }],
-      });
-      const message = await stream.finalMessage();
-      logUsage('template', model, message);
-      if (message.stop_reason === 'refusal') throw new Error('model refused the request');
-      if (message.stop_reason === 'max_tokens') throw new Error('output truncated at max_tokens (template)');
-      return textOf(message).trim();
-    });
-  } catch (err) {
-    if (llmFallbackAllowed()) {
-      console.warn(`[llm] template generation failed, using dev fallback: ${(err as Error).message}`);
-      return fallbackTemplateDraft(templateName, fields);
-    }
-    console.error(`[llm] template generation failed (failing loud, no fabrication): ${(err as Error).message}`);
     throw serviceUnavailable(LLM_UNAVAILABLE);
   }
 }

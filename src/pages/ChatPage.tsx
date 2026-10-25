@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type DragEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { EASE } from '@/lib/motion';
@@ -6,20 +6,27 @@ import { TopBar } from '@/components/layout/TopBar';
 import { TopBarActions } from '@/components/layout/TopBarActions';
 import { CountrySelector } from '@/components/layout/CountrySelector';
 import { BrandMenu } from '@/components/layout/BrandMenu';
-import { Icon } from '@/components/icons/Icon';
+import { Icon, type IconName } from '@/components/icons/Icon';
 import { WelcomeScreen } from '@/components/chat/WelcomeScreen';
 import { UserFileBubble } from '@/components/chat/UserFileBubble';
 import { AnalysisCard } from '@/components/chat/AnalysisCard';
 import { SummaryCard } from '@/components/chat/SummaryCard';
 import { ChatInput } from '@/components/chat/ChatInput';
+import { MessageFiles, type ComposerAttachment } from '@/components/chat/Attachments';
+import { WorkSteps } from '@/components/chat/WorkSteps';
+import { TaskSidebar } from '@/components/chat/TaskSidebar';
 import { CloudImportModal } from '@/components/chat/CloudImportModal';
 import { MessageActions } from '@/components/chat/MessageActions';
 import { MarkdownMessage } from '@/components/chat/MarkdownMessage';
+import { DeckCard } from '@/components/chat/DeckCard';
+import { ArtifactPanel } from '@/components/chat/ArtifactPanel';
+import { PlanApprovalCard, PlanApprovedPill, QuestionCard } from '@/components/chat/ChoiceCards';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { ScalesMascot } from '@/components/ui/ScalesMascot';
 import { Modal } from '@/components/ui/Modal';
 import { ErrorState, SkeletonRows } from '@/components/ui/States';
+import { USE_MOCK } from '@/api';
 import { billingApi } from '@/api/billing.api';
 import { analysisApi } from '@/api/analysis.api';
 import { useAsync } from '@/hooks/useAsync';
@@ -28,9 +35,15 @@ import { useUIStore } from '@/store/useUIStore';
 import { usePageTitle } from '@/hooks/usePageTitle';
 import { useI18n } from '@/i18n/I18nProvider';
 import { formatFileSize } from '@/lib/format';
-import { isDocFile, MAX_DOC_BYTES } from '@/lib/docFormats';
+import { isAttachFile, isDocFile, MAX_DOC_BYTES, maxAttachments } from '@/lib/docFormats';
+import { isSlidesCommand, parseDeck } from '@/lib/deck';
+import { extractArtifacts, type Artifact } from '@/lib/artifacts';
+import { answersMessage, displayText, extractQuestions, isApproveCommand, isPlanCommand, looksLikePlan } from '@/lib/questions';
+import { COMMANDS } from '@/data/seed';
 import { plansLabel } from '@/lib/planFeatures';
-import { MAX_PHOTO_BYTES, MAX_PHOTOS } from '@/api/uploads.api';
+import { MAX_PHOTO_BYTES, MAX_PHOTOS, uploadsApi, type UploadedFile } from '@/api/uploads.api';
+import { ApiError } from '@/api/util';
+import { apiErrorMessage } from '@/i18n/apiError';
 import { COUNTRIES } from '@/data/countries';
 import type { ChatMessage } from '@/types/domain';
 import chat from '@/components/chat/chat.module.css';
@@ -46,43 +59,20 @@ function photoDocName(base: string, d = new Date()): string {
   return `${base} ${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} ${p(d.getHours())}-${p(d.getMinutes())}-${p(d.getSeconds())}.pdf`;
 }
 
-// Декоративный фон «строк договора» (эталон app/page.tsx): тонкие полосы 2px
-// с процентными ширинами, часть — золотые. Числа = ширина в %, 'gap' — пропуск
-// строки (пустая «строка абзаца»).
-type BackdropLine = number | { w: number; gold: true } | 'gap';
-const TOP_LINES: BackdropLine[] = [62, 88, 74, 92, { w: 58, gold: true }, 81, 69, 90, 44, 'gap', 84, 71, 93, 52];
-const BOTTOM_LINES: BackdropLine[] = [76, 91, 60, 86, 70, 'gap', 89, { w: 66, gold: true }, 94, 78, 55, 83, 47];
-
-function ContractLines({ items }: { items: BackdropLine[] }) {
-  return (
-    <>
-      {items.map((it, i) =>
-        it === 'gap' ? (
-          <div key={i} className={chat.backdropGap} />
-        ) : (
-          <div
-            key={i}
-            className={`${chat.backdropLine} ${typeof it === 'object' ? chat.backdropLineGold : ''}`}
-            style={{ width: `${typeof it === 'number' ? it : it.w}%` }}
-          />
-        ),
-      )}
-    </>
-  );
+const PLAN_HINT_KEY = 'lexai.planHint';
+function readPlanHint(): string | null {
+  try {
+    return localStorage.getItem(PLAN_HINT_KEY);
+  } catch {
+    return null;
+  }
 }
-
-/** Чисто декоративный фон чата: «строки договора» по углам канваса. */
-function ContractBackdrop() {
-  return (
-    <div aria-hidden className={chat.backdrop}>
-      <div className={chat.backdropCol}>
-        <ContractLines items={TOP_LINES} />
-      </div>
-      <div className={`${chat.backdropCol} ${chat.backdropColEnd}`}>
-        <ContractLines items={BOTTOM_LINES} />
-      </div>
-    </div>
-  );
+function savePlanHint(plan: string) {
+  try {
+    localStorage.setItem(PLAN_HINT_KEY, plan);
+  } catch {
+    /* хранилище недоступно — полоска появится после ответа сервера */
+  }
 }
 
 // Позиция прокрутки по сессиям: возврат из рабочей области (размонтирование →
@@ -98,14 +88,32 @@ const JUMP_HIDE_PX = 80;
 const JUMP_DELAY_MS = 180;
 
 /** User message bubble; long texts collapse with an inline "Expand ⌄" link. */
-function UserBubble({ text }: { text: string }) {
+function UserBubble({ text: raw }: { text: string }) {
   const { t } = useI18n();
   const [expanded, setExpanded] = useState(false);
+  // «/plan …» → цветная плашка «Plan» + текст, как в поле ввода до отправки.
+  const cmd = COMMANDS.find((c) => raw === c.cmd || raw.startsWith(`${c.cmd} `) || raw.startsWith(`${c.cmd}\n`));
+  const text = cmd ? raw.slice(cmd.cmd.length).replace(/^\s+/, '') : raw;
+  const chip = cmd ? (
+    <span className={chat.bubbleChip} data-tone={cmd.cmd.slice(1)}>
+      <Icon name={cmd.icon as IconName} size={14} strokeWidth={1.9} />
+      <span className={chat.cmdChipLabel}>{cmd.cmd.slice(1)}</span>
+    </span>
+  ) : null;
   const long = text.length > 550 || text.split('\n').length > 8;
-  if (!long) return <div className={`${chat.msgUserBubble} ${chat.textIn}`}>{text}</div>;
+  if (!long)
+    return (
+      <div className={`${chat.msgUserBubble} ${chat.textIn}`}>
+        {chip}
+        {text}
+      </div>
+    );
   return (
     <div className={`${chat.msgUserBubble} ${chat.textIn}`}>
-      <div className={expanded ? undefined : chat.bubbleClampText}>{text}</div>
+      <div className={expanded ? undefined : chat.bubbleClampText}>
+        {chip}
+        {text}
+      </div>
       <button type="button" className={chat.bubbleMore} onClick={() => setExpanded((v) => !v)}>
         {expanded ? t('chat.collapse') : t('chat.expand')}
         <span className={`${chat.bubbleMoreChevron} ${expanded ? chat.bubbleMoreChevronOpen : ''}`}>
@@ -136,9 +144,6 @@ export function ChatPage() {
   const sendMessage = useChatStore((s) => s.sendMessage);
   const loadSession = useChatStore((s) => s.loadSession);
   const requestAnchor = useChatStore((s) => s.requestAnchor);
-  const ghost = useChatStore((s) => s.ghost);
-  const enterGhost = useChatStore((s) => s.enterGhost);
-  const exitGhost = useChatStore((s) => s.exitGhost);
   const setFeedback = useChatStore((s) => s.setFeedback);
   const sessionLoading = useChatStore((s) => s.sessionLoading);
   const sessionLoadFailed = useChatStore((s) => s.sessionLoadFailed);
@@ -157,14 +162,20 @@ export function ChatPage() {
   }, []);
   const [dragging, setDragging] = useState(false);
   const [cloudOpen, setCloudOpen] = useState(false);
-  const [ghostConfirm, setGhostConfirm] = useState(false);
   const [draftOpen, setDraftOpen] = useState(false);
   const [draftPrompt, setDraftPrompt] = useState('');
   const [drafting, setDrafting] = useState(false);
 
   // The Free-plan upsell above the composer (hidden on every paid plan).
   const { data: limits } = useAsync((signal) => billingApi.limits(signal), []);
-  const isFree = limits?.plan === 'Free';
+  // Тариф известен только после ответа сервера, а полоска «Больше возможностей»
+  // стоит над полем ввода: появляясь позже, она сдвигала его. Пока ответа нет —
+  // тариф с прошлого раза (подсказка в браузере, не источник истины).
+  const [planHint] = useState(readPlanHint);
+  useEffect(() => {
+    if (limits?.plan) savePlanHint(limits.plan);
+  }, [limits?.plan]);
+  const isFree = (limits?.plan ?? planHint) === 'Free';
   // ≥80% месячного лимита ИИ-запросов (на планах с потолком) — конкретный
   // счётчик вместо общих слов, на любом тарифе.
   const nearLimit = Boolean(
@@ -378,68 +389,156 @@ export function ChatPage() {
   useEffect(() => {
     const firstRun = !urlSyncedOnce.current;
     urlSyncedOnce.current = true;
-    if (!serverSessionId || serverSessionId === sessionId || ghost) return;
+    if (!serverSessionId || serverSessionId === sessionId) return;
     if (firstRun && sessionId) return;
     navigate(`/chat/${serverSessionId}`, { replace: true, state: { keepPage: true } });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [serverSessionId]);
 
-  const handleFile = (file: File) => {
-    if (ghost) {
-      pushToast(t('ghost.noFiles'), 'default');
-      return;
-    }
-    if (!isDocFile(file.name)) {
-      pushToast(t('chat.fileTypes'), 'error');
-      return;
-    }
-    if (file.size > MAX_DOC_BYTES) {
-      pushToast(t('chat.fileTooBig'), 'error');
-      return;
-    }
-    // Pass the file itself so its text reaches the AI (POST /uploads).
-    analyze({ name: file.name, size: formatFileSize(file.size) }, file);
+  // ── Прикреплённые файлы ─────────────────────────────────────────────────
+  // Файл больше не запускает разбор сразу: он ложится карточкой в поле ввода
+  // и грузится на сервер в фоне. С вопросом — ИИ отвечает по файлам; один
+  // договор без текста — полный разбор рисков, как раньше.
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const attachSeq = useRef(0);
+  const maxFiles = maxAttachments(limits?.plan);
+  // Другой чат — свои вложения: карточки не переезжают в чужую переписку.
+  useEffect(() => {
+    setAttachments([]);
+  }, [sessionId]);
+
+  const limitToast = () =>
+    pushToast(isFree || !limits ? t('chat.attach.limitFree', { max: maxFiles }) : t('chat.attach.limit', { max: maxFiles }), 'error');
+
+  /** Карточка сразу, загрузка — в фоне; ошибка — красная карточка и тост с причиной. */
+  const addAttachment = (meta: { name: string; size: string }, upload: () => Promise<UploadedFile>) => {
+    const key = `att_${++attachSeq.current}`;
+    setAttachments((list) => [...list, { key, name: meta.name, size: meta.size, status: 'uploading' }]);
+    upload()
+      .then((up) =>
+        setAttachments((list) =>
+          list.map((a) => (a.key === key ? { ...a, status: 'ready', uploadId: up.id, name: up.fileName, size: up.fileSize } : a)),
+        ),
+      )
+      .catch((err: unknown) => {
+        const reason =
+          err instanceof ApiError && err.status >= 400 && err.status < 500 ? apiErrorMessage(err, t) : t('chat.uploadFailed');
+        pushToast(reason, 'error');
+        setAttachments((list) => list.map((a) => (a.key === key ? { ...a, status: 'error' } : a)));
+      });
   };
 
-  /** Выбор из окна или перетаскивание: один документ ЛИБО фото страниц. */
+  const removeAttachment = (key: string) => setAttachments((list) => list.filter((a) => a.key !== key));
+
+  /** Выбор из окна, перетаскивание или вставка: документы ЛИБО фото страниц
+   *  одного договора (фото склеиваются в один PDF и занимают одно место). */
   const handleFiles = (files: File[]) => {
-    if (ghost) {
-      pushToast(t('ghost.noFiles'), 'default');
+    const room = maxFiles - attachments.length;
+    if (room <= 0) {
+      limitToast();
       return;
     }
     const photos = files.filter(isPhoto);
-    if (!photos.length) {
-      if (files.length > 1) pushToast(t('chat.oneDoc'), 'error');
-      else handleFile(files[0]);
-      return;
-    }
-    if (photos.length < files.length) {
+    if (photos.length && photos.length < files.length) {
       pushToast(t('chat.mixedFiles'), 'error');
       return;
     }
-    // Тариф без «Фото и сканов» — честный отказ сразу, без загрузки снимков.
-    // Флаг считает сервер по тарифу анализа (у участника команды — владельца).
-    if (limits?.features?.scans === false) {
-      pushToast(t('limits.featureLocked', { feature: t('feat.scans'), plans: plansLabel('scans'), plan: limits.plan }), 'error');
+    if (photos.length) {
+      // Тариф без «Фото и сканов» — честный отказ сразу, без загрузки снимков.
+      // Флаг считает сервер по тарифу анализа (у участника команды — владельца).
+      if (limits?.features?.scans === false) {
+        pushToast(t('limits.featureLocked', { feature: t('feat.scans'), plans: plansLabel('scans'), plan: limits.plan }), 'error');
+        return;
+      }
+      if (photos.length > MAX_PHOTOS) {
+        pushToast(t('chat.tooManyPhotos', { max: MAX_PHOTOS }), 'error');
+        return;
+      }
+      if (photos.some((p) => p.size > MAX_PHOTO_BYTES)) {
+        pushToast(t('chat.photoTooBig'), 'error');
+        return;
+      }
+      // Порядок страниц — по имени снимка (IMG_0001, IMG_0002… — порядок съёмки);
+      // одинаковые имена (iOS отдаёт «image.jpg») сохраняют порядок выбора.
+      const ordered = [...photos].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+      const name = photoDocName(t('chat.photoDocName'));
+      addAttachment({ name, size: t('chat.photoCount', { n: ordered.length }) }, () => uploadsApi.uploadPhotos(ordered, name));
       return;
     }
-    if (photos.length > MAX_PHOTOS) {
-      pushToast(t('chat.tooManyPhotos', { max: MAX_PHOTOS }), 'error');
+    if (files.some((f) => !isAttachFile(f.name))) {
+      pushToast(t('chat.fileTypes'), 'error');
       return;
     }
-    if (photos.some((p) => p.size > MAX_PHOTO_BYTES)) {
-      pushToast(t('chat.photoTooBig'), 'error');
+    if (files.some((f) => f.size > MAX_DOC_BYTES)) {
+      pushToast(t('chat.fileTooBig'), 'error');
       return;
     }
-    // Порядок страниц — по имени снимка (IMG_0001, IMG_0002… — порядок съёмки);
-    // одинаковые имена (iOS отдаёт «image.jpg») сохраняют порядок выбора.
-    const ordered = [...photos].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
-    analyze(
-      { name: photoDocName(t('chat.photoDocName')), size: t('chat.photoCount', { n: ordered.length }) },
-      undefined,
-      { photos: ordered },
-    );
+    if (files.length > room) limitToast();
+    for (const file of files.slice(0, room)) {
+      // Pass the file itself so its text reaches the AI (POST /uploads).
+      addAttachment({ name: file.name, size: formatFileSize(file.size) }, () => uploadsApi.upload(file));
+    }
   };
+
+  /** Полный разбор рисков прикреплённого договора (файл уже на сервере). */
+  const analyzeAttachment = (a: ComposerAttachment) => {
+    if (!a.uploadId) return;
+    setAttachments([]);
+    analyze({ name: a.name, size: a.size }, undefined, { uploadId: a.uploadId });
+  };
+
+  /** /analyze: разбор рисков — ровно для одного прикреплённого договора. */
+  const onAnalyzeCommand = () => {
+    if (attachments.some((a) => a.status === 'uploading')) return pushToast(t('chat.attach.wait'), 'default');
+    const [only] = attachments;
+    if (attachments.length === 1 && only.status === 'ready' && isDocFile(only.name)) return analyzeAttachment(only);
+    pushToast(attachments.length ? t('chat.attach.analyzeOne') : t('chat.attachFirst'), 'default');
+  };
+
+  /** Отправка из поля ввода. false — не принято, текст остаётся в поле. */
+  const onComposerSend = (raw: string): boolean => {
+    const text = raw.trim();
+    const lower = text.toLowerCase();
+    if (lower.startsWith('/compare')) {
+      navigate('/compare');
+      return true;
+    }
+    if (lower.startsWith('/draft')) {
+      void runDraft(text.replace(/^\/draft\s*/i, ''));
+      return true;
+    }
+    if (attachments.some((a) => a.status === 'uploading')) {
+      pushToast(t('chat.attach.wait'), 'default');
+      return false;
+    }
+    if (attachments.some((a) => a.status === 'error')) {
+      pushToast(t('chat.attach.removeFailed'), 'error');
+      return false;
+    }
+    if (!text) {
+      // Один договор без вопроса — привычный полный разбор рисков.
+      const [only] = attachments;
+      if (attachments.length === 1 && isDocFile(only.name)) {
+        analyzeAttachment(only);
+        return true;
+      }
+      pushToast(t('chat.attach.askWhat'), 'default');
+      return false;
+    }
+    const files = attachments.flatMap((a) => (a.uploadId ? [{ uploadId: a.uploadId, name: a.name, size: a.size }] : []));
+    setAttachments([]);
+    sendMessage(text, files);
+    return true;
+  };
+
+  const composerPlaceholder =
+    attachments.length === 0
+      ? undefined
+      : attachments.length > 1
+        ? t('chat.attach.placeholderMany')
+        : isDocFile(attachments[0].name)
+          ? t('chat.attach.placeholderOne')
+          : t('chat.attach.placeholderFile');
 
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
@@ -450,12 +549,7 @@ export function ChatPage() {
 
   const onDragOver = (e: DragEvent) => {
     e.preventDefault();
-    if (!dragging && !ghost) setDragging(true);
-  };
-
-  const onExitGhost = () => {
-    exitGhost();
-    pushToast(t('ghost.left'), 'default');
+    if (!dragging) setDragging(true);
   };
 
   // Пузырёк файла — того договора, чей разбор показан: в чате с двумя
@@ -478,24 +572,20 @@ export function ChatPage() {
   // Welcome-экран (эталон empty state): композер стоит посреди экрана между
   // подзаголовком и карточками; после первого сообщения motion layoutId
   // плавно увозит его в нижний док. Условие повторяет ветку рендера ниже.
-  const onWelcome = emptyCanvas && !ghost;
+  const onWelcome = emptyCanvas;
 
   const composerEl = (
     <ChatInput
-      key={ghost ? 'ghost' : 'chat'}
       bare
       hideDisclaimer={onWelcome}
-      ephemeral={ghost}
-      onAnalyze={() => pushToast(ghost ? t('ghost.noFiles') : t('chat.attachFirst'), 'default')}
-      onFiles={ghost ? undefined : (files) => handleFiles(files)}
-      onCloudImport={ghost ? undefined : () => setCloudOpen(true)}
+      onAnalyze={onAnalyzeCommand}
+      onFiles={(files) => handleFiles(files)}
+      onCloudImport={() => setCloudOpen(true)}
       jurisdiction={<CountrySelector variant="composer" />}
-      onSend={(text) => {
-        const lower = text.trim().toLowerCase();
-        if (lower.startsWith('/compare')) return navigate('/compare');
-        if (lower.startsWith('/draft')) return void runDraft(text.trim().replace(/^\/draft\s*/i, ''));
-        return sendMessage(text);
-      }}
+      attachments={attachments}
+      onRemoveAttachment={removeAttachment}
+      placeholder={composerPlaceholder}
+      onSend={onComposerSend}
       banner={
         nearLimit && limits?.aiRequests?.limit ? (
           // ≥80% месячного лимита: конкретная шкала вместо общего апселла —
@@ -524,35 +614,188 @@ export function ChatPage() {
     />
   );
 
-  const renderText = (m: ChatMessage) =>
-    m.role === 'user' ? (
+  // ── Боковая панель (документ / таблица / презентация) ─────────────────────
+  const [panel, setPanelState] = useState<Artifact | null>(null);
+  // Открытие и закрытие панели меняет ширину чата: текст переносится иначе, и
+  // всё, что было на экране, уезжало. Перед сменой запоминаем опору — карточку,
+  // по которой нажали (или верхнее сообщение на экране), — и после перестройки
+  // возвращаем её на то же место. Был внизу чата — остаёшься внизу.
+  const lastPointer = useRef<Element | null>(null);
+  /** Карточка, из которой открыта панель: при закрытии остаётся на месте она же. */
+  const openedFrom = useRef<Element | null>(null);
+  const scrollAnchor = useRef<{ el: Element; top: number } | 'bottom' | null>(null);
+  const setPanel = useCallback((next: Artifact | null) => {
+    const th = threadRef.current;
+    scrollAnchor.current = null;
+    if (th) {
+      const thRect = th.getBoundingClientRect();
+      const thTop = thRect.top;
+      const pressed = lastPointer.current?.isConnected
+        ? lastPointer.current.closest(`.${chat.artCard}, .${chat.deckCard}`)
+        : null;
+      lastPointer.current = null;
+      // Закрытие: та карточка, из которой открывали, — если она ещё на экране.
+      const source = !next && openedFrom.current?.isConnected ? openedFrom.current : null;
+      const sourceVisible = source
+        ? source.getBoundingClientRect().bottom > thTop && source.getBoundingClientRect().top < thRect.bottom
+        : false;
+      const clicked = pressed ?? (sourceVisible ? source : null);
+      openedFrom.current = next ? pressed : null;
+      const atBottom = th.scrollHeight - th.scrollTop - th.clientHeight < 40;
+      if (clicked && th.contains(clicked)) {
+        scrollAnchor.current = { el: clicked, top: clicked.getBoundingClientRect().top - thTop };
+      } else if (atBottom) {
+        scrollAnchor.current = 'bottom';
+      } else {
+        const first = [...th.querySelectorAll('[data-mid]')].find((el) => el.getBoundingClientRect().bottom > thTop);
+        if (first) scrollAnchor.current = { el: first, top: first.getBoundingClientRect().top - thTop };
+      }
+    }
+    setPanelState(next);
+  }, []);
+  useLayoutEffect(() => {
+    const anchor = scrollAnchor.current;
+    const th = threadRef.current;
+    scrollAnchor.current = null;
+    if (!anchor || !th) return;
+    if (anchor === 'bottom') {
+      th.scrollTop = th.scrollHeight;
+    } else if (anchor.el.isConnected) {
+      th.scrollTop += anchor.el.getBoundingClientRect().top - th.getBoundingClientRect().top - anchor.top;
+    }
+  }, [panel]);
+  const openArtifact = useCallback((a: Artifact) => setPanel(a), [setPanel]);
+  // Смена чата закрывает панель: артефакт принадлежит своей переписке.
+  useEffect(() => {
+    setPanelState(null);
+  }, [sessionId, serverSessionId]);
+  // Автооткрытие, как в Claude: свежий ответ ИИ (только что дописан в этой
+  // вкладке) с презентацией, документом или большой таблицей. Старые чаты из
+  // истории панель сами не открывают — у них нет перехода «писал → дописал».
+  const wasStreaming = useRef(false);
+  useEffect(() => {
+    const streaming = messages.some((m) => m.streaming);
+    if (wasStreaming.current && !streaming) {
+      const texts = messages.filter((m) => m.kind === 'text');
+      const last = texts[texts.length - 1];
+      const prev = texts[texts.length - 2];
+      if (last?.role === 'assistant' && last.text) {
+        const deck = prev?.role === 'user' && isSlidesCommand(prev.text) ? parseDeck(last.text) : null;
+        if (deck) {
+          setPanel({ kind: 'deck', key: `${last.id}:deck`, title: deck.title, deck });
+        } else {
+          const [first] = extractArtifacts(extractQuestions(last.text).body, last.id, {
+            document: t('artifact.document'),
+            table: t('artifact.table'),
+          });
+          if (first) setPanel(first);
+        }
+      }
+    }
+    wasStreaming.current = streaming;
+  }, [messages, t, setPanel]);
+
+  // ── Карточки над полем ввода ─────────────────────────────────────────────
+  // Только для последнего ответа ИИ: уточняющие вопросы (если он их задал),
+  // иначе — «Продолжить с этим планом?» после ответа на /plan.
+  const [dismissedAsk, setDismissedAsk] = useState<string | null>(null);
+  const [dismissedPlan, setDismissedPlan] = useState<string | null>(null);
+  const lastText = textMessages[textMessages.length - 1];
+  const lastReply =
+    lastText?.role === 'assistant' &&
+    !lastText.streaming &&
+    lastText.text &&
+    messages[messages.length - 1]?.id === lastText.id &&
+    phase !== 'analyzing'
+      ? lastText
+      : null;
+  const lastParts = lastReply ? extractQuestions(lastReply.text ?? '') : null;
+  const prevUser = textMessages[textMessages.length - 2];
+  const lastFromPlan = Boolean(lastReply && prevUser?.role === 'user' && isPlanCommand(prevUser.text));
+  const askQuestions =
+    lastReply && lastParts && lastParts.questions.length > 0 && dismissedAsk !== lastReply.id ? lastParts.questions : null;
+  const showPlanCard = Boolean(
+    !askQuestions && lastReply && lastFromPlan && lastParts && looksLikePlan(lastParts.body) && dismissedPlan !== lastReply.id,
+  );
+
+  const onQuestionsDone = (answered: { question: string; answer: string }[]) => {
+    if (!lastReply) return;
+    setDismissedAsk(lastReply.id);
+    if (!answered.length) return; // всё пропущено — просто убираем карточку
+    const text = answersMessage(t('clarify.answersHeader'), answered);
+    // Вопросы к плану: ответы уходят в режиме плана — ИИ пересоберёт план.
+    sendMessage(lastFromPlan ? `/plan ${text}` : text);
+  };
+  const onApprovePlan = () => {
+    if (!lastReply) return;
+    setDismissedPlan(lastReply.id);
+    sendMessage(`/approve ${t('plan.approve.okMessage')}`);
+  };
+  const onChangePlan = (changes: string) => {
+    if (!lastReply) return;
+    setDismissedPlan(lastReply.id);
+    sendMessage(`/plan ${t('plan.approve.changesPrefix')} ${changes}`);
+  };
+
+  const renderText = (m: ChatMessage, prev?: ChatMessage) => {
+    // Ответ на /slides с колодой — карточка с миниатюрами и «Скачать .pptx»;
+    // если ИИ ответил обычным текстом (попросил описать дело) — как обычно.
+    const deck =
+      m.role === 'assistant' && !m.streaming && m.text && prev?.role === 'user' && isSlidesCommand(prev.text)
+        ? parseDeck(m.text)
+        : null;
+    // Блок вопросов ИИ в тексте не показываем: у последнего ответа вопросы —
+    // в карточке над полем ввода, у прежних — обычным списком.
+    const shown =
+      m.role !== 'assistant' || !m.text
+        ? (m.text ?? '')
+        : m.streaming || (askQuestions && lastReply?.id === m.id)
+          ? extractQuestions(m.text).body
+          : displayText(m.text);
+    return m.role === 'user' && isApproveCommand(m.text) ? (
+      <div key={m.id} className={chat.msgApproved} data-mid={m.id}>
+        <PlanApprovedPill text={(m.text ?? '').replace(/^\s*\/approve\s*/i, '')} />
+      </div>
+    ) : m.role === 'user' ? (
       <div key={m.id} className={chat.msgUser} data-mid={m.id}>
+        {m.attachments?.length ? <MessageFiles files={m.attachments} /> : null}
         <UserBubble text={m.text ?? ''} />
       </div>
-    ) : m.streaming && !m.text ? (
-      // Waiting for the first token: индикатор набора эталона — панель с
-      // тремя пульсирующими точками рядом с логотипом (текст — для читалок).
+    ) : m.streaming && !shown ? (
+      // Ждём первое слово: вместо трёх точек — ход работы («Работаю…» и шаги
+      // с сервера). Ответ, восстановленный после перезагрузки, шагов не знает —
+      // тогда одна строка «Работаю…».
       <div key={m.id} className={chat.msgAssistant}>
         <Avatar size={30} />
-        <div className={chat.typingBubble} role="status" aria-label={t('chat.thinking')}>
-          <span className={chat.typingDot} />
-          <span className={chat.typingDot} />
-          <span className={chat.typingDot} />
-        </div>
+        <WorkSteps work={m.work} working />
       </div>
     ) : (
       <div key={m.id} className={chat.msgAssistant}>
         <Avatar size={30} />
         <div className={chat.msgAssistantBody}>
-          <div className={`${chat.msgAssistantText} ${chat.textIn}`}>
-            <MarkdownMessage text={m.text ?? ''} />
-          </div>
-          {!m.streaming && m.text ? <MessageActions message={m} onFeedback={setFeedback} /> : null}
+          {m.work?.steps.length ? <WorkSteps work={m.work} working={false} /> : null}
+          {deck ? (
+            <DeckCard
+              deck={deck}
+              onOpen={() => openArtifact({ kind: 'deck', key: `${m.id}:deck`, title: deck.title, deck })}
+            />
+          ) : (
+            shown.trim() ? (
+              <div className={`${chat.msgAssistantText} ${chat.textIn}`}>
+                <MarkdownMessage text={shown} messageId={m.id} onOpenArtifact={openArtifact} />
+              </div>
+            ) : null
+          )}
+          {!m.streaming && shown.trim() ? (
+            <MessageActions message={{ ...m, text: displayText(m.text ?? '') }} onFeedback={setFeedback} />
+          ) : null}
         </div>
       </div>
     );
+  };
 
   return (
+    <div className={chat.chatSplit}>
     <div
       className={chat.canvas}
       onDragOver={onDragOver}
@@ -563,36 +806,9 @@ export function ChatPage() {
       style={{ position: 'relative' }}
     >
       <TopBar
-        title={ghost ? t('ghost.enter') : <BrandMenu />}
-        right={
-          <div className={chat.topRight}>
-            <button
-              type="button"
-              className={`${chat.ghostToggle} ${ghost ? chat.ghostToggleOn : ''}`}
-              aria-label={t('ghost.enter')}
-              aria-pressed={ghost}
-              title={t('ghost.enter')}
-              disabled={phase === 'analyzing'}
-              onClick={() => (ghost ? onExitGhost() : setGhostConfirm(true))}
-            >
-              <Icon name="ghost" size={18} />
-            </button>
-            <TopBarActions hideCountry />
-          </div>
-        }
+        title={<BrandMenu />}
+        right={<TopBarActions hideCountry />}
       />
-
-      {emptyCanvas ? <ContractBackdrop /> : null}
-
-      {ghost ? (
-        <div className={chat.ghostBanner} role="status">
-          <Icon name="ghost" size={15} />
-          <span className={chat.ghostBannerText}>{t('ghost.active')}</span>
-          <button type="button" className={chat.ghostExitBtn} onClick={onExitGhost}>
-            {t('ghost.exit')}
-          </button>
-        </div>
-      ) : null}
 
       {sessionLoading && messages.length === 0 ? (
         // Opening a saved chat: instant skeleton while the messages load —
@@ -611,38 +827,35 @@ export function ChatPage() {
           </div>
         </div>
       ) : messages.length === 0 && (phase === 'idle' || phase === 'analyzed') ? (
-        // «analyzed» без сообщений — канвас живёт в воркспейсе (черновик шаблона
+        // «analyzed» без сообщений — канвас живёт в воркспейсе (сохранённый черновик
         // через adoptDraft): в чате показываем приветствие, а не пустой экран.
-        ghost ? (
-          <div className={chat.ghostEmpty}>
-            <div className={chat.ghostEmptyIcon}>
-              <Icon name="ghost" size={26} />
-            </div>
-            <div className={chat.ghostEmptyTitle}>{t('ghost.enter')}</div>
-            <p className={chat.ghostEmptyBody}>{t('ghost.warnBody')}</p>
-          </div>
-        ) : (
-          <WelcomeScreen
-            onAnalyze={() => pushToast(t('chat.attachFirst'), 'default')}
-            onDraft={() => void runDraft('')}
-            onCompare={() => navigate('/compare')}
-            composer={
-              // Эталонный вход композера (y:18, delay .24); layoutId связывает
-              // его с нижним доком — при первом сообщении он уезжает на место.
-              <motion.div
-                layoutId="composer"
-                initial={{ opacity: 0, y: 18 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.55, ease: EASE, delay: 0.24 }}
-                className={chat.welcomeComposer}
-              >
-                {composerEl}
-              </motion.div>
-            }
-          />
-        )
+        <WelcomeScreen
+          composer={
+            // Эталонный вход композера (y:18, delay .24); layoutId связывает
+            // его с нижним доком — при первом сообщении он уезжает на место.
+            <motion.div
+              layoutId="composer"
+              layout="position"
+              initial={{ opacity: 0, y: 18 }}
+              animate={{ opacity: 1, y: 0 }}
+              // Задержка — только у первого появления; сдвиг поля, когда оно
+              // выросло (файл, новая строка), идёт сразу и коротко.
+              transition={{ duration: 0.55, ease: EASE, delay: 0.24, layout: { duration: 0.3, ease: EASE } }}
+              className={chat.welcomeComposer}
+            >
+              {composerEl}
+            </motion.div>
+          }
+        />
       ) : (
-        <div className={`${chat.thread} scroll`} ref={attachThread} onScroll={onThreadScroll}>
+        <div
+          className={`${chat.thread} scroll`}
+          ref={attachThread}
+          onScroll={onThreadScroll}
+          onPointerDownCapture={(e) => {
+            lastPointer.current = e.target as Element;
+          }}
+        >
           <div className={chat.threadInner} style={{ paddingBottom: tailPad }}>
             {fileMessage?.file ? (
               <div data-mid={fileMessage.id}>
@@ -689,7 +902,7 @@ export function ChatPage() {
               </div>
             ) : null}
 
-            {textMessages.map(renderText)}
+            {textMessages.map((m, i) => renderText(m, textMessages[i - 1]))}
           </div>
         </div>
       )}
@@ -710,38 +923,40 @@ export function ChatPage() {
           >
             <Icon name="arrowDown" size={18} strokeWidth={2} />
           </button>
-          <motion.div layoutId="composer" transition={{ duration: 0.5, ease: EASE }} className={chat.dockSlide}>
-            {composerEl}
-          </motion.div>
+          {/* Пока ИИ ждёт решения (вопросы / одобрение плана), карточка стоит
+              на месте поля ввода; после выбора или Esc поле возвращается
+              (черновик сохраняется). */}
+          {askQuestions && lastReply ? (
+            <div className={chat.dockSlide}>
+              <QuestionCard key={lastReply.id} questions={askQuestions} onDone={onQuestionsDone} />
+            </div>
+          ) : showPlanCard && lastReply ? (
+            <div className={chat.dockSlide}>
+              <PlanApprovalCard
+                key={lastReply.id}
+                onApprove={onApprovePlan}
+                onChanges={onChangePlan}
+                onDismiss={() => setDismissedPlan(lastReply.id)}
+              />
+            </div>
+          ) : (
+            // layout="position": переезд — только сдвиг. Без этого motion
+            // анимировал и РАЗМЕР — растяжением (scale): при появлении карточки
+            // файла или новой строки текста поле на полсекунды сплющивалось.
+            // layoutDependency (постоянный): в доке поле растёт вверх сразу,
+            // анимируется только сам переезд из середины экрана при появлении.
+            <motion.div
+              layoutId="composer"
+              layout="position"
+              layoutDependency="dock"
+              transition={{ duration: 0.5, ease: EASE }}
+              className={chat.dockSlide}
+            >
+              {composerEl}
+            </motion.div>
+          )}
         </div>
       )}
-
-      <Modal
-        open={ghostConfirm}
-        title={t('ghost.warnTitle')}
-        onClose={() => setGhostConfirm(false)}
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setGhostConfirm(false)}>
-              {t('ghost.warnCancel')}
-            </Button>
-            <Button
-              variant="primary"
-              onClick={() => {
-                enterGhost();
-                setGhostConfirm(false);
-                // Leave the saved-session URL: a remount would reload that
-                // session and silently kick the user out of ghost mode.
-                if (sessionId) navigate('/chat');
-              }}
-            >
-              {t('ghost.warnConfirm')}
-            </Button>
-          </>
-        }
-      >
-        <p className={chat.ghostWarnBody}>{t('ghost.warnBody')}</p>
-      </Modal>
 
       <Modal
         open={draftOpen}
@@ -801,9 +1016,15 @@ export function ChatPage() {
       <CloudImportModal
         open={cloudOpen}
         onClose={() => setCloudOpen(false)}
-        // Файл уже лежит на сервере — передаём его id, чтобы анализ пошёл
-        // именно по нему (а не по совпадению имени) и без повторной отправки.
-        onImported={(file) => analyze({ name: file.name, size: file.size }, undefined, { uploadId: file.uploadId })}
+        // Файл уже лежит на сервере — карточка сразу готова (по id загрузки,
+        // а не по совпадению имени), без повторной отправки.
+        onImported={(file) => {
+          if (attachments.length >= maxFiles) return limitToast();
+          setAttachments((list) => [
+            ...list,
+            { key: `att_${++attachSeq.current}`, name: file.name, size: file.size, status: 'ready', uploadId: file.uploadId },
+          ]);
+        }}
       />
 
       {dragging ? (
@@ -814,6 +1035,12 @@ export function ChatPage() {
           </div>
         </div>
       ) : null}
+    </div>
+    {/* Progress / Context — в переписке; открытый документ занимает его место. */}
+    {!panel && !onWelcome && messages.length > 0 ? (
+      <TaskSidebar messages={messages} sessionKey={serverSessionId ?? (USE_MOCK ? 'local' : null)} onOpenArtifact={openArtifact} />
+    ) : null}
+    {panel ? <ArtifactPanel artifact={panel} onClose={() => setPanel(null)} /> : null}
     </div>
   );
 }

@@ -10,7 +10,6 @@ import type {
   ContractDocument,
   DocumentVersion,
   SignatureRequest,
-  Template,
   UserProfile,
   AnalyticsSummary,
 } from '@/types/domain';
@@ -26,9 +25,104 @@ export const CURRENT_USER: UserProfile = {
 export const COMMANDS: Command[] = [
   { cmd: '/analyze', description: 'Review a contract for legal risk', icon: 'search' },
   { cmd: '/draft', description: 'Generate a clause or full document', icon: 'pen' },
+  { cmd: '/plan', description: 'Step-by-step action plan for your matter', icon: 'listChecks' },
+  { cmd: '/slides', description: 'Presentation of your matter (.pptx)', icon: 'presentation' },
   { cmd: '/compare', description: 'Diff two contract versions', icon: 'layout' },
   { cmd: '/translate', description: 'Translate & localise legal text', icon: 'globe' },
 ];
+
+/** Мок-ответы режимов /plan и /slides (только мок-режим разработки). */
+export const MOCK_PLAN_REPLY = {
+  ru: [
+    '### Цель',
+    'Получить оплату по договору поставки и сохранить право на неустойку.',
+    '',
+    '### План действий',
+    '1. **Соберите доказательства** — договор, накладные, акт сверки и переписку о просрочке. **Срок:** 2 дня.',
+    '2. **Направьте претензию** заказным письмом с уведомлением: сумма долга, расчёт неустойки, срок ответа — 30 дней.',
+    '3. **Предложите график погашения** — мировое соглашение дешевле суда.',
+    '4. **Подайте иск**, если ответа нет: экономический суд по месту ответчика, с заявлением об аресте счетов.',
+    '',
+    '### Риски и на что обратить внимание',
+    '- Без претензии иск вернут без рассмотрения.',
+    '- Суд может снизить явно несоразмерную неустойку.',
+    '',
+    '### Первый шаг сегодня',
+    'Запросите у бухгалтерии акт сверки и копии накладных.',
+  ].join('\n'),
+  en: [
+    '### Goal',
+    'Get paid under the supply contract and keep the right to the contractual penalty.',
+    '',
+    '### Action plan',
+    '1. **Collect the evidence** — contract, delivery notes, reconciliation statement and the correspondence. **Deadline:** 2 days.',
+    '2. **Send a formal claim** by recorded delivery: the debt, the penalty calculation, 30 days to respond.',
+    '3. **Offer a repayment schedule** — a settlement is cheaper than court.',
+    '4. **File a lawsuit** if there is no answer, with a motion to freeze the accounts.',
+    '',
+    '### Risks and pitfalls',
+    '- Skipping the pre-trial claim gets the lawsuit returned.',
+    '- A court may reduce a clearly excessive penalty.',
+    '',
+    '### First step today',
+    'Ask accounting for the reconciliation statement and copies of the delivery notes.',
+  ].join('\n'),
+};
+
+/** Мок: уточняющие вопросы к плану (до ответов пользователя). */
+export const MOCK_PLAN_QUESTIONS = {
+  ru: ['```questions', '? Чью сторону вы представляете?', '- Поставщика', '- Покупателя', '? Есть ли в договоре обязательный претензионный порядок?', '- Да', '- Нет', '- Не знаю', '```'].join('\n'),
+  en: ['```questions', '? Which side do you represent?', '- The supplier', '- The buyer', '? Does the contract require a pre-trial claim?', '- Yes', '- No', "- I don't know", '```'].join('\n'),
+};
+
+export const MOCK_SLIDES_REPLY = {
+  ru: [
+    '# Взыскание задолженности по договору поставки',
+    'Позиция и план действий для встречи с клиентом',
+    '',
+    '## Суть дела',
+    '- Поставка на 1 200 000 000 сум не оплачена',
+    '- Просрочка оплаты — 94 дня',
+    '- Покупатель признал долг в переписке',
+    '> Начните с цифр: сумма долга и срок просрочки.',
+    '',
+    '## Риски',
+    '- Без претензии иск вернут без рассмотрения',
+    '- Суд может снизить неустойку',
+    '',
+    '## Что и как делать',
+    '- Собрать договор, накладные и акт сверки',
+    '- Направить претензию с расчётом неустойки',
+    '- При отказе — иск и арест счетов',
+    '',
+    '## Следующие шаги',
+    '- Согласовать текст претензии',
+    '- Назначить ответственного юриста',
+  ].join('\n'),
+  en: [
+    '# Recovering the debt under the supply contract',
+    'Position and action plan for the client meeting',
+    '',
+    '## The case',
+    '- A delivery worth 1,200,000,000 UZS is unpaid',
+    '- Payment is 94 days overdue',
+    '- The buyer acknowledged the debt in writing',
+    '> Lead with the numbers: the debt and the delay.',
+    '',
+    '## Risks',
+    '- Without a pre-trial claim the lawsuit is returned',
+    '- A court may reduce the penalty',
+    '',
+    '## What to do and how',
+    '- Collect the contract, delivery notes and reconciliation',
+    '- Send a claim with the penalty calculation',
+    '- If refused — sue and freeze the accounts',
+    '',
+    '## Next steps',
+    '- Agree the text of the claim',
+    '- Assign the responsible lawyer',
+  ].join('\n'),
+};
 
 export const ANALYSIS_STEPS = [
   'Parsing document structure',
@@ -129,35 +223,6 @@ export const DOCUMENTS: ContractDocument[] = [
   { id: 'd5', name: 'SAFE_SeriesA.docx', counterparty: 'Orbit Ventures', status: 'Draft', risk: 'Elevated', jurisdiction: 'US', size: '54 KB', updatedAt: days(4) },
   { id: 'd6', name: 'Lease_Unit_4B.pdf', counterparty: 'Kingsway Estates', status: 'Reviewed', risk: 'Low', jurisdiction: 'UK', size: '203 KB', updatedAt: days(5) },
   { id: 'd7', name: 'DPA_GDPR.docx', counterparty: 'Cloudmesh Inc', status: 'In review', risk: 'Elevated', jurisdiction: 'EU', size: '61 KB', updatedAt: days(6) },
-];
-
-export const TEMPLATES: Template[] = [
-  { id: 't1', name: 'Mutual NDA', nameRu: 'Двусторонний NDA', category: 'Confidentiality', description: 'Two-way non-disclosure for early commercial talks.', descriptionRu: 'Взаимное соглашение о неразглашении для ранних переговоров.', jurisdiction: 'UK', clauses: 11 },
-  { id: 't2', name: 'Employment Contract', nameRu: 'Трудовой договор', category: 'Employment', description: 'Full-time permanent employee agreement, UK-compliant.', descriptionRu: 'Бессрочный трудовой договор с сотрудником (право Великобритании).', jurisdiction: 'UK', clauses: 24 },
-  { id: 't3', name: 'Master Services Agreement', nameRu: 'Рамочный договор услуг (MSA)', category: 'Commercial', description: 'Framework agreement for recurring professional services.', descriptionRu: 'Рамочное соглашение о регулярных профессиональных услугах.', jurisdiction: 'UK', clauses: 32 },
-  { id: 't4', name: 'Data Processing Addendum', nameRu: 'Соглашение об обработке данных', category: 'Privacy', description: 'GDPR Article 28 processor terms.', descriptionRu: 'Условия обработчика по статье 28 GDPR.', jurisdiction: 'EU', clauses: 18 },
-  { id: 't5', name: 'SAFE (Post-Money)', nameRu: 'SAFE (Post-Money)', category: 'Fundraising', description: 'Simple agreement for future equity.', descriptionRu: 'Простое соглашение о будущем участии в капитале.', jurisdiction: 'US', clauses: 9 },
-  { id: 't6', name: 'Consultancy Agreement', nameRu: 'Договор консультационных услуг', category: 'Commercial', description: 'Independent contractor engagement terms.', descriptionRu: 'Условия привлечения независимого консультанта.', jurisdiction: 'UK', clauses: 16 },
-  { id: 't7', name: 'Residential Lease', nameRu: 'Аренда квартиры', category: 'Real Estate', description: 'Residential tenancy between individuals.', descriptionRu: 'Найм жилого помещения между физлицами: срок, депозит, коммунальные платежи.', jurisdiction: 'UZ', clauses: 14 },
-  { id: 't8', name: 'Commercial Lease', nameRu: 'Аренда коммерческого помещения', category: 'Real Estate', description: 'Office or retail space lease.', descriptionRu: 'Аренда офиса или торговой площади: индексация, ремонт, досрочное расторжение.', jurisdiction: 'KZ', clauses: 20 },
-  { id: 't9', name: 'Services Agreement', nameRu: 'Договор оказания услуг', category: 'Commercial', description: 'Paid provision of services.', descriptionRu: 'Возмездное оказание услуг: объём, сроки, приёмка, оплата.', jurisdiction: 'UZ', clauses: 15 },
-  { id: 't10', name: 'Work Contract', nameRu: 'Договор подряда', category: 'Commercial', description: 'Contract for work with a deliverable.', descriptionRu: 'Выполнение работ с результатом: этапы, приёмка, гарантия, неустойка.', jurisdiction: 'UZ', clauses: 18 },
-  { id: 't11', name: 'Sale of Goods', nameRu: 'Договор купли-продажи товара', category: 'Sales', description: 'One-off sale of goods.', descriptionRu: 'Разовая купля-продажа: качество, передача, переход риска.', jurisdiction: 'KZ', clauses: 12 },
-  { id: 't12', name: 'Supply Agreement', nameRu: 'Договор поставки', category: 'Sales', description: 'Recurring deliveries of goods.', descriptionRu: 'Регулярные поставки: график, приёмка по количеству/качеству, ответственность.', jurisdiction: 'KZ', clauses: 17 },
-  { id: 't13', name: 'Personal Loan', nameRu: 'Договор займа между физлицами', category: 'Finance', description: 'Loan of money between individuals.', descriptionRu: 'Денежный займ: сумма, проценты, график возврата, расписка.', jurisdiction: 'UZ', clauses: 10 },
-  { id: 't14', name: 'Employment Contract (UZ)', nameRu: 'Трудовой договор (Узбекистан)', category: 'Employment', description: 'Employment contract under the Labour Code of Uzbekistan.', descriptionRu: 'Трудовой договор по ТК Республики Узбекистан: испытательный срок, отпуск.', jurisdiction: 'UZ', clauses: 22 },
-  { id: 't15', name: 'Employment Contract (KZ)', nameRu: 'Трудовой договор (Казахстан)', category: 'Employment', description: 'Employment contract under the Labour Code of Kazakhstan.', descriptionRu: 'Трудовой договор по ТК Республики Казахстан.', jurisdiction: 'KZ', clauses: 22 },
-  { id: 't16', name: 'Contractor Agreement', nameRu: 'Договор с самозанятым / ИП', category: 'Employment', description: 'Civil-law engagement of a contractor (no employment).', descriptionRu: 'Гражданско-правовой договор с самозанятым или ИП: без трудовых отношений.', jurisdiction: 'KZ', clauses: 13 },
-  { id: 't17', name: 'Agency Agreement', nameRu: 'Агентский договор', category: 'Commercial', description: 'Agent acts on behalf of a principal.', descriptionRu: 'Агент действует от имени принципала: полномочия, вознаграждение, отчёты.', jurisdiction: 'GB', clauses: 16 },
-  { id: 't18', name: 'License Agreement', nameRu: 'Лицензионный договор', category: 'IP & IT', description: 'License of software or content.', descriptionRu: 'Лицензия на ПО или контент: объём прав, территория, роялти.', jurisdiction: 'US', clauses: 15 },
-  { id: 't19', name: 'Mandate Agreement', nameRu: 'Договор поручения', category: 'Commercial', description: 'Attorney performs legal acts for a principal.', descriptionRu: 'Поверенный совершает юридические действия от имени доверителя.', jurisdiction: 'UZ', clauses: 11 },
-  { id: 't20', name: 'Distribution Agreement', nameRu: 'Дистрибьюторский договор', category: 'Commercial', description: 'Exclusive or non-exclusive distribution.', descriptionRu: 'Эксклюзивная/неэксклюзивная дистрибуция: территория, планы продаж.', jurisdiction: 'AE', clauses: 19 },
-  { id: 't21', name: 'Franchise Agreement', nameRu: 'Договор франчайзинга', category: 'Commercial', description: 'Commercial concession: brand, standards, royalties.', descriptionRu: 'Коммерческая концессия: бренд, стандарты, паушальный взнос, роялти.', jurisdiction: 'AE', clauses: 24 },
-  { id: 't22', name: 'Service Level Agreement (SLA)', nameRu: 'Соглашение об уровне сервиса (SLA)', category: 'IP & IT', description: 'Availability metrics, response times, service credits.', descriptionRu: 'Метрики доступности, время реакции, сервисные кредиты.', jurisdiction: 'GB', clauses: 12 },
-  { id: 't23', name: 'Business Loan', nameRu: 'Кредитный договор для бизнеса', category: 'Finance', description: 'Loan to a company: tranches, covenants, security.', descriptionRu: 'Займ для компании: транши, ковенанты, обеспечение, досрочное погашение.', jurisdiction: 'GB', clauses: 16 },
-  { id: 't24', name: "Shareholders' Agreement", nameRu: 'Акционерное соглашение', category: 'Corporate', description: 'Shareholder rights: governance, drag/tag-along.', descriptionRu: 'Права акционеров: управление, drag/tag-along, преимущественная покупка.', jurisdiction: 'GB', clauses: 28 },
-  { id: 't25', name: 'Software Development Agreement', nameRu: 'Договор на разработку ПО', category: 'IP & IT', description: 'Bespoke development: spec, milestones, IP, acceptance.', descriptionRu: 'Заказная разработка: ТЗ, этапы, IP-права, приёмка, поддержка.', jurisdiction: 'US', clauses: 21 },
-  { id: 't26', name: 'Freelance Contract', nameRu: 'Международный фриланс-контракт', category: 'Commercial', description: 'Cross-border contract with a freelancer.', descriptionRu: 'Кросс-граничный контракт с фрилансером: оплата, IP, независимый статус.', jurisdiction: 'US', clauses: 12 },
 ];
 
 export const SIGNATURES: SignatureRequest[] = [

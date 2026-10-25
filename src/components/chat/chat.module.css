@@ -10,50 +10,9 @@
   overflow-y: auto;
   padding: 32px 0 40px;
   position: relative;
-  z-index: 1; /* лента поверх декоративного фона «строк договора» */
+  z-index: 1;
 }
 
-/* ContractBackdrop: декоративные «строки договора» по краям канваса (эталон
-   app/page.tsx) — тонкие полосы 2px, золотые акценты, offset 64px от углов. */
-.backdrop {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: none;
-  z-index: 0; /* под контентом: thread/welcome/composer подняты на z-index 1 */
-}
-.backdropCol {
-  position: absolute;
-  /* Эталон: колонки стоят top-16 (64px) от верха КОНТЕНТА под шапкой. Наш
-     канвас включает TopBar (56px), поэтому прибавляем его высоту — иначе
-     строки прилипают к шапке. */
-  top: calc(56px + 64px);
-  inset-inline-start: 64px;
-  width: 340px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-.backdropColEnd {
-  inset-inline-start: auto;
-  inset-inline-end: 64px;
-  align-items: flex-end;
-}
-.backdropLine {
-  height: 2px;
-  background: var(--contract-line);
-}
-.backdropLineGold {
-  background: var(--contract-gold);
-}
-.backdropGap {
-  height: 14px;
-}
-@media (max-width: 900px) {
-  .backdrop {
-    display: none;
-  }
-}
 .threadInner {
   max-width: 760px;
   margin: 0 auto;
@@ -70,7 +29,7 @@
   flex-direction: column;
   padding: 40px 24px; /* эталон: px-6 py-10 */
   position: relative;
-  z-index: 1; /* поверх декоративного фона «строк договора» */
+  z-index: 1;
   /* Выросшая плашка ввода должна отжимать приветствие, а не выталкивать
      собственные кнопки за низ экрана: разрешаем сжатие + свою прокрутку. */
   min-height: 0;
@@ -97,7 +56,7 @@
   position: relative;
   text-align: center;
   width: 100%;
-  max-width: 768px; /* эталон: max-w-3xl — композер, карточки и сетка одной ширины */
+  max-width: 768px; /* эталон: max-w-3xl — композер и «Недавние файлы» одной ширины */
   margin: auto;
 }
 .welcomeTitle {
@@ -118,53 +77,84 @@
   width: 100%;
   text-align: start;
 }
-.suggestions {
-  margin-top: 20px; /* эталон: mt-5 */
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 16px; /* эталон: gap-4 */
+/* «Недавние файлы» под полем ввода нового чата (вместо трёх карточек):
+   подпись, строки «значок · имя · когда» через тонкие линии. */
+.recent {
+  margin-top: 44px;
   width: 100%;
-}
-/* Quick-action карточки: panel + hover-тень; подъём y:-3 ведёт motion
-   (эталон whileHover y:-3 + transition-shadow 200ms + hover:shadow-lg). */
-.suggestion {
-  padding: 20px; /* эталон: p-5 */
-  cursor: pointer;
   text-align: start;
-  border-radius: var(--r-xl);
-  transition: box-shadow 0.2s;
-  color: inherit;
-  font: inherit;
 }
-.suggestion:hover {
-  box-shadow:
-    0 10px 15px -3px rgba(0, 0, 0, 0.05),
-    0 4px 6px -4px rgba(0, 0, 0, 0.05);
-}
-:global(html.dark) .suggestion:hover {
-  box-shadow:
-    0 10px 15px -3px rgba(0, 0, 0, 0.3),
-    0 4px 6px -4px rgba(0, 0, 0, 0.3);
-}
-.suggestionIcon {
-  display: block;
-  color: var(--dim);
-  margin-bottom: 16px; /* эталон: заголовок mt-4 от иконки */
-}
-.suggestionTitle {
-  display: block;
-  font-size: 15px;
+.recentTitle {
+  margin: 0 0 6px;
+  padding-inline: 4px;
+  font-size: 13px;
   font-weight: 600;
-  letter-spacing: -0.01em;
-}
-.suggestionBody {
-  display: block;
-  margin-top: 6px; /* эталон: mt-1.5 */
-  font-size: 14px;
   color: var(--dim);
-  line-height: 1.625; /* эталон: leading-relaxed */
+  letter-spacing: 0;
 }
-/* Подпись под карточками (эталон: mt-8 text-xs text-ink-2). */
+.recentEmpty {
+  margin: 0;
+  padding: 10px 4px;
+  font-size: 14px;
+  color: var(--mut);
+}
+.recentList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.recentList li + li {
+  border-top: 1px solid var(--border);
+}
+.recentRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 46px;
+  padding: 10px 8px 10px 4px;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) var(--ease);
+}
+.recentRow:hover {
+  background: var(--hover);
+}
+.recentRow:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.recentName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14.5px;
+  color: color-mix(in srgb, var(--text) 82%, transparent);
+}
+.recentRow:hover .recentName {
+  color: var(--text);
+}
+.recentTime {
+  flex-shrink: 0;
+  font-size: 13px;
+  color: var(--mut);
+  font-variant-numeric: tabular-nums;
+}
+/* Значок файла (FileIcon): оригинальные значки Microsoft, без перекраски. */
+.fileGlyph {
+  flex-shrink: 0;
+  display: block;
+  user-select: none;
+}
+
+/* Подпись внизу приветствия (эталон: mt-8 text-xs text-ink-2). */
 .welcomeDisclaimer {
   margin: 32px 0 0;
   font-size: 12px;
@@ -189,17 +179,6 @@
   border: 1px solid var(--panel-edge);
   box-shadow: var(--shadow-card);
   max-width: 380px;
-}
-.fileIcon {
-  width: 38px;
-  height: 38px;
-  border-radius: 9px;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  color: var(--accent);
 }
 .fileName {
   font-size: 14px;
@@ -230,18 +209,19 @@
 /* Text messages ----------------------------------------------------------- */
 .msgUser {
   display: flex;
-  justify-content: flex-end;
+  flex-direction: column; /* файлы вопроса — строкой над пузырём */
+  align-items: flex-end;
   animation: lxfade 0.3s ease both;
 }
-/* Эталон: пузырь пользователя — графитовый акцент, правый нижний угол 10px. */
+/* Пузырь вопроса — светло-серый с тёмным текстом, без тени (как у Harvey,
+   решение владельца 2026-10-25); правый нижний угол 10px. */
 .msgUserBubble {
   max-width: 75%;
   padding: 10px 16px;
   border-radius: var(--r-xl);
   border-end-end-radius: 10px;
-  background: var(--accent);
-  color: var(--on-accent);
-  box-shadow: var(--shadow-card);
+  background: var(--user-bubble);
+  color: var(--text);
   font-size: 15px;
   line-height: 1.5;
   white-space: pre-wrap;
@@ -261,7 +241,7 @@
   margin-top: 8px;
   border: none;
   background: transparent;
-  color: var(--on-accent); /* пузырь теперь акцентный — ссылка контрастная */
+  color: var(--dim);
   font-family: inherit;
   font-size: 14px;
   font-weight: 500;
@@ -290,61 +270,165 @@
   flex: 1;
   min-width: 0;
 }
-/* Эталон: ответ ассистента — панель (panel-2 + panel-edge) рядом с логотипом,
-   левый верхний угол 10px. */
+/* Ответ ассистента — обычный текст на фоне страницы, без рамки (как у Claude
+   и ChatGPT); рамка-пузырь осталась только у сообщений пользователя.
+   Отступ сверху выравнивает первую строку по логотипу (30px). */
 .msgAssistantText {
   min-width: 0;
-  width: fit-content;
   max-width: 100%;
   font-size: 15px;
   line-height: 1.6;
   white-space: pre-wrap;
-  background: var(--panel-2);
-  border: 1px solid var(--panel-edge);
-  box-shadow: var(--shadow-card);
-  border-radius: var(--r-xl);
-  border-start-start-radius: 10px;
-  padding: 12px 16px;
+  padding-top: 3px;
 }
-/* Индикатор «ИИ печатает» (эталон): панель с 3 точками, пульс 0.25→1→0.25. */
-.typingBubble {
+/* Ход работы над ответом («Работаю…») вместо трёх точек — как у Claude:
+   строка-заголовок с переливом, под ней шаги, соединённые тонкой линией. */
+.work {
   align-self: flex-start;
+  min-width: 0;
+  max-width: 100%;
+  padding-top: 4px;
+  font-size: 14.5px;
+}
+.work + * {
+  margin-top: 8px;
+}
+.workHead {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 15px 16px;
-  background: var(--panel-2);
-  border: 1px solid var(--panel-edge);
-  box-shadow: var(--shadow-card);
-  border-radius: var(--r-xl);
-  border-start-start-radius: 10px;
+  padding: 2px 0;
+  border: 0;
+  background: none;
+  color: var(--dim);
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
 }
-.typingDot {
-  width: 6px;
-  height: 6px;
+.workHead:hover {
+  color: var(--text);
+}
+.workChevron {
+  display: inline-flex;
+  transition: transform var(--dur-fast) var(--ease);
+}
+.workChevron[data-open] {
+  transform: rotate(90deg);
+}
+/* Перелив по тексту: светлая полоса бежит слева направо. */
+.workShimmer {
+  background: linear-gradient(
+    90deg,
+    var(--dim) 0%,
+    var(--dim) 38%,
+    var(--text) 50%,
+    var(--dim) 62%,
+    var(--dim) 100%
+  );
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: lxShimmer 1.9s linear infinite;
+}
+@keyframes lxShimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -150% 0;
+  }
+}
+.workList {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+}
+.workStep {
+  position: relative;
+  padding: 0 0 14px 28px;
+  animation: lxfade 0.3s ease both;
+}
+/* Линия от шага к следующему. */
+.workStep:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  inset-inline-start: 7px;
+  top: 22px;
+  bottom: 2px;
+  width: 1px;
+  background: var(--border);
+}
+.workMarker {
+  position: absolute;
+  inset-inline-start: 0;
+  top: 2px;
+  width: 15px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--dim);
+}
+.workDot {
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
-  background: var(--dim);
-  animation: lxTypingDot 1.1s ease-in-out infinite;
+  background: currentColor;
 }
-.typingDot:nth-child(2) {
-  animation-delay: 0.18s;
+.workTitle {
+  color: color-mix(in srgb, var(--text) 64%, transparent);
+  line-height: 1.5;
 }
-.typingDot:nth-child(3) {
-  animation-delay: 0.36s;
+.workStep[data-active] .workMarker {
+  color: var(--text);
 }
-@keyframes lxTypingDot {
-  0%,
-  100% {
-    opacity: 0.25;
-  }
-  50% {
-    opacity: 1;
-  }
+.workDesc {
+  margin-top: 4px;
+  color: var(--mut);
+  font-size: 14px;
+  line-height: 1.55;
+}
+.workChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.workChip,
+.workChipStrong {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 3px 9px;
+  border-radius: 7px;
+  background: var(--hover);
+  font-size: 13px;
+  line-height: 1.45;
+  vertical-align: middle;
+}
+.workChip {
+  color: var(--mut);
+}
+/* Папка-источник прямо в заголовке шага («Ищу в [База законов · …]»). */
+.workChipStrong {
+  color: var(--text);
+  font-weight: 500;
+  -webkit-text-fill-color: currentColor; /* не прозрачный внутри перелива */
+}
+.workChipText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 @media (prefers-reduced-motion: reduce) {
-  .typingDot {
+  .workShimmer {
     animation: none;
-    opacity: 0.6;
+    background: none;
+    color: var(--dim);
   }
 }
 
@@ -426,127 +510,9 @@
   .msgMenuItem {
     min-height: 44px;
   }
-  .ghostToggle {
-    width: 44px;
-    height: 44px;
-  }
-  .ghostExitBtn,
   .upsellBtn {
     min-height: 44px;
   }
-}
-
-/* Ghost (incognito) mode ---------------------------------------------------- */
-.topRight {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.ghostToggle {
-  width: 34px;
-  height: 34px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  color: var(--dim);
-  border: 1px solid transparent;
-  background: transparent;
-  transition: background var(--dur-fast), color var(--dur-fast);
-}
-.ghostToggle:hover {
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  color: var(--accent);
-}
-.ghostToggle:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-  background: transparent;
-  color: var(--dim);
-}
-.ghostToggleOn,
-.ghostToggleOn:hover {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
-}
-.ghostBanner {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  margin: 10px 28px 0;
-  padding: 8px 10px 8px 14px;
-  border-radius: 12px;
-  border: 1px dashed color-mix(in srgb, var(--accent) 40%, transparent);
-  background: color-mix(in srgb, var(--accent) 7%, transparent);
-  color: var(--dim);
-  font-size: 13px;
-  font-family: var(--font-label);
-  animation: lxfadeq 0.2s ease;
-}
-.ghostBannerText {
-  flex: 1;
-  min-width: 0;
-}
-.ghostExitBtn {
-  flex-shrink: 0;
-  padding: 6px 14px;
-  min-height: 30px;
-  border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
-  background: transparent;
-  color: var(--accent);
-  font-size: 12.5px;
-  font-weight: 600;
-  font-family: var(--font-label);
-  cursor: pointer;
-  transition: background var(--dur-fast);
-}
-.ghostExitBtn:hover {
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-}
-.ghostEmpty {
-  flex: 1;
-  position: relative;
-  z-index: 1; /* поверх декоративного фона «строк договора» */
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 24px;
-  text-align: center;
-  animation: lxfade 0.3s ease both;
-  /* Как .welcome: длинный черновик в плашке не должен прятать её кнопки. */
-  min-height: 0;
-  overflow-y: auto;
-}
-.ghostEmptyIcon {
-  width: 56px;
-  height: 56px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-  border: 1px dashed color-mix(in srgb, var(--accent) 35%, transparent);
-}
-.ghostEmptyTitle {
-  font-size: 17px;
-  font-weight: 600;
-}
-.ghostEmptyBody {
-  max-width: 420px;
-  font-size: 13.5px;
-  line-height: 1.55;
-  color: var(--dim);
-}
-.ghostWarnBody {
-  font-size: 14px;
-  line-height: 1.6;
-  color: var(--dim);
 }
 
 /* Free-plan upsell above the composer: a slim rounded strip tucked UNDER the
@@ -595,8 +561,6 @@
   color: var(--accent);
 }
 @media (prefers-reduced-motion: reduce) {
-  .ghostBanner,
-  .ghostEmpty,
   .upsellBar,
   .msgMenu {
     animation: none;
@@ -1040,7 +1004,7 @@
   flex-shrink: 0;
   padding: 12px 28px 26px;
   position: relative;
-  z-index: 1; /* поверх декоративного фона «строк договора» */
+  z-index: 1;
 }
 .composerCompact {
   padding: 14px 18px 18px;
@@ -1249,6 +1213,102 @@
 /* Верхний ряд плашки ввода: [плашка команды] + поле. Ряд горизонтальный,
    поэтому flex у поля управляет только шириной; высотой — measureHeight
    (align-items: flex-start, чтобы ряд не растягивал поле по вертикали). */
+/* Прикреплённые файлы над текстом вопроса (как на эталоне): карточка
+   «значок · имя · Word (.docx) · 48 KB», крестик — по наведению. */
+.attRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 2px 0 6px;
+}
+.attChip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(280px, 100%);
+  min-width: 0;
+  padding: 8px 12px 8px 9px;
+  border-radius: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  text-align: start;
+}
+.attChip[data-status='error'] {
+  border-color: color-mix(in srgb, var(--danger) 55%, var(--border));
+}
+.attIcon {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.attText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.3;
+}
+.attName {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.attSub {
+  font-size: 11.5px;
+  color: var(--mut);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.attChip[data-status='error'] .attSub {
+  color: var(--danger);
+}
+.attRemove {
+  position: absolute;
+  top: -7px;
+  inset-inline-end: -7px;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--text);
+  color: var(--bg);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+.attChip:hover .attRemove,
+.attRemove:focus-visible,
+.attChip[data-status='error'] .attRemove {
+  opacity: 1;
+}
+/* Сенсорный экран: наведения нет — крестик виден всегда. */
+@media (hover: none) {
+  .attRemove {
+    opacity: 1;
+  }
+}
+/* Файлы вопроса в ленте — над пузырём, прижаты вправо. */
+.msgFiles {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  max-width: 75%;
+  margin-inline-start: auto;
+  margin-bottom: 6px;
+}
 .inputTextRow {
   display: flex;
   align-items: flex-start;
@@ -1381,35 +1441,69 @@
   background: var(--tone-bg);
   color: var(--tone);
 }
-.slashIcon[data-tone='analyze'] {
+.slashIcon[data-tone='analyze'],
+.cmdChip[data-tone='analyze'] {
   --tone: #2f6bd1;
 }
-.slashIcon[data-tone='draft'] {
+.slashIcon[data-tone='draft'],
+.cmdChip[data-tone='draft'] {
   --tone: #c96a1e;
 }
-.slashIcon[data-tone='compare'] {
+.slashIcon[data-tone='compare'],
+.cmdChip[data-tone='compare'] {
   --tone: #7d55c7;
 }
-.slashIcon[data-tone='translate'] {
+.slashIcon[data-tone='translate'],
+.cmdChip[data-tone='translate'] {
   --tone: #5450c8;
+}
+.slashIcon[data-tone='plan'],
+.cmdChip[data-tone='plan'] {
+  --tone: #1f8a5b;
+}
+.slashIcon[data-tone='slides'],
+.cmdChip[data-tone='slides'] {
+  --tone: #c2417a;
 }
 .slashIcon[data-tone] {
   --tone-bg: color-mix(in srgb, var(--tone) 14%, var(--panel));
 }
-:global(html.dark) .slashIcon[data-tone='analyze'] {
+:global(html.dark) .slashIcon[data-tone='analyze'],
+:global(html.dark) .cmdChip[data-tone='analyze'] {
   --tone: #7aa7f0;
 }
-:global(html.dark) .slashIcon[data-tone='draft'] {
+:global(html.dark) .slashIcon[data-tone='draft'],
+:global(html.dark) .cmdChip[data-tone='draft'] {
   --tone: #ee9c5c;
 }
-:global(html.dark) .slashIcon[data-tone='compare'] {
+:global(html.dark) .slashIcon[data-tone='compare'],
+:global(html.dark) .cmdChip[data-tone='compare'] {
   --tone: #b394ec;
 }
-:global(html.dark) .slashIcon[data-tone='translate'] {
+:global(html.dark) .slashIcon[data-tone='translate'],
+:global(html.dark) .cmdChip[data-tone='translate'] {
   --tone: #9592f0;
+}
+:global(html.dark) .slashIcon[data-tone='plan'],
+:global(html.dark) .cmdChip[data-tone='plan'] {
+  --tone: #5cc796;
+}
+:global(html.dark) .slashIcon[data-tone='slides'],
+:global(html.dark) .cmdChip[data-tone='slides'] {
+  --tone: #f08cb6;
 }
 :global(html.dark) .slashIcon[data-tone] {
   --tone-bg: color-mix(in srgb, var(--tone) 20%, var(--panel));
+}
+/* Плашка выбранной команды — в цвет её плитки из меню «/». Текст на светлой
+   теме на 20% темнее тона: оранжевый «Draft» иначе не дотягивает до 4.5:1. */
+.cmdChip[data-tone] {
+  background: color-mix(in srgb, var(--tone) 14%, var(--panel));
+  color: color-mix(in srgb, var(--tone) 80%, #000);
+}
+:global(html.dark) .cmdChip[data-tone] {
+  background: color-mix(in srgb, var(--tone) 20%, var(--panel));
+  color: var(--tone);
 }
 .slashText {
   flex: 1;
@@ -1442,8 +1536,8 @@
   .welcomeTitle {
     font-size: 30px; /* эталон: text-3xl до брейкпоинта sm */
   }
-  .suggestions {
-    grid-template-columns: 1fr; /* эталон: grid-cols-1 до sm */
+  .recent {
+    margin-top: 32px;
   }
 }
 
@@ -1582,4 +1676,1335 @@
   border: none;
   border-top: 1px solid var(--border);
   margin: 12px 0;
+}
+
+/* Презентация (/slides): карточка с миниатюрами и кнопкой «Скачать .pptx» -- */
+.deckCard {
+  width: 100%;
+  max-width: 680px;
+  padding: 14px;
+  border-radius: var(--r-xl);
+  border-start-start-radius: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--panel-edge);
+  box-shadow: var(--shadow-card);
+  animation: lxfade 0.2s ease both;
+}
+.deckHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 11px;
+  margin-bottom: 12px;
+}
+/* Не уже 150px: иначе подпись сжималась в столбик («Сл… 11»), а кнопки
+   уезжали за край. Не помещается — группа кнопок переносится ниже. */
+.deckHeadText {
+  flex: 1 1 150px;
+  min-width: 0;
+}
+.deckActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.deckLabel {
+  font-family: var(--font-label);
+  font-size: 12px;
+  color: var(--mut);
+}
+.deckTitle {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.deckDownload {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex-shrink: 0;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: none;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-family: var(--font-label);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--dur-fast);
+}
+.deckDownload:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 86%, var(--bg));
+}
+.deckDownload:disabled {
+  cursor: progress;
+  opacity: 0.85;
+}
+/* Индикатор сборки — цветом текста кнопки (стандартный тёмный на ней не виден). */
+.deckDownload [role='status'] {
+  border-color: color-mix(in srgb, var(--on-accent) 35%, transparent);
+  border-top-color: var(--on-accent);
+}
+.deckDownload:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.deckGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 10px;
+}
+/* Миниатюра повторяет слайд файла: белый лист, заголовок, золотая черта. */
+.deckThumb {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #ffffff;
+  border: 1px solid var(--border);
+  color: #232120;
+}
+.deckThumbNum {
+  position: absolute;
+  inset-inline-end: 8px;
+  bottom: 6px;
+  font-family: var(--font-label);
+  font-size: 9px;
+  color: #a3a09a;
+}
+.deckThumbTitle {
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.deckThumbRule,
+.deckCoverRule {
+  display: block;
+  flex-shrink: 0;
+  width: 18px;
+  height: 2px;
+  background: #b08d57;
+}
+.deckThumbList {
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: disc inside; /* общий сброс стилей убирает маркеры */
+  font-size: 9.5px;
+  line-height: 1.35;
+  color: #3d3a37;
+}
+.deckThumbList li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.deckThumbCover {
+  justify-content: center;
+  background: #232120;
+  border-color: #232120;
+  color: #ffffff;
+}
+.deckCoverBrand {
+  position: absolute;
+  top: 9px;
+  inset-inline-start: 12px;
+  font-family: var(--font-label);
+  font-size: 7.5px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  color: #b08d57;
+}
+.deckCoverTitle {
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1.25;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.deckCoverSub {
+  font-size: 9.5px;
+  color: #d9d6d0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+:global(html.dark) .deckThumb:not(.deckThumbCover) {
+  border-color: transparent;
+}
+:global(html.dark) .deckThumbCover {
+  border-color: var(--border);
+}
+@media (max-width: 600px) {
+  .deckHead {
+    flex-wrap: wrap;
+  }
+  .deckDownload {
+    width: 100%;
+    justify-content: center;
+  }
+  .deckGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+}
+@media (pointer: coarse) {
+  .deckDownload {
+    height: 44px;
+  }
+}
+
+/* Карточки над полем ввода: уточняющие вопросы ИИ и одобрение плана -------- */
+.choiceWrap {
+  max-width: 760px;
+  margin: 0 auto;
+}
+.choiceCard {
+  overflow: hidden;
+  border-radius: 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.04),
+    0 10px 30px -12px rgba(0, 0, 0, 0.14);
+  outline: none;
+  animation: lxfade 0.18s ease both;
+}
+.choiceCard:focus-within {
+  border-color: color-mix(in srgb, var(--dim) 45%, transparent);
+}
+.choiceHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px 11px 18px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 14.5px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.choiceTitle {
+  flex: 1;
+  min-width: 0;
+}
+.choiceCount {
+  flex-shrink: 0;
+  font-family: var(--font-label);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--mut);
+}
+.choiceClose {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--mut);
+  cursor: pointer;
+}
+.choiceClose:hover {
+  background: var(--hover-2);
+  color: var(--text);
+}
+.choiceList {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+}
+.choiceOption {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  text-align: start;
+  cursor: pointer;
+}
+.choiceOptionActive {
+  background: var(--hover-2);
+}
+.choiceOptionText {
+  flex: 1;
+  min-width: 0;
+}
+.choiceArrow,
+.choiceIcon {
+  flex-shrink: 0;
+  display: flex;
+  color: var(--dim);
+}
+:global(html[dir='rtl']) .choiceArrow {
+  transform: scaleX(-1);
+}
+.choiceInput {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+}
+.choiceInput::placeholder {
+  color: var(--mut);
+}
+.choiceGo {
+  flex-shrink: 0;
+  height: 28px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-family: var(--font-label);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.choiceHints {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 16px;
+  margin-top: 8px;
+  font-family: var(--font-label);
+  font-size: 12px;
+  color: var(--mut);
+}
+.choiceHints kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  margin-inline-end: 4px;
+  border-radius: 4px;
+  background: var(--hover-2);
+  color: var(--dim);
+  font-family: inherit;
+  font-size: 11px;
+}
+@media (pointer: coarse) {
+  .choiceOption {
+    min-height: 44px;
+  }
+  .choiceHints {
+    display: none; /* клавиатурные подсказки на телефоне не нужны */
+  }
+}
+
+/* «✓ План одобрен» в ленте — сворачиваемая плашка вместо длинного сообщения. */
+.msgApproved {
+  animation: lxfade 0.3s ease both;
+}
+.approvedPill {
+  border-radius: 14px;
+  background: var(--panel-2);
+  border: 1px solid var(--panel-edge);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+.approvedHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  padding: 0 16px 0 18px;
+  border: none;
+  background: transparent;
+  color: var(--dim);
+  font: inherit;
+  font-size: 14.5px;
+  font-weight: 500;
+  text-align: start;
+  cursor: pointer;
+}
+.approvedHead:hover {
+  color: var(--text);
+}
+.approvedHead:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  border-radius: 14px;
+}
+.approvedCheck {
+  display: flex;
+  color: #1f8a5b;
+}
+:global(html.dark) .approvedCheck {
+  color: #5cc796;
+}
+.approvedLabel {
+  flex: 1;
+  min-width: 0;
+}
+.approvedChevron {
+  display: flex;
+  color: var(--mut);
+  transform: rotate(90deg);
+  transition: transform var(--dur-mid) var(--ease);
+}
+.approvedChevronOpen {
+  transform: rotate(-90deg);
+}
+.approvedBody {
+  padding: 0 18px 14px 44px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--dim);
+  white-space: pre-wrap;
+}
+
+/* Плашка команды в пузыре пользователя («/plan …» → «Plan»). Пузырь тёмный в
+   светлой теме и светлый в тёмной — поэтому тона берутся «наоборот». */
+.bubbleChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  margin-inline-end: 8px;
+  padding: 0 8px 0 6px;
+  border-radius: 7px;
+  vertical-align: 1px;
+  background: color-mix(in srgb, var(--tone, #8a867f) 16%, var(--user-bubble));
+  /* Текст темнее тона: на светло-сером пузыре контраст не ниже 4.8:1. */
+  color: color-mix(in srgb, var(--tone, #8a867f) 55%, #000);
+  font-family: var(--font-label);
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1;
+}
+.bubbleChip[data-tone='analyze'] { --tone: #7aa7f0; }
+.bubbleChip[data-tone='draft'] { --tone: #ee9c5c; }
+.bubbleChip[data-tone='plan'] { --tone: #5cc796; }
+.bubbleChip[data-tone='slides'] { --tone: #f08cb6; }
+.bubbleChip[data-tone='compare'] { --tone: #b394ec; }
+.bubbleChip[data-tone='translate'] { --tone: #9592f0; }
+:global(html.dark) .bubbleChip {
+  /* Тёмно-серый пузырь: текст светлее тона, контраст не ниже 5.1:1. */
+  background: color-mix(in srgb, var(--tone, #8a867f) 18%, var(--user-bubble));
+  color: color-mix(in srgb, var(--tone, #8a867f) 75%, #fff);
+}
+
+/* ── Боковая панель артефактов (как в Claude) ─────────────────────────────── */
+.chatSplit {
+  /* Белый фон чата: --bg переопределён на всю область, поэтому всё, что
+     сливается с фоном (затухание над полем ввода, правая колонка, кольцо
+     у значка уведомлений), остаётся в тон. */
+  --bg: var(--chat-bg);
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg);
+}
+.chatSplit > .canvas {
+  flex: 1;
+  min-width: 0;
+}
+/* Правая колонка чата «Progress / Context» (эталон Harvey): узкая колонка на
+   фоне страницы, разделы со стрелками, шаги с кружками-отметками, вкладки
+   Outputs / Sources. Видна в переписке на широком экране; когда открыт
+   документ или таблица, их место — у боковой панели. */
+.side {
+  flex-shrink: 0;
+  width: 300px;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 8px 14px 24px;
+  border-inline-start: 1px solid var(--border);
+  background: var(--bg);
+}
+@media (max-width: 1180px) {
+  .side {
+    display: none;
+  }
+}
+.sideSection + .sideSection {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+.sideHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 40px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--dim);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.sideHead:hover {
+  color: var(--text);
+}
+.sideChevron {
+  display: inline-flex;
+  transform: rotate(90deg);
+  transition: transform var(--dur-fast) var(--ease);
+}
+.sideChevron[data-open] {
+  transform: rotate(-90deg);
+}
+.sideBody {
+  padding: 2px 4px 8px;
+}
+.sideGroup + .sideGroup {
+  margin-top: 14px;
+}
+.sideGroupLabel {
+  margin-bottom: 4px;
+  font-size: 12px;
+  color: var(--mut);
+}
+.sideSteps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.sideStep,
+.sideStepBtn {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--text);
+  text-align: start;
+}
+.sideStepBtn {
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.sideStepBtn:hover .sideMarkTodo {
+  border-color: var(--dim);
+}
+.sideStepBtn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.sideStepText {
+  min-width: 0;
+}
+/* Выполненный шаг — зачёркнут и приглушён, как у эталона. */
+[data-done] > .sideStepText {
+  color: var(--mut);
+  text-decoration: line-through;
+}
+.sideMarkTodo,
+.sideMarkActive,
+.sideMarkDone {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  border-radius: 50%;
+}
+.sideMarkTodo {
+  border: 1.5px dashed var(--mut);
+}
+.sideMarkActive {
+  border: 2px solid color-mix(in srgb, var(--dim) 25%, transparent);
+  border-top-color: var(--dim);
+  animation: lxspin 0.9s linear infinite;
+}
+.sideMarkDone {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #2f7d4f;
+  color: #fff;
+}
+:global(html.dark) .sideMarkDone {
+  background: #3f9a63;
+}
+.sideEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin: 4px 0 10px;
+  padding: 22px 16px;
+  border-radius: var(--r-md);
+  background: var(--hover);
+  text-align: center;
+}
+.sideEmptyIcon {
+  display: inline-flex;
+  color: var(--mut);
+}
+.sideEmpty p,
+.sideNote {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--mut);
+}
+.sideNote {
+  padding: 12px 4px 4px;
+}
+/* Вкладки Outputs / Sources — серая дорожка, выбранная вкладка белая. */
+.sideTabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 9px;
+  background: var(--hover-2);
+}
+.sideTab {
+  height: 30px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--dim);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.sideTab[data-on] {
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+.sideList {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+}
+.sideItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 6px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+button.sideItem:hover,
+a.sideItem:hover {
+  background: var(--hover);
+  text-decoration: none;
+}
+a.sideItem {
+  color: var(--text);
+  text-decoration: none;
+}
+a.sideItem:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* Сайт-источник под названием закона и стрелка «открыть» справа. */
+.sideItemHost {
+  font-size: 11.5px;
+  color: var(--mut);
+}
+.sideItemOut {
+  flex-shrink: 0;
+  margin-inline-start: auto;
+  padding-top: 2px;
+  color: var(--mut);
+  opacity: 0;
+  transition: opacity var(--dur-fast);
+}
+a.sideItem:hover .sideItemOut,
+a.sideItem:focus-visible .sideItemOut {
+  opacity: 1;
+}
+@media (hover: none) {
+  .sideItemOut {
+    opacity: 1;
+  }
+}
+.sideItem[data-static] {
+  cursor: default;
+}
+.sideItemText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.35;
+}
+.sideItemName {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13.5px;
+  font-weight: 500;
+}
+.sideItemSub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--mut);
+}
+.sideLawIcon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  background: var(--hover-2);
+  color: var(--dim);
+}
+
+.artifactPanel {
+  flex-shrink: 0;
+  /* Как у Harvey: чат — узкая колонка (360px), панель — всё остальное. */
+  width: max(420px, calc(100% - 360px));
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--panel);
+  border-inline-start: 1px solid var(--border);
+  animation: lxfade 0.2s ease both;
+}
+@media (max-width: 900px) {
+  /* Узкий экран: панель — на весь экран поверх чата. */
+  .artifactPanel {
+    position: fixed;
+    inset: 0;
+    z-index: 150;
+    width: auto;
+    border: none;
+  }
+}
+.panelHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  /* Ровно как шапка чата слева (.topBar — 56px с линией): линии под шапками
+     стоят на одном уровне. */
+  flex-shrink: 0;
+  height: 56px;
+  padding: 0 12px 0 16px;
+  border-bottom: 1px solid var(--border);
+}
+.panelTitleWrap {
+  flex: 1;
+  min-width: 0;
+}
+.panelTitle {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.panelSub {
+  font-family: var(--font-label);
+  font-size: 12px;
+  color: var(--mut);
+}
+.panelActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.panelBtn,
+.panelBtnPrimary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-family: var(--font-label);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background var(--dur-fast),
+    border-color var(--dur-fast);
+}
+.panelBtn {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--text);
+}
+.panelBtn:hover:not(:disabled) {
+  background: var(--hover-2);
+}
+.panelBtn:disabled {
+  color: var(--mut);
+  cursor: default;
+}
+.panelBtnPrimary {
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.panelBtnPrimary:hover {
+  background: color-mix(in srgb, var(--accent) 86%, var(--bg));
+}
+.panelBtnPrimary [role='status'] {
+  border-color: color-mix(in srgb, var(--on-accent) 35%, transparent);
+  border-top-color: var(--on-accent);
+}
+.panelClose {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+}
+.panelClose:hover {
+  background: var(--hover-2);
+  color: var(--text);
+}
+.panelBtn:focus-visible,
+.panelBtnPrimary:focus-visible,
+.panelClose:focus-visible,
+.exportItem:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.exportWrap {
+  position: relative;
+}
+.exportMenu {
+  position: absolute;
+  top: calc(100% + 6px);
+  inset-inline-end: 0;
+  z-index: 40;
+  min-width: 210px;
+  padding: 5px;
+  border-radius: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.2);
+  animation: lxfade 0.14s ease both;
+}
+.exportItem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-label);
+  font-size: 13.5px;
+  text-align: start;
+  cursor: pointer;
+}
+.exportItem:hover:not(:disabled) {
+  background: var(--hover-2);
+}
+.exportItem svg {
+  color: var(--dim);
+}
+@media (pointer: coarse) {
+  .panelBtn,
+  .panelBtnPrimary,
+  .panelClose {
+    min-height: 44px;
+  }
+  .exportItem {
+    min-height: 44px;
+  }
+}
+@media (max-width: 520px) {
+  /* На телефоне подписи кнопок шапки прячем — остаются иконки. */
+  .panelBtn span,
+  .panelBtnPrimary span {
+    display: none;
+  }
+}
+
+/* Документ: лист бумаги с текстом, правится прямо здесь. */
+.docScroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 24px;
+  background: var(--doc-bg);
+}
+.docEditor {
+  display: block;
+  width: 100%;
+  max-width: 720px;
+  min-height: 100%;
+  margin: 0 auto;
+  padding: 40px 48px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: var(--shadow-card);
+  font-family: var(--font-serif);
+  font-size: 15px;
+  line-height: 1.7;
+  resize: none;
+  outline: none;
+  field-sizing: content;
+}
+.docEditor:focus {
+  border-color: color-mix(in srgb, var(--dim) 45%, transparent);
+}
+@media (max-width: 600px) {
+  .docScroll {
+    padding: 12px;
+  }
+  .docEditor {
+    padding: 20px 18px;
+  }
+}
+
+/* Таблица: вид как в Excel — буквы столбцов, номера строк, строка формул. */
+.sheetBar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.sheetRef {
+  flex-shrink: 0;
+  min-width: 52px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: var(--font-label);
+  color: var(--dim);
+}
+.sheetFx {
+  flex-shrink: 0;
+  font-style: italic;
+  color: var(--mut);
+}
+.sheetVal {
+  flex: 1;
+  min-width: 0;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sheetScroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  outline: none;
+}
+.sheet {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 13px;
+  color: var(--text);
+}
+.sheet td {
+  min-width: 120px;
+  max-width: 340px;
+  padding: 7px 10px;
+  border-inline-end: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  line-height: 1.45;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  cursor: cell;
+  background: var(--panel);
+}
+.sheetColHead,
+.sheetRowHead,
+.sheetCorner {
+  position: sticky;
+  background: var(--panel-2);
+  color: var(--mut);
+  font-family: var(--font-label);
+  font-size: 11.5px;
+  font-weight: 500;
+  border-inline-end: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.sheetColHead {
+  top: 0;
+  z-index: 2;
+  height: 28px;
+  text-align: center;
+}
+.sheetRowHead {
+  inset-inline-start: 0;
+  z-index: 1;
+  min-width: 40px;
+  padding: 0 8px;
+  text-align: center;
+}
+.sheetCorner {
+  top: 0;
+  inset-inline-start: 0;
+  z-index: 3;
+  width: 40px;
+}
+.sheetHeadOn {
+  color: var(--text);
+  background: var(--hover-3);
+}
+.sheet .sheetHeaderCell {
+  font-weight: 600;
+  background: color-mix(in srgb, var(--panel-2) 60%, var(--panel));
+}
+.sheet .sheetCellOn {
+  box-shadow: inset 0 0 0 2px #1f8a5b;
+}
+
+/* Презентация: большой слайд, листание, заметки и лента миниатюр. */
+.deckStage {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px;
+  background: var(--doc-bg);
+  outline: none;
+}
+.slideFrame {
+  position: relative;
+  container-type: inline-size;
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-card);
+}
+.slideBox {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 6cqw 5.5cqw 4cqw;
+  background: #ffffff;
+  color: #232120;
+}
+.slideTitle {
+  font-size: 3.6cqw;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.slideRule,
+.slideCoverRule {
+  display: block;
+  flex-shrink: 0;
+  width: 7cqw;
+  height: 0.45cqw;
+  margin: 1.6cqw 0 2.4cqw;
+  background: #b08d57;
+}
+.slideList {
+  margin: 0;
+  padding-inline-start: 2.6cqw;
+  font-size: 2.3cqw;
+  line-height: 1.5;
+}
+.slideList li + li {
+  margin-top: 0.8cqw;
+}
+.slideFoot,
+.slideNum {
+  position: absolute;
+  bottom: 2.4cqw;
+  font-family: var(--font-label);
+  font-size: 1.15cqw;
+  color: #a3a09a;
+}
+.slideFoot {
+  inset-inline-start: 5.5cqw;
+}
+.slideNum {
+  inset-inline-end: 5.5cqw;
+}
+.slideCover {
+  justify-content: center;
+  background: #232120;
+  color: #ffffff;
+}
+.slideBrand {
+  position: absolute;
+  top: 5cqw;
+  inset-inline-start: 5.5cqw;
+  font-family: var(--font-label);
+  font-size: 1.3cqw;
+  font-weight: 700;
+  letter-spacing: 0.35em;
+  color: #b08d57;
+}
+.slideCoverTitle {
+  font-size: 4.4cqw;
+  font-weight: 700;
+  line-height: 1.15;
+}
+.slideCoverSub {
+  margin-top: 2cqw;
+  font-size: 2.1cqw;
+  color: #d9d6d0;
+}
+.slideCoverFoot {
+  position: absolute;
+  bottom: 4cqw;
+  inset-inline-start: 5.5cqw;
+  font-family: var(--font-label);
+  font-size: 1.2cqw;
+  color: #a3a09a;
+}
+.slideNav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+}
+.slideNavBtn {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--panel);
+  color: var(--text);
+  cursor: pointer;
+}
+.slideNavBtn:disabled {
+  color: var(--mut);
+  cursor: default;
+}
+:global(html[dir='rtl']) .slideNavBtn svg {
+  transform: scaleX(-1);
+}
+.slideCounter {
+  min-width: 110px;
+  text-align: center;
+  font-family: var(--font-label);
+  font-size: 13px;
+  color: var(--dim);
+}
+.slideNotes {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--dim);
+}
+.slideNotesLabel {
+  display: block;
+  margin-bottom: 4px;
+  font-family: var(--font-label);
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--mut);
+}
+.slideStrip {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 8px;
+}
+.slideThumbBtn {
+  display: block;
+  width: 100%;
+  text-align: start; /* кнопка по умолчанию центрирует — миниатюра должна быть как слайд */
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+}
+.slideThumbBtn .slideFrame {
+  border-radius: 6px;
+  box-shadow: none;
+}
+.slideThumbOn {
+  border-color: #c2417a;
+}
+
+/* Карточки документа и большой таблицы внутри ответа ИИ. */
+.artCard {
+  margin: 10px 0;
+  border-radius: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  white-space: normal;
+}
+.artHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+}
+.artHeadText {
+  flex: 1;
+  min-width: 0;
+}
+.artTitle {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.artSub {
+  font-family: var(--font-label);
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--mut);
+}
+.artOpen,
+.deckOpen {
+  flex-shrink: 0;
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--text);
+  font-family: var(--font-label);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.artOpen:hover,
+.deckOpen:hover {
+  background: var(--hover-2);
+}
+.artPreview {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 10px 14px 12px;
+  border: none;
+  border-top: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--dim);
+  font-family: var(--font-serif);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: start;
+  cursor: pointer;
+}
+.artPreview span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.artTablePreview {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: none;
+  border-top: 1px solid var(--border);
+  background: var(--panel-2);
+  text-align: start;
+  cursor: pointer;
+  overflow: hidden;
+}
+.artTablePreview table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 12.5px;
+  color: var(--dim);
+}
+.artTablePreview th,
+.artTablePreview td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: start;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.artTablePreview th {
+  font-weight: 600;
+  color: var(--text);
+}
+.artMore {
+  display: block;
+  padding: 6px 10px 8px;
+  font-family: var(--font-label);
+  font-size: 12px;
+  color: var(--mut);
+}
+@media (pointer: coarse) {
+  .artOpen,
+  .deckOpen {
+    height: 44px;
+  }
 }

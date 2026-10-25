@@ -31,7 +31,7 @@ import { looksRussian } from './format.ts';
 const MAX_PART_BYTES = 120 * 1024 * 1024;
 
 /** Нужные части архива (имя → XML). null — архив не разобрать. */
-function readZipParts(buffer: Buffer, want: (name: string) => boolean): Map<string, string> | null {
+export function readZipParts(buffer: Buffer, want: (name: string) => boolean): Map<string, string> | null {
   const EOCD_SIG = 0x06054b50;
   const CD_SIG = 0x02014b50;
   const LOCAL_SIG = 0x04034b50;
@@ -84,7 +84,7 @@ function readZipParts(buffer: Buffer, want: (name: string) => boolean): Map<stri
 
 const TAG_INNER = /^(\/?)([\w.:-]+)([\s\S]*?)(\/?)$/;
 
-interface Tag {
+export interface Tag {
   close: boolean;
   selfClose: boolean;
   /** Имя без префикса пространства имён… */
@@ -94,7 +94,7 @@ interface Tag {
   attrs: string;
 }
 
-function* tokens(xml: string): Generator<Tag | string> {
+export function* tokens(xml: string): Generator<Tag | string> {
   let pos = 0;
   while (pos < xml.length) {
     const lt = xml.indexOf('<', pos);
@@ -150,7 +150,7 @@ function* tokens(xml: string): Generator<Tag | string> {
 }
 
 const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
-function decodeXml(s: string): string {
+export function decodeXml(s: string): string {
   if (!s.includes('&')) return s;
   return s.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (whole, e: string) => {
     if (e[0] !== '#') return ENTITIES[e] ?? whole;
@@ -163,7 +163,7 @@ function decodeXml(s: string): string {
 }
 
 /** Значение атрибута по локальному имени (w:val, w:id, …). */
-function attr(attrs: string, local: string): string | undefined {
+export function attr(attrs: string, local: string): string | undefined {
   const m = new RegExp(`(?:^|\\s)(?:[\\w.-]+:)?${local}\\s*=\\s*("([^"]*)"|'([^']*)')`).exec(attrs);
   return m ? decodeXml(m[2] ?? m[3] ?? '') : undefined;
 }

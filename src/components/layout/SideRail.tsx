@@ -1,10 +1,12 @@
 import { useMemo, useRef, useState } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { Icon, type IconName } from '@/components/icons/Icon';
 import { Avatar } from '@/components/ui/Avatar';
 import { UserMenu } from './UserMenu';
 import { useAsync, useDismissable } from '@/hooks/useAsync';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { useVaultCounts } from '@/hooks/useVaultCounts';
+import { VAULT_TABS, vaultTabOf } from '@/lib/vault';
 import { billingApi } from '@/api/billing.api';
 import { useChatHistoryStore } from '@/store/useChatHistoryStore';
 import { useChatStore } from '@/store/useChatStore';
@@ -20,13 +22,11 @@ interface NavEntry {
 }
 
 const NAV: NavEntry[] = [
-  { to: '/chat', icon: 'chat', key: 'nav.chat' },
+  { to: '/chat', icon: 'home', key: 'nav.chat' },
   { to: '/documents', icon: 'docs', key: 'nav.documents' },
+  // Плейбуки, сроки (контракты) и массовый разбор — внутри Vault
+  // (подпункты ниже и вкладки на странице), отдельными пунктами их нет.
   { to: '/projects', icon: 'folder', key: 'nav.projects' },
-  { to: '/templates', icon: 'layout', key: 'nav.templates' },
-  { to: '/playbooks', icon: 'shield', key: 'nav.playbooks' },
-  { to: '/contracts', icon: 'calendar', key: 'nav.contracts' },
-  { to: '/batch', icon: 'inbox', key: 'nav.batch' },
   { to: '/signatures', icon: 'esign', key: 'nav.signatures' },
   { to: '/analytics', icon: 'analytics', key: 'nav.analytics' },
   { to: '/team', icon: 'users', key: 'nav.team' },
@@ -75,6 +75,9 @@ export function SideRail({ sessions, user, onNewReview }: SideRailProps) {
   const setMobileNavOpen = useUIStore((s) => s.setMobileNavOpen);
   const pushToast = useUIStore((s) => s.pushToast);
   const { t } = useI18n();
+  const location = useLocation();
+  const vaultTab = vaultTabOf(location.pathname);
+  const vaultCounts = useVaultCounts(Boolean(vaultTab));
 
   const open = isMobile ? mobileNavOpen : railPinned;
   const toggleOpen = () => (isMobile ? setMobileNavOpen(!open) : toggleRail());
@@ -273,33 +276,61 @@ export function SideRail({ sessions, user, onNewReview }: SideRailProps) {
           )}
         </div>
 
+        {/* «Create» — кнопка-карточка без иконки (эталон Harvey). В свёрнутом
+            меню подписи не видно — там вместо неё «+», чтобы кнопка не пропала. */}
         <button
-          className={styles.newBtn}
+          className={styles.createBtn}
+          aria-label={t('nav.newChat')}
           onClick={() => {
             collapse();
             onNewReview();
           }}
         >
-          <span className={styles.navIcon}>
-            <Icon name="compose" size={18} />
+          <span className={styles.createIcon} aria-hidden="true">
+            <Icon name="plus" size={18} />
           </span>
-          <span className={styles.navLabel}>{t('nav.newChat')}</span>
+          <span className={styles.createLabel}>{t('nav.newChat')}</span>
         </button>
 
         <div className={styles.navGroup}>
-          {(API_PLANS.includes(limits?.plan ?? '') ? [...NAV, API_NAV] : NAV).map((n) => (
-            <NavLink
-              key={n.to}
-              to={n.to}
-              className={({ isActive }) => `${styles.navItem} ${isActive ? styles.navItemActive : ''}`}
-              onClick={collapse}
-            >
-              <span className={styles.navIcon}>
-                <Icon name={n.icon} size={18} />
-              </span>
-              <span className={styles.navLabel}>{t(n.key)}</span>
-            </NavLink>
-          ))}
+          {(API_PLANS.includes(limits?.plan ?? '') ? [...NAV, API_NAV] : NAV).map((n) => {
+            const isVault = n.to === '/documents';
+            return (
+              <div key={n.to}>
+                <NavLink
+                  to={n.to}
+                  className={({ isActive }) =>
+                    `${styles.navItem} ${isActive || (isVault && vaultTab) ? styles.navItemActive : ''}`
+                  }
+                  onClick={collapse}
+                >
+                  <span className={styles.navIcon}>
+                    <Icon name={n.icon} size={18} />
+                  </span>
+                  <span className={styles.navLabel}>{t(n.key)}</span>
+                </NavLink>
+                {/* Подпункты Vault со счётчиками — пока открыт один из его
+                    разделов (в свёрнутом меню их нет: только иконки). */}
+                {isVault && vaultTab && open ? (
+                  <div className={styles.navSub}>
+                    {VAULT_TABS.map((tab) => (
+                      <NavLink
+                        key={tab.key}
+                        to={tab.to}
+                        className={`${styles.navSubItem} ${tab.key === vaultTab ? styles.navSubItemActive : ''}`}
+                        onClick={collapse}
+                      >
+                        <span className={styles.navSubLabel}>{t(tab.label)}</span>
+                        {vaultCounts[tab.key] !== undefined ? (
+                          <span className={styles.navSubCount}>{vaultCounts[tab.key]}</span>
+                        ) : null}
+                      </NavLink>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
         </div>
 
         {open ? (

@@ -1,20 +1,20 @@
 import { useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { CountrySelector } from '@/components/layout/CountrySelector';
 import { TopBar } from '@/components/layout/TopBar';
+import { VaultHeader } from '@/components/vault/VaultHeader';
 import { Icon } from '@/components/icons/Icon';
 import { Badge } from '@/components/ui/Badge';
 import { Button, IconButton } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { EmptyState, ErrorState, SkeletonRows } from '@/components/ui/States';
-import { SelectMenu } from '@/components/ui/SelectMenu';
 import { batchApi } from '@/api';
 import { uploadsApi } from '@/api/uploads.api';
 import { ApiError } from '@/api/util';
-import { COUNTRIES, countryName } from '@/data/countries';
+import { COUNTRIES } from '@/data/countries';
 import { useAsync } from '@/hooks/useAsync';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { usePageTitle } from '@/hooks/usePageTitle';
-import { useReveal } from '@/hooks/useReveal';
 import { useUIStore } from '@/store/useUIStore';
 import { useI18n } from '@/i18n/I18nProvider';
 import { DOC_ACCEPT, isDocFile, MAX_DOC_BYTES } from '@/lib/docFormats';
@@ -47,7 +47,7 @@ const ITEM_TONE: Record<BatchItem['status'], string> = {
  * surfaced here as an upsell.
  */
 export function BatchReviewPage() {
-  const { t, lang } = useI18n();
+  const { t } = useI18n();
   const navigate = useNavigate();
   const isMobile = useMediaQuery('(max-width: 700px)');
   const pushToast = useUIStore((s) => s.pushToast);
@@ -237,7 +237,7 @@ export function BatchReviewPage() {
     return (
       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
         {item.status === 'processing' ? <Spinner size={14} /> : null}
-        <Badge color={tone} plain>
+        <Badge color={tone}>
           {t(`batch.status.${item.status}`)}
         </Badge>
       </span>
@@ -257,7 +257,7 @@ export function BatchReviewPage() {
           </span>
         ) : (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
-            <Badge color="var(--sev-low)" plain>
+            <Badge color="var(--sev-low)">
               {t('batch.jobDone')}
             </Badge>
             {/* Сводный отчёт: один HTML со всеми договорами по риску. */}
@@ -325,7 +325,7 @@ export function BatchReviewPage() {
                   {item.riskLevel ? (
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                       {item.riskScore != null ? <span className={styles.mono}>{item.riskScore}</span> : null}
-                      <Badge color={item.riskLevel} plain>
+                      <Badge color={item.riskLevel}>
                         {riskLabel(item.riskLevel)}
                       </Badge>
                     </span>
@@ -407,12 +407,14 @@ export function BatchReviewPage() {
       <div className={styles.batchControls}>
         <div className={styles.field}>
           <span className={styles.label}>{t('batch.jurisdiction')}</span>
-          <SelectMenu
+          {/* Как в чате: круглые флаги, поиск, галочка. Своя страна разбора —
+              общую страну чата не меняет. */}
+          <CountrySelector
+            variant="field"
             ariaLabel={t('batch.jurisdiction')}
             value={jurisdiction}
             disabled={busy}
             onChange={setJurisdiction}
-            options={COUNTRIES.map((c) => ({ value: c.code, label: countryName(c, lang) }))}
           />
         </div>
         <Button variant="primary" icon="sparkle" disabled={files.length === 0 || busy} onClick={() => void start()}>
@@ -438,7 +440,7 @@ export function BatchReviewPage() {
                     </div>
                     <div className={styles.docCellSub}>{timeAgo(h.createdAt)}</div>
                   </div>
-                  <Badge color={h.status === 'done' ? 'var(--sev-low)' : 'var(--accent)'} plain>
+                  <Badge color={h.status === 'done' ? 'var(--sev-low)' : 'var(--accent)'}>
                     {t(`batch.status.${h.status}`)}
                   </Badge>
                 </div>
@@ -472,7 +474,7 @@ export function BatchReviewPage() {
                       </div>
                     </td>
                     <td className={styles.td}>
-                      <Badge color={h.status === 'done' ? 'var(--sev-low)' : 'var(--accent)'} plain>
+                      <Badge color={h.status === 'done' ? 'var(--sev-low)' : 'var(--accent)'}>
                         {t(`batch.status.${h.status}`)}
                       </Badge>
                     </td>
@@ -495,13 +497,10 @@ export function BatchReviewPage() {
 
   return (
     <div className={styles.page}>
-      <TopBar title={t('batch.title')} />
+      <TopBar title={t('nav.documents')} hideCountry />
       <div className={`${styles.body} scroll`}>
         <div className={styles.container}>
-          <div className={styles.pageHead} ref={useReveal()}>
-            <h1 className={styles.pageTitle}>{t('batch.title')}</h1>
-            <p className={styles.pageSub}>{t('batch.sub')}</p>
-          </div>
+          <VaultHeader active="batch" />
 
           {loading ? (
             <SkeletonRows rows={4} height={80} />

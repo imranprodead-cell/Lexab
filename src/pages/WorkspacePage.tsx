@@ -9,12 +9,13 @@ import { SkeletonRows } from '@/components/ui/States';
 import { Spinner } from '@/components/ui/Spinner';
 import { ChatInput } from '@/components/chat/ChatInput';
 import { MarkdownMessage } from '@/components/chat/MarkdownMessage';
+import { displayText, extractQuestions } from '@/lib/questions';
 import { DocumentViewer, type ActiveBlock, type DocEditorHandle, type FullContractView } from '@/components/workspace/DocumentViewer';
 import { EditorToolbar } from '@/components/workspace/EditorToolbar';
 import { FloatingToolbar } from '@/components/workspace/FloatingToolbar';
 import { SendForSignatureModal } from '@/components/workspace/SendForSignatureModal';
 import { VersionHistoryModal } from '@/components/workspace/VersionHistoryModal';
-import { analysisApi, documentsApi, templatesApi, versionsApi } from '@/api';
+import { analysisApi, documentsApi, savedDocsApi, versionsApi } from '@/api';
 import { shareApi } from '@/api/growth.api';
 import { Modal } from '@/components/ui/Modal';
 import { downloadBlob } from '@/lib/download';
@@ -94,7 +95,7 @@ export function WorkspacePage() {
     }
   }, [pendingAnchor, clearPendingAnchor]);
 
-  // Драфт из «Моих шаблонов»: документ без анализа. Чат слева открыт сразу
+  // Сохранённый документ: документ без анализа. Чат слева открыт сразу
   // (его можно свернуть в рейку); на мобильной раскладке панели всегда обе видны.
   const isDraft = Boolean(draftSource);
   const isMobile = useMediaQuery('(max-width: 900px)');
@@ -208,14 +209,14 @@ export function WorkspacePage() {
       .finally(() => setReanalyzing(false));
   };
 
-  // Драфт шаблона → настоящий анализ: открываем чат слева и гоняем текст через
+  // Сохранённый черновик → настоящий анализ: открываем чат слева и гоняем текст через
   // обычный конвейер (загрузка файла → анализ). keepCanvas держит документ на
   // экране; по завершении стор заменит черновик готовым разбором с находками.
   const analyzeDraft = () => {
     const src = useChatStore.getState().draftSource;
     if (!src || analyzing) return;
     setChatOpen(true);
-    const base = src.title.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120) || 'template';
+    const base = src.title.replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120) || 'document';
     const name = `${base}.txt`;
     const file = new File([src.content], name, { type: 'text/plain' });
     // Новый чат под этот анализ создаёт и привязывает сам стор (newSession).
@@ -225,7 +226,7 @@ export function WorkspacePage() {
   const downloadDraft = async () => {
     if (!draftSource) return;
     try {
-      const blob = await templatesApi.exportDocx(draftSource.title, draftSource.content);
+      const blob = await savedDocsApi.exportDocx(draftSource.title, draftSource.content);
       downloadBlob(blob, `${draftSource.title.replace(/[^\wа-яА-ЯёЁ -]+/g, '').slice(0, 80) || 'contract'}.docx`);
     } catch (err) {
       pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
@@ -236,13 +237,13 @@ export function WorkspacePage() {
     if (!draftSource) return;
     try {
       await navigator.clipboard.writeText(draftSource.content);
-      pushToast(t('tpl.copied'), 'success');
+      pushToast(t('ws.draftCopied'), 'success');
     } catch {
       pushToast(t('common.error'), 'error');
     }
   };
 
-  // Правки черновика пишутся в САМ сохранённый шаблон (PATCH), не в анализ —
+  // Правки черновика пишутся в САМ сохранённый документ (PATCH), не в анализ —
   // серверного анализа у драфта нет. draftSource.content держим в синхроне,
   // чтобы «Скачать», «Копировать» и «Анализ рисков» брали правленый текст.
   const syncDraftToServer = () => {
@@ -251,17 +252,17 @@ export function WorkspacePage() {
     const doc = st.analysis?.document;
     if (!src || !doc) return;
     const content = draftBlocksToText(doc);
-    // Пустой текст не сохраняем: стереть шаблон целиком правкой нельзя.
+    // Пустой текст не сохраняем: стереть документ целиком правкой нельзя.
     if (!content || content === src.content) return;
     updateDraftContent(content);
-    templatesApi
-      .updateSaved(src.savedTemplateId, { content })
+    savedDocsApi
+      .update(src.savedTemplateId, { content })
       .then(() => pushToast(t('ws.saved'), 'success'))
       .catch(() => pushToast(t('common.error'), 'error'));
   };
 
   const persistDraft = (document: DocBlock[]) => {
-    // Шаблон хранится как plain text, поэтому инлайн-форматирование сплющиваем
+    // Документ хранится как plain text, поэтому инлайн-форматирование сплющиваем
     // сразу при сохранении блока — на экране всегда ровно то, что в файле.
     updateDocument(
       document.map((b) => (b.type === 'heading' ? b : { ...b, segments: [draftBlocksToText([b])] })),
@@ -303,8 +304,8 @@ export function WorkspacePage() {
   const pendingCount = analysis.redlines.filter((r) => r.status === 'pending').length;
   const textMessages = messages.filter((m) => m.kind === 'text');
 
-  // Из драфта шаблона «назад» ведёт в «Шаблоны», откуда он был открыт.
-  const closeWorkspace = () => navigate(isDraft ? '/templates' : sessionId ? `/chat/${sessionId}` : '/chat');
+  // Из сохранённого черновика «назад» ведёт в Vault → Documents, где он лежит.
+  const closeWorkspace = () => navigate(isDraft ? '/documents' : sessionId ? `/chat/${sessionId}` : '/chat');
 
   // Persist a document edit from the rich editor (blocks already assembled by
   // the viewer). updateDocument records an undo snapshot; the server stores it.
@@ -477,7 +478,7 @@ export function WorkspacePage() {
                       <div key={m.id} className={styles.qaAssistant}>
                         {/* «…» внутри текста: после блочного markdown-рендера
                             отдельный текстовый узел падал бы на свою строку. */}
-                        <MarkdownMessage text={m.streaming ? `${m.text ?? ''}…` : (m.text ?? '')} />
+                        <MarkdownMessage text={m.streaming ? `${extractQuestions(m.text ?? '').body}…` : displayText(m.text ?? '')} />
                       </div>
                     ),
                   )}
@@ -523,7 +524,7 @@ export function WorkspacePage() {
         fullContract={fullView ? fullContract : null}
         topBar={
           isDraft ? (
-            // Черновик шаблона: вместо тулбара редактирования — панель действий.
+            // Сохранённый черновик: вместо тулбара редактирования — панель действий.
             <div className={styles.draftBar}>
               <span className={styles.draftBadge}>
                 <Icon name="docs" size={14} />
@@ -536,10 +537,10 @@ export function WorkspacePage() {
                 <IconButton icon="undo" label={t('editor.undo')} size="sm" iconSize={16} disabled={!canUndo} onClick={undoDraft} />
                 <IconButton icon="redo" label={t('editor.redo')} size="sm" iconSize={16} disabled={!canRedo} onClick={redoDraft} />
                 <Button size="sm" icon="download" onClick={() => void downloadDraft()}>
-                  {t('tpl.download')}
+                  {t('ws.draftDownload')}
                 </Button>
                 <Button size="sm" icon="docs" onClick={() => void copyDraft()}>
-                  {t('tpl.copy')}
+                  {t('ws.draftCopy')}
                 </Button>
                 <Button size="sm" variant="primary" icon="sparkle" disabled={analyzing} onClick={analyzeDraft}>
                   {analyzing ? t('ws.analyzingDraft') : t('ws.analyzeRisks')}

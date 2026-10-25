@@ -39,7 +39,6 @@ export const API_SCOPES_FALLBACK: string[] = [
   'analyses:write',
   'drafts:write',
   'compares:write',
-  'templates:write',
   'webhooks:manage',
 ];
 

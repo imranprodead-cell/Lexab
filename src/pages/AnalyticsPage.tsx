@@ -259,7 +259,7 @@ export function AnalyticsPage() {
 
   return (
     <div className={styles.page}>
-      <TopBar title={t('an.title')} />
+      <TopBar title={t('an.title')} hideCountry />
       <div className={`${styles.body} scroll`}>
         <div className={styles.container}>
           <div className={styles.pageHead} ref={useReveal()}>

@@ -162,7 +162,13 @@ export class StreamingUnsupportedError extends Error {
  * mid-stream failure rejects with a real error and MUST NOT be retried by
  * re-POSTing (the server may have already persisted the turn + reply).
  */
-export async function httpSSE<T>(path: string, body: unknown, onToken: (delta: string) => void): Promise<T> {
+export async function httpSSE<T>(
+  path: string,
+  body: unknown,
+  onToken: (delta: string) => void,
+  /** Прочие события потока (например, `step` — шаги работы над ответом). */
+  onEvent?: (event: string, payload: unknown) => void,
+): Promise<T> {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
     throw new ApiError(tStandalone('net.offline'), 0);
   }
@@ -246,6 +252,8 @@ export async function httpSSE<T>(path: string, body: unknown, onToken: (delta: s
       doneSeen = true;
     } else if (event === 'error') {
       throw new ApiError(payload.message ?? 'Stream failed', payload.status ?? 500);
+    } else {
+      onEvent?.(event, payload);
     }
   };
 

@@ -89,7 +89,7 @@ async function makeUser(): Promise<{ email: string; token: string; id: string }>
 
 const auth = (token: string) => ({ authorization: `Bearer ${token}` });
 
-/** A verified user whose plan includes the contract-generator feature. */
+/** A verified user on Pro (includes contract drafting and playbooks). */
 async function makeProUser(): Promise<{ email: string; token: string; id: string }> {
   const u = await makeUser();
   await db.query("UPDATE subscriptions SET plan = 'Pro' WHERE user_id = $1", [u.id]);
@@ -447,7 +447,7 @@ describe('prompt improver', () => {
   });
 });
 
-describe('saved templates (personal library)', () => {
+describe('saved documents (saved from chat, Vault → Documents)', () => {
   it('saves, lists, isolates per user, and deletes', async () => {
     const a = await makeUser();
     const b = await makeUser();
@@ -476,6 +476,23 @@ describe('saved templates (personal library)', () => {
     assert.equal(del.statusCode, 204);
     const after = await app.inject({ method: 'GET', url: '/api/templates/saved', headers: auth(a.token) });
     assert.equal(JSON.parse(after.body).length, 0);
+  });
+
+  // «Недавние файлы» в новом чате берут только последние N черновиков.
+  it('limits the list to the newest N with ?limit=', async () => {
+    const { token } = await makeUser();
+    for (const title of ['First', 'Second', 'Third']) {
+      const r = await app.inject({ method: 'POST', url: '/api/templates/saved', headers: auth(token), payload: { title, content: 'body' } });
+      assert.equal(r.statusCode, 201, r.body);
+    }
+    const two = await app.inject({ method: 'GET', url: '/api/templates/saved?limit=2', headers: auth(token) });
+    assert.equal(two.statusCode, 200, two.body);
+    assert.equal(JSON.parse(two.body).length, 2);
+    // Мусор вместо числа — как без параметра: весь список.
+    const junk = await app.inject({ method: 'GET', url: '/api/templates/saved?limit=abc', headers: auth(token) });
+    assert.equal(JSON.parse(junk.body).length, 3);
+    const zero = await app.inject({ method: 'GET', url: '/api/templates/saved?limit=0', headers: auth(token) });
+    assert.equal(JSON.parse(zero.body).length, 3);
   });
 
   it('rejects an empty title', async () => {
@@ -526,24 +543,19 @@ describe('saved templates (personal library)', () => {
     assert.equal(empty.statusCode, 400, 'blank content must be rejected');
   });
 
-  // Краткое описание сделки обязательно — без него генератор не запускается
-  // (иначе выходит типовая «рыба» вместо договора под сделку).
-  it('template generator requires a contract brief (details)', async () => {
+  // Каталог шаблонов и генерация по шаблону сняты 2026-10-25; готовые наборы
+  // плейбуков — тоже. Сохранённые документы при этом работают (тесты выше).
+  it('template catalog, template generator and playbook packs are gone (404)', async () => {
     const { token } = await makeProUser();
-    const missing = await app.inject({
-      method: 'POST',
-      url: '/api/templates/t9/generate',
-      headers: auth(token),
-      payload: { partyA: 'Alpha', partyB: 'Beta' },
-    });
-    assert.equal(missing.statusCode, 400, missing.body);
-    const short = await app.inject({
-      method: 'POST',
-      url: '/api/templates/t9/generate',
-      headers: auth(token),
-      payload: { partyA: 'Alpha', partyB: 'Beta', details: 'ок' },
-    });
-    assert.equal(short.statusCode, 400, 'too-short brief must be rejected');
+    for (const [method, url] of [
+      ['GET', '/api/templates'],
+      ['POST', '/api/templates/t9/generate'],
+      ['GET', '/api/playbooks/packs'],
+      ['POST', '/api/playbooks/packs/uk-nda/install'],
+    ] as const) {
+      const res = await app.inject({ method, url, headers: auth(token), payload: method === 'POST' ? {} : undefined });
+      assert.equal(res.statusCode, 404, `${method} ${url} → ${res.statusCode}`);
+    }
   });
 });
 
@@ -615,10 +627,13 @@ describe('contract draft (chat → editable sheet)', () => {
     await reject([null], 'non-object block (must be 400 not 500)');
   });
 
-  it('is gated to plans that include the contract generator (Free → 402)', async () => {
+  it('is gated to plans that include contract drafting (Free → 402, feature drafting)', async () => {
     const { token } = await makeUser(); // Free plan
     const res = await app.inject({ method: 'POST', url: '/api/analysis/draft', headers: auth(token), payload: { prompt: 'A short NDA' } });
     assert.equal(res.statusCode, 402, 'Free plan must be told to upgrade');
+    const body = JSON.parse(res.body);
+    assert.equal(body.code, 'feature_locked');
+    assert.equal(body.details?.feature, 'drafting', 'гейт называется drafting, а не templates');
   });
 });
 
@@ -1099,9 +1114,56 @@ describe('chat SSE streaming', () => {
     assert.ok(doneLine, 'done event carries the assistant message');
   });
 
+  // «Работаю…» вместо трёх точек (2026-10-25): шаги идут по ходу работы и
+  // описывают только то, что сервер реально сделал.
+  it('streams real work steps before the answer: prompt → draft → search → mode → answer', async () => {
+    const { token } = await makeUser();
+    const sessionId = JSON.parse(
+      (await app.inject({ method: 'POST', url: '/api/chats', headers: auth(token), payload: { title: 'steps' } })).body,
+    ).id;
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/chats/${sessionId}/messages`,
+      headers: { ...auth(token), accept: 'text/event-stream' },
+      payload: { text: '/plan Взыскать долг по поставке', jurisdiction: 'Uzbek law', draftTitle: 'Договор поставки', draftText: 'Пункт 1. Срок оплаты 10 дней.' },
+    });
+    assert.equal(res.statusCode, 200, res.body);
+    const events = res.body
+      .split('\n\n')
+      .filter((r) => r.startsWith('event: step'))
+      .map((r) => JSON.parse(r.split('\ndata: ')[1]) as { id: string; status: string; data?: Record<string, unknown> });
+    const order = events.map((e) => `${e.id}:${e.status}`);
+    assert.deepEqual(order.slice(0, 2), ['prompt:done', 'contract:done']);
+    assert.equal(events[1].data?.name, 'Договор поставки');
+    const searchDone = events.find((e) => e.id === 'search' && e.status === 'done');
+    assert.ok(searchDone, `search step finished: ${order.join(', ')}`);
+    assert.equal(searchDone?.data?.jurisdiction, 'UZ');
+    assert.equal(typeof searchDone?.data?.found, 'number');
+    assert.ok(order.indexOf('search:active') < order.indexOf('search:done'));
+    assert.deepEqual(events.find((e) => e.id === 'mode')?.data, { mode: 'plan' });
+    assert.equal(order[order.length - 1], 'answer:active', 'last step is «thinking about the answer»');
+    // Шаги — до текста ответа.
+    assert.ok(res.body.indexOf('event: step') < res.body.indexOf('event: token'));
+  });
+
+  it('a refused request (too many files) is a plain HTTP error, not a half-open stream', async () => {
+    const { token } = await makeUser();
+    const sessionId = JSON.parse(
+      (await app.inject({ method: 'POST', url: '/api/chats', headers: auth(token), payload: { title: 'refuse' } })).body,
+    ).id;
+    const res = await app.inject({
+      method: 'POST',
+      url: `/api/chats/${sessionId}/messages`,
+      headers: { ...auth(token), accept: 'text/event-stream' },
+      payload: { text: 'x', uploadIds: ['up_a', 'up_b', 'up_c'] },
+    });
+    assert.equal(res.statusCode, 400, res.body);
+    assert.ok(!res.headers['content-type']?.includes('text/event-stream'));
+  });
+
   // Вопрос к черновику шаблона: анализа нет, контекстом служит draftText —
   // фолбэк-ответ детерминированно различает «есть документ» и «нет документа».
-  it('draftText grounds the reply in the template draft', async () => {
+  it('draftText grounds the reply in the saved draft', async () => {
     const { token } = await makeUser();
     const session = await app.inject({ method: 'POST', url: '/api/chats', headers: auth(token), payload: { title: 'draft qa' } });
     const sessionId = JSON.parse(session.body).id;
@@ -1131,6 +1193,229 @@ describe('chat SSE streaming', () => {
     assert.equal(res.statusCode, 200, res.body);
     assert.ok(res.headers['content-type']?.includes('application/json'), 'plain JSON when no Accept: text/event-stream');
     assert.equal(JSON.parse(res.body).role, 'assistant');
+  });
+});
+
+// Вложения чата (2026-10-25): файлы уходят вместе с вопросом, а не запускают
+// разбор рисков. Фолбэк-ответ (ИИ в тестах нет) детерминированно говорит
+// «вижу документ», когда контекст файла дошёл до модели.
+describe('chat attachments (files sent with the question)', () => {
+  const upload = async (token: string, name: string, body: string | Buffer, type = 'text/plain') => {
+    const boundary = '----lexabAttachBoundary';
+    const payload = Buffer.concat([
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${name}"\r\nContent-Type: ${type}\r\n\r\n`),
+      Buffer.isBuffer(body) ? body : Buffer.from(body),
+      Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/uploads',
+      headers: { ...auth(token), 'content-type': `multipart/form-data; boundary=${boundary}` },
+      payload,
+    });
+    assert.equal(res.statusCode, 201, res.body);
+    return JSON.parse(res.body) as { id: string; fileName: string; fileSize: string };
+  };
+  const newChat = async (token: string): Promise<string> =>
+    JSON.parse((await app.inject({ method: 'POST', url: '/api/chats', headers: auth(token), payload: { title: 'files' } })).body).id;
+  const ask = (token: string, sessionId: string, payload: Record<string, unknown>) =>
+    app.inject({ method: 'POST', url: `/api/chats/${sessionId}/messages`, headers: auth(token), payload });
+  const messages = async (token: string, sessionId: string) =>
+    JSON.parse((await app.inject({ method: 'GET', url: `/api/chats/${sessionId}/messages`, headers: auth(token) })).body) as {
+      role: string;
+      text?: string;
+      attachments?: { name: string; size: string }[];
+    }[];
+
+  it('grounds the reply in the files, shows them on the message, and keeps them for follow-ups', async () => {
+    const { token } = await makeUser();
+    const file = await upload(token, 'Договор поставки.txt', 'Пункт 5. Неустойка 0,1% в день от суммы долга.');
+    const sessionId = await newChat(token);
+
+    const first = await ask(token, sessionId, { text: 'Какая неустойка?', uploadIds: [file.id] });
+    assert.equal(first.statusCode, 200, first.body);
+    assert.ok(JSON.parse(first.body).text.includes('вижу документ'), 'file text must reach the model context');
+
+    // Следующий вопрос без вложений — файл чата всё ещё в контексте.
+    const next = await ask(token, sessionId, { text: 'А с какого дня она считается?' });
+    assert.ok(JSON.parse(next.body).text.includes('вижу документ'), 'follow-up must still see the chat file');
+
+    const list = await messages(token, sessionId);
+    const asked = list.find((m) => m.text === 'Какая неустойка?');
+    assert.deepEqual(asked?.attachments, [{ name: 'Договор поставки.txt', size: file.fileSize }]);
+    assert.equal(list.find((m) => m.text === 'А с какого дня она считается?')?.attachments, undefined);
+  });
+
+  it('caps files per message by plan: Free 2, paid 5', async () => {
+    const u = await makeUser();
+    const ids: string[] = [];
+    for (let i = 0; i < 6; i++) ids.push((await upload(u.token, `file-${i}.txt`, `Текст файла ${i}.`)).id);
+    const sessionId = await newChat(u.token);
+
+    const overFree = await ask(u.token, sessionId, { text: 'Сравни', uploadIds: ids.slice(0, 3) });
+    assert.equal(overFree.statusCode, 400, overFree.body);
+    assert.match(overFree.body, /не больше 2/);
+    assert.equal((await messages(u.token, sessionId)).length, 0, 'a refused question is not stored');
+    assert.equal((await ask(u.token, sessionId, { text: 'Сравни', uploadIds: ids.slice(0, 2) })).statusCode, 200);
+
+    await db.query("UPDATE subscriptions SET plan = 'Pro' WHERE user_id = $1", [u.id]);
+    assert.equal((await ask(u.token, sessionId, { text: 'Сравни пять', uploadIds: ids.slice(0, 5) })).statusCode, 200);
+    const overPaid = await ask(u.token, sessionId, { text: 'Сравни шесть', uploadIds: ids });
+    assert.equal(overPaid.statusCode, 400, overPaid.body);
+    assert.match(overPaid.body, /не больше 5/);
+  });
+
+  it("refuses someone else's upload and malformed ids", async () => {
+    const owner = await makeUser();
+    const stranger = await makeUser();
+    const foreign = await upload(owner.token, 'Чужой договор.txt', 'Секретные условия.');
+    const sessionId = await newChat(stranger.token);
+    const res = await ask(stranger.token, sessionId, { text: 'Что там?', uploadIds: [foreign.id] });
+    assert.equal(res.statusCode, 400, res.body);
+    assert.equal((await messages(stranger.token, sessionId)).length, 0);
+    assert.equal((await ask(stranger.token, sessionId, { text: 'x', uploadIds: 'up_1' })).statusCode, 400);
+    assert.equal((await ask(stranger.token, sessionId, { text: 'x', uploadIds: [42] })).statusCode, 400);
+  });
+
+  it('accepts an Excel file for chat but refuses it for risk review', async () => {
+    const { zipStore } = await import('./zip-helper.ts');
+    const NS = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"';
+    const book = zipStore({
+      'xl/workbook.xml': `<workbook ${NS}><sheets><sheet name="Сроки" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+      'xl/_rels/workbook.xml.rels': '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>',
+      'xl/worksheets/sheet1.xml': `<worksheet ${NS}><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Поставка №7</t></is></c></row></sheetData></worksheet>`,
+    });
+    const { token } = await makeUser();
+    const file = await upload(token, 'Сроки.xlsx', book, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    const sessionId = await newChat(token);
+    const res = await ask(token, sessionId, { text: 'Что в таблице?', uploadIds: [file.id] });
+    assert.equal(res.statusCode, 200, res.body);
+    assert.ok(JSON.parse(res.body).text.includes('вижу документ'));
+
+    const review = await app.inject({
+      method: 'POST',
+      url: '/api/analysis',
+      headers: auth(token),
+      payload: { fileName: 'Сроки.xlsx', fileSize: file.fileSize, uploadId: file.id },
+    });
+    assert.equal(review.statusCode, 400, review.body);
+  });
+
+  it('buildAttachmentsContext: names every file and splits the text budget between them', async () => {
+    const { buildAttachmentsContext } = await import('../src/lib/chatAttachments.ts');
+    const { id, token } = await makeUser();
+    const a = await upload(token, 'Короткий.txt', 'Срок оплаты — 10 дней.');
+    const b = await upload(token, 'Длинный.txt', 'Б'.repeat(5000));
+    const ctx = await buildAttachmentsContext(
+      db,
+      id,
+      [
+        { uploadId: a.id, name: 'Короткий.txt', size: a.fileSize },
+        { uploadId: b.id, name: 'Длинный.txt', size: b.fileSize },
+      ],
+      { budget: 2000 },
+    );
+    assert.ok(ctx?.startsWith('The user attached 2 files'), ctx);
+    assert.ok(ctx?.includes('=== File 1: Короткий.txt') && ctx.includes('Срок оплаты — 10 дней.'));
+    assert.ok(ctx?.includes('=== File 2: Длинный.txt'));
+    assert.ok(ctx?.includes('[Text truncated: showing the first 1000 of 5000 characters'), 'each file gets half the budget');
+    // Чужой пользователь не прочитает файл, даже зная id.
+    const other = await makeUser();
+    const foreign = await buildAttachmentsContext(db, other.id, [{ uploadId: a.id, name: 'Короткий.txt', size: a.fileSize }]);
+    assert.ok(foreign?.includes('[The file was deleted') && !foreign.includes('Срок оплаты'));
+  });
+});
+
+// Правая колонка чата (2026-10-25): отметки шагов плана хранятся в чате,
+// статьи из базы законов — у ответа ИИ.
+describe('chat progress & sources', () => {
+  const newChatWithReply = async (token: string) => {
+    const sessionId = JSON.parse(
+      (await app.inject({ method: 'POST', url: '/api/chats', headers: auth(token), payload: { title: 'progress' } })).body,
+    ).id as string;
+    const reply = await app.inject({ method: 'POST', url: `/api/chats/${sessionId}/messages`, headers: auth(token), payload: { text: '/plan Взыскать долг' } });
+    assert.equal(reply.statusCode, 200, reply.body);
+    return { sessionId, messageId: JSON.parse(reply.body).id as string };
+  };
+
+  it('saves plan step ticks per chat and reads them back', async () => {
+    const { token } = await makeUser();
+    const { sessionId, messageId } = await newChatWithReply(token);
+    const empty = await app.inject({ method: 'GET', url: `/api/chats/${sessionId}/progress`, headers: auth(token) });
+    assert.deepEqual(JSON.parse(empty.body), {});
+
+    const put = await app.inject({ method: 'PUT', url: `/api/chats/${sessionId}/progress`, headers: auth(token), payload: { messageId, done: [2, 0, 2] } });
+    assert.equal(put.statusCode, 200, put.body);
+    assert.deepEqual(JSON.parse(put.body), { messageId, done: [0, 2] }, 'deduped and sorted');
+    const got = await app.inject({ method: 'GET', url: `/api/chats/${sessionId}/progress`, headers: auth(token) });
+    assert.deepEqual(JSON.parse(got.body), { messageId, done: [0, 2] });
+  });
+
+  it('refuses foreign chats, foreign messages and junk step numbers', async () => {
+    const owner = await makeUser();
+    const other = await makeUser();
+    const { sessionId, messageId } = await newChatWithReply(owner.token);
+    const foreign = await app.inject({ method: 'PUT', url: `/api/chats/${sessionId}/progress`, headers: auth(other.token), payload: { messageId, done: [0] } });
+    assert.equal(foreign.statusCode, 404);
+    const read = await app.inject({ method: 'GET', url: `/api/chats/${sessionId}/progress`, headers: auth(other.token) });
+    assert.equal(read.statusCode, 404);
+    const otherChat = await newChatWithReply(owner.token);
+    const wrongMsg = await app.inject({ method: 'PUT', url: `/api/chats/${sessionId}/progress`, headers: auth(owner.token), payload: { messageId: otherChat.messageId, done: [0] } });
+    assert.equal(wrongMsg.statusCode, 400, 'a message from another chat is not this chat’s plan');
+    for (const done of [[-1], [1.5], ['1'], 'x']) {
+      const bad = await app.inject({ method: 'PUT', url: `/api/chats/${sessionId}/progress`, headers: auth(owner.token), payload: { messageId, done } });
+      assert.equal(bad.statusCode, 400, JSON.stringify(done));
+    }
+  });
+
+  // Ссылки на статьи (2026-10-25): https-адрес статьи на официальном сайте;
+  // у ответов, сохранённых без ссылок, адрес находится по подписи в корпусе.
+  it('keeps safe article links and finds them for older replies', async () => {
+    await db.query(
+      `INSERT INTO legal_documents (id, jurisdiction, official_source_id, doc_type, title, source_url, retrieved_at, sha256_checksum)
+       VALUES ('uz_tk_link', 'UZ', 'uz_tk_link', 'code', 'Трудовой кодекс Тестовой Республики', 'https://lex.uz/ru/docs/6257291', now(), 'uz_tk_link')
+       ON CONFLICT (id) DO NOTHING`,
+    );
+    await db.query(
+      `INSERT INTO legal_units (id, document_id, unit_type, number, breadcrumb, text, language, official_unit_uri, source_url, retrieved_at, sha256_checksum, valid_from)
+       VALUES ('uz_tk_link_st-320', 'uz_tk_link', 'article', '320', 'UZ / Трудовой кодекс Тестовой Республики / Глава 19 / ст.320', 'текст', 'ru',
+               'https://lex.uz/ru/docs/6257291#6265223', 'https://lex.uz/ru/docs/6257291', now(), 'uz_tk_link_st-320', '2023-04-30')
+       ON CONFLICT (id) DO NOTHING`,
+    );
+    const { token } = await makeUser();
+    const { sessionId, messageId } = await newChatWithReply(token);
+    await db.query('UPDATE chat_messages SET refs = $2::jsonb WHERE id = $1', [
+      messageId,
+      JSON.stringify([
+        { label: 'ст.320', doc: 'Трудовой кодекс Тестовой Республики' }, // старый ответ — без ссылки
+        { label: 'ст.1', doc: 'Закон', url: 'javascript:alert(1)' }, // не https — ссылку не отдаём
+        { label: 'ст.2', doc: 'Закон', url: 'http://www.legislation.gov.uk/id/ukpga/2015/15/section/12' },
+        { label: 'ст.999', doc: 'Нет такого закона' },
+      ]),
+    ]);
+    const list = JSON.parse((await app.inject({ method: 'GET', url: `/api/chats/${sessionId}/messages`, headers: auth(token) })).body) as {
+      id: string;
+      refs?: { label: string; url?: string }[];
+    }[];
+    const refs = list.find((m) => m.id === messageId)?.refs ?? [];
+    assert.equal(refs[0].url, 'https://lex.uz/ru/docs/6257291#6265223', 'found by label + law name');
+    assert.equal(refs[1].url, undefined, 'javascript: dropped');
+    assert.equal(refs[2].url, 'https://www.legislation.gov.uk/id/ukpga/2015/15/section/12', 'http upgraded to https');
+    assert.equal(refs[3].url, undefined, 'unknown law — no link');
+  });
+
+  it('returns the law references stored with a reply', async () => {
+    const { token } = await makeUser();
+    const { sessionId, messageId } = await newChatWithReply(token);
+    await db.query('UPDATE chat_messages SET refs = $2::jsonb WHERE id = $1', [
+      messageId,
+      JSON.stringify([{ label: 'Статья 333', doc: 'Гражданский кодекс Республики Узбекистан' }, { junk: true }]),
+    ]);
+    const list = JSON.parse((await app.inject({ method: 'GET', url: `/api/chats/${sessionId}/messages`, headers: auth(token) })).body) as {
+      id: string;
+      refs?: unknown;
+    }[];
+    assert.deepEqual(list.find((m) => m.id === messageId)?.refs, [{ label: 'Статья 333', doc: 'Гражданский кодекс Республики Узбекистан' }]);
   });
 });
 
@@ -1246,6 +1531,28 @@ describe('exports serve the FULL document and real DOCX', () => {
     assert.equal(res.headers['content-type'], 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     const bytes = Buffer.from(res.rawPayload);
     assert.equal(bytes.subarray(0, 2).toString('latin1'), 'PK', 'DOCX must be a real ZIP (not the old HTML-as-.doc trick)');
+  });
+
+  it('POST /export/pdf returns a real PDF with Cyrillic text (документ из панели чата)', async () => {
+    const u = await makeUser();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/export/pdf',
+      headers: auth(u.token),
+      payload: { title: 'Претензия', content: 'ПРЕТЕНЗИЯ\n\nоб уплате неустойки за просрочку поставки\nМежду [Покупатель] и [Поставщик] заключён договор.' },
+    });
+    assert.equal(res.statusCode, 200, res.body);
+    assert.equal(res.headers['content-type'], 'application/pdf');
+    assert.match(String(res.headers['content-disposition']), /\.pdf/);
+    assert.equal(Buffer.from(res.rawPayload).subarray(0, 5).toString('latin1'), '%PDF-');
+  });
+
+  it('POST /export/pdf requires auth and text', async () => {
+    const anon = await app.inject({ method: 'POST', url: '/api/export/pdf', payload: { title: 't', content: 'x' } });
+    assert.equal(anon.statusCode, 401);
+    const u = await makeUser();
+    const empty = await app.inject({ method: 'POST', url: '/api/export/pdf', headers: auth(u.token), payload: { title: 't', content: '' } });
+    assert.equal(empty.statusCode, 400);
   });
 
   it('document export mode=clean returns the FULL original text with accepted redlines applied', async () => {

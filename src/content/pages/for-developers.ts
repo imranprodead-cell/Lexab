@@ -2,11 +2,11 @@
  * Публичная страница «Разработчикам».
  *
  * Проверено по коду 05.08.2026 (server/src/routes/public-api.routes.ts):
- *  - 15 эндпоинтов в /api/v1 (посчитано по обработчикам);
+ *  - 12 эндпоинтов в /api/v1 (посчитано по обработчикам; шаблоны сняты 2026-10-25);
  *  - GET /api/v1/openapi.json отдаётся БЕЗ ключа (нет preHandler авторизации) —
  *    это и есть «спецификация до регистрации»;
- *  - 6 скоупов: analyses:read, analyses:write, drafts:write, compares:write,
- *    templates:write, webhooks:manage (API_SCOPES в lib/apiKeys.ts);
+ *  - 5 скоупов: analyses:read, analyses:write, drafts:write, compares:write,
+ *    webhooks:manage (API_SCOPES в lib/apiKeys.ts);
  *  - гейт 'apiAccess' → Business, Enterprise.
  * Адрес API на сайте НЕ ПИШЕМ: он задаётся при развёртывании (VITE_API_BASE_URL)
  * и попал бы на страницу как выдумка. Точный адрес — в кабинете, вкладка API.
@@ -35,12 +35,12 @@ export const forDevelopers: PageContent = {
         uz: 'Shartnomalarni oʻz tizimingizdan tahlil qilish',
       },
       lead: {
-        ru: 'Пятнадцать эндпоинтов: отправить договор на разбор, забрать результат, собрать черновик, сравнить редакции, сгенерировать документ по шаблону, подписаться на события. Спецификация OpenAPI открыта без ключа — можно посмотреть контракт до того, как заводить учётную запись.',
-        en: 'Fifteen endpoints: send a contract for review, fetch the result, build a draft, compare versions, generate a document from a template, subscribe to events. The OpenAPI specification is public without a key — you can read the contract before creating an account.',
-        de: 'Fünfzehn Endpunkte: Vertrag zur Prüfung senden, Ergebnis abholen, Entwurf erzeugen, Fassungen vergleichen, Dokument aus Vorlage erstellen, Ereignisse abonnieren. Die OpenAPI-Spezifikation ist ohne Schlüssel öffentlich — Sie können den Vertrag lesen, bevor Sie ein Konto anlegen.',
-        ar: 'خمسة عشر مسارًا: إرسال عقد للمراجعة، وجلب النتيجة، وبناء مسودة، ومقارنة نسخ، وتوليد مستند من قالب، والاشتراك في الأحداث. ومواصفة OpenAPI متاحة بلا مفتاح — يمكنك قراءة العقد قبل إنشاء حساب.',
-        kk: 'Он бес эндпоинт: шартты талдауға жіберу, нәтижені алу, жоба құрастыру, редакцияларды салыстыру, үлгі бойынша құжат жасау, оқиғаларға жазылу. OpenAPI сипаттамасы кілтсіз ашық — тіркелгі ашпай тұрып қарауға болады.',
-        uz: 'Oʻn beshta endpoint: shartnomani tahlilga yuborish, natijani olish, loyiha tuzish, tahrirlarni solishtirish, shablon boʻyicha hujjat yaratish, hodisalarga obuna boʻlish. OpenAPI spetsifikatsiyasi kalitsiz ochiq — hisob ochmasdan oldin koʻrish mumkin.',
+        ru: 'Двенадцать эндпоинтов: отправить договор на разбор, забрать результат, собрать черновик, сравнить редакции, подписаться на события. Спецификация OpenAPI открыта без ключа — можно посмотреть контракт до того, как заводить учётную запись.',
+        en: 'Twelve endpoints: send a contract for review, fetch the result, build a draft, compare versions, subscribe to events. The OpenAPI specification is public without a key — you can read the contract before creating an account.',
+        de: 'Zwölf Endpunkte: Vertrag zur Prüfung senden, Ergebnis abholen, Entwurf erzeugen, Fassungen vergleichen, Ereignisse abonnieren. Die OpenAPI-Spezifikation ist ohne Schlüssel öffentlich — Sie können den Vertrag lesen, bevor Sie ein Konto anlegen.',
+        ar: 'اثنا عشر مسارًا: إرسال عقد للمراجعة، وجلب النتيجة، وبناء مسودة، ومقارنة نسخ، والاشتراك في الأحداث. ومواصفة OpenAPI متاحة بلا مفتاح — يمكنك قراءة العقد قبل إنشاء حساب.',
+        kk: 'Он екі эндпоинт: шартты талдауға жіберу, нәтижені алу, жоба құрастыру, редакцияларды салыстыру, оқиғаларға жазылу. OpenAPI сипаттамасы кілтсіз ашық — тіркелгі ашпай тұрып қарауға болады.',
+        uz: 'Oʻn ikkita endpoint: shartnomani tahlilga yuborish, natijani olish, loyiha tuzish, tahrirlarni solishtirish, hodisalarga obuna boʻlish. OpenAPI spetsifikatsiyasi kalitsiz ochiq — hisob ochmasdan oldin koʻrish mumkin.',
       },
       planNote: {
         ru: 'Программный доступ входит в тариф Business (и Enterprise).',
@@ -68,19 +68,19 @@ export const forDevelopers: PageContent = {
       kind: 'facts',
       items: [
         {
-          value: { ru: '15', en: '15', de: '15', ar: '15', kk: '15', uz: '15' },
+          value: { ru: '12', en: '12', de: '12', ar: '12', kk: '12', uz: '12' },
           label: { ru: 'эндпоинтов в версии v1', en: 'endpoints in v1', de: 'Endpunkte in v1', ar: 'مسارًا في الإصدار v1', kk: 'v1-дегі эндпоинт', uz: 'v1 dagi endpoint' },
           proof: {
-            ru: 'Анализы, черновики, сравнения, шаблоны, расход лимитов и вебхуки.',
-            en: 'Analyses, drafts, comparisons, templates, usage and webhooks.',
-            de: 'Analysen, Entwürfe, Vergleiche, Vorlagen, Verbrauch und Webhooks.',
-            ar: 'التحليلات والمسودات والمقارنات والقوالب والاستهلاك وخطافات الويب.',
-            kk: 'Талдаулар, жобалар, салыстырулар, үлгілер, лимит шығыны және вебхуктар.',
-            uz: 'Tahlillar, loyihalar, solishtirishlar, shablonlar, limit sarfi va vebxuklar.',
+            ru: 'Анализы, черновики, сравнения, расход лимитов и вебхуки.',
+            en: 'Analyses, drafts, comparisons, usage and webhooks.',
+            de: 'Analysen, Entwürfe, Vergleiche, Verbrauch und Webhooks.',
+            ar: 'التحليلات والمسودات والمقارنات والاستهلاك وخطافات الويب.',
+            kk: 'Талдаулар, жобалар, салыстырулар, лимит шығыны және вебхуктар.',
+            uz: 'Tahlillar, loyihalar, solishtirishlar, limit sarfi va vebxuklar.',
           },
         },
         {
-          value: { ru: '6', en: '6', de: '6', ar: '6', kk: '6', uz: '6' },
+          value: { ru: '5', en: '5', de: '5', ar: '5', kk: '5', uz: '5' },
           label: { ru: 'прав у ключа', en: 'scopes per key', de: 'Rechte je Schlüssel', ar: 'صلاحيات للمفتاح', kk: 'кілттің құқығы', uz: 'kalit huquqi' },
           proof: {
             ru: 'Ключ можно ограничить только чтением анализов — тогда он физически не сможет ни создать документ, ни тронуть вебхуки.',

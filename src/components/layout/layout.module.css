@@ -48,8 +48,9 @@
   inset-inline-start: 0;
   bottom: 0;
   width: 60px;
-  /* Reference sidebar sits on the page background, not on a panel surface. */
-  background: var(--bg);
+  /* Меню чуть серее страницы (как у Harvey): белая кнопка Create и
+     выделенный пункт на нём читаются сразу. */
+  background: var(--rail-bg);
   border-inline-end: 1px solid var(--border);
   display: flex;
   flex-direction: column;
@@ -193,16 +194,103 @@
   font-size: 13.5px;
 }
 
-/* "New chat" is a plain action row (no persistent fill) — otherwise it looks
-   selected alongside the active "Chat" nav item. It only greys on hover. */
-.newBtn {
-  composes: navItem;
+/* «Create» — белая кнопка-карточка с тонкой рамкой, подпись по центру, без
+   иконки (эталон Harvey). В свёрнутом меню — квадратная кнопка с «+». */
+.createBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 38px;
+  margin-bottom: 10px;
+  padding: 0 11px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  background: var(--panel);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
   color: var(--text);
-  margin-bottom: 8px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background var(--dur-fast),
+    box-shadow var(--dur-fast);
 }
-.newBtn:hover {
+.createBtn:hover {
+  background: var(--hover);
+}
+/* Тёмная тема: меню того же тона, что и карточки, — кнопке нужен свой. */
+:global(html.dark) .createBtn {
+  background: var(--panel-2);
+}
+.createBtn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.createIcon {
+  display: none;
+}
+.createLabel {
+  white-space: nowrap;
+}
+/* Свёрнутое меню: квадратная кнопка 44px — центр «+» совпадает с центром
+   иконок пунктов (рамка 1 + отступ 11 + половина иконки 10 = 22px). */
+.rail:not(.railOpen) .createBtn {
+  width: 44px;
+  padding: 0;
+}
+.rail:not(.railOpen) .createIcon {
+  display: flex;
+}
+.rail:not(.railOpen) .createLabel {
+  display: none;
+}
+
+/* Подпункты Vault (эталон): сдвинуты вправо, слева тонкая линия, справа
+   серый счётчик; выбранный — серой плашкой. */
+.navSub {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 4px 0 6px 21px;
+  padding-inline-start: 10px;
+  border-inline-start: 1px solid var(--border);
+}
+.navSubItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 10px;
+  border-radius: var(--r-md);
+  color: var(--dim);
+  font-size: 13.5px;
+  text-decoration: none;
+  transition:
+    background var(--dur-fast),
+    color var(--dur-fast);
+}
+.navSubItem:hover {
   background: var(--hover);
   color: var(--text);
+  text-decoration: none;
+}
+.navSubItemActive {
+  background: var(--hover-2);
+  color: var(--text);
+}
+.navSubLabel {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.navSubCount {
+  color: var(--mut);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 .navGroup {
@@ -1065,12 +1153,22 @@
   position: absolute;
   top: calc(100% + 8px);
   inset-inline-end: 0;
-  width: 260px;
-  padding: 6px;
-  border-radius: var(--r-lg);
+  width: 264px;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 14px;
   transform-origin: top right;
   z-index: 80;
   animation: lxdropin var(--dur-mid) var(--ease);
+}
+/* Сплошной фон в любом месте (сильнее .glass): сквозь полупрозрачное меню
+   в шапке просвечивали фильтры и таблица страницы. */
+.country .countryMenu {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-pop);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 /* Вариант для нижнего ряда поля ввода чата: «флаг + страна» как текстовая
    кнопка рядом с «Файлы», меню открывается вверх. */
@@ -1113,6 +1211,82 @@
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
+/* Поле формы (Batch review): рамка и размеры как у остальных полей страницы
+   (SelectMenu), внутри — круглый флаг и страна, меню — как в чате. */
+.countryFieldWrap {
+  width: 100%;
+}
+.countryTriggerField {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 150px;
+  padding: 9px 12px 9px 12px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  cursor: pointer;
+  transition: border-color var(--dur-fast);
+}
+.countryTriggerField:hover:not(:disabled),
+.countryTriggerField[aria-expanded='true'] {
+  border-color: var(--text);
+}
+.countryTriggerField:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.countryTriggerField:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.countryFieldName {
+  flex: 1;
+  min-width: 0;
+  text-align: start;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.countryFieldChevron {
+  display: flex;
+  color: var(--mut);
+  transition: transform 0.18s ease;
+}
+.countryTriggerField[aria-expanded='true'] .countryFieldChevron {
+  transform: rotate(180deg);
+}
+/* «Все юрисдикции» (плейбук без страны): глобус в кружке размером с флаг. */
+.countryGlobe {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--dim);
+}
+/* Поле ввода посреди приветствия: под кнопкой хватает места — меню
+   открывается вниз, прямо под ней, а не поверх заголовка страницы. */
+.countryMenu.countryMenuDown {
+  top: calc(100% + 6px);
+  bottom: auto;
+  inset-inline-end: auto;
+  inset-inline-start: 0;
+  transform-origin: top left;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
 /* Узкое поле ввода (телефон, узкая колонка): остаётся только флаг.
    Контейнер — плашка ввода (.inputBar в chat.module.css). */
 @container (max-width: 440px) {
@@ -1129,61 +1303,62 @@
   }
 }
 .countrySearch {
-  position: relative;
-  margin-bottom: 6px;
-}
-.countrySearchIcon {
-  position: absolute;
-  inset-inline-start: 10px;
-  top: 50%;
-  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
   color: var(--mut);
-  pointer-events: none;
 }
 .countrySearchInput {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
   font-family: inherit;
-  font-size: 14px;
+  font-size: 14.5px;
   color: var(--text);
-  background: var(--panel-2);
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  padding: 8px;
-  padding-inline-start: 32px;
   outline: none;
 }
+.countrySearchInput::placeholder {
+  color: var(--mut);
+}
+.countrySection {
+  padding: 10px 16px 2px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--mut);
+}
 .countryList {
-  max-height: 280px;
+  max-height: 300px;
   overflow-y: auto;
+  padding: 4px 6px 6px;
 }
 .countryItem {
   display: flex;
   align-items: center;
-  gap: 11px;
-  padding: 9px 10px;
-  border-radius: 9px;
+  gap: 10px;
+  min-height: 38px;
+  padding: 7px 10px;
+  border-radius: 8px;
   cursor: pointer;
-  border: 1px solid transparent;
 }
 .countryItem:hover {
   background: var(--hover);
 }
-.countryItemActive {
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
-}
-.countryItemActive:hover {
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-}
 .countryName {
-  font-size: 14px;
-  font-weight: 500;
+  flex: 1;
+  min-width: 0;
+  font-size: 14.5px;
   color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.countryLaw {
-  font-size: 12px;
-  color: var(--mut);
-  font-family: var(--font-label);
+.countryCheck {
+  display: inline-flex;
+  color: var(--text);
 }
 .countryEmpty {
   padding: 16px 10px;

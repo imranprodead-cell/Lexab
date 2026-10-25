@@ -15,11 +15,11 @@ import { uploadsApi, type UploadedFile } from '@/api/uploads.api';
 import { ApiError } from '@/api/util';
 import { apiErrorMessage } from '@/i18n/apiError';
 import { COUNTRIES } from '@/data/countries';
-import { ANALYSIS_STEPS } from '@/data/seed';
-import { tStandalone } from '@/i18n/messages';
+import { ANALYSIS_STEPS, MOCK_PLAN_QUESTIONS, MOCK_PLAN_REPLY, MOCK_SLIDES_REPLY } from '@/data/seed';
+import { loadLang, pickText, tStandalone } from '@/i18n/messages';
 import { useChatHistoryStore } from '@/store/useChatHistoryStore';
 import { useUIStore } from '@/store/useUIStore';
-import type { AnalysisResult, ChatMessage, DocBlock, Redline, RedlineStatus } from '@/types/domain';
+import type { AnalysisResult, ChatMessage, ChatStep, ChatWork, DocBlock, Redline, RedlineStatus } from '@/types/domain';
 import { isRedlineSlot } from '@/types/domain';
 
 /** Refresh the sidebar list so new sessions / updated order show up instantly. */
@@ -66,7 +66,70 @@ function mockReply(text: string): string {
   if (t.startsWith('/draft')) return tStandalone('chat.mock.draft');
   if (t.startsWith('/compare')) return tStandalone('chat.mock.compare');
   if (t.startsWith('/translate')) return tStandalone('chat.mock.translate');
+  if (t.startsWith('/plan')) {
+    // Первый план — с уточняющими вопросами; после ответов или правок — без.
+    const settled = /уточняющие вопросы|clarifying questions|внесите изменения|revise the plan/i.test(t);
+    const plan = pickText(MOCK_PLAN_REPLY, loadLang());
+    return settled ? plan : `${plan}\n\n${pickText(MOCK_PLAN_QUESTIONS, loadLang())}`;
+  }
+  if (t.startsWith('/slides')) return pickText(MOCK_SLIDES_REPLY, loadLang());
   return tStandalone('chat.mock.default');
+}
+
+/** Шаг с сервера → в список: шаг с тем же id заменяется («ищу» → «нашёл»),
+ *  его данные дополняются (запросы поиска приходят раньше найденного). */
+export function mergeStep(steps: ChatStep[], step: ChatStep): ChatStep[] {
+  const i = steps.findIndex((s) => s.id === step.id);
+  if (i < 0) return [...steps, step];
+  const next = steps.slice();
+  next[i] = { ...step, data: { ...steps[i].data, ...step.data } };
+  return next;
+}
+
+/** Пошли первые слова ответа — работа окончена: активные шаги закрываются. */
+export function endWork(work: ChatWork | undefined, at = Date.now()): ChatWork | undefined {
+  if (!work || work.endedAt) return work;
+  return { ...work, endedAt: at, steps: work.steps.map((s) => (s.status === 'active' ? { ...s, status: 'done' } : s)) };
+}
+
+/** Тестовый режим (без сервера): тот же ход работы, что шлёт сервер, по таймеру. */
+function mockWorkSteps(text: string, files?: string[]): { steps: [number, ChatStep][]; total: number } {
+  const country = useUIStore.getState().country;
+  const jurisdiction = country === 'GB' ? 'UK' : country;
+  const mode = /^\/(plan|slides|approve)\b/i.exec(text.trim())?.[1]?.toLowerCase();
+  const steps: [number, ChatStep][] = [[0, { id: 'prompt', status: 'done' }]];
+  let t = 350;
+  if (files?.length) {
+    steps.push([t, { id: 'files', status: 'active', data: { files } }]);
+    t += 800;
+    steps.push([t, { id: 'files', status: 'done', data: { files } }]);
+    t += 150;
+  }
+  const queries = ['неустойка за просрочку поставки', 'ответственность поставщика по договору'];
+  steps.push([t, { id: 'search', status: 'active', data: { jurisdiction } }]);
+  t += 600;
+  steps.push([t, { id: 'search', status: 'active', data: { jurisdiction, queries } }]);
+  t += 1000;
+  steps.push([
+    t,
+    {
+      id: 'search',
+      status: 'done',
+      data: {
+        jurisdiction,
+        queries,
+        found: 3,
+        refs: [
+          { label: 'Статья 333', doc: 'Гражданский кодекс (демо)', url: 'https://lex.uz/ru/docs/111181#162633' },
+          { label: 'Статья 260', doc: 'Гражданский кодекс (демо)', url: 'https://lex.uz/ru/docs/111181' },
+        ],
+      },
+    },
+  ]);
+  if (mode) steps.push([t + 150, { id: 'mode', status: 'done', data: { mode } }]);
+  t += 300;
+  steps.push([t, { id: 'answer', status: 'active' }]);
+  return { steps, total: t + 1600 };
 }
 
 interface ChatState {
@@ -86,8 +149,6 @@ interface ChatState {
   /** Загрузка сохранённого чата сорвалась по сети (НЕ 404): страница
    *  показывает «повторить», а повторный клик перезапускает loadSession. */
   sessionLoadFailed: boolean;
-  /** Ghost (incognito) mode: the conversation lives only in this tab's memory. */
-  ghost: boolean;
   /** Redline id to jump to when the workspace opens (set from the chat summary
    *  card's "click a finding"); consumed and cleared by the workspace. */
   pendingAnchor: string | null;
@@ -96,14 +157,11 @@ interface ChatState {
   requestAnchor: (redlineId: string) => void;
   clearPendingAnchor: () => void;
 
-  /** Enter ghost mode: the current canvas is stashed and restored on exit. */
-  enterGhost: () => void;
-  exitGhost: () => void;
-  /** Thumbs rating on an assistant reply (optimistic; persisted outside ghost). */
+  /** Thumbs rating on an assistant reply (optimistic). */
   setFeedback: (messageId: string, value: 'up' | 'down' | null) => void;
 
   /** `opts.keepCanvas`: не обнулять текущий документ на время анализа — воркспейс
-   *  остаётся открытым (черновик шаблона анализируется «на месте»).
+   *  остаётся открытым (сохранённый черновик анализируется «на месте»).
    *  `opts.photos`: фото страниц договора по порядку — сервер склеит их в PDF,
    *  `file.name` тогда — имя будущего документа.
    *  `opts.newSession`: новый договор — новый чат в боковой панели; анализ
@@ -115,7 +173,8 @@ interface ChatState {
   ) => Promise<void>;
   /** Отменить идущий анализ (кнопка «Отменить» на карточке). */
   cancelAnalysis: () => void;
-  sendMessage: (text: string) => void;
+  /** files — прикреплённые к вопросу файлы (уже загружены на сервер). */
+  sendMessage: (text: string, files?: { uploadId: string; name: string; size: string }[]) => void;
   reset: () => void;
   /** Real mode: hydrate the canvas from a server-side chat session. */
   loadSession: (sessionId: string) => Promise<void>;
@@ -123,7 +182,7 @@ interface ChatState {
   setServerSession: (id: string | null) => void;
   /** Show a specific analysis in the workspace (e.g. from the Documents page). */
   adoptAnalysis: (analysis: AnalysisResult) => void;
-  /** Черновик из «Моих шаблонов»: открыть текст в воркспейсе БЕЗ анализа.
+  /** Сохранённый документ: открыть текст в воркспейсе БЕЗ анализа.
    *  Пока draftSource установлен, воркспейс показывает кнопку «Анализ рисков». */
   draftSource: { savedTemplateId: string; title: string; content: string } | null;
   adoptDraft: (tpl: { id: string; title: string; content: string }) => void;
@@ -208,9 +267,10 @@ function clearStepTimers() {
 const streamTimers = new Map<string, ReturnType<typeof setInterval>>();
 const streamFullTexts = new Map<string, string>();
 
-/** Canvas generation counter: bumped on every canvas switch (ghost in/out,
- *  session load, reset). In-flight completions compare their captured epoch
- *  and drop their result instead of leaking it into the new canvas. */
+/** Canvas generation counter: bumped on every canvas switch (session load,
+ *  reset, opening a document or draft). In-flight completions compare their
+ *  captured epoch and drop their result instead of leaking it into the new
+ *  canvas. */
 let canvasEpoch = 0;
 
 /** Replies still in flight, keyed by server session id. Lets the user leave a
@@ -237,7 +297,7 @@ function cacheSession(id: string, value: { messages: ChatMessage[]; analysis: An
   }
 }
 
-/** Плоский текст сохранённого шаблона → блоки документа для вьювера.
+/** Плоский текст сохранённого документа → блоки документа для вьювера.
  *  Эвристика заголовков: короткая одиночная строка ЗАГЛАВНЫМИ или «1. …». */
 function draftContentToBlocks(content: string): DocBlock[] {
   const blocks: DocBlock[] = [];
@@ -255,7 +315,7 @@ function draftContentToBlocks(content: string): DocBlock[] {
   return blocks.length ? blocks : [{ type: 'paragraph', segments: [content.trim()] }];
 }
 
-/** Обратный путь: блоки черновика → плоский текст шаблона. Правки в воркспейсе
+/** Обратный путь: блоки черновика → плоский текст документа. Правки в воркспейсе
  *  сохраняются в saved_templates как plain text, поэтому инлайн-форматирование
  *  сознательно сплющивается — что на экране, то и в файле (без скрытых потерь). */
 export function draftBlocksToText(blocks: DocBlock[]): string {
@@ -272,19 +332,6 @@ export function draftBlocksToText(blocks: DocBlock[]): string {
   }
   return parts.join('\n\n');
 }
-
-/** Canvas snapshot taken when entering ghost mode, restored on exit. */
-let ghostStash: {
-  phase: ChatPhase;
-  messages: ChatMessage[];
-  analysis: AnalysisResult | null;
-  activeStep: number;
-  serverSessionId: string | null;
-  /** Черновик шаблона и текст ошибки тоже часть канваса: без них выход из
-   *  гост-режима терял кнопки драфта в воркспейсе и настоящий текст ошибки. */
-  draftSource: ChatState['draftSource'];
-  error: string | null;
-} | null = null;
 
 export const useChatStore = create<ChatState>((set, get) => {
   /** Once both the analysis and the server session exist, tie them together so
@@ -306,7 +353,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       const done = i >= full.length;
       set((s) => ({
         messages: s.messages.map((m) =>
-          m.id === assistantId ? { ...m, text: full.slice(0, i), streaming: !done } : m,
+          m.id === assistantId ? { ...m, text: full.slice(0, i), streaming: !done, work: endWork(m.work) } : m,
         ),
       }));
       if (done) {
@@ -331,7 +378,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       scheduled = null;
       set((s) =>
         s.messages.some((m) => m.id === targetId)
-          ? { messages: s.messages.map((m) => (m.id === targetId ? { ...m, text: acc, streaming: true } : m)) }
+          ? { messages: s.messages.map((m) => (m.id === targetId ? { ...m, text: acc, streaming: true, work: endWork(m.work) } : m)) }
           : {},
       );
     };
@@ -348,6 +395,20 @@ export const useChatStore = create<ChatState>((set, get) => {
       },
     };
   };
+
+  /** Шаг работы над ответом — в сообщение-заглушку, если оно ещё на экране. */
+  const applyStep = (targetId: string, step: ChatStep) =>
+    set((s) =>
+      s.messages.some((m) => m.id === targetId)
+        ? {
+            messages: s.messages.map((m) =>
+              m.id === targetId
+                ? { ...m, work: { ...(m.work ?? { startedAt: Date.now() }), steps: mergeStep(m.work?.steps ?? [], step) } }
+                : m,
+            ),
+          }
+        : {},
+    );
 
   /** Fast-forward every animating reply to its full text and drop reply
    *  placeholders whose request never returned. Runs on every canvas switch
@@ -381,7 +442,6 @@ export const useChatStore = create<ChatState>((set, get) => {
   serverSessionId: null,
   sessionLoading: false,
   sessionLoadFailed: false,
-  ghost: false,
   pendingAnchor: null,
   showEdits: true,
   docUndo: [],
@@ -390,68 +450,13 @@ export const useChatStore = create<ChatState>((set, get) => {
   requestAnchor: (redlineId) => set({ pendingAnchor: redlineId }),
   clearPendingAnchor: () => set({ pendingAnchor: null }),
 
-  enterGhost: () => {
-    // No mode switch while an analysis is in flight — its completion would
-    // land in the wrong canvas and the restored spinner would never resolve.
-    if (get().ghost || get().phase === 'analyzing') return;
-    clearStepTimers();
-    finishActiveStreams();
-    canvasEpoch++;
-    const { phase, messages, analysis, activeStep, serverSessionId, draftSource, error, sessionLoading } = get();
-    // A live SSE reply still streaming at the moment we switch to ghost gets
-    // orphaned — the canvas switch clears its stream id and its completion is
-    // discarded from this canvas. Finalize it in the stash now (keep partial
-    // text, drop an empty bubble) so exitGhost never restores a bubble frozen
-    // forever in the "typing" state.
-    const stashedMessages = messages.flatMap((m) =>
-      m.streaming ? (m.text ? [{ ...m, streaming: false }] : []) : [m],
-    );
-    ghostStash = {
-      phase,
-      messages: stashedMessages,
-      analysis,
-      activeStep,
-      // Полузагруженный чат (скелетон, сообщения так и не пришли — их fetch
-      // убит сменой эпохи): восстановить его id значило бы молча писать в
-      // «невидимую» сессию, а клик по ней в сайдбаре — мёртвый (guard по id).
-      serverSessionId: sessionLoading ? null : serverSessionId,
-      draftSource,
-      error,
-    };
-    // sessionLoading: false — незавершённый loadSession (эпоха уже сменилась)
-    // не должен оставить на новом канвасе вечный скелетон.
-    set({ ghost: true, phase: 'idle', messages: [], analysis: null, draftSource: null, activeStep: -1, error: null, serverSessionId: null, sessionLoading: false });
-  },
-
-  exitGhost: () => {
-    if (!get().ghost) return;
-    clearStepTimers();
-    finishActiveStreams();
-    canvasEpoch++;
-    const restored = ghostStash;
-    ghostStash = null;
-    set({
-      ghost: false,
-      phase: restored?.phase ?? 'idle',
-      messages: restored?.messages ?? [],
-      analysis: restored?.analysis ?? null,
-      activeStep: restored?.activeStep ?? -1,
-      // Restore the stashed canvas VERBATIM: the draft affordances and the
-      // real error text must survive a ghost round-trip.
-      draftSource: restored?.draftSource ?? null,
-      error: restored?.error ?? null,
-      serverSessionId: restored?.serverSessionId ?? null,
-      sessionLoading: false,
-    });
-  },
-
   setFeedback: (messageId, value) => {
     const prev = get().messages.find((m) => m.id === messageId)?.feedback ?? null;
     set((s) => ({ messages: s.messages.map((m) => (m.id === messageId ? { ...m, feedback: value } : m)) }));
     const sessionId = get().serverSessionId;
-    // Local-only rating: ghost/mock conversations and fallback replies whose
-    // local ids (a_… / gm_…) the server never saw — a POST would only 404.
-    if (get().ghost || USE_MOCK || !sessionId || messageId.startsWith('a_') || messageId.startsWith('gm_')) return;
+    // Local-only rating: mock conversations and fallback replies whose local
+    // ids (a_…) the server never saw — a POST would only 404.
+    if (USE_MOCK || !sessionId || messageId.startsWith('a_')) return;
     void chatsApi.setFeedback(sessionId, messageId, value).catch(() => {
       // Roll back only if the user has not changed the rating again meanwhile.
       set((s) => ({ messages: s.messages.map((m) => (m.id === messageId && m.feedback === value ? { ...m, feedback: prev } : m)) }));
@@ -481,7 +486,7 @@ export const useChatStore = create<ChatState>((set, get) => {
   },
 
   startAnalysis: async (file, rawFile, opts) => {
-    if (get().phase === 'analyzing' || get().ghost) return; // no files in ghost mode
+    if (get().phase === 'analyzing') return;
     // «Повторить» с карточки ошибки приходит БЕЗ файла — переиспользуем
     // последний прикреплённый (тот же по имени). Без файла анализ запускать
     // НЕЛЬЗЯ: сервер разрешал бы контент по имени и мог молча разобрать
@@ -663,7 +668,7 @@ export const useChatStore = create<ChatState>((set, get) => {
         phase: 'analyzed',
         analysis: result,
         analysisStartedAt: null,
-        draftSource: null, // настоящий анализ заменил черновик шаблона
+        draftSource: null, // настоящий анализ заменил сохранённый черновик
         activeStep: ANALYSIS_STEPS.length,
         docUndo: [], // история правок принадлежала предыдущему анализу
         docRedo: [],
@@ -712,32 +717,24 @@ export const useChatStore = create<ChatState>((set, get) => {
     clearStepTimers();
     finishActiveStreams();
     canvasEpoch++;
-    ghostStash = null;
-    set({ phase: 'idle', messages: [], analysis: null, draftSource: null, activeStep: -1, error: null, serverSessionId: null, ghost: false, sessionLoading: false, docUndo: [], docRedo: [] });
+    set({ phase: 'idle', messages: [], analysis: null, draftSource: null, activeStep: -1, error: null, serverSessionId: null, sessionLoading: false, docUndo: [], docRedo: [] });
   },
 
-  sendMessage: (text) => {
+  sendMessage: (text, files) => {
     const trimmed = text.trim();
     if (!trimmed) return;
+    const attached = files?.length ? files : undefined;
     const epoch = canvasEpoch;
     // Fast-forward the previous reply's animation: history must carry its
     // full text and no message may linger in streaming state.
     finishActiveStreams();
-
-    // Ghost mode: history is carried by the client, so capture the turns
-    // BEFORE the new pair is appended.
-    const ghostHistory = get().ghost
-      ? get()
-          .messages.filter((m) => m.kind === 'text' && m.text && !m.streaming)
-          .slice(-10)
-          .map((m) => ({ role: m.role, text: m.text as string }))
-      : [];
 
     const userMessage: ChatMessage = {
       id: `u_${Date.now()}`,
       role: 'user',
       kind: 'text',
       text: trimmed,
+      ...(attached ? { attachments: attached.map(({ name, size }) => ({ name, size })) } : {}),
     };
     const assistantId = `a_${Date.now()}`;
     const assistantMessage: ChatMessage = {
@@ -746,6 +743,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       kind: 'text',
       text: '',
       streaming: true,
+      work: { steps: [], startedAt: Date.now() },
     };
 
     // Keep the chat visible even before any analysis has run.
@@ -755,7 +753,9 @@ export const useChatStore = create<ChatState>((set, get) => {
     }));
 
     if (USE_MOCK) {
-      streamIn(assistantId, mockReply(trimmed));
+      const { steps, total } = mockWorkSteps(trimmed, attached?.map((f) => f.name));
+      for (const [at, step] of steps) setTimeout(() => applyStep(assistantId, step), at);
+      setTimeout(() => streamIn(assistantId, mockReply(trimmed)), total);
       return;
     }
 
@@ -763,6 +763,8 @@ export const useChatStore = create<ChatState>((set, get) => {
     // an honest error — never a fabricated legal answer (a canned reply would
     // masquerade as real AI output in a legal product).
     const failReply = (err: unknown) => {
+      // Ход работы у несостоявшегося ответа не показываем — только ошибку.
+      set((s) => ({ messages: s.messages.map((m) => (m.id === assistantId ? { ...m, work: undefined } : m)) }));
       if (err instanceof ApiError && err.status === 402) {
         streamIn(assistantId, tStandalone('chat.limitReached'));
         useUIStore.getState().pushToast(apiErrorMessage(err, tStandalone), 'error');
@@ -772,30 +774,6 @@ export const useChatStore = create<ChatState>((set, get) => {
       streamIn(assistantId, tStandalone('chat.error'));
       useUIStore.getState().pushToast(message, 'error');
     };
-
-    // Ghost mode: same AI, same limits — no session, nothing persisted.
-    if (get().ghost) {
-      void (async () => {
-        const painter = makeLivePainter(assistantId);
-        liveStreamIds.add(assistantId);
-        try {
-          const reply = await chatsApi.sendGhostMessage(trimmed, ghostHistory, defaultLaw(), painter.onToken);
-          painter.cancel();
-          liveStreamIds.delete(assistantId);
-          if (epoch !== canvasEpoch) return; // canvas switched — drop the late reply
-          // Finalize with the authoritative server text — no fake typewriter.
-          set((s) => ({
-            messages: s.messages.map((m) => (m.id === assistantId ? { ...m, text: reply.text ?? '', streaming: false } : m)),
-          }));
-        } catch (err) {
-          painter.cancel();
-          liveStreamIds.delete(assistantId);
-          if (epoch !== canvasEpoch) return;
-          failReply(err);
-        }
-      })();
-      return;
-    }
 
     // Real backend: ensure a server-side chat session, then ask the AI.
     void (async () => {
@@ -814,7 +792,7 @@ export const useChatStore = create<ChatState>((set, get) => {
         pendingReplies.set(sessionId, assistantId);
         liveStreamIds.add(assistantId);
         const painter = makeLivePainter(assistantId);
-        // Черновик шаблона: серверного анализа нет (id draft_… сервер не знает) —
+        // Сохранённый черновик: серверного анализа нет (id draft_… сервер не знает) —
         // контекстом вопроса едет сам текст черновика.
         const draftSrc = get().draftSource;
         const reply = await chatsApi.sendMessage(
@@ -824,6 +802,8 @@ export const useChatStore = create<ChatState>((set, get) => {
           defaultLaw(),
           painter.onToken,
           draftSrc ? { title: draftSrc.title, content: draftSrc.content } : undefined,
+          attached?.map((f) => f.uploadId),
+          (step) => applyStep(assistantId, step),
         );
         painter.cancel();
         pendingReplies.delete(sessionId);
@@ -833,7 +813,7 @@ export const useChatStore = create<ChatState>((set, get) => {
           // persisted row) and drop in the authoritative final text.
           set((s) => ({
             messages: s.messages.map((m) =>
-              m.id === assistantId ? { ...m, id: reply.id, text: reply.text ?? '', streaming: false } : m,
+              m.id === assistantId ? { ...m, id: reply.id, text: reply.text ?? '', streaming: false, work: endWork(m.work) } : m,
             ),
           }));
         } else if (get().serverSessionId === sessionId) {
@@ -844,7 +824,7 @@ export const useChatStore = create<ChatState>((set, get) => {
             if (s.messages.some((m) => m.id === assistantId)) {
               return {
                 messages: s.messages.map((m) =>
-                  m.id === assistantId ? { ...m, id: reply.id, text: reply.text ?? '', streaming: false } : m,
+                  m.id === assistantId ? { ...m, id: reply.id, text: reply.text ?? '', streaming: false, work: endWork(m.work) } : m,
                 ),
               };
             }
@@ -874,11 +854,6 @@ export const useChatStore = create<ChatState>((set, get) => {
 
   loadSession: async (sessionId) => {
     if (USE_MOCK) return;
-    // Opening a saved session leaves ghost mode (its stash is superseded).
-    if (get().ghost) {
-      ghostStash = null;
-      set({ ghost: false });
-    }
     // already showing this one — но неудавшаяся загрузка обязана перезапускаться
     if (get().serverSessionId === sessionId && !get().sessionLoadFailed) return;
     clearStepTimers();
@@ -970,7 +945,6 @@ export const useChatStore = create<ChatState>((set, get) => {
   },
 
   setServerSession: (id) => {
-    if (get().ghost) return; // a late session id must not leak into ghost state
     set({ serverSessionId: id });
     tryLinkAnalysis();
   },
@@ -980,9 +954,7 @@ export const useChatStore = create<ChatState>((set, get) => {
     clearStepTimers();
     finishActiveStreams();
     canvasEpoch++;
-    ghostStash = null;
     set({
-      ghost: false,
       phase: 'analyzed',
       messages: [
         {
@@ -1004,17 +976,15 @@ export const useChatStore = create<ChatState>((set, get) => {
     });
   },
 
-  // «Мои шаблоны» → открыть черновик в воркспейсе. Анализа ещё нет: findings
-  // пусты; правки блоков разрешены и сохраняются в сам шаблон (PATCH
+  // Vault → Documents → открыть сохранённый черновик в воркспейсе. Анализа ещё нет: findings
+  // пусты; правки блоков разрешены и сохраняются в сам документ (PATCH
   // /templates/saved/:id); кнопка «Анализ рисков» запустит startAnalysis
   // с keepCanvas (текст останется на экране, пока ИИ работает).
   adoptDraft: (tpl) => {
     clearStepTimers();
     finishActiveStreams();
     canvasEpoch++;
-    ghostStash = null;
     set({
-      ghost: false,
       phase: 'analyzed',
       messages: [],
       analysis: {
@@ -1028,7 +998,7 @@ export const useChatStore = create<ChatState>((set, get) => {
         findings: [],
         redlines: [],
         document: draftContentToBlocks(tpl.content),
-        canEdit: true, // правки сохраняются в сам сохранённый шаблон
+        canEdit: true, // правки сохраняются в сам сохранённый документ
       },
       draftSource: { savedTemplateId: tpl.id, title: tpl.title, content: tpl.content },
       activeStep: -1,
@@ -1195,7 +1165,7 @@ export const useChatStore = create<ChatState>((set, get) => {
     });
     // Send the restored redlines too: undo can re-introduce a slot whose redline
     // an earlier edit deleted server-side — without this the clause text is lost.
-    // Черновик шаблона живёт не в analyses — его синхронизирует воркспейс
+    // Сохранённый черновик живёт не в analyses — его синхронизирует воркспейс
     // (PATCH /templates/saved/:id), серверного анализа для него нет.
     if (!s.draftSource) void persistDocument(get().analysis!.id, prev.document, prev.redlines);
   },

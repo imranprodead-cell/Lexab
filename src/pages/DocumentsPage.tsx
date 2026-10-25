@@ -1,42 +1,67 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
+import { FileIcon } from '@/components/chat/FileIcon';
 import { Icon } from '@/components/icons/Icon';
 import { RiskBadge, Badge } from '@/components/ui/Badge';
+import { VaultHeader } from '@/components/vault/VaultHeader';
 import { Button, IconButton } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { SelectMenu } from '@/components/ui/SelectMenu';
 import { EmptyState, ErrorState, SkeletonRows } from '@/components/ui/States';
 import { useAsync } from '@/hooks/useAsync';
-import { useMediaQuery } from '@/hooks/useMediaQuery';
+import { invalidateVaultCounts } from '@/hooks/useVaultCounts';
 import { usePageTitle } from '@/hooks/usePageTitle';
-import { useReveal } from '@/hooks/useReveal';
-import { documentsApi, projectsApi } from '@/api';
-import type { ContractDocument, ContractStatus, Project } from '@/types/domain';
+import { documentsApi, projectsApi, savedDocsApi } from '@/api';
+import type { ContractDocument, Project, SavedDoc } from '@/types/domain';
+import { useChatStore } from '@/store/useChatStore';
 import { useUIStore } from '@/store/useUIStore';
 import { useI18n } from '@/i18n/I18nProvider';
 import styles from './pages.module.css';
 
 const STATUS_FILTERS = ['All', 'Draft', 'In review', 'Reviewed', 'Signed'];
 const RISK_FILTERS = ['All', 'Low', 'Elevated', 'High'];
-const PAGE_SIZE = 5;
+const PAGE_SIZE = 8;
 const RISK_ORDER: Record<string, number> = { Low: 0, Elevated: 1, High: 2 };
 
-const STATUS_TONE: Record<ContractStatus, string> = {
-  Draft: 'var(--mut)',
-  'In review': 'var(--sev-med)',
-  Reviewed: 'var(--chart-accent)',
-  Signed: 'var(--sev-low)',
-};
-
-type SortKey = 'name' | 'status' | 'risk' | 'updatedAt';
+type SortKey = 'name' | 'risk' | 'updatedAt';
 type SortDir = 'asc' | 'desc';
+/** Порядок карточек (вместо сортировки по столбцам таблицы). */
+const SORTS: { value: string; key: SortKey; dir: SortDir; label: string }[] = [
+  { value: 'new', key: 'updatedAt', dir: 'desc', label: 'docs.sort.new' },
+  { value: 'risk', key: 'risk', dir: 'desc', label: 'docs.sort.risk' },
+  { value: 'name', key: 'name', dir: 'asc', label: 'docs.sort.name' },
+];
 
-/** Contracts list with search, filters, sortable columns and pagination. */
+/** Карточка списка: договор или документ, сохранённый из чата. */
+type Card =
+  | { kind: 'doc'; key: string; name: string; at: string; riskRank: number; doc: ContractDocument }
+  | { kind: 'saved'; key: string; name: string; at: string; riskRank: number; saved: SavedDoc };
+
+/** Сохранённый из чата документ — это черновик без проверки рисков: он виден
+ *  при фильтре «Все» и «Черновик», без фильтра по риску; поиск — по названию
+ *  и тексту (как у договоров, только на месте: текст уже здесь). */
+function savedMatches(s: SavedDoc, q: { search: string; status: string; risk: string }): boolean {
+  if (q.status !== 'All' && q.status !== 'Draft') return false;
+  if (q.risk !== 'All') return false;
+  const needle = q.search.trim().toLowerCase();
+  return !needle || s.title.toLowerCase().includes(needle) || s.content.toLowerCase().includes(needle);
+}
+
+/** Плитка-буква: первая буква контрагента (или названия), три оттенка по хешу. */
+function letterOf(d: ContractDocument): { letter: string; shade: number } {
+  const source = d.counterparty && d.counterparty !== '—' ? d.counterparty : d.name;
+  const letter = (source.match(/\p{L}|\p{N}/u)?.[0] ?? '#').toUpperCase();
+  let h = 0;
+  for (const ch of d.id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return { letter, shade: h % 3 };
+}
+
+/** Vault → Documents: договоры и сохранённые из чата документы карточками
+ *  (эталон владельца) — фильтр по статусу, поиск, риск, порядок и страницы. */
 export function DocumentsPage() {
   const navigate = useNavigate();
   const { t } = useI18n();
-  const isMobile = useMediaQuery('(max-width: 700px)');
   usePageTitle(t('nav.documents'));
   const [search, setSearch] = useState('');
   // Debounced value that actually drives the request — the input stays fully
@@ -49,8 +74,8 @@ export function DocumentsPage() {
   }, [search]);
   const [status, setStatus] = useState('All');
   const [risk, setRisk] = useState('All');
-  const [sortKey, setSortKey] = useState<SortKey>('updatedAt');
-  const [sortDir, setSortDir] = useState<SortDir>('desc');
+  const [sortValue, setSortValue] = useState('new');
+  const { key: sortKey, dir: sortDir } = SORTS.find((x) => x.value === sortValue) ?? SORTS[0];
   const [page, setPage] = useState(0);
 
   const timeAgo = (iso: string): string => {
@@ -66,10 +91,38 @@ export function DocumentsPage() {
     (signal) => documentsApi.list(query, signal),
     [query.search, query.status, query.risk],
   );
+  // Сохранённые из чата документы: сбой списка не прячет договоры.
+  const savedDocs = useAsync((signal) => savedDocsApi.list(signal).catch(() => [] as SavedDoc[]), []);
+  const adoptDraft = useChatStore((s) => s.adoptDraft);
+  const openSaved = (s: SavedDoc) => {
+    adoptDraft({ id: s.id, title: s.title, content: s.content });
+    navigate('/workspace');
+  };
 
   // «В проект…»: модалка-выбор дела для конкретного документа. Проекты
   // грузятся при первом открытии (дальше — из кэша useAsync).
   const pushToast = useUIStore((s) => s.pushToast);
+
+  // Удаление сохранённого документа — с подтверждением: вернуть его нельзя.
+  const [deleteFor, setDeleteFor] = useState<SavedDoc | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const removeSaved = async () => {
+    if (!deleteFor || deleteBusy) return;
+    setDeleteBusy(true);
+    try {
+      await savedDocsApi.remove(deleteFor.id);
+      const id = deleteFor.id;
+      savedDocs.mutate((rows) => (rows ?? []).filter((r) => r.id !== id));
+      invalidateVaultCounts();
+      pushToast(t('docs.savedDeleted'), 'default');
+      setDeleteFor(null);
+    } catch (err) {
+      pushToast(err instanceof Error && err.message ? err.message : t('common.error'), 'error');
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
+
   const [pickFor, setPickFor] = useState<ContractDocument | null>(null);
   const [pickBusy, setPickBusy] = useState(false);
   const projects = useAsync(
@@ -110,195 +163,181 @@ export function DocumentsPage() {
     );
 
   const sorted = useMemo(() => {
-    const rows = [...(data ?? [])];
+    const rows: Card[] = [
+      ...(data ?? []).map((d): Card => ({ kind: 'doc', key: `d:${d.id}`, name: d.name, at: d.updatedAt, riskRank: RISK_ORDER[d.risk] ?? 0, doc: d })),
+      ...(savedDocs.data ?? [])
+        .filter((x) => savedMatches(x, query))
+        // У сохранённого нет оценки риска — в порядке «высокий риск» он ниже всех.
+        .map((x): Card => ({ kind: 'saved', key: `s:${x.id}`, name: x.title, at: x.createdAt, riskRank: -1, saved: x })),
+    ];
     rows.sort((a, b) => {
       let cmp = 0;
-      if (sortKey === 'risk') cmp = RISK_ORDER[a.risk] - RISK_ORDER[b.risk];
-      else if (sortKey === 'updatedAt') cmp = new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime();
-      else cmp = String(a[sortKey]).localeCompare(String(b[sortKey]));
+      if (sortKey === 'risk') cmp = a.riskRank - b.riskRank;
+      else if (sortKey === 'updatedAt') cmp = new Date(a.at).getTime() - new Date(b.at).getTime();
+      else cmp = a.name.localeCompare(b.name);
       return sortDir === 'asc' ? cmp : -cmp;
     });
     return rows;
-  }, [data, sortKey, sortDir]);
+  }, [data, savedDocs.data, query, sortKey, sortDir]);
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
   const clampedPage = Math.min(page, totalPages - 1);
   const pageRows = sorted.slice(clampedPage * PAGE_SIZE, clampedPage * PAGE_SIZE + PAGE_SIZE);
 
-  const toggleSort = (key: SortKey) => {
-    if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
-    else {
-      setSortKey(key);
-      setSortDir('asc');
-    }
-    setPage(0);
-  };
-
-  const sortableTh = (key: SortKey, label: string, extra = '') => (
-    <th className={`${styles.th} ${styles.thSortable} ${extra}`} onClick={() => toggleSort(key)}>
-      {label}
-      {sortKey === key ? <span className={styles.sortArrow}>{sortDir === 'asc' ? '↑' : '↓'}</span> : null}
-    </th>
-  );
-
   return (
     <div className={styles.page}>
-      <TopBar title={t('docs.title')} />
+      <TopBar title={t('nav.documents')} hideCountry />
       <div className={`${styles.body} scroll`}>
         <div className={styles.container}>
-          <div className={styles.pageHead} ref={useReveal()}>
-            <h1 className={styles.pageTitle}>{t('docs.title')}</h1>
-            <p className={styles.pageSub}>{t('docs.sub')}</p>
-          </div>
+          <VaultHeader active="documents" />
 
-          <div className={styles.toolbar}>
-            <div className={styles.searchWrap}>
-              <span className={styles.searchIcon}>
-                <Icon name="search" size={16} />
-              </span>
-              <input
-                className={styles.searchInput}
-                placeholder={t('docs.search')}
-                value={search}
-                onChange={(e) => {
-                  setSearch(e.target.value);
+          <div className={styles.vaultToolbar}>
+            <div className={styles.segmented} role="tablist" aria-label={t('docs.col.status')}>
+              {STATUS_FILTERS.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  role="tab"
+                  aria-selected={status === s}
+                  className={status === s ? `${styles.segment} ${styles.segmentOn}` : styles.segment}
+                  onClick={() => {
+                    setStatus(s);
+                    setPage(0);
+                  }}
+                >
+                  {s === 'All' ? t('docs.filterAll') : t(`status.${s}`)}
+                </button>
+              ))}
+            </div>
+            <div className={styles.vaultToolbarRight}>
+              <div className={`${styles.searchWrap} ${styles.vaultSearch}`}>
+                <span className={styles.searchIcon}>
+                  <Icon name="search" size={16} />
+                </span>
+                <input
+                  className={styles.searchInput}
+                  placeholder={t('docs.searchShort')}
+                  aria-label={t('docs.search')}
+                  value={search}
+                  onChange={(e) => {
+                    setSearch(e.target.value);
+                    setPage(0);
+                  }}
+                />
+              </div>
+              <SelectMenu
+                ariaLabel="risk"
+                value={risk}
+                options={RISK_FILTERS.map((r) => ({ value: r, label: r === 'All' ? t('docs.allRisk') : t(`risk.${r}`) }))}
+                onChange={(v) => {
+                  setRisk(v);
+                  setPage(0);
+                }}
+              />
+              <SelectMenu
+                ariaLabel="sort"
+                value={sortValue}
+                options={SORTS.map((x) => ({ value: x.value, label: t(x.label) }))}
+                onChange={(v) => {
+                  setSortValue(v);
                   setPage(0);
                 }}
               />
             </div>
-            <SelectMenu
-              ariaLabel="status"
-              value={status}
-              options={STATUS_FILTERS.map((s) => ({ value: s, label: s === 'All' ? t('docs.allStatuses') : t(`status.${s}`) }))}
-              onChange={(v) => {
-                setStatus(v);
-                setPage(0);
-              }}
-            />
-            <SelectMenu
-              ariaLabel="risk"
-              value={risk}
-              options={RISK_FILTERS.map((r) => ({ value: r, label: r === 'All' ? t('docs.allRisk') : t(`risk.${r}`) }))}
-              onChange={(v) => {
-                setRisk(v);
-                setPage(0);
-              }}
-            />
           </div>
 
-          {loading ? (
-            <div className={styles.tableCard}>
-              <table className={styles.table}>
-                <tbody>
-                  {Array.from({ length: PAGE_SIZE }).map((_, i) => (
-                    <tr key={i}>
-                      <td className={styles.td} colSpan={6}>
-                        <div className={styles.skeleton} style={{ height: 20, width: `${60 + ((i * 7) % 30)}%` }} />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          {loading || savedDocs.loading ? (
+            <div className={styles.docGrid}>
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className={`${styles.docSkeletonCard} ${styles.skeleton}`} />
+              ))}
             </div>
           ) : error ? (
             <ErrorState message={error} onRetry={reload} />
           ) : sorted.length === 0 ? (
             <EmptyState icon="docs" title={t('docs.empty')} body={t('docs.emptyBody')} />
-          ) : isMobile ? (
-            <>
-              <div className={styles.rowCards}>
-                {pageRows.map((d) => (
-                  <div key={d.id} className={styles.rowCard} onClick={() => navigate(`/documents/${d.id}`)}>
-                    <div className={styles.rowCardHead}>
-                      <div className={styles.docCellIcon}>
-                        <Icon name="docs" size={16} />
-                      </div>
-                      <div style={{ minWidth: 0, flex: 1 }}>
-                        <div className={styles.docCellName}>{d.name}</div>
-                        <div className={styles.docCellSub}>
-                          {d.sharedBy ? `${t('docs.fromTeam', { name: d.sharedBy })} · ` : ''}
-                          {d.counterparty}
-                        </div>
-                      </div>
-                      {toProjectBtn(d)}
-                    </div>
-                    <div className={styles.rowCardBadges}>
-                      <Badge color={STATUS_TONE[d.status]} plain>{t(`status.${d.status}`)}</Badge>
-                      <RiskBadge risk={d.risk} plain />
-                    </div>
-                    <div className={styles.rowCardMeta}>
-                      <span>{d.jurisdiction}</span>
-                      <span>{timeAgo(d.updatedAt)}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className={styles.pagination}>
-                <span className={styles.paginationInfo}>{t('docs.count', { n: sorted.length })}</span>
-                <div className={styles.paginationControls}>
-                  <button
-                    className={styles.pageBtn}
-                    disabled={clampedPage === 0}
-                    onClick={() => setPage((p) => Math.max(0, p - 1))}
-                  >
-                    {t('docs.prev')}
-                  </button>
-                  <span className={styles.pageOf}>{t('docs.pageOf', { page: clampedPage + 1, total: totalPages })}</span>
-                  <button
-                    className={styles.pageBtn}
-                    disabled={clampedPage >= totalPages - 1}
-                    onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
-                  >
-                    {t('docs.next')}
-                  </button>
-                </div>
-              </div>
-            </>
           ) : (
             <>
-              <div className={styles.tableCard}>
-                <table className={styles.table}>
-                  <thead>
-                    <tr>
-                      {sortableTh('name', t('docs.col.document'))}
-                      {sortableTh('status', t('docs.col.status'), styles.hideSm)}
-                      {sortableTh('risk', t('docs.col.risk'))}
-                      <th className={`${styles.th} ${styles.hideSm}`}>{t('docs.col.jurisdiction')}</th>
-                      {sortableTh('updatedAt', t('docs.col.updated'), styles.hideSm)}
-                      <th className={styles.th} aria-label={t('projects.toProject')} />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {pageRows.map((d) => (
-                      <tr key={d.id} className={styles.tr} onClick={() => navigate(`/documents/${d.id}`)}>
-                        <td className={styles.td}>
-                          <div className={styles.docCell}>
-                            <div className={styles.docCellIcon}>
-                              <Icon name="docs" size={16} />
-                            </div>
-                            <div style={{ minWidth: 0 }}>
-                              <div className={styles.docCellName}>{d.name}</div>
-                              <div className={styles.docCellSub}>
-                                {d.sharedBy ? `${t('docs.fromTeam', { name: d.sharedBy })} · ` : d.teamShared ? `${t('docs.teamBadge')} · ` : ''}
-                                {d.counterparty}
-                              </div>
-                            </div>
+              <div className={styles.docGrid}>
+                {pageRows.map((card) => {
+                  if (card.kind === 'saved') {
+                    const sv = card.saved;
+                    return (
+                      <div
+                        key={card.key}
+                        className={styles.docCard}
+                        role="link"
+                        tabIndex={0}
+                        onClick={() => openSaved(sv)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') openSaved(sv);
+                        }}
+                      >
+                        <div className={styles.docCardBody}>
+                          <div className={styles.docCardTop}>
+                            <span className={styles.docFileTile} aria-hidden="true">
+                              <FileIcon name="saved.docx" size={20} />
+                            </span>
+                            <Badge>{t('status.Draft')}</Badge>
                           </div>
-                        </td>
-                        <td className={`${styles.td} ${styles.hideSm}`}>
-                          <Badge color={STATUS_TONE[d.status]} plain>{t(`status.${d.status}`)}</Badge>
-                        </td>
-                        <td className={styles.td}>
-                          <RiskBadge risk={d.risk} plain />
-                        </td>
-                        <td className={`${styles.td} ${styles.hideSm} ${styles.mono}`}>{d.jurisdiction}</td>
-                        <td className={`${styles.td} ${styles.hideSm} ${styles.metaText}`}>{timeAgo(d.updatedAt)}</td>
-                        <td className={styles.td} style={{ width: 44 }}>{toProjectBtn(d)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                          <h3 className={styles.docCardTitle}>{sv.title}</h3>
+                          <div className={styles.docCardSub}>{t('docs.savedFromChat')}</div>
+                        </div>
+                        <div className={styles.docCardFoot}>
+                          <span>{timeAgo(sv.createdAt)}</span>
+                          <Badge>{t('docs.notReviewed')}</Badge>
+                          <span>
+                            <IconButton
+                              icon="trash"
+                              label={t('docs.deleteSaved')}
+                              title={t('docs.deleteSaved')}
+                              size="sm"
+                              iconSize={15}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setDeleteFor(sv);
+                              }}
+                            />
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  }
+                  const d = card.doc;
+                  const { letter, shade } = letterOf(d);
+                  const open = () => navigate(`/documents/${d.id}`);
+                  return (
+                    <div
+                      key={card.key}
+                      className={styles.docCard}
+                      role="link"
+                      tabIndex={0}
+                      onClick={open}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') open();
+                      }}
+                    >
+                      <div className={styles.docCardBody}>
+                        <div className={styles.docCardTop}>
+                          <span className={styles.docLetter} data-shade={shade} aria-hidden="true">
+                            {letter}
+                          </span>
+                          <Badge>{t(`status.${d.status}`)}</Badge>
+                        </div>
+                        <h3 className={styles.docCardTitle}>{d.name}</h3>
+                        <div className={styles.docCardSub}>
+                          {d.sharedBy ? `${t('docs.fromTeam', { name: d.sharedBy })} · ` : d.teamShared ? `${t('docs.teamBadge')} · ` : ''}
+                          {d.counterparty && d.counterparty !== '—' ? t('docs.counterparty', { name: d.counterparty }) : d.jurisdiction}
+                        </div>
+                      </div>
+                      <div className={styles.docCardFoot}>
+                        <span>{timeAgo(d.updatedAt)}</span>
+                        <RiskBadge risk={d.risk} />
+                        <span>{toProjectBtn(d)}</span>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
 
               <div className={styles.pagination}>
@@ -325,6 +364,28 @@ export function DocumentsPage() {
           )}
         </div>
       </div>
+
+      {/* Удалить сохранённый из чата документ. */}
+      <Modal
+        open={deleteFor !== null}
+        title={t('docs.deleteSavedTitle')}
+        onClose={() => !deleteBusy && setDeleteFor(null)}
+        maxWidth={440}
+        footer={
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, width: '100%' }}>
+            <Button variant="ghost" disabled={deleteBusy} onClick={() => setDeleteFor(null)}>
+              {t('common.cancel')}
+            </Button>
+            <Button variant="primary" icon="trash" disabled={deleteBusy} onClick={() => void removeSaved()}>
+              {deleteBusy ? t('common.loading') : t('docs.deleteSaved')}
+            </Button>
+          </div>
+        }
+      >
+        <p className={styles.pageSub} style={{ margin: 0 }}>
+          {t('docs.deleteSavedBody', { name: deleteFor?.title ?? '' })}
+        </p>
+      </Modal>
 
       {/* «В проект…» — выбор дела для документа. */}
       <Modal open={pickFor !== null} title={t('projects.pickTitle')} onClose={() => !pickBusy && setPickFor(null)} maxWidth={460}>

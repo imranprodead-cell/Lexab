@@ -216,11 +216,9 @@ test('чат по тарифам: потоковая выдача, effort medium
   }
 });
 
-test('сравнение, шаблон, черновик: потолок 32 000 (Opus 5.5 упирался в 16 000)', async () => {
+test('сравнение и черновик: потолок 32 000 (Opus 5.5 упирался в 16 000)', async () => {
   const [c] = await capture(() => llm.generateCompare(CONTRACT, CONTRACT.replace('1%', '0,1%'), 'a', 'b', 'Business'));
   assertBigModel(c, 'claude-opus-5-5', 'high', 32_000);
-  const [t] = await capture(() => llm.generateTemplateDraft('NDA', 'Mutual NDA', { partyA: 'A', partyB: 'B', jurisdiction: 'UK', term: '2y', details: '-' }, 'Business'));
-  assertBigModel(t, 'claude-opus-5-5', 'high', 32_000);
   const [d] = await capture(() => llm.generateContractDraft('Договор уборки офиса', 'Uzbekistan', 'Standard'));
   assertBigModel(d, 'claude-sonnet-5-5', 'high', 32_000);
 });

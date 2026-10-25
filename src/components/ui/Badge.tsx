@@ -21,39 +21,54 @@ export function toneColor(tone: string): string {
   }
 }
 
-interface BadgeProps {
-  children: React.ReactNode;
-  /** A colour keyword (High/Medium/Low/Elevated/accent) or a raw CSS colour. */
-  color?: string;
-  filled?: boolean;
-  /** Frameless variant: coloured dot + coloured label-face text, no box around it. */
-  plain?: boolean;
+/** Смысл цвета отметки: риск/важность или исход (готово, отклонено). */
+type BadgeTone = 'neutral' | 'low' | 'elevated' | 'high';
+
+/** Ключевое слово или цвет темы → один из четырёх сдержанных тонов. Всё, что не
+ *  несёт смысла «хорошо / внимание / плохо» (в работе, роли, счётчики), —
+ *  нейтральное: цветом выделяется только то, что важно заметить. */
+function badgeTone(color: string | undefined): BadgeTone {
+  switch (color) {
+    case 'High':
+    case 'var(--sev-high)':
+    case 'var(--danger)':
+      return 'high';
+    case 'Elevated':
+    case 'Medium':
+    case 'var(--sev-med)':
+    case 'var(--warn)':
+      return 'elevated';
+    case 'Low':
+    case 'ok':
+    case 'success':
+    case 'var(--sev-low)':
+    case 'var(--ok)':
+      return 'low';
+    default:
+      return 'neutral';
+  }
 }
 
-export function Badge({ children, color = 'var(--dim)', filled = false, plain = false }: BadgeProps) {
-  const c = color.startsWith('var') || color.startsWith('#') || color.startsWith('oklch')
-    ? color
-    : toneColor(color);
+interface BadgeProps {
+  children: React.ReactNode;
+  /** Ключевое слово (High/Elevated/Medium/Low) или цвет темы (var(--sev-…)); без него — нейтральная. */
+  color?: string;
+}
 
-  if (plain) {
-    return (
-      <span className={styles.badgePlain} style={{ color: c }}>
-        <span className={styles.badgeDot} />
-        {children}
-      </span>
-    );
-  }
-
-  // Цвет статуса задаётся только через color: подложка/точка берут currentColor.
+/**
+ * Отметка статуса / риска: сдержанная «таблетка» в обычном регистре, без
+ * точки (эталон: Full Compliance / Partial / Non-Compliant). Один стиль на
+ * весь сайт — в «Документах», проектах, подписях, массовом разборе и т. д.
+ */
+export function Badge({ children, color }: BadgeProps) {
   return (
-    <span className={`${styles.badge} ${filled ? styles.badgeFilled : ''}`} style={{ color: c }}>
-      <span className={styles.badgeDot} />
+    <span className={styles.badgeSoft} data-tone={badgeTone(color)}>
       {children}
     </span>
   );
 }
 
-export const RiskBadge = ({ risk, plain }: { risk: RiskLevel; plain?: boolean }) => {
+export const RiskBadge = ({ risk }: { risk: RiskLevel }) => {
   const { t } = useI18n();
-  return <Badge color={risk} plain={plain}>{t(`risk.${risk}`)}</Badge>;
+  return <Badge color={risk}>{t(`risk.${risk}`)}</Badge>;
 };

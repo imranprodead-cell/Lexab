@@ -51,9 +51,9 @@ export function buildOpenApiSpec(): Record<string, unknown> {
     openapi: '3.1.0',
     info: {
       title: 'Lexab Public API',
-      version: '1.3.0',
+      version: '1.4.0',
       description:
-        'Machine-to-machine API for Business/Enterprise customers: contract analysis, version compare, contract drafting and template generation, with verified legal citations. All AI jobs are **asynchronous**: `POST` returns `202` with a job id — poll the matching `GET` until `status` is `done` or `error`, or register a webhook to be called back. Errors always use `{ "error": { "code", "message" } }`.',
+        'Machine-to-machine API for Business/Enterprise customers: contract analysis, version compare and contract drafting, with verified legal citations. All AI jobs are **asynchronous**: `POST` returns `202` with a job id — poll the matching `GET` until `status` is `done` or `error`, or register a webhook to be called back. Errors always use `{ "error": { "code", "message" } }`.',
     },
     servers: [{ url: `${config.apiBaseUrl}/api` }],
     security: [{ bearerKey: [] }, { headerKey: [] }],
@@ -61,7 +61,6 @@ export function buildOpenApiSpec(): Record<string, unknown> {
       { name: 'Analyses', description: 'Contract analysis (findings, risk score, verified citations)' },
       { name: 'Drafts', description: 'Draft a contract from a prompt' },
       { name: 'Compares', description: 'Compare two contract versions' },
-      { name: 'Templates', description: 'Template catalog and generation' },
       { name: 'Webhooks', description: 'Callback notifications on job completion' },
       { name: 'Usage', description: 'Monthly quota' },
     ],
@@ -235,63 +234,6 @@ export function buildOpenApiSpec(): Record<string, unknown> {
           responses: { '200': { description: 'Job status/result', content: { 'application/json': { schema: { $ref: '#/components/schemas/Job' } } } }, '401': err('Missing/invalid/expired API key'), '403': err('insufficient_scope'), '404': err('Not found') },
         },
       },
-      '/v1/templates': {
-        get: {
-          tags: ['Templates'],
-          summary: 'Template catalog',
-          description: 'Synchronous, no AI unit consumed. Open to any valid key.',
-          responses: {
-            '200': {
-              description: 'Catalog',
-              content: {
-                'application/json': {
-                  schema: {
-                    type: 'object',
-                    properties: { items: { type: 'array', items: { $ref: '#/components/schemas/Template' } } },
-                  },
-                },
-              },
-            },
-            '401': err('Missing/invalid/expired API key'),
-          },
-        },
-      },
-      '/v1/templates/{id}/generate': {
-        post: {
-          tags: ['Templates'],
-          summary: 'Generate a contract from a template',
-          description: 'Requires `templates:write`.',
-          parameters: [idParam('Template id from GET /v1/templates'), idempotencyHeader],
-          requestBody: {
-            required: true,
-            content: {
-              'application/json': {
-                schema: {
-                  type: 'object',
-                  required: ['partyA', 'partyB', 'details'],
-                  properties: {
-                    partyA: { type: 'string', maxLength: 200 },
-                    partyB: { type: 'string', maxLength: 200 },
-                    details: { type: 'string', minLength: 5, maxLength: 4000 },
-                    jurisdiction: { type: 'string' },
-                    term: { type: 'string' },
-                  },
-                },
-              },
-            },
-          },
-          responses: { '202': jobAccepted, '401': err('Missing/invalid/expired API key'), '403': err('insufficient_scope'), '404': err('Template not found'), '429': err('Rate/monthly limit') },
-        },
-      },
-      '/v1/templates/requests/{id}': {
-        get: {
-          tags: ['Templates'],
-          summary: 'Template generation status / result',
-          description: 'Requires `templates:write`. When `done`: `{ title, content }`.',
-          parameters: [idParam('Job id from POST /v1/templates/{id}/generate')],
-          responses: { '200': { description: 'Job status/result', content: { 'application/json': { schema: { $ref: '#/components/schemas/Job' } } } }, '401': err('Missing/invalid/expired API key'), '403': err('insufficient_scope'), '404': err('Not found') },
-        },
-      },
       '/v1/webhooks': {
         post: {
           tags: ['Webhooks'],
@@ -458,17 +400,6 @@ export function buildOpenApiSpec(): Record<string, unknown> {
                 },
               },
             },
-          },
-        },
-        Template: {
-          type: 'object',
-          properties: {
-            id: { type: 'string' },
-            name: { type: 'string' },
-            nameRu: { type: ['string', 'null'] },
-            category: { type: 'string' },
-            description: { type: 'string' },
-            jurisdiction: { type: ['string', 'null'] },
           },
         },
       },

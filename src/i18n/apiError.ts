@@ -15,7 +15,7 @@ import { ApiError } from '@/api/util';
 /** Ключ словаря с названием функции — по названию раздела, как в меню. */
 const FEATURE_KEY: Record<string, string> = {
   docxExport: 'feat.docxExport',
-  templates: 'tpl.title',
+  drafting: 'feat.drafting',
   compare: 'cmp.title',
   signatures: 'sig.title',
   versions: 'feat.versions',

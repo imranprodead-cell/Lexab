@@ -18,8 +18,8 @@ const TERMS: Section[] = [
     h: { ru: '1. Определения', en: '1. Definitions' },
     p: [
       {
-        ru: '«Сервис» — платформа Lexab, доступная через веб-приложение, включая анализ документов, чат с ИИ-ассистентом, шаблоны, электронные подписи и связанные функции. «Мы», «Lexab» — оператор сервиса. «Пользователь», «вы» — лицо, создавшее аккаунт или использующее сервис. «Контент пользователя» — документы, тексты и иные материалы, которые вы загружаете в сервис. «Тариф» — выбранный вами план подписки, определяющий объём доступных функций.',
-        en: '“Service” means the Lexab platform available through the web application, including document analysis, the AI assistant chat, templates, e-signatures and related features. “We” and “Lexab” mean the service operator. “User” and “you” mean the person who created an account or uses the service. “User content” means documents, texts and other materials you upload to the service. “Plan” means the subscription plan you selected, which defines the scope of available features.',
+        ru: '«Сервис» — платформа Lexab, доступная через веб-приложение, включая анализ документов, чат с ИИ-ассистентом, электронные подписи и связанные функции. «Мы», «Lexab» — оператор сервиса. «Пользователь», «вы» — лицо, создавшее аккаунт или использующее сервис. «Контент пользователя» — документы, тексты и иные материалы, которые вы загружаете в сервис. «Тариф» — выбранный вами план подписки, определяющий объём доступных функций.',
+        en: '“Service” means the Lexab platform available through the web application, including document analysis, the AI assistant chat, e-signatures and related features. “We” and “Lexab” mean the service operator. “User” and “you” mean the person who created an account or uses the service. “User content” means documents, texts and other materials you upload to the service. “Plan” means the subscription plan you selected, which defines the scope of available features.',
       },
     ],
   },
@@ -28,8 +28,8 @@ const TERMS: Section[] = [
     h: { ru: '2. Описание сервиса', en: '2. Service description' },
     p: [
       {
-        ru: 'Lexab — платформа интеллектуального анализа договоров: загрузка документов, автоматический поиск рисков с привязкой к законодательству, правки, шаблоны, чат с ИИ-ассистентом и электронные подписи.',
-        en: 'Lexab is an AI contract-intelligence platform: document upload, automated risk review linked to legislation, redlines, templates, an AI assistant chat and e-signatures.',
+        ru: 'Lexab — платформа интеллектуального анализа договоров: загрузка документов, автоматический поиск рисков с привязкой к законодательству, правки, чат с ИИ-ассистентом и электронные подписи.',
+        en: 'Lexab is an AI contract-intelligence platform: document upload, automated risk review linked to legislation, redlines, an AI assistant chat and e-signatures.',
       },
       {
         ru: 'Анализ выполняют большие языковые модели. Находки, ссылающиеся на правовые нормы, сопоставляются с базой официальных текстов законов, а цитаты проходят автоматическую проверку: ссылка без подтверждённого источника помечается как непроверенная.',

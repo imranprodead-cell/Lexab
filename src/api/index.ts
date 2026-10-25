@@ -11,7 +11,7 @@ export { billingApi } from './billing.api';
 export type { PlanLimits, UsageMetric } from './billing.api';
 export { teamApi, ROLE_COLORS } from './team.api';
 export type { TeamMember, TeamInvitation, TeamRole } from './team.api';
-export { templatesApi } from './templates.api';
+export { savedDocsApi } from './savedDocs.api';
 export { playbooksApi } from './playbooks.api';
 export type { CreatePlaybookInput, UpdatePlaybookInput } from './playbooks.api';
 export { contractsApi } from './contracts.api';

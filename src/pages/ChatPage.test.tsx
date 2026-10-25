@@ -5,16 +5,31 @@ import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { I18nProvider } from '@/i18n/I18nProvider';
 
-vi.mock('@/api', () => ({ USE_MOCK: false, analysisApi: { get: vi.fn() } }));
+vi.mock('@/api', () => ({
+  USE_MOCK: false,
+  analysisApi: { get: vi.fn() },
+  // «Недавние файлы» на приветствии: один договор и один черновик.
+  documentsApi: {
+    recent: vi.fn().mockResolvedValue([
+      { id: 'd1', name: 'Supply_Agreement.pdf', updatedAt: new Date(Date.now() - 3_600_000).toISOString() },
+    ]),
+  },
+  savedDocsApi: {
+    list: vi.fn().mockResolvedValue([
+      { id: 'st1', title: 'Claim letter draft', content: 'Text', createdAt: new Date(Date.now() - 60_000).toISOString() },
+    ]),
+  },
+}));
 vi.mock('@/api/analysis.api', () => ({ analysisApi: { draft: vi.fn() } }));
 vi.mock('@/api/chats.api', () => ({
   chatsApi: {
     messages: vi.fn(),
     create: vi.fn(),
     sendMessage: vi.fn(),
-    sendGhostMessage: vi.fn(),
     linkAnalysis: vi.fn().mockResolvedValue(undefined),
     setFeedback: vi.fn(),
+    getProgress: vi.fn().mockResolvedValue(null),
+    saveProgress: vi.fn().mockResolvedValue(null),
   },
 }));
 vi.mock('@/api/uploads.api', () => ({ uploadsApi: { upload: vi.fn() } }));
@@ -28,6 +43,8 @@ vi.mock('@/store/useChatHistoryStore', () => ({
 
 import { analysisApi } from '@/api';
 import { chatsApi } from '@/api/chats.api';
+import { uploadsApi } from '@/api/uploads.api';
+import { useUIStore } from '@/store/useUIStore';
 import { useChatStore } from '@/store/useChatStore';
 import { ChatPage } from './ChatPage';
 
@@ -80,7 +97,7 @@ describe('ChatPage — reopening an analyzed-document chat from the sidebar', ()
     vi.clearAllMocks();
     useChatStore.setState({
       phase: 'idle', messages: [], analysis: null, activeStep: -1, error: null,
-      serverSessionId: null, sessionLoading: false, ghost: false,
+      serverSessionId: null, sessionLoading: false,
     });
     document.body.innerHTML = '';
     host = document.createElement('div');
@@ -114,9 +131,9 @@ describe('ChatPage — reopening an analyzed-document chat from the sidebar', ()
     expect(useChatStore.getState().analysis?.id).toBe('an_1');
   });
 
-  // Черновик шаблона живёт в воркспейсе (adoptDraft: phase 'analyzed', сообщений
+  // Сохранённый черновик живёт в воркспейсе (adoptDraft: phase 'analyzed', сообщений
   // нет). Возврат в «Чат» должен показать приветствие с подсказками, а не пустоту.
-  it('shows the welcome screen after leaving a template-draft workspace', async () => {
+  it('shows the welcome screen after leaving a saved-draft workspace', async () => {
     useChatStore.getState().adoptDraft({ id: 'st_w', title: 'NDA', content: 'Текст соглашения.' });
 
     await act(async () => {
@@ -133,7 +150,12 @@ describe('ChatPage — reopening an analyzed-document chat from the sidebar', ()
     await flush();
 
     const html = document.body.innerHTML;
-    expect(html).toContain('Draft an NDA'); // подсказки приветствия на месте (тестовая локаль — en)
+    // Приветствие на месте (тестовая локаль — en): вместо трёх карточек —
+    // «Недавние файлы», свежий черновик выше договора.
+    expect(html).not.toContain('Draft an NDA');
+    expect(html).toContain('Recent files');
+    expect(html.indexOf('Claim letter draft')).toBeGreaterThan(-1);
+    expect(html.indexOf('Claim letter draft')).toBeLessThan(html.indexOf('Supply_Agreement.pdf'));
     expect(useChatStore.getState().analysis?.id).toBe('draft_st_w'); // канвас цел
   });
 
@@ -201,3 +223,101 @@ describe('ChatPage — reopening an analyzed-document chat from the sidebar', ()
     expect(mockMessages).not.toHaveBeenCalledWith('s_new'); // канвас не перезагружался
   });
 });
+
+// Вложения (2026-10-25): файл ложится карточкой в поле ввода и ждёт вопроса —
+// разбор рисков сам не стартует. С вопросом — ответ по файлам; один договор
+// без текста — полный разбор, как раньше; на Free — не больше 2 файлов.
+describe('ChatPage — attaching files to the composer', () => {
+  let root: Root;
+  let host: HTMLDivElement;
+  const mockUpload = uploadsApi.upload as ReturnType<typeof vi.fn>;
+  const sendSpy = vi.fn();
+  const analysisSpy = vi.fn();
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    let seq = 0;
+    mockUpload.mockImplementation(async (file: File) => ({ id: `up_${++seq}`, fileName: file.name, fileSize: '48 KB' }));
+    useChatStore.setState({
+      phase: 'idle', messages: [], analysis: null, activeStep: -1, error: null,
+      serverSessionId: null, sessionLoading: false,
+      sendMessage: sendSpy, startAnalysis: analysisSpy,
+    });
+    document.body.innerHTML = '';
+    host = document.createElement('div');
+    document.body.appendChild(host);
+    root = createRoot(host);
+    await act(async () => {
+      root.render(
+        <I18nProvider>
+          <MemoryRouter initialEntries={['/chat']}>
+            <Routes>
+              <Route path="/chat" element={<ChatPage />} />
+            </Routes>
+          </MemoryRouter>
+        </I18nProvider>,
+      );
+    });
+    await flush();
+  });
+
+  const attach = async (...names: string[]) => {
+    const input = host.querySelector('input[type="file"]') as HTMLInputElement;
+    Object.defineProperty(input, 'files', { value: names.map((n) => new File(['x'], n)), configurable: true });
+    await act(async () => {
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await flush();
+  };
+  const type = async (text: string) => {
+    const ta = host.querySelector('textarea') as HTMLTextAreaElement;
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+    await act(async () => {
+      setter?.call(ta, text);
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  };
+  const send = async () => {
+    await act(async () => {
+      (host.querySelector('button[aria-label="Send message"]') as HTMLButtonElement).click();
+    });
+    await flush();
+  };
+
+  it('a file waits for the question; the question goes out with it', async () => {
+    await attach('Договор.docx');
+    expect(host.textContent).toContain('Договор.docx');
+    expect(host.textContent).toContain('Word (.docx) · 48 KB');
+    expect(analysisSpy).not.toHaveBeenCalled(); // разбор сам не стартует
+
+    await type('Какая неустойка?');
+    await send();
+    expect(sendSpy).toHaveBeenCalledWith('Какая неустойка?', [{ uploadId: 'up_1', name: 'Договор.docx', size: '48 KB' }]);
+    expect(host.textContent).not.toContain('Word (.docx) · 48 KB'); // карточка ушла с вопросом
+  });
+
+  it('one contract sent without text runs the full risk review', async () => {
+    await attach('Договор.pdf');
+    await send();
+    expect(sendSpy).not.toHaveBeenCalled();
+    expect(analysisSpy).toHaveBeenCalledWith({ name: 'Договор.pdf', size: '48 KB' }, undefined, { uploadId: 'up_1', newSession: true });
+  });
+
+  it('a spreadsheet without text asks what to do instead of a risk review', async () => {
+    await attach('Сроки.xlsx');
+    expect(host.textContent).toContain('Excel (.xlsx)');
+    await send();
+    expect(analysisSpy).not.toHaveBeenCalled();
+    expect(sendSpy).not.toHaveBeenCalled();
+    expect(useUIStore.getState().toasts.slice(-1)[0]?.message).toMatch(/what to do with the files/);
+  });
+
+  it('Free plan: no more than 2 files at a time', async () => {
+    await attach('a.docx', 'b.pdf', 'c.txt');
+    expect(mockUpload).toHaveBeenCalledTimes(2);
+    expect(host.querySelectorAll('[data-status]').length).toBe(2);
+    await attach('d.docx');
+    expect(mockUpload).toHaveBeenCalledTimes(2); // места нет — третий не грузится
+  });
+});
+
