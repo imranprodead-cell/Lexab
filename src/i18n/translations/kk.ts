@@ -568,7 +568,7 @@ const kk: Record<string, string> = {
   "sigstatus.Viewed": "Қаралды",
   "sigstatus.Completed": "Аяқталды",
   "sigstatus.Declined": "Қабылданбады",
-  "chat.fileTypes": "Қолдау көрсетіледі: PDF, Word (DOC/DOCX), Excel (XLSX, CSV), PowerPoint (PPTX), TXT, ал ақылы тарифтерде — шарттың фотосы (JPG, PNG, HEIC).",
+  "chat.fileTypes": "Қолдау көрсетіледі: PDF, Word (DOC/DOCX), Excel (XLSX, CSV), PowerPoint (PPTX), TXT және шарттың фотосы (JPG, PNG, HEIC).",
   "chat.fileTooBig": "Файл 10 МБ-тан асып тұр — кішірегін жүктеңіз.",
   "chat.photoDocName": "Шарт фотосы",
   "chat.photoCount": "Фото: {n}",

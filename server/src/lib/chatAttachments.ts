@@ -16,7 +16,7 @@ import { badRequest } from './errors.ts';
 import { formatSize } from './format.ts';
 import { planHasFeature } from './limits.ts';
 import { readableUploadText, startScanOcr, type OcrStatus } from './ocr.ts';
-import { readsScans } from '../llm.ts';
+import { canTranscribeScans } from '../llm.ts';
 
 export interface StoredAttachment {
   uploadId: string;
@@ -145,7 +145,7 @@ export async function buildAttachmentsContext(
       continue;
     }
     let status = row.ocr_status;
-    if (opts.plan && planHasFeature(opts.plan, 'scans') && readsScans(opts.plan)) {
+    if (opts.plan && planHasFeature(opts.plan, 'scans') && canTranscribeScans()) {
       if (await startScanOcr(db, row.id, { log: opts.log })) status = 'pending';
     }
     blocks.push(

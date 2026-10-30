@@ -72,6 +72,23 @@ const PLANS: Plan[] = [
         ar: "محادثة ذكية مع المستندات",
       },
       { ru: "Краткое AI-резюме", en: "AI summary", de: "KI-Zusammenfassung", kk: "ЖИ түйіндемесі", uz: "AI xulosasi", ar: "ملخّص بالذكاء الاصطناعي" },
+      // Открыты на Free решением владельца 2026-10-30 (FEATURE_MIN_PLAN: drafting, scans).
+      {
+        ru: "Генератор договоров",
+        en: "Contract generator",
+        de: "Vertragsgenerator",
+        kk: "Шарт генераторы",
+        uz: "Shartnoma generatori",
+        ar: "مولّد العقود",
+      },
+      {
+        ru: "Фото и сканы договоров",
+        en: "Photos & scanned contracts",
+        de: "Fotos und gescannte Verträge",
+        kk: "Шарттардың фотолары мен скандары",
+        uz: "Shartnomalarning fotosurat va skanlari",
+        ar: "صور العقود ونسخها الممسوحة ضوئيًا",
+      },
       { ru: "Экспорт в PDF", en: "PDF export", de: "PDF-Export", kk: "PDF-ке экспорттау", uz: "PDF ga eksport", ar: "التصدير إلى PDF" },
     ],
   },

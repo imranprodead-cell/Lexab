@@ -568,7 +568,7 @@ const de: Record<string, string> = {
   "sigstatus.Viewed": "Angesehen",
   "sigstatus.Completed": "Abgeschlossen",
   "sigstatus.Declined": "Abgelehnt",
-  "chat.fileTypes": "Unterstützt: PDF, Word (DOC/DOCX), Excel (XLSX, CSV), PowerPoint (PPTX), TXT und in kostenpflichtigen Tarifen Vertragsfotos (JPG, PNG, HEIC).",
+  "chat.fileTypes": "Unterstützt: PDF, Word (DOC/DOCX), Excel (XLSX, CSV), PowerPoint (PPTX), TXT und Vertragsfotos (JPG, PNG, HEIC).",
   "chat.fileTooBig": "Datei größer als 10 MB — bitte laden Sie eine kleinere hoch.",
   "chat.photoDocName": "Vertragsfotos",
   "chat.photoCount": "Fotos: {n}",

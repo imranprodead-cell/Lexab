@@ -568,7 +568,7 @@ const uz: Record<string, string> = {
   "sigstatus.Viewed": "Koʻrilgan",
   "sigstatus.Completed": "Yakunlangan",
   "sigstatus.Declined": "Rad etilgan",
-  "chat.fileTypes": "Qoʻllab-quvvatlanadi: PDF, Word (DOC/DOCX), Excel (XLSX, CSV), PowerPoint (PPTX), TXT, pullik tariflarda esa shartnoma fotosuratlari (JPG, PNG, HEIC).",
+  "chat.fileTypes": "Qoʻllab-quvvatlanadi: PDF, Word (DOC/DOCX), Excel (XLSX, CSV), PowerPoint (PPTX), TXT va shartnoma fotosuratlari (JPG, PNG, HEIC).",
   "chat.fileTooBig": "Fayl 10 MB dan katta — kichikroq faylni yuklang.",
   "chat.photoDocName": "Shartnoma fotosuratlari",
   "chat.photoCount": "Fotosuratlar: {n}",

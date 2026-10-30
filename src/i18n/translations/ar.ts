@@ -568,7 +568,7 @@ const ar: Record<string, string> = {
   "sigstatus.Viewed": "تمت المشاهدة",
   "sigstatus.Completed": "مكتمل",
   "sigstatus.Declined": "مرفوض",
-  "chat.fileTypes": "المدعوم: PDF وWord (DOC/DOCX) وExcel (XLSX وCSV) وPowerPoint (PPTX) وTXT، وفي الخطط المدفوعة صور العقد (JPG وPNG وHEIC).",
+  "chat.fileTypes": "المدعوم: PDF وWord (DOC/DOCX) وExcel (XLSX وCSV) وPowerPoint (PPTX) وTXT وصور العقد (JPG وPNG وHEIC).",
   "chat.fileTooBig": "حجم الملف يتجاوز 10 ميغابايت — يُرجى رفع ملف أصغر.",
   "chat.photoDocName": "صور العقد",
   "chat.photoCount": "الصور: {n}",

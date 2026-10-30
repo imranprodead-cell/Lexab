@@ -236,7 +236,8 @@ export type PlanFeature =
 
 const FEATURE_MIN_PLAN: Record<PlanFeature, string[]> = {
   docxExport: ['Standard', 'Pro', 'Business', 'Enterprise'],
-  drafting: ['Standard', 'Pro', 'Business', 'Enterprise'],
+  // Free открыт решением владельца 2026-10-30 (до этого — Standard+).
+  drafting: ['Free', 'Standard', 'Pro', 'Business', 'Enterprise'],
   compare: ['Pro', 'Business', 'Enterprise'],
   signatures: ['Pro', 'Business', 'Enterprise'],
   versions: ['Pro', 'Business', 'Enterprise'],
@@ -249,14 +250,16 @@ const FEATURE_MIN_PLAN: Record<PlanFeature, string[]> = {
   batch: ['Pro', 'Business', 'Enterprise'],
   workflows: ['Pro', 'Business', 'Enterprise'],
   apiAccess: ['Business', 'Enterprise'],
-  // Фото и сканы читает только модель с «глазами» (Claude); бесплатный тариф
-  // работает на текстовой DeepSeek — решение владельца 2026-10-17.
-  scans: ['Standard', 'Pro', 'Business', 'Enterprise'],
+  // Фото и сканы: платные тарифы читают их «глазами» (Claude), а на Free текст
+  // со страниц сперва распознаёт OCR_MODEL, и DeepSeek разбирает уже его
+  // (lib/ocr.ts transcribeScanNow). Free открыт решением владельца 2026-10-30
+  // (до этого — только Standard+).
+  scans: ['Free', 'Standard', 'Pro', 'Business', 'Enterprise'],
 };
 
 const FEATURE_LABEL: Record<PlanFeature, { ru: string; en: string; plans: string }> = {
   docxExport: { ru: 'Экспорт в DOCX', en: 'DOCX export', plans: 'Standard, Pro и Business' },
-  drafting: { ru: 'Договор по описанию (/draft)', en: 'Contract drafting (/draft)', plans: 'Standard, Pro и Business' },
+  drafting: { ru: 'Договор по описанию (/draft)', en: 'Contract drafting (/draft)', plans: 'Free, Standard, Pro и Business' },
   compare: { ru: 'Сравнение версий (Redline)', en: 'Version compare (Redline)', plans: 'Pro и Business' },
   signatures: { ru: 'Электронная подпись', en: 'E-signatures', plans: 'Pro и Business' },
   versions: { ru: 'История версий', en: 'Version history', plans: 'Pro и Business' },
@@ -269,7 +272,7 @@ const FEATURE_LABEL: Record<PlanFeature, { ru: string; en: string; plans: string
   batch: { ru: 'Массовый разбор пачки договоров', en: 'Batch contract review', plans: 'Pro и Business' },
   workflows: { ru: 'Агентные воркфлоу (сценарии)', en: 'Agentic workflows', plans: 'Pro и Business' },
   apiAccess: { ru: 'API-доступ для интеграций', en: 'API access', plans: 'Business' },
-  scans: { ru: 'Фото и сканы договоров', en: 'Photos & scanned contracts', plans: 'Standard, Pro и Business' },
+  scans: { ru: 'Фото и сканы договоров', en: 'Photos & scanned contracts', plans: 'Free, Standard, Pro и Business' },
 };
 
 export function planHasFeature(plan: string, feature: PlanFeature): boolean {

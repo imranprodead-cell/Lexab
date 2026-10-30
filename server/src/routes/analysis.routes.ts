@@ -20,8 +20,8 @@ import { newId } from '../lib/ids.ts';
 import { recalibrateRisk } from '../lib/riskScore.ts';
 import { openSSE, wantsSSE } from '../lib/sse.ts';
 import { asObject, optionalString, requireOneOf, requireString } from '../lib/validate.ts';
-import { generateAnalysis, generateContractDraft, readsScans, type GeneratedAnalysis } from '../llm.ts';
-import { readableUploadText, startScanOcr } from '../lib/ocr.ts';
+import { canTranscribeScans, generateAnalysis, generateContractDraft, readsScans, type GeneratedAnalysis } from '../llm.ts';
+import { readableUploadText, startScanOcr, transcribeScanNow } from '../lib/ocr.ts';
 import { blockSourceText, finalContractText, loadSourceText } from '../lib/fullText.ts';
 import { jurisdictionCode, retrieveLegalContext } from '../rag/retrieve.ts';
 import type { RetrievedChunk } from '../rag/types.ts';
@@ -817,10 +817,21 @@ export async function analyzeSource(
   logWarn: (msg: string) => void = () => undefined,
 ): Promise<GeneratedAnalysis> {
   const corpus = jurisdictionCode(source.jurisdiction);
+  // Скан или фото без текстового слоя. Модель с «глазами» (Claude) читает
+  // страницы сама, а рядом дешёвая модель один раз распознаёт полный текст —
+  // для чата, поиска и повторного анализа; анализ его не ждёт (ждём только
+  // захват статуса, чтобы ответ уже знал, что текст в пути). Текстовая модель
+  // Free (DeepSeek) страниц не видит — ей сначала распознаём текст, и по нему
+  // же ищутся нормы закона (иначе поиск шёл бы по имени файла).
+  let text = source.text;
+  if (!text?.trim() && source.pdf && source.uploadId && planHasFeature(plan, 'scans') && canTranscribeScans()) {
+    if (readsScans(plan)) await startScanOcr(db, source.uploadId, { pdf: source.pdf, log: logWarn });
+    else text = (await transcribeScanNow(db, source.uploadId, { pdf: source.pdf, log: logWarn })) ?? text;
+  }
   let retrievalFailed = false;
   const legalContext: RetrievedChunk[] = corpus
     ? await retrieveLegalContext(db, {
-        query: (source.text ?? source.fileName).slice(0, 2500),
+        query: (text ?? source.fileName).slice(0, 2500),
         jurisdiction: corpus,
         topK: 10,
       }).catch((err) => {
@@ -837,16 +848,9 @@ export async function analyzeSource(
   const playbook = planHasFeature(pbPlan, 'playbooks') || planHasFeature(plan, 'playbooks')
     ? await loadActivePlaybook(db, pbOwnerId, corpus).catch(() => null)
     : null;
-  // Скан или фото без текстового слоя на тарифе, который читает их «глазами»:
-  // рядом с анализом дешёвая модель один раз распознаёт полный текст — для
-  // чата, поиска и повторного анализа. Анализ его не ждёт; ждём только захват
-  // статуса, чтобы ответ анализа уже знал, что текст в пути.
-  if (!source.text?.trim() && source.pdf && source.uploadId && planHasFeature(plan, 'scans') && readsScans(plan)) {
-    await startScanOcr(db, source.uploadId, { pdf: source.pdf, log: logWarn });
-  }
   const gen = await generateAnalysis({
     fileName: source.fileName,
-    text: source.text,
+    text,
     pdf: source.pdf,
     jurisdiction: source.jurisdiction,
     plan,
@@ -1024,7 +1028,7 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
     let ocrStatus = source.ocrStatus;
     if (!source.text && source.uploadId) {
       const { plan } = await quotaOwnerFor(db, req.currentUser.id);
-      if (planHasFeature(plan, 'scans') && readsScans(plan) && (await startScanOcr(db, source.uploadId, { log: (m) => req.log.warn(m) }))) {
+      if (planHasFeature(plan, 'scans') && canTranscribeScans() && (await startScanOcr(db, source.uploadId, { log: (m) => req.log.warn(m) }))) {
         ocrStatus = 'pending';
       }
     }

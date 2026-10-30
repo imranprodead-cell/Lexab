@@ -32,7 +32,7 @@ const { getDb, migrate } = await import('../src/db.ts');
 const { buildApp } = await import('../src/app.ts');
 const { detectPhotoKind, photosToPdf } = await import('../src/lib/photos.ts');
 const { photoDocName } = await import('../src/routes/uploads.routes.ts');
-const { startScanOcr } = await import('../src/lib/ocr.ts');
+const { startScanOcr, transcribeScanNow } = await import('../src/lib/ocr.ts');
 const { buildAnalysisContext } = await import('../src/routes/chats.routes.ts');
 const { sourceFromAnalysis } = await import('../src/routes/analysis.routes.ts');
 const { encText } = await import('../src/lib/docCrypto.ts');
@@ -136,15 +136,11 @@ describe('фото → PDF', () => {
 });
 
 describe('POST /uploads/photos', () => {
-  it('бесплатный тариф: отказ 402 «функция тарифа», ничего не сохранено', async () => {
+  it('бесплатный тариф тоже принимает фото (решение владельца 2026-10-30)', async () => {
     const u = await makeUser('Free');
     const res = await uploadPhotos(u.token, [{ name: 'a.jpg', data: await page('x') }]);
-    assert.equal(res.statusCode, 402, res.body);
-    const body = JSON.parse(res.body);
-    assert.equal(body.code, 'feature_locked');
-    assert.equal(body.details.feature, 'scans');
-    const n = await db.query<{ n: string | number }>('SELECT count(*) AS n FROM uploads WHERE user_id = $1', [u.id]);
-    assert.equal(Number(n.rows[0].n), 0);
+    assert.equal(res.statusCode, 201, res.body);
+    assert.equal(JSON.parse(res.body).pages, 1);
   });
 
   it('платный тариф: снимки склеиваются в один PDF-скан', async () => {
@@ -179,7 +175,7 @@ describe('POST /uploads/photos', () => {
     const paid = await makeUser('Standard');
     const f = JSON.parse((await app.inject({ method: 'GET', url: '/api/billing/limits', headers: auth(free.token) })).body);
     const p = JSON.parse((await app.inject({ method: 'GET', url: '/api/billing/limits', headers: auth(paid.token) })).body);
-    assert.equal(f.features.scans, false);
+    assert.equal(f.features.scans, true, 'Free тоже читает фото и сканы');
     assert.equal(p.features.scans, true);
   });
 });
@@ -198,6 +194,29 @@ describe('распознавание текста скана', () => {
     }
     assert.equal(status, 'failed');
     assert.equal(await startScanOcr(db, up.id), false, 'сразу после сбоя повтора нет');
+  });
+
+  it('Free ждёт текста: сбой распознавания → null, а не догадки', async () => {
+    const u = await makeUser('Free');
+    const up = JSON.parse((await uploadPhotos(u.token, [{ name: 'a.jpg', data: await page('x') }])).body);
+    // Ключа Anthropic в тесте нет — распознавание падает.
+    assert.equal(await transcribeScanNow(db, up.id), null);
+    const row = await db.query<{ ocr_status: string }>('SELECT ocr_status FROM uploads WHERE id = $1', [up.id]);
+    assert.equal(row.rows[0].ocr_status, 'failed');
+    assert.equal(await transcribeScanNow(db, up.id), null, 'сразу после сбоя повтора (и нового счёта) нет');
+  });
+
+  it('Free ждёт распознавания, уже запущенного другим запросом, и берёт его текст', async () => {
+    const u = await makeUser('Free');
+    const up = JSON.parse((await uploadPhotos(u.token, [{ name: 'a.jpg', data: await page('x') }])).body);
+    await db.query(`UPDATE uploads SET ocr_status = 'pending', ocr_started_at = now() WHERE id = $1`, [up.id]);
+    const recognized = 'Пункт 3.1. Цена договора — 1 000 000 сум.';
+    setTimeout(() => {
+      void (async () => {
+        await db.query(`UPDATE uploads SET extracted_text = $2, ocr_status = 'done' WHERE id = $1`, [up.id, await encText(db, u.id, recognized)]);
+      })();
+    }, 100);
+    assert.equal(await transcribeScanNow(db, up.id), recognized);
   });
 
   it('загрузка с текстом из файла не распознаётся', async () => {

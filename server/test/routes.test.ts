@@ -627,13 +627,11 @@ describe('contract draft (chat → editable sheet)', () => {
     await reject([null], 'non-object block (must be 400 not 500)');
   });
 
-  it('is gated to plans that include contract drafting (Free → 402, feature drafting)', async () => {
+  it('is open on Free too (owner decision 2026-10-30) — no feature_locked', async () => {
     const { token } = await makeUser(); // Free plan
     const res = await app.inject({ method: 'POST', url: '/api/analysis/draft', headers: auth(token), payload: { prompt: 'A short NDA' } });
-    assert.equal(res.statusCode, 402, 'Free plan must be told to upgrade');
-    const body = JSON.parse(res.body);
-    assert.equal(body.code, 'feature_locked');
-    assert.equal(body.details?.feature, 'drafting', 'гейт называется drafting, а не templates');
+    assert.notEqual(res.statusCode, 402, res.body);
+    assert.notEqual(JSON.parse(res.body).code, 'feature_locked');
   });
 });
 

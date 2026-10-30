@@ -10,7 +10,9 @@
  * Свойства:
  *  - ровно один запуск на загрузку: статус занимается атомарным UPDATE, второй
  *    анализ или вопрос в чате, пришедший в это время, ничего не запускает;
- *  - анализ распознавание не ждёт — оно идёт в фоне и пишет результат в базу;
+ *  - анализ на модели с «глазами» (Claude) распознавание не ждёт — оно идёт в
+ *    фоне и пишет результат в базу; на текстовой модели (Free, DeepSeek) анализ
+ *    сперва дожидается текста (transcribeScanNow) и разбирает уже его;
  *  - «вечный pending» после перезапуска сервера снимается через 10 минут,
  *    неудача повторяется не чаще раза в час (иначе каждый вопрос в чате по
  *    нераспознаваемому скану стоил бы новых денег);
@@ -20,7 +22,7 @@ import type { Db } from '../db.ts';
 import { fileExtension, usablePdfText } from '../extract.ts';
 import { transcribeScan } from '../llm.ts';
 import { readFileBytes } from '../storage.ts';
-import { encText } from './docCrypto.ts';
+import { decText, encText } from './docCrypto.ts';
 
 /** Потолок текста — тот же, что у извлечения из файлов (extract.ts). */
 const MAX_TEXT_CHARS = 5_000_000;
@@ -72,7 +74,49 @@ export async function startScanOcr(
   opts: { pdf?: Buffer | null; log?: (msg: string) => void } = {},
 ): Promise<boolean> {
   const log = opts.log ?? (() => undefined);
-  let claimed: Claimed | undefined;
+  const claimed = await claimOcr(db, uploadId, log);
+  if (!claimed) return false;
+  void runOcr(db, uploadId, claimed, opts.pdf ?? null, log);
+  return true;
+}
+
+/** Сколько ждать распознавания той же загрузки, запущенного другим запросом. */
+const WAIT_OTHER_OCR_MS = 3 * 60_000;
+const POLL_MS = 1_500;
+
+/**
+ * Распознать скан и ДОЖДАТЬСЯ текста. Нужно тарифу, чья модель читает только
+ * текст (Free на DeepSeek, решение владельца 2026-10-30): без распознанного
+ * текста ей нечего разбирать. Если ту же загрузку уже распознаёт другой запрос
+ * (вопрос в чате), ждём его результата, а не платим второй раз.
+ * null — текста нет (сбой, пустые страницы, повтор раньше часа после сбоя):
+ * анализ тогда честно отказывает, а не гадает.
+ */
+export async function transcribeScanNow(
+  db: Db,
+  uploadId: string,
+  opts: { pdf?: Buffer | null; log?: (msg: string) => void } = {},
+): Promise<string | null> {
+  const log = opts.log ?? (() => undefined);
+  const claimed = await claimOcr(db, uploadId, log);
+  if (claimed) return runOcr(db, uploadId, claimed, opts.pdf ?? null, log);
+  const deadline = Date.now() + WAIT_OTHER_OCR_MS;
+  for (;;) {
+    const row = (
+      await db.query<{ user_id: string; extracted_text: string | null; ocr_status: OcrStatus | null }>(
+        'SELECT user_id, extracted_text, ocr_status FROM uploads WHERE id = $1',
+        [uploadId],
+      )
+    ).rows[0];
+    if (!row) return null;
+    if (row.ocr_status === 'done' && row.extracted_text !== null) return decText(db, row.user_id, row.extracted_text);
+    if (row.ocr_status !== 'pending' || Date.now() > deadline) return null;
+    await new Promise((r) => setTimeout(r, POLL_MS));
+  }
+}
+
+/** Атомарно занять распознавание загрузки. Строка — запуск наш; undefined — не нужен или уже идёт. */
+async function claimOcr(db: Db, uploadId: string, log: (msg: string) => void): Promise<Claimed | undefined> {
   try {
     const res = await db.query<Claimed>(
       `UPDATE uploads SET ocr_status = 'pending', ocr_started_at = now()
@@ -83,17 +127,21 @@ export async function startScanOcr(
         RETURNING user_id, storage, storage_key`,
       [uploadId],
     );
-    claimed = res.rows[0];
+    return res.rows[0];
   } catch (err) {
     log(`scan OCR claim failed for ${uploadId}: ${(err as Error).message}`);
-    return false;
+    return undefined;
   }
-  if (!claimed) return false;
-  void runOcr(db, uploadId, claimed, opts.pdf ?? null, log);
-  return true;
 }
 
-async function runOcr(db: Db, uploadId: string, claimed: Claimed, pdf: Buffer | null, log: (msg: string) => void) {
+/** Распознать и сохранить. Возвращает текст или null при сбое; наружу не бросает. */
+async function runOcr(
+  db: Db,
+  uploadId: string,
+  claimed: Claimed,
+  pdf: Buffer | null,
+  log: (msg: string) => void,
+): Promise<string | null> {
   try {
     const bytes = pdf ?? (await readFileBytes(claimed.storage, claimed.storage_key));
     const text = (await transcribeScan(bytes)).slice(0, MAX_TEXT_CHARS);
@@ -105,10 +153,12 @@ async function runOcr(db: Db, uploadId: string, claimed: Claimed, pdf: Buffer | 
         WHERE id = $1 AND ocr_status = 'pending' AND extracted_text IS NULL`,
       [uploadId, enc],
     );
+    return text;
   } catch (err) {
     log(`scan OCR failed for ${uploadId}: ${(err as Error).message}`);
     await db
       .query(`UPDATE uploads SET ocr_status = 'failed' WHERE id = $1 AND ocr_status = 'pending'`, [uploadId])
       .catch(() => undefined);
+    return null;
   }
 }

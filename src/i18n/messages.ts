@@ -1076,7 +1076,7 @@ export const MESSAGES: Dict = {
   'sigstatus.Declined': { ru: 'Отклонён', en: 'Declined' },
 
   // Chat composer
-  'chat.fileTypes': { ru: 'Поддерживаются PDF, Word (DOC/DOCX), Excel (XLSX, CSV), PowerPoint (PPTX), TXT, а на платных тарифах — фото договора (JPG, PNG, HEIC).', en: 'Supported: PDF, Word (DOC/DOCX), Excel (XLSX, CSV), PowerPoint (PPTX), TXT, and on paid plans contract photos (JPG, PNG, HEIC).' },
+  'chat.fileTypes': { ru: 'Поддерживаются PDF, Word (DOC/DOCX), Excel (XLSX, CSV), PowerPoint (PPTX), TXT и фото договора (JPG, PNG, HEIC).', en: 'Supported: PDF, Word (DOC/DOCX), Excel (XLSX, CSV), PowerPoint (PPTX), TXT and contract photos (JPG, PNG, HEIC).' },
   'chat.fileTooBig': { ru: 'Файл больше 10 МБ — загрузите файл поменьше.', en: 'File exceeds 10 MB — please upload a smaller one.' },
   'chat.photoDocName': { ru: 'Фото договора', en: 'Contract photos' },
   'chat.photoCount': { ru: 'Фото: {n}', en: 'Photos: {n}' },

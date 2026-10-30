@@ -296,6 +296,9 @@ const PLANS: LandingPlan[] = [
       { ru: '50 МБ хранилища', en: '50 MB storage', de: '50 MB Speicherplatz', ar: '50 ميغابايت من التخزين', kk: '50 МБ қойма', uz: '50 MB xotira' },
       { ru: 'AI Chat с документами', en: 'AI Chat with documents', de: 'AI Chat mit Dokumenten', ar: 'محادثة AI Chat مع المستندات', kk: 'Құжаттармен AI Chat', uz: 'Hujjatlar bilan AI Chat' },
       { ru: 'AI Summary', en: 'AI Summary', de: 'AI Summary', ar: 'ملخص AI Summary', kk: 'AI Summary', uz: 'AI Summary' },
+      // Открыты на Free решением владельца 2026-10-30 (FEATURE_MIN_PLAN: drafting, scans).
+      { ru: 'AI Contract Generator', en: 'AI Contract Generator', de: 'AI Contract Generator', ar: 'مولّد العقود AI Contract Generator', kk: 'AI Contract Generator', uz: 'AI Contract Generator' },
+      { ru: 'Фото и сканы договоров', en: 'Photos & scanned contracts', de: 'Fotos und gescannte Verträge', ar: 'صور العقود ونسخها الممسوحة ضوئيًا', kk: 'Шарттардың фотолары мен скандары', uz: 'Shartnomalarning fotosurat va skanlari' },
       { ru: 'Экспорт в PDF', en: 'PDF export', de: 'PDF-Export', ar: 'تصدير إلى PDF', kk: 'PDF форматына экспорт', uz: 'PDFga eksport' },
     ],
   },

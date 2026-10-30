@@ -7,8 +7,8 @@
  * больше, чем сервер даёт: цифру некуда вписать руками.
  *
  * Состав возможностей по ступеням — зеркало FEATURE_MIN_PLAN (planFeatures.ts),
- * проверено 05.08.2026 (+17.10.2026 фото и сканы): Standard+ — выгрузка DOCX, договор по описанию (/draft),
- * фото и сканы договоров; Pro+ — сравнение
+ * проверено 05.08.2026 (+30.10.2026: договор по описанию (/draft), фото и сканы
+ * договоров открыты на Free): Standard+ — выгрузка DOCX; Pro+ — сравнение
  * редакций, история версий, согласования, плейбуки, обязательства и сроки,
  * пакетная проверка, сценарии; Business+ — команда, журнал действий, единый
  * вход, программный доступ.
@@ -130,23 +130,23 @@ export const pricing: PageContent = {
         {
           title: { ru: 'Free', en: 'Free', de: 'Free', ar: 'Free', kk: 'Free', uz: 'Free' },
           body: {
-            ru: 'Разбор договора по пунктам, вопросы по документу, проверяемые ссылки на нормы, облачные диски. Карта не нужна.',
-            en: 'Clause-by-clause review, document Q&A, verifiable statutory citations, cloud drives. No card required.',
-            de: 'Klauselweise Prüfung, Fragen zum Dokument, überprüfbare Gesetzesverweise, Cloud-Speicher. Keine Karte nötig.',
-            ar: 'مراجعة بندًا بندًا، وأسئلة عن المستند، وإحالات قانونية قابلة للتحقق، وتخزين سحابي. بلا بطاقة.',
-            kk: 'Тармақ бойынша талдау, құжат бойынша сұрақтар, тексерілетін сілтемелер, бұлттық дискілер. Карта қажет емес.',
-            uz: 'Band boʻyicha tahlil, hujjat boʻyicha savollar, tekshiriladigan havolalar, bulutli disklar. Karta kerak emas.',
+            ru: 'Разбор договора по пунктам, вопросы по документу, проверяемые ссылки на нормы, договор по описанию (команда /draft), фото и сканы договоров, облачные диски. Карта не нужна.',
+            en: 'Clause-by-clause review, document Q&A, verifiable statutory citations, a contract drafted from your description (the /draft command), contract photos and scans, cloud drives. No card required.',
+            de: 'Klauselweise Prüfung, Fragen zum Dokument, überprüfbare Gesetzesverweise, Vertrag nach Ihrer Beschreibung (Befehl /draft), Vertragsfotos und Scans, Cloud-Speicher. Keine Karte nötig.',
+            ar: 'مراجعة بندًا بندًا، وأسئلة عن المستند، وإحالات قانونية قابلة للتحقق، وعقد يُصاغ من وصفك (الأمر /draft)، وصور العقود ونسخها الممسوحة ضوئيًا، وتخزين سحابي. بلا بطاقة.',
+            kk: 'Тармақ бойынша талдау, құжат бойынша сұрақтар, тексерілетін сілтемелер, сипаттамаңыз бойынша шарт (/draft командасы), шарттардың фотолары мен скандары, бұлттық дискілер. Карта қажет емес.',
+            uz: 'Band boʻyicha tahlil, hujjat boʻyicha savollar, tekshiriladigan havolalar, tavsifingiz boʻyicha shartnoma (/draft buyrugʻi), shartnomalarning fotosurat va skanlari, bulutli disklar. Karta kerak emas.',
           },
         },
         {
           title: { ru: 'Standard', en: 'Standard', de: 'Standard', ar: 'Standard', kk: 'Standard', uz: 'Standard' },
           body: {
-            ru: 'Добавляются выгрузка разбора в DOCX, договор по описанию сразу в редакторе (команда /draft) и проверка фото и сканов договоров.',
-            en: 'Adds DOCX export of the review, a contract drafted from your description straight into the editor (the /draft command), and review of contract photos and scans.',
-            de: 'Ergänzt den DOCX-Export der Prüfung, einen Vertrag nach Ihrer Beschreibung direkt im Editor (Befehl /draft) und die Prüfung von Vertragsfotos und Scans.',
-            ar: 'يضيف تصدير المراجعة إلى DOCX، وعقدًا يُصاغ من وصفك مباشرة في المحرر (الأمر /draft)، ومراجعة صور العقود ونسخها الممسوحة ضوئيًا.',
-            kk: 'Талдауды DOCX-ке шығару, сипаттамаңыз бойынша бірден редакторда жасалатын шарт (/draft командасы) және шарттардың фотолары мен скандарын тексеру қосылады.',
-            uz: 'Tahlilni DOCX ga chiqarish, tavsifingiz boʻyicha darhol muharrirda tuziladigan shartnoma (/draft buyrugʻi) va shartnomalarning fotosurat va skanlarini tekshirish qoʻshiladi.',
+            ru: 'Добавляется выгрузка разбора в DOCX, а запросов к ИИ и документов в месяц становится больше.',
+            en: 'Adds DOCX export of the review, plus more AI requests and documents per month.',
+            de: 'Ergänzt den DOCX-Export der Prüfung sowie mehr KI-Anfragen und Dokumente pro Monat.',
+            ar: 'يضيف تصدير المراجعة إلى DOCX، ومزيدًا من طلبات الذكاء الاصطناعي والمستندات شهريًا.',
+            kk: 'Талдауды DOCX-ке шығару қосылады, ал айына ЖИ сұраулары мен құжаттар көбейеді.',
+            uz: 'Tahlilni DOCX ga chiqarish qoʻshiladi, oyiga AI soʻrovlari va hujjatlar esa koʻpayadi.',
           },
         },
         {

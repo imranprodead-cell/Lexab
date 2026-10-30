@@ -20,7 +20,7 @@ import { toIso } from '../lib/format.ts';
 import { newId } from '../lib/ids.ts';
 import { openSSE, wantsSSE, type SseChannel } from '../lib/sse.ts';
 import { asObject, requireString } from '../lib/validate.ts';
-import { generateChatReply, generateHistorySummary, readsScans, type ChatTurn } from '../llm.ts';
+import { canTranscribeScans, generateChatReply, generateHistorySummary, type ChatTurn } from '../llm.ts';
 import { jurisdictionCode, retrieveLegalContext } from '../rag/retrieve.ts';
 import type { ChatMessage, ChatSession, ChatStep } from '../types.ts';
 import { parseChatMode } from '../lib/chatModes.ts';
@@ -152,7 +152,7 @@ export async function buildAnalysisContext(
   let ocrStatus = upload.rows[0]?.ocr_status ?? null;
   // Скан, разобранный до появления распознавания (или прошлый сбой): запускаем
   // сейчас — этот ответ ещё без полного текста, следующий уже с ним.
-  if (!fullText && row.upload_id && opts.plan && planHasFeature(opts.plan, 'scans') && readsScans(opts.plan)) {
+  if (!fullText && row.upload_id && opts.plan && planHasFeature(opts.plan, 'scans') && canTranscribeScans()) {
     if (await startScanOcr(db, row.upload_id, { log: opts.log })) ocrStatus = 'pending';
   }
 

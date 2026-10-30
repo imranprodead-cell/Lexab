@@ -608,6 +608,15 @@ export function readsScans(plan?: string | null): boolean {
   return Boolean(config.anthropicApiKey) && !isDeepSeekModel(modelForPlan(plan));
 }
 
+/**
+ * Можно ли распознать текст скана (transcribeScan). Распознаёт всегда Claude
+ * (OCR_MODEL), какая бы модель ни разбирала договор потом, — поэтому зависит
+ * только от ключа Anthropic, а не от тарифа.
+ */
+export function canTranscribeScans(): boolean {
+  return Boolean(config.anthropicApiKey);
+}
+
 const OCR_SYSTEM = `You transcribe scanned or photographed documents (contracts and other legal papers) into plain text.
 
 Rules:

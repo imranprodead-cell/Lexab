@@ -101,7 +101,7 @@ function resolveDataEncryptionKey(): string {
    the chosen jurisdiction. DeepSeek is used for the Free plan ONLY when its
    key is configured; otherwise Free stays on Haiku. */
 const deepseekApiKey = env('DEEPSEEK_API_KEY');
-const deepseekModel = env('DEEPSEEK_MODEL', 'deepseek-v4-pro');
+const deepseekModel = env('DEEPSEEK_MODEL', 'deepseek-flash');
 const freeModel = env('MODEL_FREE', deepseekApiKey ? deepseekModel : MODELS.haiku);
 
 export const config = {

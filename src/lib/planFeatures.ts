@@ -29,12 +29,13 @@ export type PlanFeature =
   | 'scans';
 
 const PAID = ['Standard', 'Pro', 'Business', 'Enterprise'];
+const ALL = ['Free', ...PAID];
 const PRO = ['Pro', 'Business', 'Enterprise'];
 const BUSINESS = ['Business', 'Enterprise'];
 
 export const FEATURE_MIN_PLAN: Record<PlanFeature, string[]> = {
   docxExport: PAID,
-  drafting: PAID,
+  drafting: ALL, // Free открыт 2026-10-30
   compare: PRO,
   signatures: PRO,
   versions: PRO,
@@ -47,7 +48,7 @@ export const FEATURE_MIN_PLAN: Record<PlanFeature, string[]> = {
   batch: PRO,
   workflows: PRO,
   apiAccess: BUSINESS,
-  scans: PAID,
+  scans: ALL, // Free открыт 2026-10-30
 };
 
 /** Человекочитаемый список тарифов для подсказки («Pro и Business»). */
