@@ -77,6 +77,14 @@ npm run rag:embed       # векторы (нужен VOYAGE_API_KEY; при 429 
                         # EMBED_BATCH=2 EMBED_SLEEP_MS=21000 npm run rag:embed)
 npm run eval            # метрики (--golden=uz-contract-law.jsonl для УЗ, --limit N;
                         # RAG_VALIDATE_MODEL=deepseek-flash — судья цитат на DeepSeek)
+                        # uz-multihop.jsonl — 30 вопросов «на 2-3 нормы», метрика
+                        # all@k (найдены ВСЕ нужные нормы). Векторизация запроса у
+                        # Voyage 0,4–3,9 с; при старом лимите 4 с векторный поиск
+                        # отваливался (и на проде) и all@10 падал с ~0.87 до 0.7 —
+                        # с 08.11 лимит 8 с (EMBED_QUERY_TIMEOUT_MS). Переписчик
+                        # запросов (Haiku) недетерминирован: разброс ±1 вопрос.
+                        # ЛЮБЫЕ локальные скрипты к рабочей базе — с PG_POOL_MAX=3:
+                        # пул Supabase — 15 клиентов НА ВСЕХ, включая сайт.
 node --env-file=.env scripts/rag-coverage.ts UZ   # покрытие + линт golden
 ```
 

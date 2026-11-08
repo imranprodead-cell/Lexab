@@ -6,6 +6,8 @@
  *
  * Metrics:
  *  - retrieval: hit@5 / hit@10 (expected section found), recall@10;
+ *    all@5 / all@10 — для строк с required_groups (uz-multihop.jsonl):
+ *    найдены ВСЕ нужные нормы, а не хотя бы одна;
  *  - pipeline per mode: citation precision (share of citations that resolve
  *    to a real, in-force provision AND are confirmed to support the finding),
  *    unverified share.
@@ -36,6 +38,9 @@ import type { Finding } from '../src/types.ts';
 interface GoldenRow {
   question: string;
   expected_unit_ids: string[];
+  /** Сложные вопросы (uz-multihop): для ответа нужны ВСЕ группы; внутри
+   *  группы — равноценные нормы (статья ГК или пункт Пленума с тем же правилом). */
+  required_groups?: string[][];
   jurisdiction: 'UK' | 'UZ' | 'KZ' | 'DE' | 'US' | 'CA' | 'AE';
   as_of_date?: string;
   notes?: string;
@@ -170,6 +175,11 @@ async function main(): Promise<void> {
   // Per-question misses land in the report so a regression is traceable to the
   // exact question (indispensable once the golden set is 40+ rows).
   const misses: { question: string; expected_unit_ids: string[]; top10_unit_ids: string[] }[] = [];
+  // all@k — «нашлись ВСЕ нужные нормы» (только для строк с required_groups):
+  // вопрос на правило + исключение + разъяснение Пленума засчитывается, лишь
+  // когда в топ-k есть хотя бы одна норма из КАЖДОЙ группы.
+  let multiRows = 0, all5 = 0, all10 = 0;
+  const incomplete: { question: string; missing_groups: string[][]; top10_unit_ids: string[] }[] = [];
   for (const row of rows) {
     const hits = await retrieveLegalContext(db, { query: row.question, jurisdiction: row.jurisdiction, asOfDate: row.as_of_date, topK: 10 });
     retrieved.set(row.question, hits);
@@ -179,16 +189,29 @@ async function main(): Promise<void> {
     if (row.expected_unit_ids.some((id) => ids10.has(id))) hit10++;
     else misses.push({ question: row.question, expected_unit_ids: row.expected_unit_ids, top10_unit_ids: hits.map((h) => h.unitId) });
     recallSum += row.expected_unit_ids.filter((id) => ids10.has(id)).length / row.expected_unit_ids.length;
+    if (row.required_groups?.length) {
+      multiRows++;
+      if (row.required_groups.every((g) => g.some((id) => ids5.has(id)))) all5++;
+      const missing = row.required_groups.filter((g) => !g.some((id) => ids10.has(id)));
+      if (!missing.length) all10++;
+      else incomplete.push({ question: row.question, missing_groups: missing, top10_unit_ids: hits.map((h) => h.unitId) });
+    }
   }
-  const retrieval = {
+  const retrieval: Record<string, number> = {
     'hit@5': +(hit5 / rows.length).toFixed(3),
     'hit@10': +(hit10 / rows.length).toFixed(3),
     'recall@10': +(recallSum / rows.length).toFixed(3),
   };
+  if (multiRows) {
+    retrieval['all@5'] = +(all5 / multiRows).toFixed(3);
+    retrieval['all@10'] = +(all10 / multiRows).toFixed(3);
+  }
   report.retrieval = retrieval;
   if (misses.length) report.misses = misses;
+  if (incomplete.length) report.incomplete = incomplete;
   console.log('\n=== RETRIEVAL ===', JSON.stringify(retrieval));
   for (const m of misses) console.log(`  MISS: «${m.question.slice(0, 70)}» expected ${m.expected_unit_ids.join(',')}`);
+  for (const m of incomplete) console.log(`  НЕ ВСЁ: «${m.question.slice(0, 70)}» нет ${m.missing_groups.map((g) => g.join('|')).join(', ')}`);
 
   /* ── Corpus self-description: which index produced these numbers ─────────── */
   const evalJurisdiction = rows[0]?.jurisdiction;

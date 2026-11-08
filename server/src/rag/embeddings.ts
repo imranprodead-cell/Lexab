@@ -27,7 +27,13 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * in offline ingest (rag:embed), where patient backoff is correct.
  */
 const EMBED_QUERY_MAX_RETRIES = Math.max(0, Number(process.env.EMBED_QUERY_MAX_RETRIES ?? 0));
-const EMBED_QUERY_TIMEOUT_MS = 4000;
+// Лимит на векторизацию запроса в живом поиске. 4 с не хватало (08.11): Voyage
+// отвечает за 0,4–3,9 с, а на «холодном» соединении (первые вопросы после
+// простоя) дольше — в логах прода были обрывы, и поиск шёл без векторов. На
+// сложных вопросах без векторов находится заметно меньше нужных норм
+// (uz-multihop all@10 ≈0.88 → 0.7). Решение владельца: «лучше человек подождёт,
+// чем получит неправильный ответ». Сбой по-прежнему не роняет ответ — FTS-only.
+const EMBED_QUERY_TIMEOUT_MS = Math.max(1000, Number(process.env.EMBED_QUERY_TIMEOUT_MS ?? 8000) || 8000);
 
 export async function embedTexts(texts: string[], inputType: 'document' | 'query'): Promise<number[][]> {
   if (!embeddingsEnabled()) throw new Error('VOYAGE_API_KEY is not set');
