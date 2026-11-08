@@ -1,0 +1,67 @@
+{
+  "at": "2026-11-08T11:10:45.470Z",
+  "model": "deepseek-flash",
+  "golden": "uz-decrees.jsonl",
+  "questions": 12,
+  "retrieval": {
+    "hit@5": 0.833,
+    "hit@10": 0.833,
+    "recall@10": 0.833
+  },
+  "misses": [
+    {
+      "question": "Служба доставки привозит покупателям товары нашего интернет-магазина. Может ли она принимать оплату за нас как за третье лицо (продавца товара)?",
+      "expected_unit_ids": [
+        "lu_uz_6213428_st-23",
+        "lu_uz_3744601_p-2"
+      ],
+      "top10_unit_ids": [
+        "lu_uz_111181_st-241",
+        "lu_uz_6213428_st-24",
+        "lu_uz_111181_st-362",
+        "lu_uz_180550_st-730",
+        "lu_uz_6213428_st-25",
+        "lu_uz_180550_st-749",
+        "lu_uz_111181_st-334",
+        "lu_uz_180550_st-776",
+        "lu_uz_180550_st-832",
+        "lu_uz_111181_st-328"
+      ]
+    },
+    {
+      "question": "Госорган принял незаконное решение об изъятии земельного участка, фирма понесла ущерб. Существуют ли специальные компенсационные фонды, из которых возмещается такой ущерб?",
+      "expected_unit_ids": [
+        "lu_uz_6171346_p-4"
+      ],
+      "top10_unit_ids": [
+        "lu_uz_8358428_st-16",
+        "lu_uz_8358428_st-12",
+        "lu_uz_8358428_st-15",
+        "lu_uz_8358428_st-2",
+        "lu_uz_8358428_st-4",
+        "lu_uz_8358428_st-1",
+        "lu_uz_8358428_st-10",
+        "lu_uz_8358428_st-3",
+        "lu_uz_149947_st-41",
+        "lu_uz_8358428_st-19"
+      ]
+    }
+  ],
+  "corpus": {
+    "jurisdiction": "UZ",
+    "documents": 175,
+    "chunks": 11730,
+    "contextCoverage": 1,
+    "embeddingCoverage": 1
+  },
+  "baseline": {
+    "findings": 6,
+    "citationPrecision": 0,
+    "unverifiedShare": 1
+  },
+  "rag": {
+    "findings": 37,
+    "citationPrecision": 1,
+    "unverifiedShare": 0
+  }
+}

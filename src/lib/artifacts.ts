@@ -54,6 +54,7 @@ export const savedSourceId = (key: string) => `chat:${key}`.slice(0, 60);
 /** Блок кода — документ, если он содержательный (не однострочная вставка). */
 export function isDocBlock(content: string, lang = ''): boolean {
   if (/^questions?$/i.test(lang)) return false;
+  if (/^lexab-/i.test(lang)) return false; // служебные блоки (карточки правок агента)
   const text = content.trim();
   return text.split('\n').length >= 6 || text.length >= 300;
 }

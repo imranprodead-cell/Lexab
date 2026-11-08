@@ -30,6 +30,9 @@ export function AnalysisCard({ steps, activeStep, done, startedAt, onCancel }: A
   // Тикаем раз в секунду, пока идёт разбор: раньше индикатор замирал на 66% и
   // молчал минутами — человек не понимал, работает ли что-то (аудит 2026-08-03).
   const [now, setNow] = useState(() => Date.now());
+  // После разбора карточка сворачивается в одну строку (вариант «Меморандум»):
+  // шаги видны по клику, а не занимают полэкрана над выводом.
+  const [stepsOpen, setStepsOpen] = useState(false);
   const running = !done && Boolean(startedAt);
   useEffect(() => {
     if (!running) return;
@@ -44,6 +47,40 @@ export function AnalysisCard({ steps, activeStep, done, startedAt, onCancel }: A
   const pct = done ? 100 : Math.max(4, (activeStep / steps.length) * 100);
   // Step captions live in the dictionary; the array only sets the count.
   const stepLabel = (i: number) => t(`chat.an.step${i + 1}`);
+
+  if (done) {
+    // Время известно только в этой вкладке (startedAt); в старом чате — без него.
+    const label = startedAt
+      ? t('chat.an.doneLineIn', { time: formatElapsed(elapsed, t('chat.an.sec'), t('chat.an.min')) })
+      : t('chat.an.doneLine');
+    return (
+      <div className={styles.doneLineWrap}>
+        <button type="button" className={styles.doneLine} onClick={() => setStepsOpen((v) => !v)} aria-expanded={stepsOpen}>
+          <span className={styles.doneLineCheck}>
+            <Icon name="check" size={13} strokeWidth={2.4} />
+          </span>
+          {label}
+          <Icon
+            name="chevron"
+            size={12}
+            style={{ transform: stepsOpen ? 'rotate(-90deg)' : 'rotate(90deg)', transition: 'transform 0.15s ease' }}
+          />
+        </button>
+        {stepsOpen ? (
+          <div className={styles.doneLineSteps}>
+            {steps.map((step, i) => (
+              <div key={step} className={styles.doneItem}>
+                <span className={styles.doneCheck}>
+                  <Icon name="check" size={10} strokeWidth={2.6} />
+                </span>
+                {stepLabel(i)}
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <GlassCard className={styles.card}>

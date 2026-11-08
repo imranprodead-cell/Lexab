@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { TopBar } from '@/components/layout/TopBar';
-import { CountrySelector } from '@/components/layout/CountrySelector';
 import { Icon } from '@/components/icons/Icon';
 import { billingApi, type BillingPeriod } from '@/api/billing.api';
 import { useAsync } from '@/hooks/useAsync';
@@ -601,7 +600,9 @@ export function PlansPage() {
 
   return (
     <div className={styles.page}>
-      <TopBar title={t('plans.topTitle')} right={<CountrySelector />} />
+      {/* Справа пусто: выбор страны на тарифах не нужен (решение владельца
+          2026-10-31); колокольчик и меню здесь и раньше не показывались. */}
+      <TopBar title={t('plans.topTitle')} right={false} />
       <div className={`${styles.body} scroll`}>
         <div className={styles.container}>
           <div className={styles.plansHead} ref={useReveal()}>

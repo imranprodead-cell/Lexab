@@ -17,6 +17,7 @@ import { decText } from '../lib/docCrypto.ts';
 import { assertFeature, planFor, planHasFeature } from '../lib/limits.ts';
 import { notify } from '../lib/notify.ts';
 import { canEdit, resolveDocumentAccess } from '../lib/teamAccess.ts';
+import { addReminderToDocument } from '../lib/chatActions.ts';
 import { asObject } from '../lib/validate.ts';
 import { biBody, biLine, biSubject, escapeMailHtml, mailLayout, sendMail } from '../mail.ts';
 
@@ -189,6 +190,24 @@ export function contractRoutes(app: FastifyInstance, db: Db): void {
       return { id: obligationId, done: body.done };
     },
   );
+
+  // Срок, предложенный агентом в чате, — по кнопке «Добавить напоминание»
+  // (lib/chatActions.ts): письмо придёт добавившему за remindDaysBefore дней.
+  app.post(
+    '/contracts/:documentId/obligations',
+    { preHandler: [app.authenticateReal], config: { rateLimit: { max: 20, timeWindow: '1 minute' } } },
+    async (req, reply): Promise<{ id: string; created: boolean; remindOn: string }> => {
+      await assertFeature(db, req.currentUser.id, 'clm');
+      const { documentId } = req.params as { documentId: string };
+      const body = asObject(req.body);
+      const text = typeof body.text === 'string' ? body.text : '';
+      const dueDate = typeof body.dueDate === 'string' ? body.dueDate : '';
+      const remindDaysBefore = typeof body.remindDaysBefore === 'number' ? body.remindDaysBefore : 3;
+      const res = await addReminderToDocument(db, req.currentUser.id, documentId, { text, dueDate, remindDaysBefore });
+      reply.code(res.created ? 201 : 200);
+      return res;
+    },
+  );
 }
 
 /** ДД.ММ.ГГГГ из ISO-строки — без Date, чтобы не ловить сдвиг часового пояса. */
@@ -325,7 +344,9 @@ export async function checkContractDeadlines(db: Db): Promise<void> {
     });
   }
 
-  // 3) Обязательства с датой исполнения (≤7 дней).
+  // 3) Обязательства с датой исполнения: за remind_days_before дней (по
+  // умолчанию 7). Напоминание — в колокольчик И письмом на почту тому, кто
+  // срок добавил (у извлечённых разбором — владельцу документа).
   const obligations = await db.query<{
     id: string;
     document_id: string;
@@ -334,13 +355,18 @@ export async function checkContractDeadlines(db: Db): Promise<void> {
     days_left: number | string;
     name: string;
     owner_id: string;
+    recipient_id: string;
+    recipient_name: string;
+    recipient_email: string;
   }>(
     `SELECT o.id, o.document_id, o.text_enc, to_char(o.due_date, 'YYYY-MM-DD') AS due_date,
-            (o.due_date - CURRENT_DATE) AS days_left, d.name, d.user_id AS owner_id
+            (o.due_date - CURRENT_DATE) AS days_left, d.name, d.user_id AS owner_id,
+            u.id AS recipient_id, u.name AS recipient_name, u.email AS recipient_email
      FROM contract_obligations o
      JOIN documents d ON d.id = o.document_id AND d.deleted_at IS NULL
+     JOIN users u ON u.id = COALESCE(o.created_by, d.user_id)
      WHERE o.reminded = false AND o.done = false AND o.due_date IS NOT NULL
-       AND o.due_date <= CURRENT_DATE + 7`,
+       AND o.due_date <= CURRENT_DATE + COALESCE(o.remind_days_before, 7)`,
   );
   for (const row of obligations.rows) {
     const daysLeft = Number(row.days_left);
@@ -353,10 +379,28 @@ export async function checkContractDeadlines(db: Db): Promise<void> {
     const text = (await decText(db, row.owner_id, row.text_enc)) ?? '';
     const short = text.length > 90 ? `${text.slice(0, 90)}…` : text;
     const when = ruDate(row.due_date);
-    await notify(db, row.owner_id, 'docs', 'Срок обязательства близко', 'Obligation due soon', {
+    await notify(db, row.recipient_id, 'docs', 'Срок обязательства близко', 'Obligation due soon', {
       bodyRu: `${row.name} · ${short} · до ${when}`,
       bodyEn: `${row.name} · ${short} · due ${when}`,
       action: { kind: 'open', data: '/contracts' },
     });
+    const { sent } = await sendMail({
+      to: row.recipient_email,
+      subject: biSubject(`Срок по договору — до ${when}`, `Contract deadline — ${when}`, row.name),
+      html: mailLayout(
+        biLine('Срок по договору близко', 'A contract deadline is coming up'),
+        biBody(
+          `<p>Здравствуйте, <strong>${escapeMailHtml(row.recipient_name)}</strong>!</p>
+         <p>По договору <strong>${escapeMailHtml(row.name)}</strong>: ${escapeMailHtml(text)}</p>
+         <p>Срок — <strong>${when}</strong> (осталось дн.: ${daysLeft}).</p>`,
+          `<p>Hello <strong>${escapeMailHtml(row.recipient_name)}</strong>,</p>
+         <p>Contract <strong>${escapeMailHtml(row.name)}</strong>: ${escapeMailHtml(text)}</p>
+         <p>Due on <strong>${when}</strong> (${daysLeft} day(s) left).</p>`,
+        ),
+        biLine('Открыть сроки', 'Open deadlines'),
+        `${config.appBaseUrl}/contracts`,
+      ),
+    });
+    if (!sent) console.warn(`[clm] deadline email for obligation ${row.id} was not sent`);
   }
 }

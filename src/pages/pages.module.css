@@ -3177,13 +3177,16 @@
   justify-content: center;
   width: 28px;
   height: 28px;
-  border: 1px solid var(--panel-edge);
+  border: none;
   border-radius: var(--r-sm);
+  /* Подложка без рамки: кнопка лежит поверх кода и не должна с ним сливаться. */
   background: var(--panel);
   color: var(--dim);
   cursor: pointer;
+  transition: color var(--dur-fast), background var(--dur-fast);
 }
 .apiCodeCopy:hover {
+  background: var(--hover-3);
   color: var(--text);
 }
 .apiKeyBox {

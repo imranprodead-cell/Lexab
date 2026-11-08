@@ -12,6 +12,7 @@ import { getDb, migrate } from '../../db.ts';
 import { newId } from '../../lib/ids.ts';
 import { fetchCcqHtml, parseCcqHtml, type CcqConfig } from './legisquebec-ca.ts';
 import { upsertParsedDocument } from './upsert.ts';
+import { pathToFileURL } from 'node:url';
 
 /** Пилот Канады: договорное право = CCQ Книга Пятая «Обязательства». */
 export const PILOT_CA_DOCS: CcqConfig[] = [
@@ -69,4 +70,6 @@ async function main(): Promise<void> {
   if (errors > 0) process.exitCode = 1;
 }
 
-void main();
+// Запуск только напрямую (npm run rag:ingest…): импорт списка документов из
+// другого скрипта не должен сам писать в базу.
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) void main();

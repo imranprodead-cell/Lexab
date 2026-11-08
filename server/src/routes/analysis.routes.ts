@@ -13,18 +13,21 @@ import { ALLOWED_EXTENSIONS, assertValidFileContent, extractText, fileExtension,
 import { badRequest, HttpError, notFound } from '../lib/errors.ts';
 import { assertDocumentAllowance, assertFeature, assertStorageAllowance, DOC_COST, planFor, planHasFeature, quotaOwnerFor, reserveDocument, withDocumentUnits, withStorageReservation } from '../lib/limits.ts';
 import { notify } from '../lib/notify.ts';
-import { activeTeamOwnerFor, resolveAnalysisAccess, resolveDocumentAccess } from '../lib/teamAccess.ts';
+import { resolveAnalysisAccess, resolveDocumentAccess } from '../lib/teamAccess.ts';
 import { attachmentDisposition, formatSize, looksRussian, looksUzbekCyrillic, looksUzbekLatin } from '../lib/format.ts';
 import { buildSimplePdf } from '../lib/pdf.ts';
 import { newId } from '../lib/ids.ts';
 import { recalibrateRisk } from '../lib/riskScore.ts';
 import { openSSE, wantsSSE } from '../lib/sse.ts';
 import { asObject, optionalString, requireOneOf, requireString } from '../lib/validate.ts';
-import { canTranscribeScans, generateAnalysis, generateContractDraft, readsScans, type GeneratedAnalysis } from '../llm.ts';
+import { canTranscribeScans, generateAnalysis, generateContractDraft, readsScans, usesAnalysisAgent, type GeneratedAnalysis } from '../llm.ts';
+import { repairFindingCitations } from '../lib/citationRepair.ts';
+import { addEditToAnalysis } from '../lib/chatActions.ts';
+import { loadActivePlaybook, resolvePlaybookOwner } from '../lib/playbook.ts';
 import { readableUploadText, startScanOcr, transcribeScanNow } from '../lib/ocr.ts';
 import { blockSourceText, finalContractText, loadSourceText } from '../lib/fullText.ts';
 import { jurisdictionCode, retrieveLegalContext } from '../rag/retrieve.ts';
-import type { RetrievedChunk } from '../rag/types.ts';
+import type { JurisdictionCode, RetrievedChunk } from '../rag/types.ts';
 import { validateFindings } from '../rag/validate-citations.ts';
 import { audit } from '../lib/audit.ts';
 import { scanUpload } from '../lib/scan.ts';
@@ -645,7 +648,9 @@ export async function persistAnalysis(
            extracted_at = now()`,
         [documentId, terms.effectiveDate, terms.expiryDate, terms.autoRenew, terms.renewalNoticeDays, encContractValue, terms.currency, terms.governingLaw],
       );
-      await tx.query('DELETE FROM contract_obligations WHERE document_id = $1', [documentId]);
+      // Перезаписываются только обязательства, извлечённые разбором: сроки,
+      // добавленные пользователем по карточке агента (source='chat'), остаются.
+      await tx.query("DELETE FROM contract_obligations WHERE document_id = $1 AND source = 'analysis'", [documentId]);
       // Перенос флагов действителен только если пишем в ТОТ ЖЕ документ, из
       // которого читали (иначе прежний удалили в зазоре и это уже новый).
       const carryValid = documentId === carriedFromDocId;
@@ -749,52 +754,27 @@ export async function persistAnalysis(
   };
 }
 
-/** The account whose playbook applies when `userId` runs a review: their team's
- *  owner when they are an active member, otherwise themselves. */
-async function resolvePlaybookOwner(db: Db, userId: string): Promise<string> {
-  // Единый резолвер команды (lib/teamAccess.ts) с ORDER BY created_at. Локальная
-  // копия здесь брала LIMIT 1 БЕЗ порядка: у человека, состоящего в двух
-  // командах, база возвращала произвольного владельца — и в анализ договора
-  // фирмы А могли попасть конфиденциальные позиции фирмы Б (аудит 2026-08-03).
-  return (await activeTeamOwnerFor(db, userId)) ?? userId;
-}
-
-/** Load the active playbook's rules as one prompt-ready text block for the given
- *  team owner + corpus (jurisdiction code), or null when none applies. Prefers a
- *  jurisdiction-specific playbook, falling back to a global (jurisdiction NULL)
- *  one. Rule text is decrypted with the OWNER's data key. */
-async function loadActivePlaybook(db: Db, ownerUserId: string, corpus: string | null): Promise<string | null> {
-  const pb = await db.query<{ id: string; name: string }>(
-    `SELECT id, name FROM playbooks
-     WHERE owner_user_id = $1 AND active = true AND (jurisdiction = $2 OR jurisdiction IS NULL)
-     ORDER BY (jurisdiction = $2) DESC NULLS LAST, created_at DESC LIMIT 1`,
-    [ownerUserId, corpus],
-  );
-  const row = pb.rows[0];
-  if (!row) return null;
-  const rules = await db.query<{ text_enc: string }>(
-    'SELECT text_enc FROM playbook_rules WHERE playbook_id = $1 ORDER BY ord',
-    [row.id],
-  );
-  const lines: string[] = [];
-  for (const r of rules.rows) {
-    const text = await decText(db, ownerUserId, r.text_enc);
-    if (text && text.trim()) lines.push(`- ${text.trim()}`);
-  }
-  return lines.length ? `«${row.name}»:\n${lines.join('\n')}` : null;
-}
-
 /** Демоция непроверенных цитат: находка без подтверждённой ссылки из корпуса
  *  помечается unverified и (при связанной правке) синхронизирует её тяжесть. */
 async function validateGen(
   db: Db,
   gen: GeneratedAnalysis,
   legalContext: RetrievedChunk[],
-  corpus: string | null,
+  corpus: JurisdictionCode | null,
   retrievalFailed: boolean,
+  plan: string,
+  logWarn: (msg: string) => void,
 ): Promise<GeneratedAnalysis> {
   if (legalContext.length) {
-    const findings = await validateFindings(db, gen.findings, undefined, corpus ?? 'UK');
+    const originalSeverity = gen.findings.map((f) => f.severity);
+    let findings = await validateFindings(db, gen.findings, undefined, corpus ?? 'UK');
+    // Неподтверждённые ссылки чинит агент (lib/citationRepair.ts): найденную им
+    // норму снова проверяет код; подтвердилась — риску возвращается исходная
+    // серьёзность, нет — он остаётся пониженным (правило №4).
+    if (corpus && findings.some((f) => f.unverified) && usesAnalysisAgent(plan)) {
+      const clauses = new Map(gen.redlines.map((r) => [r.id, { delText: r.delText, insText: r.insText }]));
+      findings = (await repairFindingCitations(db, { findings, originalSeverity, jurisdiction: corpus, plan, clauses, log: logWarn })).findings;
+    }
     const sevByRedline = new Map(findings.filter((f) => f.redlineId).map((f) => [f.redlineId as string, f.severity]));
     const redlines = gen.redlines.map((r) => (sevByRedline.has(r.id) ? { ...r, severity: sevByRedline.get(r.id) as typeof r.severity } : r));
     return { ...gen, findings, redlines };
@@ -857,7 +837,7 @@ export async function analyzeSource(
     legalContext,
     playbook,
   });
-  return validateGen(db, gen, legalContext, corpus, retrievalFailed);
+  return validateGen(db, gen, legalContext, corpus, retrievalFailed, plan, logWarn);
 }
 
 export function analysisRoutes(app: FastifyInstance, db: Db): void {
@@ -1286,6 +1266,28 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
     reply.header('Content-Disposition', attachmentDisposition(`Lexab_Report_${a.fileName}`, 'pdf'));
     reply.header('Cache-Control', 'no-store');
     return reply.send(pdf);
+  });
+
+  /**
+   * Правка, предложенная агентом в чате, — по кнопке «Принять» пользователя
+   * (lib/chatActions.ts). Права на запись, пункт обязан быть в тексте
+   * договора, повтор не плодит дубли. Ответ — правка как в списке правок.
+   */
+  app.post('/analysis/:id/redlines', { preHandler: [app.authenticateReal], config: RATE_LIMIT }, async (req, reply): Promise<Redline> => {
+    const { id } = req.params as { id: string };
+    const body = asObject(req.body);
+    const delText = requireString(body, 'delText', { min: 1, max: 4000 });
+    const insText = typeof body.insText === 'string' ? body.insText.slice(0, 4000) : '';
+    const { redline, created, ownerId } = await addEditToAnalysis(db, req.currentUser.id, id, { delText, insText, status: 'accepted' });
+    // Метаданные — только id правки и откуда она, НИКОГДА не текст договора.
+    await audit(db, req, {
+      type: 'redline.accepted',
+      teamOwnerId: ownerId,
+      target: { type: 'document', id, label: redline.id },
+      metadata: { redlineId: redline.id, source: 'chat_agent', created },
+    });
+    reply.code(created ? 201 : 200);
+    return redline;
   });
 
   app.patch('/analysis/:id/redlines/:rid', { preHandler: [app.authenticate] }, async (req): Promise<Redline> => {

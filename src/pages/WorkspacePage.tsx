@@ -10,6 +10,7 @@ import { Spinner } from '@/components/ui/Spinner';
 import { ChatInput } from '@/components/chat/ChatInput';
 import { MarkdownMessage } from '@/components/chat/MarkdownMessage';
 import { displayText, extractQuestions } from '@/lib/questions';
+import { AgentActionCards } from '@/components/chat/EditProposalCards';
 import { DocumentViewer, type ActiveBlock, type DocEditorHandle, type FullContractView } from '@/components/workspace/DocumentViewer';
 import { EditorToolbar } from '@/components/workspace/EditorToolbar';
 import { FloatingToolbar } from '@/components/workspace/FloatingToolbar';
@@ -461,7 +462,7 @@ export function WorkspacePage() {
                       >
                         <Icon name="chat" size={14} />
                       </button>
-                      {clickable ? <Icon name="chevron" size={14} color="var(--dim)" /> : null}
+                      {clickable ? <Icon name="chevron" size={14} color="var(--dim)" className={styles.findingCardChevron} /> : null}
                     </div>
                   );
                 })}
@@ -479,6 +480,7 @@ export function WorkspacePage() {
                         {/* «…» внутри текста: после блочного markdown-рендера
                             отдельный текстовый узел падал бы на свою строку. */}
                         <MarkdownMessage text={m.streaming ? `${extractQuestions(m.text ?? '').body}…` : displayText(m.text ?? '')} />
+                        {!m.streaming && m.text ? <AgentActionCards text={m.text} /> : null}
                       </div>
                     ),
                   )}

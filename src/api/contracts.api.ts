@@ -99,6 +99,18 @@ export const contractsApi = {
     return http<ContractRow>(`/contracts/${documentId}`, { signal });
   },
 
+  /** Срок, предложенный агентом в чате, — по кнопке «Добавить напоминание» (письмо за N дней). */
+  async addReminder(
+    documentId: string,
+    input: { text: string; dueDate: string; remindDaysBefore: number },
+  ): Promise<{ id: string; created: boolean; remindOn: string }> {
+    if (USE_MOCK) {
+      await delay(120);
+      return { id: `ob_${Date.now()}`, created: true, remindOn: input.dueDate };
+    }
+    return http<{ id: string; created: boolean; remindOn: string }>(`/contracts/${documentId}/obligations`, { method: 'POST', body: input });
+  },
+
   async setObligationDone(documentId: string, obligationId: string, done: boolean): Promise<{ id: string; done: boolean }> {
     if (USE_MOCK) {
       await delay(150);

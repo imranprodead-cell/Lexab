@@ -261,7 +261,7 @@ export async function buildApp(db: Db): Promise<FastifyInstance> {
       integrationRoutes(api, db);
       feedbackRoutes(api, db);
       ttsRoutes(api);
-      promptRoutes(api);
+      promptRoutes(api, db);
       lawRoutes(api, db);
       shareRoutes(api, db);
       webhookSettingsRoutes(api, db);

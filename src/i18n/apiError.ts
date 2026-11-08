@@ -51,6 +51,10 @@ export function apiErrorMessage(err: unknown, t: Translate): string {
     }
     case 'ai_limit':
       return t('limits.aiLimit', { plan, limit: Number(d.limit ?? 0) });
+    case 'clause_not_found':
+      return t('edit.notFound');
+    case 'improve_limit':
+      return t('limits.improveLimit', { plan, limit: Number(d.limit ?? 0) });
     case 'docs_limit':
       return t('limits.docsLimit', { plan, limit: Number(d.limit ?? 0) });
     case 'storage_limit':

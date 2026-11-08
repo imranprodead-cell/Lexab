@@ -24,3 +24,27 @@ export function normalizeUzDocNumber(raw: string | null | undefined): string | n
   if (!m) return null;
   return `${PREFIX_TO_CANON[m[1]]}-${m[2]}`;
 }
+
+/* ── Постановления Пленума: Верховный суд (ВС), бывший Высший хозяйственный
+ * суд (ВХС) и их совместные постановления. Номера постановлений ВС
+ * начинаются заново каждый год, поэтому год входит в канонический номер:
+ * «ПВС-17-2006», «ПВХС-163-2007», «ПВС-ПВХС-13/150-2006». */
+export type PlenumCourt = 'ВС' | 'ВХС' | 'ВС+ВХС';
+
+const PLENUM_PREFIX: Record<PlenumCourt, string> = { ВС: 'ПВС', ВХС: 'ПВХС', 'ВС+ВХС': 'ПВС-ПВХС' };
+
+export const plenumPrefix = (court: PlenumCourt): string => PLENUM_PREFIX[court];
+
+/** «06/196» → «6/196», «05» → «5», «5А» → «5а»; мусор → null. */
+export function normalizePlenumNumber(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const parts = raw.replace(/\s+/g, '').toLowerCase().split('/');
+  if (parts.length > 2 || !parts.every((p) => /^\d{1,4}[а-я]?$/u.test(p))) return null;
+  return parts.map((p) => p.replace(/^0+(?=\d)/, '')).join('/');
+}
+
+export function plenumDocNumber(court: PlenumCourt, number: string, year: string | number): string | null {
+  const n = normalizePlenumNumber(number);
+  if (!n || !/^(19|20)\d{2}$/.test(String(year))) return null;
+  return `${PLENUM_PREFIX[court]}-${n}-${year}`;
+}

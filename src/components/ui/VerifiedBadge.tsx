@@ -1,4 +1,4 @@
-import { useState, type MouseEvent } from 'react';
+import { useEffect, useState, type MouseEvent } from 'react';
 import { Icon } from '@/components/icons/Icon';
 import { Spinner } from '@/components/ui/Spinner';
 import { lawApi, type LawUnit } from '@/api/law.api';
@@ -18,17 +18,17 @@ export function VerifiedBadge({ finding }: { finding: Pick<Finding, 'unitId' | '
   const { t } = useI18n();
   if (finding.unverified) {
     return (
-      <span className={`${styles.verify} ${styles.verifyWarn}`}>
+      <span className={`${styles.verify} ${styles.verifyWarn}`} title={t('finding.unverified')}>
         <Icon name="alert" size={12} />
-        {t('finding.unverified')}
+        <span className={styles.verifyText}>{t('finding.unverified')}</span>
       </span>
     );
   }
   if (finding.unitId) {
     return (
-      <span className={`${styles.verify} ${styles.verifyOk}`}>
+      <span className={`${styles.verify} ${styles.verifyOk}`} title={t('finding.verified')}>
         <Icon name="check" size={12} />
-        {t('finding.verified')}
+        <span className={styles.verifyText}>{t('finding.verified')}</span>
       </span>
     );
   }
@@ -43,9 +43,9 @@ export function PlaybookDeviationBadge({ finding }: { finding: Pick<Finding, 'pl
   const { t } = useI18n();
   if (!finding.playbookDeviation) return null;
   return (
-    <span className={`${styles.verify} ${styles.verifyDeviation}`}>
+    <span className={`${styles.verify} ${styles.verifyDeviation}`} title={t('playbooks.deviationBadge')}>
       <Icon name="flag" size={12} />
-      {t('playbooks.deviationBadge')}
+      <span className={styles.verifyText}>{t('playbooks.deviationBadge')}</span>
     </span>
   );
 }
@@ -67,35 +67,73 @@ export function CitationLine({
 }
 
 /**
- * «Текст нормы» — раскрывает под находкой САМ текст статьи из официального
- * корпуса (со ссылкой на первоисточник и датой снимка). Превращает бейдж
- * «Проверено» из слова в доказательство. Текст берётся ТОЛЬКО из базы законов,
- * никогда не генерируется.
+ * Текст нормы из официального корпуса (со ссылкой на первоисточник и датой
+ * снимка). Текст берётся ТОЛЬКО из базы законов, никогда не генерируется.
  */
-function LawTextToggle({ unitId }: { unitId: string }) {
+export function LawTextBox({ unitId }: { unitId: string }) {
   const { t, lang } = useI18n();
-  const [open, setOpen] = useState(false);
   const [unit, setUnit] = useState<LawUnit | null>(null);
-  const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    setUnit(null);
+    setFailed(false);
+    lawApi
+      .unit(unitId)
+      .then((u) => {
+        if (alive) setUnit(u);
+      })
+      .catch(() => {
+        if (alive) setFailed(true);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [unitId]);
+
+  return (
+    <span className={styles.lawBox} dir="auto" onClick={(e) => e.stopPropagation()}>
+      {failed ? (
+        <span className={styles.lawMeta}>{t('law.failed')}</span>
+      ) : unit ? (
+        <>
+          <span className={styles.lawBreadcrumb}>{unit.breadcrumb}</span>
+          <span className={styles.lawText}>{unit.text}</span>
+          <span className={styles.lawMeta}>
+            {unit.officialUrl || unit.sourceUrl ? (
+              <a href={(unit.officialUrl || unit.sourceUrl) as string} target="_blank" rel="noopener noreferrer">
+                {t('law.source')}
+              </a>
+            ) : null}
+            {unit.retrievedAt
+              ? ` · ${t('law.retrieved')} ${new Date(unit.retrievedAt).toLocaleDateString(localeFor(lang))}`
+              : null}
+          </span>
+        </>
+      ) : (
+        <Spinner size={14} />
+      )}
+    </span>
+  );
+}
+
+/**
+ * «Текст нормы» — раскрывает под ссылкой САМ текст статьи из официального
+ * корпуса. Превращает бейдж «Проверено» из слова в доказательство.
+ * openSignal — внешняя команда «раскрыть» (номер источника нажали в ответе).
+ */
+export function LawTextToggle({ unitId, openSignal }: { unitId: string; openSignal?: number }) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (openSignal) setOpen(true);
+  }, [openSignal]);
 
   const toggle = (e: MouseEvent) => {
     // Карточка находки сама кликабельна (открывает рабочую область / якорит
     // документ) — клик по переключателю не должен до неё всплывать.
     e.stopPropagation();
-    if (open) {
-      setOpen(false);
-      return;
-    }
-    setOpen(true);
-    if (unit || busy) return;
-    setBusy(true);
-    setFailed(false);
-    lawApi
-      .unit(unitId)
-      .then(setUnit)
-      .catch(() => setFailed(true))
-      .finally(() => setBusy(false));
+    setOpen((v) => !v);
   };
 
   return (
@@ -104,30 +142,7 @@ function LawTextToggle({ unitId }: { unitId: string }) {
         <Icon name="chevron" size={12} style={{ transform: open ? 'rotate(-90deg)' : 'rotate(90deg)', transition: 'transform 0.15s ease' }} />
         {t(open ? 'law.hide' : 'law.show')}
       </button>
-      {open ? (
-        <span className={styles.lawBox} dir="auto" onClick={(e) => e.stopPropagation()}>
-          {busy ? (
-            <Spinner size={14} />
-          ) : failed ? (
-            <span className={styles.lawMeta}>{t('law.failed')}</span>
-          ) : unit ? (
-            <>
-              <span className={styles.lawBreadcrumb}>{unit.breadcrumb}</span>
-              <span className={styles.lawText}>{unit.text}</span>
-              <span className={styles.lawMeta}>
-                {unit.sourceUrl ? (
-                  <a href={unit.sourceUrl} target="_blank" rel="noopener noreferrer">
-                    {t('law.source')}
-                  </a>
-                ) : null}
-                {unit.retrievedAt
-                  ? ` · ${t('law.retrieved')} ${new Date(unit.retrievedAt).toLocaleDateString(localeFor(lang))}`
-                  : null}
-              </span>
-            </>
-          ) : null}
-        </span>
-      ) : null}
+      {open ? <LawTextBox unitId={unitId} /> : null}
     </>
   );
 }

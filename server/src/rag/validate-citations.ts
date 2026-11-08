@@ -58,7 +58,7 @@ async function unitSupportsFinding(
   finding: Pick<Finding, 'title' | 'citation'>,
 ): Promise<boolean> {
   const system =
-    'You verify legal citations: is the quoted provision the correct legal basis for the finding? Answer true when the provision governs the legal issue the finding addresses (even if the finding also involves judgement, e.g. a reasonableness assessment). IMPORTANT: this is contract review — a finding typically cites the statute that the reviewed contract clause VIOLATES or deviates from, so the citation is correct when the provision governs that issue, INCLUDING when the contract clause contradicts the provision\'s rule (e.g. a finding about an unlimited-liability clause correctly cites the statute that caps liability). Answer false only when the provision is about a genuinely different legal issue. Apply the same rules regardless of language: the contract, finding and provision may each be in Russian, English, German, Uzbek, Kazakh or Arabic — judge the LEGAL relationship, and treat statutory sub-references (Abs./S./ч./п.) of the cited section as the same provision. For Uzbek presidential decrees/resolutions (УП-…/ПП-…) the numbered пункт IS the cited provision itself, not a sub-reference.';
+    'You verify legal citations: is the quoted provision the correct legal basis for the finding? Answer true when the provision governs the legal issue the finding addresses (even if the finding also involves judgement, e.g. a reasonableness assessment). IMPORTANT: this is contract review — a finding typically cites the statute that the reviewed contract clause VIOLATES or deviates from, so the citation is correct when the provision governs that issue, INCLUDING when the contract clause contradicts the provision\'s rule (e.g. a finding about an unlimited-liability clause correctly cites the statute that caps liability). Answer false only when the provision is about a genuinely different legal issue. Apply the same rules regardless of language: the contract, finding and provision may each be in Russian, English, German, Uzbek, Kazakh or Arabic — judge the LEGAL relationship, and treat statutory sub-references (Abs./S./ч./п.) of the cited section as the same provision. For Uzbek presidential decrees/resolutions (УП-…/ПП-…) the numbered пункт IS the cited provision itself, not a sub-reference. The same holds for Uzbek Supreme Court Plenum resolutions (постановление Пленума ВС/ВХС): the numbered пункт is the cited provision, and it is a correct basis when it explains how courts apply the rule that governs the finding\'s issue.';
   const userContent = `Provision (${breadcrumb}):\n${unitText.slice(0, 4000)}\n\nFinding: ${finding.title}\nCited as: ${finding.citation}`;
   try {
     if (judge.kind === 'deepseek') {
@@ -102,6 +102,21 @@ async function unitSupportsFinding(
     console.warn(`[rag] citation check failed for ${breadcrumb}: ${(err as Error).message}`);
     return false;
   }
+}
+
+/**
+ * Тот же судья для агента чата (инструмент verify_citation): подтверждает ли
+ * норма утверждение. null — судья недоступен (нет ключа): ссылку нельзя
+ * считать проверенной, агент видит текст нормы и решает сам.
+ */
+export async function judgeProvision(
+  unitText: string,
+  breadcrumb: string,
+  finding: Pick<Finding, 'title' | 'citation'>,
+): Promise<boolean | null> {
+  const api = makeJudgeApi();
+  if (!api) return null;
+  return unitSupportsFinding(api, unitText, breadcrumb, finding);
 }
 
 /** Validate + demote in place; returns findings with unverified flags set. */

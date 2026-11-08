@@ -874,6 +874,30 @@
   margin-top: 2px;
   font-family: var(--font-label);
 }
+/* Компактная шкала в строке риска разбора: те же цвета, набор числа и пульс,
+   только меньше (56px, кольцо 5px). */
+.gaugeSm .gauge {
+  width: 56px;
+  height: 56px;
+}
+.gaugeSm .gaugeRing {
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4.5px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4.5px));
+}
+.gaugeSm .gaugeCap {
+  width: 5px;
+  height: 5px;
+}
+.gaugeSm .gaugeHalo {
+  border-width: 2px;
+}
+.gaugeSm .gaugeNum {
+  font-size: 17px;
+}
+.gaugeSm .gaugeOf {
+  margin-top: 1px;
+  font-size: 9px;
+}
 .findings {
   margin-top: 20px;
   padding-top: 18px;
@@ -2829,11 +2853,15 @@ a.sideItem:focus-visible .sideItemOut {
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid var(--border);
+  border: none;
   border-radius: 50%;
-  background: var(--panel);
+  background: transparent;
   color: var(--text);
   cursor: pointer;
+  transition: background var(--dur-fast);
+}
+.slideNavBtn:hover:not(:disabled) {
+  background: var(--hover-2);
 }
 .slideNavBtn:disabled {
   color: var(--mut);
@@ -3006,5 +3034,473 @@ a.sideItem:focus-visible .sideItemOut {
   .artOpen,
   .deckOpen {
     height: 44px;
+  }
+}
+
+/* ── Карточки правок, предложенных агентом (EditProposalCards) ─────────── */
+.editCards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+.editCard {
+  overflow: hidden;
+  border-radius: 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+.editHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.editBody {
+  padding: 10px 14px 4px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.editLabel {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--mut);
+  margin-top: 4px;
+}
+.editWas {
+  margin: 2px 0 8px;
+  color: var(--mut);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--danger) 70%, transparent);
+  white-space: pre-wrap;
+}
+.editNow {
+  margin: 2px 0 8px;
+  color: var(--text);
+  white-space: pre-wrap;
+}
+.editReason {
+  margin: 2px 0 6px;
+  font-size: 13px;
+  color: var(--mut);
+}
+.editActions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 8px 14px 12px;
+}
+.editDone {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ok);
+}
+
+/* ---------------------------------------------------------------------------
+   Разбор договора в виде записки юриста (вариант «Меморандум», 2026-10-31).
+   Без карточки и круговой шкалы: текст, тонкие разделители, серьёзность —
+   квадратик и слово. Цвет серьёзности приходит в --sev (семантические токены).
+   ------------------------------------------------------------------------- */
+.doneLineWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.doneLine {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--dim);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  cursor: pointer;
+}
+.doneLine:hover {
+  color: var(--text);
+}
+.doneLineCheck {
+  display: inline-flex;
+  color: color-mix(in srgb, var(--sev-low) 62%, var(--text));
+}
+.doneLineSteps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  padding-left: 21px;
+  font-size: 13px;
+  color: var(--dim);
+}
+
+.memo {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+  color: var(--text);
+  font-family: var(--font-sans);
+}
+.memoLead {
+  margin: 0;
+  font-size: 15.5px;
+  line-height: 1.7;
+  white-space: pre-line;
+}
+.memoRisk {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--panel-2);
+}
+.memoRiskMain {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.memoRiskValue {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 14.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.memoCounts {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  font-size: 13px;
+  color: var(--dim);
+}
+.memoCount {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.sevBox {
+  display: inline-block;
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--sev, var(--dim));
+}
+/* «Проверить вручную» — серый квадратик: не уровень риска, а статус ссылки. */
+.sevBoxGrey {
+  background: var(--mut);
+}
+.memoSection {
+  display: flex;
+  flex-direction: column;
+}
+.memoH {
+  margin: 0 0 6px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.memoList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.memoItem {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  column-gap: 10px;
+  padding: 16px 0;
+  border-top: 1px solid var(--border);
+}
+.memoNum {
+  padding-top: 1px;
+  font-size: 13.5px;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+.memoBody {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+}
+.memoTags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 14px;
+  font-size: 12px;
+  color: var(--dim);
+}
+.memoSev {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+  color: color-mix(in srgb, var(--sev, var(--dim)) 72%, var(--text));
+  white-space: nowrap;
+}
+.memoTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.memoTitle {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.45;
+  text-wrap: pretty;
+}
+.memoCite {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  font-size: 13.5px;
+  color: var(--dim);
+}
+.memoChip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 5px;
+  background: var(--user-bubble);
+  color: var(--dim);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.memoChip:hover {
+  color: var(--text);
+  background: var(--hover-3);
+}
+.memoNote {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--dim);
+}
+.memoLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: fit-content;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: color-mix(in srgb, var(--text) 35%, transparent);
+  cursor: pointer;
+}
+.memoLink:hover {
+  text-decoration-color: var(--text);
+}
+.memoLinkChevron {
+  transition: transform var(--dur-mid) var(--ease);
+}
+.memoLinkChevronOpen {
+  transform: rotate(-90deg);
+}
+/* Обёртка анимации раскрытия правки: высота 0 → по содержимому. */
+.memoReveal {
+  overflow: hidden;
+}
+/* Текст нормы под находкой (узкое окно, правой колонки нет): строка с
+   переносом, чтобы .lawBox (flex-basis: 100%) лёг на всю ширину, а не в высоту. */
+.memoLaw {
+  display: flex;
+  flex-wrap: wrap;
+}
+.memoDiff {
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--panel);
+}
+.memoDiffHead {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--panel-2);
+  font-size: 12px;
+  color: var(--dim);
+}
+.memoDiffText {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  font-family: var(--font-serif);
+  font-size: 14.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+}
+.memoDel {
+  color: color-mix(in srgb, var(--sev-high) 72%, var(--text));
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+.memoIns {
+  color: color-mix(in srgb, var(--sev-low) 58%, var(--text));
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+.memoDiffNote {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--dim);
+}
+.memoDiffActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+}
+.memoDone,
+.memoRejected {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 4px;
+  font-size: 13px;
+  font-weight: 500;
+}
+.memoDone {
+  color: color-mix(in srgb, var(--sev-low) 58%, var(--text));
+}
+.memoRejected {
+  color: var(--dim);
+}
+.memoActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+/* Нормы из разбора договора в правой колонке Sources: номер как в ответе,
+   пометка проверки и «Текст нормы». data-flash — строку только что открыли
+   нажатием на номер в ответе. */
+.sideListLabel {
+  padding: 12px 6px 4px;
+  font-size: 12px;
+  color: var(--mut);
+}
+.sideList > .sideListLabel:first-child {
+  padding-top: 2px;
+}
+.sideSrc {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 6px;
+  border-radius: 8px;
+  scroll-margin: 12px;
+  transition: background-color 0.4s ease;
+}
+.sideSrc[data-flash='true'] {
+  background: var(--hover-3);
+}
+.sideSrcNum {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 5px;
+  background: var(--hover-2);
+  color: var(--dim);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.sideSrcMain {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+.sideSrcName {
+  font-size: 13.5px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.sideSrcLink {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 4px;
+  width: fit-content;
+  color: var(--text);
+  font-size: 13.5px;
+  font-weight: 500;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.sideSrcLink:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.sideSrcLink svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: var(--dim);
+}
+.sideSrcOk,
+.sideSrcWarn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+}
+.sideSrcOk {
+  color: color-mix(in srgb, var(--sev-low) 58%, var(--text));
+}
+.sideSrcWarn {
+  color: color-mix(in srgb, var(--sev-med) 60%, var(--text));
+}
+.sideSrcLaw {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sideSrc {
+    transition: none;
   }
 }

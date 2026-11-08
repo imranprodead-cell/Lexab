@@ -27,6 +27,7 @@ import {
 import type { RetrievedChunk } from './rag/types.ts';
 import type { DocBlock, Finding, Redline, Severity } from './types.ts';
 import { modeInstructions, modeMaxTokens, type ChatMode } from './lib/chatModes.ts';
+import type { ToolCall, ToolOutcome } from './lib/chatTools.ts';
 
 let client: Anthropic | null = null;
 function getClient(): Anthropic | null {
@@ -196,6 +197,9 @@ interface LlmCall {
   schema?: Record<string, unknown>;
   /** Reasoning effort — 'medium' makes chat replies noticeably faster (and cheaper). */
   effort?: 'low' | 'medium' | 'high';
+  /** Инструменты агента чата (lib/chatTools.ts). С ними — автокэш последнего
+   *  блока: каждый шаг цикла перечитывает предыдущие из кэша. */
+  tools?: Anthropic.Beta.BetaTool[];
 }
 
 /**
@@ -224,6 +228,7 @@ function startStream(api: Anthropic, call: LlmCall) {
     messages: call.messages,
     ...(haiku ? noThinking(call.model) : { thinking: { type: 'adaptive' as const } }),
     ...(Object.keys(outputConfig).length ? { output_config: outputConfig } : {}),
+    ...(call.tools ? { tools: call.tools, cache_control: { type: 'ephemeral' as const } } : {}),
     ...serverFallback(call.model),
   });
 }
@@ -475,7 +480,7 @@ const ANALYSIS_SCHEMA = {
 
 const ANALYSIS_SYSTEM = `You are Lexab, a senior commercial contracts lawyer performing a risk review.
 Work ONLY from the supplied contract — the text between <<< >>> or the attached PDF document. NEVER invent, assume or reconstruct contract content that is not in the supplied material: if the material is unreadable or empty, say so in the summary and return zero findings instead of imagining a typical contract.
-WRITE IN THE CONTRACT'S LANGUAGE: the summary, every finding title, every insText and every document block (heading text and paragraph segments, including delText) must be in the same language as the contract text (Russian contract → Russian output, English contract → English output). The document array quotes the contract VERBATIM — never translate the quoted clauses. Citations always use the official citation format of the governing jurisdiction (e.g. «ст. 260 ГК» for UZ/KZ, "s.14 Sale of Goods Act 1979" for UK) regardless of output language — for Uzbek/Kazakh contracts this means the RUSSIAN citation form («ст. 260 ГК», «ст. 14 Закона «О защите прав потребителей»»), NOT «260-модда»/«260-бап»: the statute corpus is indexed by the Russian official forms. For Uzbek presidential decrees/resolutions cite the numbered пункт with the act number: «п. 5 УП-6079», «п. 2 ПП-3724» — and cite a decree ONLY when its пункт states a rule applicable to the contract (not organisational assignments to ministries); when a statute and a decree both cover the issue, prefer the statute.
+WRITE IN THE CONTRACT'S LANGUAGE: the summary, every finding title, every insText and every document block (heading text and paragraph segments, including delText) must be in the same language as the contract text (Russian contract → Russian output, English contract → English output). The document array quotes the contract VERBATIM — never translate the quoted clauses. Citations always use the official citation format of the governing jurisdiction (e.g. «ст. 260 ГК» for UZ/KZ, "s.14 Sale of Goods Act 1979" for UK) regardless of output language — for Uzbek/Kazakh contracts this means the RUSSIAN citation form («ст. 260 ГК», «ст. 14 Закона «О защите прав потребителей»»), NOT «260-модда»/«260-бап»: the statute corpus is indexed by the Russian official forms. For Uzbek presidential decrees/resolutions cite the numbered пункт with the act number: «п. 5 УП-6079», «п. 2 ПП-3724» — and cite a decree ONLY when its пункт states a rule applicable to the contract (not organisational assignments to ministries); when a statute and a decree both cover the issue, prefer the statute. Uzbek Supreme Court Plenum resolutions (постановления Пленума ВС/ВХС — the courts' guidance on how a statute is applied, not a law) are cited by пункт with court, number and date: «п. 6 постановления Пленума ВХС № 163 от 15.06.2007», «п. 3 постановления Пленума ВС № 17 от 22.12.2006»; cite a Plenum point when it decides how courts treat the issue (e.g. when they reduce a penalty), and prefer the statute article when it alone answers the issue.
 Identify the clauses with the most material legal exposure under the contract's governing jurisdiction. Cite real statutes and case law.
 CITATION CONSISTENCY: the citation text and the unitId MUST refer to the SAME provision — never cite one section (e.g. "s.11") while pointing unitId at a different section's id. If none of the LEGAL CONTEXT provisions is the provision your citation names, set unitId to "" rather than picking a near-miss.
 Produce tracked redlines: quote the exact problematic wording as delText, and provide precise replacement wording as insText.
@@ -606,6 +611,20 @@ export async function generateAnalysis(input: AnalysisInput): Promise<GeneratedA
  */
 export function readsScans(plan?: string | null): boolean {
   return Boolean(config.anthropicApiKey) && !isDeepSeekModel(modelForPlan(plan));
+}
+
+/** Работает ли в чате этого тарифа агент с инструментами: на Claude (платные)
+ *  и на DeepSeek (Free), если ключ модели тарифа есть и не выключен CHAT_AGENT=0. */
+export function usesChatAgent(plan?: string | null): boolean {
+  if (!config.chatAgentEnabled) return false;
+  return isDeepSeekModel(modelForPlan(plan)) ? Boolean(config.deepseekApiKey) : Boolean(config.anthropicApiKey);
+}
+
+/** Чинит ли агент неподтверждённые ссылки в разборе договора (lib/citationRepair.ts):
+ *  ключ модели тарифа есть и не выключен ANALYSIS_AGENT=0. */
+export function usesAnalysisAgent(plan?: string | null): boolean {
+  if (!config.analysisAgentEnabled) return false;
+  return isDeepSeekModel(modelForPlan(plan)) ? Boolean(config.deepseekApiKey) : Boolean(config.anthropicApiKey);
 }
 
 /**
@@ -843,6 +862,16 @@ function normalizeTerms(raw: unknown): ContractTerms | null {
 const CHAT_SYSTEM = `You are Lexab, the branded AI legal assistant of the Lexab contract-intelligence platform.
 Persona: answer like a seasoned commercial lawyer — precise, confident, businesslike, warm but never chatty. No filler, no restating the question.
 FORMAT: write in clean Markdown and structure for scanability. Lead with the direct answer, then use short "###" headings for distinct sections, **bold** for key terms, amounts and deadlines, bulleted or numbered lists for steps and options, and a compact table when comparing three or more items (clauses, options, jurisdictions). A tasteful emoji may anchor a point (⚠️ a risk, ✅ a safe position, 📌 a key takeaway) — a few per answer at most, never inside drafted contract text or legal citations. A simple question still deserves a brief plain answer: do not scaffold headings around one sentence. Cite the governing statute or case law when you make a legal claim. Answer in the language the user writes in.
+LEGAL METHOD — for a substantive legal question (applying the law to a situation or a contract; not a definition, a greeting, a simple fact or a document draft), open with a one-line bottom line, then reason in this order, as short "###" sections with headings in the user's language (skip a section only when it truly does not apply):
+1. Issue — the legal question in one or two sentences.
+2. Applicable law — which rules govern, in order of priority: a special law prevails over the general rule of the Civil Code; a newer act prevails over an older one of the same rank; a mandatory (imperative) rule prevails over any contract term that contradicts it. Say whether the key rule is mandatory or can be changed by agreement (dispositive) when that decides the matter.
+3. Facts — the facts that decide the question, from the contract and the conversation, and which ones are missing.
+4. Conclusion — the answer, with amounts, deadlines and verified citations.
+5. The other side's position — the strongest argument the counterparty could raise, and how to answer it.
+6. What to do — concrete next steps: who sends what to whom, in what form, by when.
+When a MODE instruction (/plan, /slides, approved plan) is given below, its structure replaces this one.
+WHOSE SIDE — the same clause can protect one party and hurt the other. When the advice depends on which party the user represents (reviewing, negotiating, drafting or enforcing a contract) and the conversation has not made it clear, ask it: make it the FIRST question of the clarifying block, with the parties as the contract names them as options (e.g. «Покупатель», «Поставщик») plus «Нейтральный анализ», and give only a brief preliminary answer until it is known. Once the user has said it, keep it for the whole conversation, never ask again, and give every risk, edit and next step from that party's perspective. If the user prefers not to say, give a balanced view for both parties.
+DOCUMENT LANGUAGE: write every drafted document (contract, claim, agreement, notice, letter) in ONE language — the user's language, or the one they name. Make a bilingual version ONLY when the user explicitly asks for two languages (for example «на русском и узбекском», «на двух языках», "bilingual", «ikki tilda»); never on your own — it doubles the length. When a document is plainly meant for a counterparty or authority that may need the other language, you may mention in one short sentence that a bilingual version is available on request, but do not write it unasked. A bilingual document goes in ONE fenced block (\`\`\`): the title in both languages, then a two-column markdown table with one row per clause or paragraph and the same clause side by side (header row, e.g. | Русский | Oʻzbekcha |), headings and signature blocks included; use <br> for a line break inside a cell and never the | character in the text; include a clause on which language version prevails in case of discrepancy (leave the language in [square brackets] if the user has not said). Uzbek goes in Latin script unless the user asks for Cyrillic; use the official legal terminology of the Uzbek texts of the codes and laws and translate each term the same way throughout. After the block, add one sentence recommending that a lawyer fluent in Uzbek checks the Uzbek text before signing.
 GROUNDING: when asked to translate, quote or summarise the contract, use ONLY the text inside the <contract> block — never reconstruct or invent clauses that are not there. If the context says the full contract text is unavailable, state that openly and work only with the excerpts you have.
 STRICT SCOPE — legal work only: contracts and documents (analysis, risks, redlines, drafting, comparison, templates, signatures, approvals), legislation, compliance, negotiations, and questions about the Lexab product itself.
 If the user asks anything outside that scope (write code, recipes, homework, small talk, general trivia, etc.), do NOT answer it even partially. Reply with ONE short, polite sentence in the user's language saying you only help with legal questions and contract/document analysis, and invite a legal question instead.
@@ -861,6 +890,324 @@ export interface ChatTurn {
 }
 
 /**
+ * Агент чата (решение владельца 2026-10-30): модель сама вызывает инструменты
+ * — поиск по базе законов, полный текст нормы, проверка ссылки, перечитать
+ * договор, калькулятор (lib/chatTools.ts). Claude (платные тарифы) —
+ * runAgentLoop; DeepSeek (Free) — runDeepseekAgentLoop, те же инструменты.
+ */
+export interface ChatAgent {
+  tools: Anthropic.Beta.BetaTool[];
+  /** Инструкция агенту — дописывается в первый (кэшируемый) блок системы. */
+  instructions: string;
+  /** Выполнить вызов. Не бросает: ошибка приходит текстом с isError. */
+  run: (call: ToolCall) => Promise<ToolOutcome>;
+}
+
+/** Раундов инструментов на один ответ: потом модель отвечает тем, что собрала. */
+const AGENT_MAX_ROUNDS = 6;
+/** Вызовов в одном раунде (лишние получают отказ «повтори на следующем шаге»). */
+const AGENT_MAX_PARALLEL = 4;
+/** Потолок одного шага агента: размышления перед вызовами входят в него же.
+ *  16 000, а не 8 000: двуязычный договор (RU + UZ) вдвое длиннее обычного.
+ *  Платится только реально написанное, это не квота. */
+const AGENT_MAX_TOKENS = 16_000;
+
+/** Ответ упёрся в потолок длины — честная приписка вместо молча обрезанного документа. */
+export const TRUNCATED_NOTE =
+  '⚠️ Ответ получился длиннее лимита и обрезан — напишите «продолжи». / The answer hit the length limit and was cut — reply "continue".';
+
+/** Шаг модели в цикле агента: поток с текстом и итоговое сообщение. */
+export interface AgentStream {
+  on(event: 'text', cb: (delta: string) => void): unknown;
+  finalMessage(): Promise<Anthropic.Beta.BetaMessage>;
+}
+
+/**
+ * Цикл агента: шаг модели → её вызовы инструментов → результаты обратно →
+ * следующий шаг, пока модель не ответит. История только ДОПИСЫВАЕТСЯ (ответ
+ * модели целиком, с блоками размышлений), система и список инструментов не
+ * меняются — иначе API отбросит её размышления, а кэш промпта перестанет
+ * попадать. Текст между шагами (если модель его всё же пишет) идёт
+ * пользователю через пустую строку и входит в ответ. Экспортирован для тестов.
+ */
+export async function runAgentLoop(opts: {
+  start: (messages: Anthropic.Beta.BetaMessageParam[]) => AgentStream;
+  messages: Anthropic.Beta.BetaMessageParam[];
+  agent: ChatAgent;
+  onToken?: (delta: string) => void;
+  /** Каждый завершённый шаг модели (учёт расхода). */
+  onMessage?: (message: Anthropic.Beta.BetaMessage) => void;
+}): Promise<string> {
+  const { agent, onToken } = opts;
+  const messages = [...opts.messages];
+  const parts: string[] = [];
+  let sentText = false;
+  let rounds = 0;
+  let badInput = 0;
+  for (;;) {
+    const stream = opts.start([...messages]);
+    let wrote = false;
+    stream.on('text', (delta) => {
+      if (!wrote && sentText) onToken?.('\n\n');
+      wrote = true;
+      sentText = true;
+      onToken?.(delta);
+    });
+    let message: Anthropic.Beta.BetaMessage;
+    try {
+      message = await stream.finalMessage();
+      badInput = 0;
+    } catch (err) {
+      // Вход инструмента пришёл нечитаемым JSON (eager_input_streaming):
+      // переиграть шаг, но не больше двух раз и только пока ничего не ушло
+      // пользователю. Ошибки API (лимиты, ключ) — наружу как есть.
+      if (err instanceof Anthropic.APIError || wrote || badInput++ >= 2) throw err;
+      console.warn(`[llm] chat agent: unreadable tool input, re-running the step (${(err as Error).message})`);
+      continue;
+    }
+    opts.onMessage?.(message);
+    if (message.stop_reason === 'refusal') throw new Error('model refused the request');
+    const text = textOf(message).trim();
+    if (text) parts.push(text);
+    const calls = message.content.filter((b): b is Anthropic.Beta.BetaToolUseBlock => b.type === 'tool_use');
+    if (message.stop_reason !== 'tool_use' || !calls.length) {
+      if (message.stop_reason === 'max_tokens' && calls.length) throw new Error('tool input truncated at max_tokens');
+      if (!parts.length) throw new Error(`chat agent ended without an answer (${message.stop_reason})`);
+      if (message.stop_reason === 'max_tokens') {
+        onToken?.(`\n\n${TRUNCATED_NOTE}`);
+        parts.push(TRUNCATED_NOTE);
+      }
+      return parts.join('\n\n');
+    }
+    rounds++;
+    if (rounds > AGENT_MAX_ROUNDS + 1) {
+      // Модель не остановилась и после «лимит исчерпан» — отдаём, что есть.
+      if (parts.length) return parts.join('\n\n');
+      throw new Error('chat agent did not finish within the tool limit');
+    }
+    messages.push({ role: 'assistant', content: message.content });
+    const over = rounds > AGENT_MAX_ROUNDS;
+    const results = await Promise.all(
+      calls.map(async (c, i): Promise<Anthropic.Beta.BetaToolResultBlockParam> => {
+        if (over) {
+          return {
+            type: 'tool_result',
+            tool_use_id: c.id,
+            is_error: true,
+            content: 'The tool limit for this answer is reached. Write the final answer now from what you have, and say what you could not check.',
+          };
+        }
+        if (i >= AGENT_MAX_PARALLEL) {
+          return {
+            type: 'tool_result',
+            tool_use_id: c.id,
+            is_error: true,
+            content: `At most ${AGENT_MAX_PARALLEL} tool calls run at once — repeat this call in your next step if you still need it.`,
+          };
+        }
+        const out = await agent.run({ id: c.id, name: c.name, input: c.input });
+        return { type: 'tool_result', tool_use_id: c.id, content: out.content, ...(out.isError ? { is_error: true } : {}) };
+      }),
+    );
+    // Все результаты — ОДНИМ сообщением (иначе модель отвыкает звать инструменты параллельно).
+    messages.push({ role: 'user', content: results });
+  }
+}
+
+/* ── Агент на DeepSeek (Free): те же инструменты, формат OpenAI ─────────── */
+
+interface DsToolCall {
+  id: string;
+  type: 'function';
+  function: { name: string; arguments: string };
+}
+
+/** Сообщение DeepSeek chat.completions; у ответа модели — её размышления. */
+export type DsMessage =
+  | { role: 'system' | 'user'; content: string }
+  | { role: 'assistant'; content: string; reasoning_content?: string; tool_calls?: DsToolCall[] }
+  | { role: 'tool'; tool_call_id: string; content: string };
+
+/** Кусок потока DeepSeek: текст, размышления и вызовы инструментов приходят частями. */
+export interface DsChunk {
+  choices: {
+    delta?: {
+      content?: string | null;
+      reasoning_content?: string | null;
+      tool_calls?: { index: number; id?: string; type?: string; function?: { name?: string; arguments?: string } }[];
+    };
+    finish_reason?: string | null;
+  }[];
+  usage?: { prompt_tokens?: number; completion_tokens?: number; prompt_cache_hit_tokens?: number } | null;
+}
+
+/** Инструменты агента в формате OpenAI (DeepSeek): то же описание и та же схема. */
+function toDeepseekTools(tools: Anthropic.Beta.BetaTool[]) {
+  return tools.map((t) => ({
+    type: 'function' as const,
+    function: { name: t.name, description: t.description ?? '', parameters: t.input_schema as Record<string, unknown> },
+  }));
+}
+
+/**
+ * Цикл агента на DeepSeek — те же правила, что у runAgentLoop: ≤ 6 раундов,
+ * ≤ 4 вызова за раз, история только дописывается. Особенность DeepSeek: при
+ * инструментах ответ модели обязан вернуться в историю ВМЕСТЕ с её
+ * размышлениями (reasoning_content), иначе API отвечает 400. Экспортирован для тестов.
+ */
+export async function runDeepseekAgentLoop(opts: {
+  create: (messages: DsMessage[]) => Promise<AsyncIterable<DsChunk>>;
+  messages: DsMessage[];
+  agent: ChatAgent;
+  onToken?: (delta: string) => void;
+  onUsage?: (usage: NonNullable<DsChunk['usage']>) => void;
+}): Promise<string> {
+  const { agent, onToken } = opts;
+  const messages = [...opts.messages];
+  const parts: string[] = [];
+  let sentText = false;
+  let rounds = 0;
+  for (;;) {
+    const stream = await opts.create([...messages]);
+    let content = '';
+    let reasoning = '';
+    let finish: string | null = null;
+    let wrote = false;
+    const calls: DsToolCall[] = [];
+    for await (const chunk of stream) {
+      if (chunk.usage) opts.onUsage?.(chunk.usage);
+      const choice = chunk.choices[0];
+      if (!choice) continue;
+      const d = choice.delta ?? {};
+      if (d.reasoning_content) reasoning += d.reasoning_content;
+      if (d.content) {
+        if (!wrote && sentText) onToken?.('\n\n');
+        wrote = true;
+        sentText = true;
+        content += d.content;
+        onToken?.(d.content);
+      }
+      // Первый кусок вызова несёт id и имя, следующие — только аргументы.
+      for (const tc of d.tool_calls ?? []) {
+        const c = (calls[tc.index] ??= { id: '', type: 'function', function: { name: '', arguments: '' } });
+        if (tc.id) c.id = tc.id;
+        if (tc.function?.name && !c.function.name) c.function.name = tc.function.name;
+        if (tc.function?.arguments) c.function.arguments += tc.function.arguments;
+      }
+      if (choice.finish_reason) finish = choice.finish_reason;
+    }
+    if (content.trim()) parts.push(content.trim());
+    const toolCalls = calls.filter(Boolean).map((c, i) => ({ ...c, id: c.id || `call_${rounds}_${i}` }));
+    if (finish !== 'tool_calls' || !toolCalls.length) {
+      if (finish === 'length' && toolCalls.length) throw new Error('tool input truncated at max_tokens');
+      if (!parts.length) throw new Error(`chat agent ended without an answer (${finish})`);
+      if (finish === 'length') {
+        onToken?.(`\n\n${TRUNCATED_NOTE}`);
+        parts.push(TRUNCATED_NOTE);
+      }
+      return parts.join('\n\n');
+    }
+    rounds++;
+    if (rounds > AGENT_MAX_ROUNDS + 1) {
+      if (parts.length) return parts.join('\n\n');
+      throw new Error('chat agent did not finish within the tool limit');
+    }
+    messages.push({ role: 'assistant', content, reasoning_content: reasoning, tool_calls: toolCalls });
+    const over = rounds > AGENT_MAX_ROUNDS;
+    const results = await Promise.all(
+      toolCalls.map(async (c, i): Promise<string> => {
+        if (over) return 'ERROR: The tool limit for this answer is reached. Write the final answer now from what you have, and say what you could not check.';
+        if (i >= AGENT_MAX_PARALLEL) {
+          return `ERROR: At most ${AGENT_MAX_PARALLEL} tool calls run at once — repeat this call in your next step if you still need it.`;
+        }
+        let input: unknown;
+        try {
+          input = c.function.arguments.trim() ? JSON.parse(c.function.arguments) : {};
+        } catch {
+          return `ERROR: ${JSON.stringify({ INVALID_JSON: c.function.arguments.slice(0, 2000) })} — send valid JSON arguments.`;
+        }
+        const out = await agent.run({ id: c.id, name: c.function.name, input });
+        return out.content;
+      }),
+    );
+    // По одному сообщению role:'tool' на каждый вызов, в том же порядке.
+    toolCalls.forEach((c, i) => messages.push({ role: 'tool', tool_call_id: c.id, content: results[i] }));
+  }
+}
+
+/** Расход шага агента DeepSeek — в лог и журнал (поток отдаёт его последним куском). */
+function logDeepseekUsage(op: string, model: string, u: NonNullable<DsChunk['usage']>): void {
+  console.log(
+    `[llm] ${op}: ${model} (DeepSeek agent step), in ${u.prompt_tokens ?? '?'} / out ${u.completion_tokens ?? '?'} tokens` +
+      (u.prompt_cache_hit_tokens ? `, cache hit ${u.prompt_cache_hit_tokens}` : ''),
+  );
+  recordLlmUsage({
+    op,
+    model,
+    inputTokens: u.prompt_tokens ?? 0,
+    outputTokens: u.completion_tokens ?? 0,
+    cacheReadTokens: u.prompt_cache_hit_tokens ?? 0,
+  });
+}
+
+/**
+ * Агент для служебной задачи без пользователя в потоке (например, починка
+ * ссылок в разборе): модель тарифа — Claude или DeepSeek — с инструментами,
+ * те же лимиты шагов, что в чате. Возвращает итоговый текст модели. Запасной
+ * модели нет: сбой — это ошибка, вызывающий решает сам (fail closed).
+ */
+export async function runTaskAgent(opts: {
+  op: string;
+  plan?: string | null;
+  /** Явная модель (замер eval); иначе — модель тарифа. */
+  model?: string;
+  system: string;
+  user: string;
+  agent: ChatAgent;
+}): Promise<string> {
+  const model = opts.model ?? modelForPlan(opts.plan);
+  if (isDeepSeekModel(model)) {
+    const ds = getDeepseek();
+    if (!ds) throw new Error('DEEPSEEK_API_KEY is not set');
+    const dsTools = toDeepseekTools(opts.agent.tools);
+    return runDeepseekAgentLoop({
+      create: (messages) =>
+        ds.chat.completions.create({
+          model,
+          max_tokens: AGENT_MAX_TOKENS,
+          messages: messages as OpenAI.Chat.ChatCompletionMessageParam[],
+          tools: dsTools,
+          stream: true,
+          stream_options: { include_usage: true },
+        }) as unknown as Promise<AsyncIterable<DsChunk>>,
+      messages: [
+        { role: 'system', content: opts.system },
+        { role: 'user', content: opts.user },
+      ],
+      agent: opts.agent,
+      onUsage: (u) => logDeepseekUsage(opts.op, model, u),
+    });
+  }
+  const api = getClient();
+  if (!api) throw new Error('ANTHROPIC_API_KEY is not set');
+  return runAgentLoop({
+    start: (messages) =>
+      startStream(api, {
+        op: opts.op,
+        model,
+        maxTokens: AGENT_MAX_TOKENS,
+        system: [{ type: 'text', text: opts.system }],
+        messages,
+        effort: 'medium',
+        tools: opts.agent.tools,
+      }),
+    messages: [{ role: 'user', content: opts.user }],
+    agent: opts.agent,
+    onMessage: (message) => logUsage(opts.op, model, message),
+  });
+}
+
+/**
  * Generate an assistant reply. `onToken` fires for each streamed text delta;
  * resolves with the full reply text. `docContext` (optional) grounds the reply
  * in a specific contract — used for document Q&A.
@@ -876,6 +1223,8 @@ export async function generateChatReply(
   legalContext?: string | null,
   /** /plan или /slides — инструкция режима (lib/chatModes.ts); null — обычный чат. */
   mode?: ChatMode | null,
+  /** Инструменты агента; без них — прежний чат одним запросом. */
+  agent?: ChatAgent,
 ): Promise<string> {
   if (!hasAnyLlm()) {
     if (!llmFallbackAllowed()) throw serviceUnavailable(LLM_UNAVAILABLE);
@@ -901,6 +1250,7 @@ export async function generateChatReply(
     if (jurisdiction) {
       base += `\n\nThe user's default jurisdiction is ${jurisdiction}. Answer under that law unless the user or their document indicates otherwise.`;
     }
+    if (agent) base += `\n\n${agent.instructions}`;
     // System blocks, most stable first: the big contract context carries a
     // cache breakpoint (reused turn after turn — cached reads are ~90% cheaper
     // and faster), while the rolling summary changes and stays after it.
@@ -923,7 +1273,7 @@ export async function generateChatReply(
     if (legalContext) {
       system.push({
         type: 'text',
-        text: `Relevant provisions from Lexab's verified statute database (official sources; each starts with its [unit id]):\n<legal_context>\n${legalContext}\n</legal_context>\nWhen you cite legislation of this jurisdiction, cite ONLY provisions present in this legal context, with the exact article/section/point numbers shown (Uzbek presidential decrees are cited as «п. <N> УП-<№>»/«п. <N> ПП-<№>»). If none of them covers the question, say the database has no matching provision, then answer from general principles and note the citation is not verified. Never invent article numbers.`,
+        text: `Relevant provisions from Lexab's verified statute database (official sources; each starts with its [unit id]):\n<legal_context>\n${legalContext}\n</legal_context>\nWhen you cite legislation of this jurisdiction, cite ONLY provisions present in this legal context${agent ? ' or returned by your tools' : ''}, with the exact article/section/point numbers shown (Uzbek presidential decrees are cited as «п. <N> УП-<№>»/«п. <N> ПП-<№>»; Supreme Court Plenum resolutions as «п. <N> постановления Пленума ВС № <№> от <дд.мм.гггг>» — a Plenum explains how courts apply the law and is not a law itself). If ${agent ? 'neither these nor your searches cover' : 'none of them covers'} the question, say the database has no matching provision, then answer from general principles and note the citation is not verified. Never invent article numbers.`,
       });
     }
     // Режим /plan или /slides — последним блоком: он задаёт форму ответа и
@@ -933,10 +1283,72 @@ export async function generateChatReply(
     // Retry on the default model only while nothing has streamed to the client
     // yet — a mid-stream retry would duplicate the visible reply.
     let streamed = false;
+
+    // Агент: цикл вынесен в runAgentLoop (тестируется на подставной модели).
+    const runAgent = (api: Anthropic, model: string, tools: ChatAgent): Promise<string> =>
+      runAgentLoop({
+        start: (messages) =>
+          startStream(api, {
+            op: 'chat',
+            model,
+            maxTokens: Math.max(maxTokens, AGENT_MAX_TOKENS),
+            system,
+            messages,
+            effort: 'medium',
+            tools: tools.tools,
+          }),
+        messages: turns.map((t) => ({ role: t.role, content: t.content })),
+        agent: tools,
+        onToken: (delta) => {
+          streamed = true;
+          onToken?.(delta);
+        },
+        onMessage: (message) => logUsage('chat', model, message),
+      });
+    // Агент на DeepSeek (Free). Прежние реплики идут ОДНИМ блоком в вопросе, а
+    // не отдельными сообщениями: с инструментами DeepSeek требует вернуть
+    // размышления ко ВСЕМ своим прошлым ответам (иначе 400), а мы храним только
+    // их текст. Размышления текущего ответа между шагами цикл возвращает сам.
+    const runDeepseekAgent = (model: string, tools: ChatAgent): Promise<string> => {
+      const ds = getDeepseek();
+      if (!ds) throw new Error('DEEPSEEK_API_KEY is not set');
+      const earlier = turns.slice(0, -1);
+      const current = turns[turns.length - 1]?.content ?? userText;
+      const question = earlier.length
+        ? `Earlier in this conversation (oldest first):\n<conversation>\n${earlier
+            .map((t) => `${t.role === 'user' ? 'User' : 'Lexab'}: ${t.content}`)
+            .join('\n\n')}\n</conversation>\n\nThe user's new message:\n${current}`
+        : current;
+      const dsTools = toDeepseekTools(tools.tools);
+      return runDeepseekAgentLoop({
+        create: (messages) =>
+          ds.chat.completions.create({
+            model,
+            // Размышления DeepSeek входят в этот же потолок.
+            max_tokens: AGENT_MAX_TOKENS,
+            messages: messages as OpenAI.Chat.ChatCompletionMessageParam[],
+            tools: dsTools,
+            stream: true,
+            stream_options: { include_usage: true },
+          }) as unknown as Promise<AsyncIterable<DsChunk>>,
+        messages: [
+          { role: 'system', content: system.map((b) => b.text).join('\n\n') },
+          { role: 'user', content: question },
+        ],
+        agent: tools,
+        onToken: (delta) => {
+          streamed = true;
+          onToken?.(delta);
+        },
+        onUsage: (u) => logDeepseekUsage('chat', model, u),
+      });
+    };
+
     const runChat = async (model: string): Promise<string> => {
       // ── DeepSeek path: same system content flattened to one string (its API
       // has no cache-control blocks — DeepSeek caches context automatically).
       if (isDeepSeekModel(model)) {
+        if (agent) return runDeepseekAgent(model, agent);
         return runDeepseek({
           op: 'chat',
           model,
@@ -957,6 +1369,7 @@ export async function generateChatReply(
 
       const api = getClient();
       if (!api) throw new Error('ANTHROPIC_API_KEY is not set');
+      if (agent) return runAgent(api, model, agent);
       // effort 'medium': visibly faster replies at no extra cost — chat answers
       // are short and grounded, they don't need deep deliberation.
       const stream = startStream(api, { op: 'chat', model, maxTokens, system, messages: turns, effort: 'medium' });
@@ -995,7 +1408,7 @@ export async function generateChatReply(
 }
 
 const SUMMARY_SYSTEM =
-  'You maintain a running summary of a legal-assistant chat. Merge the previous summary with the new turns into ONE updated summary of at most 120 words, in the language of the conversation. Keep only what matters for future turns: document names, key facts and figures, legal positions taken, decisions made, open questions, user preferences. Output the summary only — no preamble.';
+  'You maintain a running summary of a legal-assistant chat. Merge the previous summary with the new turns into ONE updated summary of at most 120 words, in the language of the conversation. Keep only what matters for future turns: which party the user represents (if they said), document names, key facts and figures, legal positions taken, decisions made, open questions, user preferences. Output the summary only — no preamble.';
 
 /**
  * Rolling summary of older chat turns (context-window management): the last

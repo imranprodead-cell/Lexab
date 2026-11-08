@@ -182,6 +182,8 @@ interface ChatState {
   setServerSession: (id: string | null) => void;
   /** Show a specific analysis in the workspace (e.g. from the Documents page). */
   adoptAnalysis: (analysis: AnalysisResult) => void;
+  /** Перечитать открытый разбор с сервера (после правки, принятой из чата), не трогая разговор. */
+  refreshAnalysis: (analysisId: string) => Promise<void>;
   /** Сохранённый документ: открыть текст в воркспейсе БЕЗ анализа.
    *  Пока draftSource установлен, воркспейс показывает кнопку «Анализ рисков». */
   draftSource: { savedTemplateId: string; title: string; content: string } | null;
@@ -950,6 +952,12 @@ export const useChatStore = create<ChatState>((set, get) => {
   },
 
   // Documents page → "Open workspace": show that document's own analysis.
+  refreshAnalysis: async (analysisId) => {
+    const fresh = await analysisApi.get(analysisId).catch(() => null);
+    // История правок редактора относится к прежнему документу — начинаем заново.
+    if (fresh && get().analysis?.id === analysisId) set({ analysis: fresh, docUndo: [], docRedo: [] });
+  },
+
   adoptAnalysis: (analysis) => {
     clearStepTimers();
     finishActiveStreams();

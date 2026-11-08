@@ -13,6 +13,7 @@
 import { getDb, migrate, type Db } from '../../db.ts';
 import { newId } from '../../lib/ids.ts';
 import { fetchActXml, parseActXml, type ParsedAct } from './legislation-uk.ts';
+import { pathToFileURL } from 'node:url';
 
 /** Pilot: acts most relevant to commercial contract review. */
 export const PILOT_ACTS = [
@@ -128,4 +129,6 @@ async function main(): Promise<void> {
   if (errors > 0) process.exitCode = 1;
 }
 
-void main();
+// Запуск только напрямую (npm run rag:ingest…): импорт списка документов из
+// другого скрипта не должен сам писать в базу.
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) void main();

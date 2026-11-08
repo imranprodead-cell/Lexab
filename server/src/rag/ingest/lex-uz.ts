@@ -13,7 +13,7 @@
 import { createHash } from 'node:crypto';
 import type { LegalUnit } from '../types.ts';
 import type { ParsedDocument } from './upsert.ts';
-import { normalizeUzDocNumber } from '../uz-doc-number.ts';
+import { normalizePlenumNumber, normalizeUzDocNumber, plenumDocNumber, type PlenumCourt } from '../uz-doc-number.ts';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -54,6 +54,16 @@ const decodeEntities = (s: string): string =>
 
 const strip = (html: string): string => decodeEntities(html.replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim();
 
+/** Надстрочный номер вставной статьи/пункта: «383<sup>1</sup>» → «383-1».
+ *  atStart — только в начале абзаца (номер пункта), не в тексте («м<sup>2</sup>»). */
+export function supToDash(html: string, atStart = false): string {
+  // Точка бывает и внутри <sup> («27<sup>1.</sup>») — выносим её наружу.
+  const re = atStart
+    ? /^(\s*(?:<[^>]+>\s*)*\d{1,4})\s*<sup>\s*(\d{1,2})(\.?)\s*<\/sup>/i
+    : /(\d)\s*<sup>\s*(\d{1,2})(\.?)\s*<\/sup>/gi;
+  return html.replace(re, '$1-$2$3');
+}
+
 /** Short display title: «Гражданский кодекс Республики Узбекистан (часть первая)». */
 function titleOf(html: string): { title: string; adopted: string | null } {
   const m = html.match(/<title>(.*?)<\/title>/s);
@@ -64,8 +74,44 @@ function titleOf(html: string): { title: string; adopted: string | null } {
   return { title, adopted };
 }
 
-export function parseLexUzHtml(docId: string, html: string, url: string): ParsedDocument {
-  const { title, adopted } = titleOf(html);
+/** «РАЗДЕЛ ПЕРВЫЙ» → 1 (Конституция нумерует разделы словами). */
+const ORDINAL_WORDS = ['ПЕРВЫЙ', 'ВТОРОЙ', 'ТРЕТИЙ', 'ЧЕТВЕРТЫЙ', 'ПЯТЫЙ', 'ШЕСТОЙ', 'СЕДЬМОЙ', 'ВОСЬМОЙ', 'ДЕВЯТЫЙ', 'ДЕСЯТЫЙ'];
+const ordinalToInt = (word: string): number | null => {
+  const i = ORDINAL_WORDS.indexOf(word.toUpperCase().replace(/Ё/g, 'Е'));
+  return i < 0 ? null : i + 1;
+};
+
+/** «Глава ХIV» → 14. На lex.uz римские цифры местами набраны кириллицей
+ *  (Х и І вместо X и I) — приводим к латинице перед разбором. */
+export function romanToInt(raw: string): number | null {
+  const s = raw.toUpperCase().replace(/Х/g, 'X').replace(/І/g, 'I').replace(/С/g, 'C').replace(/М/g, 'M');
+  if (!/^[IVXLCDM]+$/.test(s)) return null;
+  const val: Record<string, number> = { I: 1, V: 5, X: 10, L: 50, C: 100, D: 500, M: 1000 };
+  let total = 0;
+  for (let i = 0; i < s.length; i++) {
+    const cur = val[s[i]];
+    const next = val[s[i + 1]] ?? 0;
+    total += cur < next ? -cur : cur;
+  }
+  return total > 0 ? total : null;
+}
+
+export interface LexUzLawOptions {
+  /** Разделы словами («РАЗДЕЛ ПЕРВЫЙ») и главы римскими цифрами («Глава ХIV»),
+   *  как в Конституции. Включается ТОЛЬКО для отмеченных документов — разбор
+   *  остальных законов не меняется ни на символ. */
+  romanHeadings?: boolean;
+  /** Название вместо <title> страницы. Нужно для законов «в новой редакции»:
+   *  действующий текст лежит на странице закона-изменения («О внесении
+   *  изменений… в Закон «О банках…»»), а юрист и ИИ должны видеть имя
+   *  самого закона. */
+  title?: string;
+}
+
+export function parseLexUzHtml(docId: string, html: string, url: string, opts: LexUzLawOptions = {}): ParsedDocument {
+  const page = titleOf(html);
+  const title = opts.title ?? page.title;
+  const { adopted } = page;
   const retrievedAt = new Date().toISOString();
   const sha256 = createHash('sha256').update(html).digest('hex');
 
@@ -78,7 +124,9 @@ export function parseLexUzHtml(docId: string, html: string, url: string): Parsed
   const paras: { anchor: string; cls: string; text: string }[] = [];
   const re = /<div class="(CLAUSE_DEFAULT|TEXT_HEADER_DEFAULT|ACT_TEXT|BY_DEFAULT)(?: lx_elem)?"[\s\S]*?<div name="(\d+)" id="\2">([\s\S]*?)<\/div><\/div>/g;
   for (let m = re.exec(html); m; m = re.exec(html)) {
-    const text = strip(m[3]);
+    // «Статья 1<sup>1</sup>» (вставная статья 1¹) → «Статья 1-1». Без этого
+    // strip склеивал номер в «11», и статья 1¹ затирала настоящую статью 11.
+    const text = strip(m[1] === 'CLAUSE_DEFAULT' ? supToDash(m[3]) : m[3]);
     if (text) paras.push({ anchor: m[2], cls: m[1], text });
   }
   if (!paras.length) throw new Error(`parsed 0 paragraphs for lex.uz/${docId} — refusing partial save`);
@@ -97,7 +145,20 @@ export function parseLexUzHtml(docId: string, html: string, url: string): Parsed
   };
 
   const crumbRoot = `UZ / ${title}`;
-  let part: { id: string; label: string } | null = null;
+  let part: { id: string; label: string; num: string } | null = null;
+  // Повтор номера раздела/главы = началось приложение со своей нумерацией
+  // (ЗРУ-682: после гл. 1–8 закона идут гл. 1–8 приложения). Без этого его
+  // главы затирали главы самого закона.
+  const seenStruct = new Set<string>();
+  const repeatStartsAnnex = (id: string): boolean => {
+    if (!seenStruct.has(id)) {
+      seenStruct.add(id);
+      return false;
+    }
+    flushArticle();
+    inAnnex = true;
+    return true;
+  };
   let subpart: { id: string; label: string } | null = null;
   let chapter: { id: string; label: string } | null = null;
   let article: { id: string; num: string; heading: string; anchor: string; body: string[] } | null = null;
@@ -134,23 +195,38 @@ export function parseLexUzHtml(docId: string, html: string, url: string): Parsed
       continue;
     }
     if (p.cls === 'TEXT_HEADER_DEFAULT') {
-      const razdel = p.text.match(/^РАЗДЕЛ\s+([IVXLC\d]+)\.?\s*(.*)/i);
+      let razdel = p.text.match(/^РАЗДЕЛ\s+([IVXLC\d]+)\.?\s*(.*)/i);
       const podrazdel = p.text.match(/^ПОДРАЗДЕЛ\s+([IVXLC\d]+)\.?\s*(.*)/i);
-      const glava = p.text.match(/^ГЛАВА\s+(\d+(?:-\d+)?)\.?\s*(.*)/i);
+      let glava = p.text.match(/^ГЛАВА\s+(\d+(?:-\d+)?)\.?\s*(.*)/i);
+      if (opts.romanHeadings) {
+        // Номер приводится к арабскому: id и breadcrumb в той же форме, что у
+        // остальных законов («Раздел 1», «Глава 14»).
+        const withNumber = (m: RegExpMatchArray, n: number) => [m[0], String(n), m[2]] as unknown as RegExpMatchArray;
+        const w = razdel ? null : p.text.match(/^РАЗДЕЛ\s+([А-ЯЁ]+)\.?\s*(.*)/iu);
+        const wn = w ? ordinalToInt(w[1]) : null;
+        if (w && wn) razdel = withNumber(w, wn);
+        const r = glava ? null : p.text.match(/^ГЛАВА\s+([IVXLCХІ]+)\.?\s*(.*)/iu);
+        const rn = r ? romanToInt(r[1]) : null;
+        if (r && rn) glava = withNumber(r, rn);
+      }
       // Структурная шапка ОСНОВНОГО текста завершает режим приложения.
       if (razdel || podrazdel || glava) inAnnex = false;
       if (razdel) {
         flushArticle();
         const label = `Раздел ${razdel[1]}`;
         const id = unitId(`razdel-${razdel[1]}`);
-        part = { id, label };
+        if (repeatStartsAnnex(id)) continue;
+        part = { id, label, num: razdel[1] };
         subpart = null;
         chapter = null;
         push({ id, parentId: null, unitType: 'part', number: razdel[1], heading: razdel[2]?.trim() || null, breadcrumb: `${crumbRoot} / ${label}`, text: '', officialUnitUri: `${url}#${p.anchor}` });
       } else if (podrazdel) {
         flushArticle();
         const label = `Подраздел ${podrazdel[1]}`;
-        const id = unitId(`podrazdel-${part?.label.replace(/\D+/g, '') ?? 'x'}-${podrazdel[1]}`);
+        // Номер раздела, а не цифры из подписи: у разделов с римскими номерами
+        // («Раздел I») цифр нет, и подразделы разных разделов совпадали.
+        const id = unitId(`podrazdel-${part?.num ?? 'x'}-${podrazdel[1]}`);
+        if (repeatStartsAnnex(id)) continue;
         subpart = { id, label };
         chapter = null;
         push({ id, parentId: part?.id ?? null, unitType: 'part', number: podrazdel[1], heading: podrazdel[2]?.trim() || null, breadcrumb: `${crumbRoot}${part ? ` / ${part.label}` : ''} / ${label}`, text: '', officialUnitUri: `${url}#${p.anchor}` });
@@ -158,6 +234,7 @@ export function parseLexUzHtml(docId: string, html: string, url: string): Parsed
         flushArticle();
         const label = `Глава ${glava[1]}`;
         const id = unitId(`glava-${glava[1]}`);
+        if (repeatStartsAnnex(id)) continue;
         chapter = { id, label };
         push({ id, parentId: subpart?.id ?? part?.id ?? null, unitType: 'chapter', number: glava[1], heading: glava[2]?.trim() || null, breadcrumb: [crumbRoot, part?.label, subpart?.label].filter(Boolean).join(' / ') + ` / ${label}`, text: '', officialUnitUri: `${url}#${p.anchor}` });
       }
@@ -232,7 +309,9 @@ export function parseLexUzDecreeHtml(docId: string, html: string, url: string): 
 
   const paras: { anchor: string; cls: string; text: string }[] = [];
   for (let m = DECREE_BLOCK_RE.exec(html); m; m = DECREE_BLOCK_RE.exec(html)) {
-    const text = strip(m[4]);
+    // Вставной пункт «4<sup>1</sup>.» → «4-1.», а не «41.» (иначе монотонный
+    // гейт принял бы его за пункт 41 и проглотил следующие пункты).
+    const text = strip(supToDash(m[4], true));
     if (text) paras.push({ anchor: m[3], cls: m[1], text });
   }
   DECREE_BLOCK_RE.lastIndex = 0;
@@ -357,4 +436,66 @@ export function parseLexUzDecreeHtml(docId: string, html: string, url: string): 
     modifiedOnSource: null,
     units,
   };
+}
+
+/* ── Постановления Пленума Верховного суда и бывшего Высшего хозяйственного суда ─
+ * Устроены как указы: преамбула «…Пленум ПОСТАНОВЛЯЕТ:» и нумерованные пункты,
+ * поэтому пункты разбирает parseLexUzDecreeHtml (сам он не меняется). Здесь
+ * поверх него:
+ *  - номер и дата из шапки сверяются с ожидаемыми из UZ_DOCS, суд — с блоком
+ *    ACCEPTING_BODY: опечатка в lex.uz-ID падает громко, чужой акт не пишется;
+ *  - название получает вид акта, суд и номер — и ИИ, и юрист видят, что это
+ *    разъяснение Пленума, а не закон;
+ *  - doc_number канонический («ПВХС-163-2007») — по нему резолвятся цитаты
+ *    «п. 6 постановления Пленума ВХС № 163».
+ */
+const PLENUM_TITLE: Record<PlenumCourt, string> = {
+  ВС: 'Постановление Пленума Верховного суда (ВС)',
+  ВХС: 'Постановление Пленума Высшего хозяйственного суда (ВХС)',
+  'ВС+ВХС': 'Совместное постановление Пленумов Верховного суда и Высшего хозяйственного суда (ВС и ВХС)',
+};
+
+export interface PlenumExpect {
+  court: PlenumCourt;
+  /** Номер как на lex.uz: «163», «17», «13/150». */
+  number: string;
+  /** ДД.ММ.ГГГГ */
+  date: string;
+}
+
+export function parseLexUzPlenumHtml(docId: string, html: string, url: string, expect: PlenumExpect): ParsedDocument {
+  const base = parseLexUzDecreeHtml(docId, html, url);
+
+  const head = strip(html.match(/id="lx_lact_num_top"[^>]*>([\s\S]{0,400}?)<\/div>/)?.[1] ?? '');
+  const date = head.match(/(\d{2}\.\d{2}\.\d{4})/)?.[1] ?? null;
+  const number = normalizePlenumNumber(head.match(/№\s*(\d[\d\s/]*[а-яА-Я]?)/u)?.[1]?.trim());
+  if (!date || date !== expect.date || !number || number !== normalizePlenumNumber(expect.number)) {
+    throw new Error(`шапка lex.uz/${docId} «${head}»: ожидали № ${expect.number} от ${expect.date} — не та страница? refusing`);
+  }
+
+  // Текст блока — во внутреннем <div name id>, как у абзацев (до него идёт
+  // панель «Предложения по документу…»); суды разделены <br />.
+  const bodyHtml = html.match(/<div class="ACCEPTING_BODY[^"]*"[\s\S]*?<div name="(\d+)" id="\1">([\s\S]*?)<\/div><\/div>/)?.[2] ?? '';
+  const body = strip(bodyHtml.replace(/<br\s*\/?>/gi, ' ')).toUpperCase();
+  const hasVs = /ВЕРХОВН/u.test(body);
+  const hasVhs = /ВЫСШ\S*\s+ХОЗЯЙСТВЕНН/u.test(body);
+  const court: PlenumCourt | null = hasVs && hasVhs ? 'ВС+ВХС' : hasVhs ? 'ВХС' : hasVs ? 'ВС' : null;
+  if (court !== expect.court) {
+    throw new Error(`суд lex.uz/${docId}: в шапке «${body}», ожидали ${expect.court} — refusing`);
+  }
+
+  const docNumber = plenumDocNumber(court, number, date.slice(6));
+  const subject = base.title.replace(/^\S+-сон\s+\d{2}\.\d{2}\.\d{4}\.?\s*/u, '').trim();
+  const title = `${PLENUM_TITLE[court]} № ${number} от ${date} «${subject}»`;
+
+  // Пункты уже собраны с корнем breadcrumb из сырого названия — меняем корень
+  // и пересчитываем контрольную сумму юнита (она включает breadcrumb).
+  const oldRoot = `UZ / ${base.title}`;
+  const newRoot = `UZ / ${title}`;
+  const units = base.units.map((u) => {
+    const breadcrumb = u.breadcrumb.startsWith(oldRoot) ? newRoot + u.breadcrumb.slice(oldRoot.length) : u.breadcrumb;
+    return { ...u, breadcrumb, sha256Checksum: createHash('sha256').update(`${breadcrumb}|${u.heading ?? ''}|${u.text}`).digest('hex') };
+  });
+
+  return { ...base, docType: 'plenum', docNumber, title, units };
 }

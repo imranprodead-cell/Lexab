@@ -81,23 +81,31 @@
 }
 
 /* Icon button ------------------------------------------------------------- */
+/* Кнопка-иконка без рамки (как «Закрыть» у боковой панели): серая подложка
+   появляется только при наведении. Рамку вокруг иконки убрали везде —
+   решение владельца 2026-10-31. */
 .iconBtn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 38px;
   height: 38px;
+  padding: 0;
   border-radius: var(--r-md);
   background: transparent;
-  border: 1px solid var(--border);
+  border: none;
   color: var(--dim);
   cursor: pointer;
   flex-shrink: 0;
-  transition: color var(--dur-fast), border-color var(--dur-fast),
-    background var(--dur-fast);
+  transition: color var(--dur-fast), background var(--dur-fast);
 }
-.iconBtn:hover {
+.iconBtn:hover:not(:disabled) {
+  background: var(--hover-2);
   color: var(--text);
+}
+.iconBtn:disabled {
+  color: var(--mut);
+  cursor: default;
 }
 .iconBtnSm {
   width: 34px;
@@ -165,17 +173,25 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  max-width: 100%;
+  min-width: 0;
   font-family: var(--font-label);
   font-size: 12px;
   color: var(--dim);
   padding: 4px 11px;
-  border-radius: 999px;
+  border-radius: 13px;
   background: var(--panel-2);
   border: 1px solid var(--panel-edge);
   transition: background var(--dur-fast) var(--ease);
 }
 .chip:hover {
   background: var(--panel);
+}
+/* Номер статьи важнее всего — ссылка не обрезается, а переносится. */
+.chipText {
+  min-width: 0;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 .chipMark {
   width: 5px;
@@ -193,11 +209,21 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  /* В узкой колонке бейдж не вылезает за карточку: текст переносится. */
+  max-width: 100%;
+  min-width: 0;
   font-family: var(--font-label);
   font-size: 11.5px;
   padding: 3px 10px;
-  border-radius: 999px;
-  white-space: nowrap;
+  border-radius: 12px;
+  white-space: normal;
+}
+.verify > svg {
+  flex-shrink: 0;
+}
+.verifyText {
+  min-width: 0;
+  line-height: 1.35;
 }
 .verifyOk {
   color: var(--sev-low);

@@ -30,6 +30,8 @@ function useElapsed(work: ChatWork | undefined, running: boolean): number {
  * по таким-то запросам, нашёл такие-то нормы, обдумываю ответ). Шаги приходят
  * с сервера и описывают только то, что он реально сделал. Когда пошёл текст
  * ответа, блок сворачивается в «Готово · 8 с» — его можно раскрыть.
+ * Шаги агента (tool-N): поиск по базе, открытая статья, проверка ссылки,
+ * перечитанный договор, расчёт — с тем, что именно сделано.
  */
 export function WorkSteps({ work, working }: { work?: ChatWork; working: boolean }) {
   const { t, lang } = useI18n();
@@ -37,10 +39,40 @@ export function WorkSteps({ work, working }: { work?: ChatWork; working: boolean
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
   const open = userOpen ?? working;
   const seconds = useElapsed(work, working);
-  const steps = work?.steps ?? [];
+  // «Обдумываю ответ» — всегда последним: шаги агента (tool-N) приходят после него.
+  const all = work?.steps ?? [];
+  const steps = [...all.filter((s) => s.id !== 'answer'), ...all.filter((s) => s.id === 'answer')];
+
+  const searchTitle = (jurisdiction: string | undefined): ReactNode => {
+    const c = lawCountry(jurisdiction);
+    return (
+      <>
+        {t('work.searchBefore')}{' '}
+        <span className={styles.workChipStrong}>
+          <Icon name="folder" size={13} />
+          {t('work.lawBase', { country: c ? countryName(c, lang) : (jurisdiction ?? '') })}
+        </span>{' '}
+        {t('work.searchAfter')}
+      </>
+    );
+  };
 
   const title = (step: ChatStep): ReactNode => {
     const d = step.data ?? {};
+    if (step.id.startsWith('tool-')) {
+      if (d.tool === 'search_law') return searchTitle(d.jurisdiction);
+      if (d.tool === 'get_provision') return t('work.tool.getProvision');
+      if (d.tool === 'verify_citation') return t('work.tool.verifyCitation');
+      if (d.tool === 'read_contract') return t('work.tool.readContract');
+      if (d.tool === 'search_documents') return t('work.tool.searchDocuments');
+      if (d.tool === 'propose_edit') return t('work.tool.proposeEdit');
+      if (d.tool === 'get_review_edits') return t('work.tool.reviewEdits');
+      if (d.tool === 'propose_reminder') return t('work.tool.reminder');
+      if (d.tool === 'get_playbook') return t('work.tool.playbook');
+      if (d.tool === 'compare_versions') return t('work.tool.compare');
+      if (d.tool === 'calculate') return t('work.tool.calculate');
+      return null;
+    }
     switch (step.id) {
       case 'prompt':
         return t('work.prompt');
@@ -54,26 +86,113 @@ export function WorkSteps({ work, working }: { work?: ChatWork; working: boolean
         return t(`work.mode.${d.mode === 'slides' || d.mode === 'approve' ? d.mode : 'plan'}`);
       case 'answer':
         return working ? `${t('work.thinking')} · ${t('work.seconds', { n: seconds })}` : t('work.thinking');
-      case 'search': {
-        const c = lawCountry(d.jurisdiction);
-        return (
-          <>
-            {t('work.searchBefore')}{' '}
-            <span className={styles.workChipStrong}>
-              <Icon name="folder" size={13} />
-              {t('work.lawBase', { country: c ? countryName(c, lang) : (d.jurisdiction ?? '') })}
-            </span>{' '}
-            {t('work.searchAfter')}
-          </>
-        );
-      }
+      case 'search':
+        return searchTitle(d.jurisdiction);
       default:
         return null;
     }
   };
 
+  const chips = (items: string[], icon: 'search' | 'doc') => (
+    <div className={styles.workChips}>
+      {items.map((q) => (
+        <span key={q} className={styles.workChip} title={q}>
+          <Icon name={icon} size={12} />
+          <span className={styles.workChipText}>{q}</span>
+        </span>
+      ))}
+    </div>
+  );
+
+  const toolDetails = (step: ChatStep): ReactNode => {
+    const d = step.data ?? {};
+    if (d.tool === 'get_provision') {
+      const shown = d.refs?.length ? d.refs.map((r) => (r.doc ? `${r.label} · ${r.doc}` : r.label)) : d.citation ? [d.citation] : [];
+      return (
+        <>
+          {shown.length ? chips(shown, 'doc') : null}
+          {step.status === 'done' && d.found === 0 ? <div className={styles.workDesc}>{t('work.verdict.not_found')}</div> : null}
+        </>
+      );
+    }
+    if (d.tool === 'verify_citation') {
+      return (
+        <>
+          {d.citation ? chips([d.citation], 'doc') : null}
+          {step.status === 'done' && d.verdict ? <div className={styles.workDesc}>{t(`work.verdict.${d.verdict}`)}</div> : null}
+        </>
+      );
+    }
+    if (d.tool === 'read_contract') {
+      return (
+        <>
+          {d.files?.length ? (
+            <div className={styles.workChips}>
+              {d.files.map((f) => (
+                <span key={f} className={styles.workChip}>
+                  <FileIcon name={f} size={16} />
+                  <span className={styles.workChipText}>{f}</span>
+                </span>
+              ))}
+            </div>
+          ) : null}
+          {d.queries?.length ? chips(d.queries, 'search') : null}
+        </>
+      );
+    }
+    if (d.tool === 'search_documents') {
+      return (
+        <>
+          {d.queries?.length ? chips(d.queries, 'search') : null}
+          {step.status === 'done' && d.found !== undefined ? (
+            <div className={styles.workDesc}>{d.found ? t('work.docsFound', { n: d.found }) : t('work.docsNone')}</div>
+          ) : null}
+          {d.files?.length ? (
+            <div className={styles.workChips}>
+              {d.files.map((f) => (
+                <span key={f} className={styles.workChip}>
+                  <FileIcon name={f} size={16} />
+                  <span className={styles.workChipText}>{f}</span>
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </>
+      );
+    }
+    if (d.tool === 'propose_edit' && d.citation) return chips([d.citation], 'doc');
+    if (d.tool === 'propose_reminder' && d.citation) return chips([d.citation], 'doc');
+    if (d.tool === 'get_playbook' && step.status === 'done' && d.found !== undefined) {
+      return <div className={styles.workDesc}>{d.found ? t('work.playbookFound') : t('work.playbookNone')}</div>;
+    }
+    if (d.tool === 'compare_versions') {
+      return (
+        <>
+          {d.files?.length ? (
+            <div className={styles.workChips}>
+              {d.files.map((f) => (
+                <span key={f} className={styles.workChip}>
+                  <FileIcon name={f} size={16} />
+                  <span className={styles.workChipText}>{f}</span>
+                </span>
+              ))}
+            </div>
+          ) : null}
+          {step.status === 'done' && d.found !== undefined ? (
+            <div className={styles.workDesc}>{d.found ? t('work.diffFound', { n: d.found }) : t('work.diffNone')}</div>
+          ) : null}
+        </>
+      );
+    }
+    if (d.tool === 'calculate' && d.expression) {
+      return <div className={styles.workDesc}>{d.result ? `${d.expression} = ${d.result}` : d.expression}</div>;
+    }
+    return null;
+  };
+
   const details = (step: ChatStep): ReactNode => {
     const d = step.data ?? {};
+    if (step.id.startsWith('tool-') && d.tool !== 'search_law') return toolDetails(step);
     if (step.id === 'contract' && d.name) {
       return (
         <div className={styles.workChips}>
@@ -96,7 +215,7 @@ export function WorkSteps({ work, working }: { work?: ChatWork; working: boolean
         </div>
       );
     }
-    if (step.id === 'search') {
+    if (step.id === 'search' || d.tool === 'search_law') {
       const result =
         step.status !== 'done'
           ? null
@@ -158,7 +277,15 @@ export function WorkSteps({ work, working }: { work?: ChatWork; working: boolean
             return (
               <li key={step.id} className={styles.workStep} data-active={active ? 'true' : undefined}>
                 <span className={styles.workMarker} aria-hidden="true">
-                  {step.id === 'search' ? <Icon name="search" size={14} strokeWidth={2} /> : <span className={styles.workDot} />}
+                  {step.id === 'search' || step.data?.tool === 'search_law' ? (
+                    <Icon name="search" size={14} strokeWidth={2} />
+                  ) : step.data?.tool === 'search_documents' ? (
+                    <Icon name="folder" size={14} strokeWidth={2} />
+                  ) : step.data?.tool === 'get_provision' || step.data?.tool === 'verify_citation' ? (
+                    <Icon name="doc" size={14} strokeWidth={2} />
+                  ) : (
+                    <span className={styles.workDot} />
+                  )}
                 </span>
                 <div className={`${styles.workTitle} ${active ? styles.workShimmer : ''}`}>{title(step)}</div>
                 {details(step)}

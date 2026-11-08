@@ -445,6 +445,55 @@ describe('prompt improver', () => {
     assert.equal(res.statusCode, 200, res.body);
     assert.equal(JSON.parse(res.body).text, '[dev] проверь договор аренды на скрытые риски');
   });
+
+  it('monthly Improve caps: Free 25, Standard 120, Pro 550 (then 402 improve_limit); Business uncapped', async () => {
+    const counter = async (id: string) =>
+      Number(
+        (await db.query<{ n: number | string }>(
+          `SELECT coalesce(max(improve_requests), 0) AS n FROM usage_counters WHERE user_id = $1 AND month = date_trunc('month', now())::date`,
+          [id],
+        )).rows[0].n,
+      );
+    const improve = (token: string, text = 'проверь договор аренды на скрытые риски') =>
+      app.inject({ method: 'POST', url: '/api/prompts/improve', headers: auth(token), payload: { text } });
+
+    const free = await makeUser();
+    const bad = await improve(free.token, 'проверь мой договор аренды');
+    assert.equal(bad.statusCode, 400);
+    assert.equal(await counter(free.id), 0, 'отказ по вводу попытку не тратит');
+    assert.equal((await improve(free.token)).statusCode, 200);
+    assert.equal(await counter(free.id), 1, 'удачное нажатие считается');
+
+    // 23 нажатия уже потрачены в этом месяце → 24-е и 25-е проходят, 26-е — нет.
+    await db.query(`UPDATE usage_counters SET improve_requests = 23 WHERE user_id = $1 AND month = date_trunc('month', now())::date`, [free.id]);
+    assert.equal((await improve(free.token)).statusCode, 200);
+    assert.equal((await improve(free.token)).statusCode, 200);
+    assert.equal(await counter(free.id), 25);
+    const over = await improve(free.token);
+    assert.equal(over.statusCode, 402, over.body);
+    const body = JSON.parse(over.body);
+    assert.equal(body.code, 'improve_limit');
+    assert.equal(body.details?.limit, 25);
+    assert.equal(await counter(free.id), 25, 'отказ сверх лимита счётчик не двигает');
+
+    // Standard 120 и Pro 550: последнее разрешённое проходит, следующее — 402.
+    for (const [plan, limit] of [['Standard', 120], ['Pro', 550]] as const) {
+      const u = await makeUser();
+      await db.query('UPDATE subscriptions SET plan = $2 WHERE user_id = $1', [u.id, plan]);
+      assert.equal((await improve(u.token)).statusCode, 200, plan);
+      await db.query(`UPDATE usage_counters SET improve_requests = $2 WHERE user_id = $1 AND month = date_trunc('month', now())::date`, [u.id, limit - 1]);
+      assert.equal((await improve(u.token)).statusCode, 200, `${plan}: ${limit}-е проходит`);
+      const blocked = await improve(u.token);
+      assert.equal(blocked.statusCode, 402, `${plan}: ${limit + 1}-е — отказ`);
+      assert.equal(JSON.parse(blocked.body).details?.limit, limit);
+    }
+
+    // Business — месячного потолка нет и счётчик не ведётся.
+    const biz = await makeUser();
+    await db.query('UPDATE subscriptions SET plan = $2 WHERE user_id = $1', [biz.id, 'Business']);
+    assert.equal((await improve(biz.token)).statusCode, 200);
+    assert.equal(await counter(biz.id), 0, 'у Business месячного счётчика нет');
+  });
 });
 
 describe('saved documents (saved from chat, Vault → Documents)', () => {

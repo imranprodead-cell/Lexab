@@ -2,6 +2,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { Icon, type IconName } from '@/components/icons/Icon';
 import { Spinner } from '@/components/ui/Spinner';
 import { promptsApi } from '@/api/prompts.api';
+import { ApiError } from '@/api/util';
+import { apiErrorMessage } from '@/i18n/apiError';
 import { useVoiceInput } from '@/hooks/useVoiceInput';
 import { useI18n } from '@/i18n/I18nProvider';
 import { useUIStore } from '@/store/useUIStore';
@@ -179,7 +181,10 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFiles, onCloud
         textareaRef.current?.focus();
       }
     } catch (err) {
-      if (!(err instanceof DOMException && err.name === 'AbortError')) {
+      if (err instanceof ApiError && err.code === 'improve_limit') {
+        // Месячный потолок «Улучшить» по тарифу: сказать прямо, а не «попробуйте ещё раз».
+        pushToast(apiErrorMessage(err, t), 'error');
+      } else if (!(err instanceof DOMException && err.name === 'AbortError')) {
         pushToast(t('chat.improveError'), 'error');
       }
     } finally {

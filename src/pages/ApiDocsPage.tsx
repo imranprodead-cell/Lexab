@@ -404,7 +404,7 @@ curl ${base}/v1/usage -H "X-API-Key: lxb_YOUR_KEY"`;
 
   return (
     <div className={styles.page}>
-      <TopBar title={t('api.docsPage.title')} />
+      <TopBar title={t('api.docsPage.title')} hideCountry />
       <div className={`${styles.body} scroll`}>
         <div className={styles.container}>
           <div className={styles.pageHead} ref={headReveal}>

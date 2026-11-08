@@ -205,7 +205,8 @@
 }
 .findingCardClickable {
   cursor: pointer;
-  align-items: center;
+  /* Точка, «Обсудить» и стрелка — на уровне заголовка, а не посередине высокой карточки. */
+  align-items: flex-start;
   text-align: start;
   width: 100%;
   transition: background var(--dur-fast), border-color var(--dur-fast);
@@ -229,6 +230,7 @@
 .discussBtn {
   width: 28px;
   height: 28px;
+  margin-top: -4px;
   border-radius: 8px;
   border: none;
   background: transparent;
@@ -255,6 +257,11 @@
   font-weight: 600;
   margin-bottom: 5px;
   line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.findingCardChevron {
+  flex-shrink: 0;
+  margin-top: 3px;
 }
 
 /* Right document viewer --------------------------------------------------- */

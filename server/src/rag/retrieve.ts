@@ -14,7 +14,7 @@ import type { Db } from '../db.ts';
 import { MODELS, noThinking } from '../models.ts';
 import { embeddingsEnabled, embedTexts, rerankTexts, toVectorLiteral } from './embeddings.ts';
 import type { RetrieveParams, RetrievedChunk } from './types.ts';
-import { normalizeUzDocNumber } from './uz-doc-number.ts';
+import { normalizePlenumNumber, normalizeUzDocNumber, plenumPrefix, type PlenumCourt } from './uz-doc-number.ts';
 
 const REWRITE_SCHEMA = {
   type: 'object',
@@ -303,6 +303,9 @@ const RU_ALIASES: Record<string, RuAlias[]> = {
   UZ: [
     // ГПК СТРОГО ВЫШЕ общего /Гражданск/ («первое совпадение выигрывает»):
     // иначе «ст. 45 Гражданского процессуального кодекса» уехала бы в ГК.
+    // ОСАГО СТРОГО выше /Гражданск/ (в названии закона — «гражданской
+    // ответственности»), /страхов/ и /транспорт/ (2026-10-31).
+    { re: /обязательн\S*\s+страховани\S*\s+гражданск|(?<![А-Яа-яЁёA-Za-z])ОСАГО(?![А-Яа-яЁёA-Za-z])/i, pattern: '%Об обязательном страховании гражданской ответственности%' },
     { re: /Гражданск\S*\s+процессуальн/i, pattern: '%Гражданский процессуальный кодекс%' },
     { re: cyrWord('ГПК'), pattern: '%Гражданский процессуальный кодекс%' },
     { re: /Гражданск/i, pattern: 'Гражданский кодекс%' },
@@ -311,6 +314,8 @@ const RU_ALIASES: Record<string, RuAlias[]> = {
     { re: cyrWord('ТК'), pattern: '%Трудовой кодекс%' },
     { re: /(?:Экономическ|Хозяйственн)\S*\s+процессуальн/i, pattern: '%Экономический процессуальный кодекс%' },
     { re: cyrWord('ЭПК'), pattern: '%Экономический процессуальный кодекс%' },
+    // «Закон о залоговом реестре» СТРОГО выше общего /залог/ (2026-10-31).
+    { re: /залогов\S*\s+реестр/i, pattern: '%О залоговом реестре%' },
     { re: /ипотек/i, pattern: '%Об ипотеке%' },
     { re: /залог/i, pattern: '%О залоге%' },
     { re: /обществ\S*\s+с\s+ограниченной/i, pattern: '%с ограниченной ответственностью%' },
@@ -392,6 +397,56 @@ const RU_ALIASES: Record<string, RuAlias[]> = {
     { re: /масъулияти\s+чекланган/i, pattern: '%с ограниченной ответственностью%' },
     { re: /акциядорлик/i, pattern: '%Об акционерных обществах%' },
     { re: /электрон\s+ра[қк]амли\s+имзо/i, pattern: '%Об электронной цифровой подписи%' },
+    // ── Волна 7 (2026-10-31): кодексы и законы для бизнеса. Ключевые слова
+    //    специфичны; конфликтующие (залоговый реестр, ОСАГО) — выше по списку.
+    // Налоговый и Земельный кодексы в корпусе с волны 2, но алиасов не было —
+    // «ст. 24 Земельного кодекса» не резолвилась.
+    { re: /налогов\S*\s+кодекс/i, pattern: 'Налоговый кодекс%' },
+    { re: cyrWord('НК'), pattern: 'Налоговый кодекс%' },
+    { re: /земельн\S*\s+кодекс/i, pattern: 'Земельный кодекс%' },
+    { re: cyrWord('ЗК'), pattern: 'Земельный кодекс%' },
+    { re: /административн\S*\s+ответственност/i, pattern: '%об административной ответственности%' },
+    { re: cyrWord('КоАО'), pattern: '%об административной ответственности%' },
+    { re: cyrWord('КоАП'), pattern: '%об административной ответственности%' },
+    { re: /административн\S*\s+судопроизводств/i, pattern: '%об административном судопроизводстве%' },
+    { re: cyrWord('КоАС'), pattern: '%об административном судопроизводстве%' },
+    { re: /семейн\S*\s+предпринимательств/i, pattern: '%О семейном предпринимательстве%' },
+    { re: /семейн\S*\s+кодекс/i, pattern: 'Семейный кодекс%' },
+    { re: cyrWord('СК'), pattern: 'Семейный кодекс%' },
+    { re: /оила\s+кодекс/i, pattern: 'Семейный кодекс%' },
+    { re: /центральн\S*\s+банк/i, pattern: '%О Центральном банке%' },
+    { re: /легализаци\S*\s+доход|отмывани\S*\s+(?:доход|денег)/i, pattern: '%О противодействии легализации доходов%' },
+    { re: /коррупци/i, pattern: '%О противодействии коррупции%' },
+    { re: /конфликт\S*\s+интерес/i, pattern: '%О конфликте интересов%' },
+    { re: /информатизаци/i, pattern: '%Об информатизации%' },
+    { re: /охран\S*\s+труда/i, pattern: '%Об охране труда%' },
+    { re: /занятост/i, pattern: '%О занятости населения%' },
+    { re: /кредитн\S*\s+информаци/i, pattern: '%Об обмене кредитной информацией%' },
+    { re: /приватизаци/i, pattern: '%О приватизации государственного имущества%' },
+    { re: /фермерск/i, pattern: '%О фермерском хозяйстве%' },
+    { re: /туризм|туристск/i, pattern: '%О туризме%' },
+    { re: /телекоммуникаци/i, pattern: '%О телекоммуникациях%' },
+    { re: /ри[эе]лтор/i, pattern: '%О риэлторской деятельности%' },
+    { re: /государственн\S*\s+пошлин|госпошлин/i, pattern: '%О государственной пошлине%' },
+    { re: /вред\S*,?\s+причин\S*\s+незаконн/i, pattern: '%О возмещении вреда, причиненного незаконным%' },
+    { re: /обращени\S*\s+физическ/i, pattern: '%Об обращениях физических и юридических лиц%' },
+    { re: /(?<![А-Яа-яЁёA-Za-z])о\s+судах(?![А-Яа-яЁёA-Za-z])/i, pattern: '%О судах%' },
+    { re: /адвокат/i, pattern: '%Об адвокатуре%' },
+    // Акты волны 2 (с 2026-07-19 в корпусе) без алиасов: ссылка без кавычек
+    // («ст. 11 Закона о валютном регулировании») не резолвилась (2026-11-08).
+    { re: /валютн\S*\s+регулирован/i, pattern: '%О валютном регулировании%' },
+    { re: /инвестиц/i, pattern: '%Об инвестициях и инвестиционной деятельности%' },
+    { re: /государственн\S*\s+закуп|госзакуп/i, pattern: '%О государственных закупках%' },
+    { re: /лицензирован/i, pattern: '%О лицензировании%' },
+    { re: /неплатежеспособн|банкротств/i, pattern: '%О неплатежеспособности%' },
+    { re: /конкуренци/i, pattern: '%О конкуренции%' },
+    // ── Вершина иерархии (2026-10-31): Конституция и Закон о НПА. СТРОГО В
+    //    КОНЦЕ: срабатывают, только когда ни один алиас выше не подошёл, —
+    //    уже работающие цитаты не меняются. «Конституционный закон» и узб.
+    //    «конституциявий» (= конституционный) — это НЕ Конституция. ──────────
+    { re: /нормативно-правов\S*\s+акт/i, pattern: '%О нормативно-правовых актах%' },
+    { re: /Конституци(?!онн|явий)/i, pattern: 'Конституция Республики Узбекистан%' },
+    { re: /Konstitutsiya(?!viy)/i, pattern: 'Конституция Республики Узбекистан%' },
   ],
   KZ: [
     { re: /Гражданск/i, pattern: 'Гражданский кодекс%' },
@@ -417,6 +472,8 @@ export interface RuCitation {
  *  не совпал → null (fail-closed). Чистая функция — покрыта юнит-тестами
  *  (server/test/citations.test.ts). */
 export function parseRuCitation(citation: string, jurisdiction: string): RuCitation | null {
+  // Вставные статьи: «ст. 383¹ ГК» → «383-1» — так они хранятся в базе.
+  citation = citation.replace(/(\d)([⁰¹²³⁴⁵⁶⁷⁸⁹]+)/g, (_, d: string, sup: string) => `${d}-${[...sup].map((c) => '⁰¹²³⁴⁵⁶⁷⁸⁹'.indexOf(c)).join('')}`);
   // Номер статьи: русская форма «ст. 260», казахская «260-бап», узбекская
   // «260-modda(si)» и кириллицей «260-модда(си/сида)».
   const st =
@@ -451,6 +508,32 @@ export function parseUzDecreeCitation(citation: string): { number: string; docNu
   const docNumber = normalizeUzDocNumber(act?.[0] ?? null);
   if (!docNumber) return null;
   return { number: point[1], docNumber };
+}
+
+/** Разбор цитаты на ПОСТАНОВЛЕНИЕ ПЛЕНУМА: «п. 6 постановления Пленума ВХС
+ *  № 163 от 15.06.2007», «пункт 3 постановления Пленума Верховного суда от
+ *  22 декабря 2006 года № 17», «п. 5 совместного постановления Пленумов ВС и
+ *  ВХС № 13/150». Пробуется ТОЛЬКО когда parseRuCitation вернул null, раньше
+ *  указной ветки. Без «Пленум», номера пункта, номера постановления или суда →
+ *  null (fail-closed). Год — из даты, если есть: номера постановлений ВС
+ *  каждый год начинаются заново. */
+export function parseUzPlenumCitation(
+  citation: string,
+): { number: string; court: PlenumCourt; actNumber: string; year: string | null } | null {
+  if (!/пленум/iu.test(citation) || /прилож/iu.test(citation)) return null;
+  const point = citation.match(/(?<![А-Яа-яЁёA-Za-z])(?:п\.|пункт[а-яё]*)\s*№?\s*(\d{1,3}(?:[.-]\d{1,2})?)/iu);
+  if (!point) return null;
+  const actNumber = normalizePlenumNumber(citation.match(/№\s*(\d{1,4}[а-яё]?(?:\s*\/\s*\d{1,4})?)(?!\d)/iu)?.[1]);
+  if (!actNumber) return null;
+  const vs = /Верховн\S*\s+суд|(?<![А-Яа-яЁёA-Za-z])ВС(?![А-Яа-яЁёA-Za-z])/u.test(citation);
+  const vhs = /Высш\S*\s+хозяйственн|(?<![А-Яа-яЁёA-Za-z])ВХС(?![А-Яа-яЁёA-Za-z])/u.test(citation);
+  const court: PlenumCourt | null = actNumber.includes('/') || (vs && vhs) ? 'ВС+ВХС' : vhs ? 'ВХС' : vs ? 'ВС' : null;
+  if (!court) return null;
+  const year =
+    citation.match(/\d{1,2}\.\d{2}\.((?:19|20)\d{2})/)?.[1] ??
+    citation.match(/((?:19|20)\d{2})\s*(?:г\.|года|год\b)/u)?.[1] ??
+    null;
+  return { number: point[1], court, actNumber, year };
 }
 
 /** Resolve a textual citation to a unit in force.
@@ -510,6 +593,28 @@ export async function resolveCitationText(
   } else {
     const parsed = parseRuCitation(citation, jurisdiction);
     if (!parsed) {
+      // Пленумы: канонический doc_number «ПВХС-163-2007». С годом — точное
+      // равенство; без года — по префиксу, и только если совпал ровно один
+      // документ (у ВС № 16 есть и 1999, и 2023 год — тогда null).
+      if (jurisdiction === 'UZ') {
+        const pl = parseUzPlenumCitation(citation);
+        if (pl) {
+          const prefix = `${plenumPrefix(pl.court)}-${pl.actNumber}-`;
+          const unit = await db.query<{ id: string }>(
+            `SELECT u.id
+             FROM legal_units u
+             JOIN legal_documents d ON d.id = u.document_id AND d.jurisdiction = $2 AND d.doc_type = 'plenum'
+                  AND ${pl.year ? 'd.doc_number = $1' : 'd.doc_number LIKE $1'}
+             WHERE u.unit_type = 'section' AND u.number = $4 AND u.parent_id IS NULL
+               AND (u.valid_from IS NULL OR u.valid_from <= $3::date)
+               AND (u.valid_to   IS NULL OR u.valid_to   >= $3::date)
+             ORDER BY u.ord ASC, u.id ASC
+             LIMIT 2`,
+            [pl.year ? prefix + pl.year : `${prefix}%`, jurisdiction, asOfDate, pl.number],
+          );
+          return unit.rows.length === 1 ? unit.rows[0].id : null;
+        }
+      }
       // УП/ПП Узбекистана: «п. 5 УП-6079» → ТОЧНОЕ равенство doc_number (не
       // ILIKE), только пункты основного текста (parent_id IS NULL — пункты
       // приложений не резолвим), без fallback: нет совпадения → null.
@@ -542,7 +647,7 @@ export async function resolveCitationText(
   // specific) title, then a stable id tiebreak — never an arbitrary LIMIT 1.
   // With a single matching act (the ГК's two continuously-numbered parts still
   // resolve by u.number) the ORDER BY is a no-op, so retrieval is unchanged.
-  // doc_type-фильтр: титульная ветка НИКОГДА не отдаёт пункты УП/ПП — названия
+  // doc_type-фильтр: титульная ветка НИКОГДА не отдаёт пункты УП/ПП и Пленумов — названия
   // указов часто содержат имя закона как подстроку («О мерах по реализации
   // Закона "О персональных данных"»), и «ст. 5 Закона …» иначе могла бы
   // зарезолвиться в «п. 5» указа. Декретные цитаты идут по doc_number выше.
@@ -551,7 +656,7 @@ export async function resolveCitationText(
      FROM legal_units u
      JOIN legal_documents d ON d.id = u.document_id AND d.jurisdiction = $2 AND d.title ILIKE $1
      WHERE u.unit_type = 'section' AND u.number = $4
-       AND d.doc_type NOT IN ('decree', 'resolution')
+       AND d.doc_type NOT IN ('decree', 'resolution', 'plenum')
        AND (u.valid_from IS NULL OR u.valid_from <= $3::date)
        AND (u.valid_to   IS NULL OR u.valid_to   >= $3::date)
      ORDER BY (lower(d.title) = lower(btrim($1, '%'))) DESC, length(d.title) ASC, d.id ASC

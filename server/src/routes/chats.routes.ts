@@ -20,7 +20,9 @@ import { toIso } from '../lib/format.ts';
 import { newId } from '../lib/ids.ts';
 import { openSSE, wantsSSE, type SseChannel } from '../lib/sse.ts';
 import { asObject, requireString } from '../lib/validate.ts';
-import { canTranscribeScans, generateChatReply, generateHistorySummary, type ChatTurn } from '../llm.ts';
+import { canTranscribeScans, generateChatReply, generateHistorySummary, usesChatAgent, type ChatAgent, type ChatTurn } from '../llm.ts';
+import { CHAT_AGENT_INSTRUCTIONS, citedProvisionNumbers, createChatToolRunner, refNumber, type ChatDocument } from '../lib/chatTools.ts';
+import { appendEditBlocks, appendReminderBlocks, loadEditTarget, type EditProposal, type EditTarget, type ReminderProposal } from '../lib/chatActions.ts';
 import { jurisdictionCode, retrieveLegalContext } from '../rag/retrieve.ts';
 import type { ChatMessage, ChatSession, ChatStep } from '../types.ts';
 import { parseChatMode } from '../lib/chatModes.ts';
@@ -456,6 +458,9 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
       // Вложения этого вопроса и прежних вопросов чата (новые первыми): модель
       // видит файлы на каждом ходу, пока о них спрашивают. С разбором договора
       // делят общий потолок контекста — вложениям достаётся половина.
+      // Полные тексты договора и файлов — для инструмента агента read_contract
+      // (в промпт файлы идут с обрезкой по бюджету, агент дочитает остальное).
+      const agentDocs: ChatDocument[] = docContext ? [{ name: contractName || 'Contract', text: docContext }] : [];
       const chatFiles = await sessionAttachments(db, sessionId);
       if (chatFiles.length) {
         const files = chatFiles.map((f) => f.name);
@@ -464,6 +469,7 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
           plan,
           budget: docContext ? 45_000 : undefined,
           log: (m) => req.log.warn(m),
+          onText: (name, fullText) => agentDocs.push({ name, text: fullText, pure: true }),
         });
         if (filesContext) docContext = docContext ? `${filesContext}\n\n${docContext}` : filesContext;
         step({ id: 'files', status: 'done', data: { files } });
@@ -580,7 +586,29 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
       }
       if (mode) step({ id: 'mode', status: 'done', data: { mode } });
 
-      const finish = async (replyText: string): Promise<ChatMessage> => {
+      // Вкладка Sources при агенте — только нормы, на которые ответ опирается:
+      // открытые или подтверждённые агентом (agentUsed) и те из найденных (до
+      // ответа и поиском агента), на номер которых ответ ссылается. Всё, что
+      // лишь всплыло в поиске, в Sources не идёт (живой прогон 31.10: 25 норм,
+      // включая Трудовой и Таможенный кодексы, при ответе по поставке).
+      const agentUsed: LawRef[] = [];
+      const agentFound: LawRef[] = [];
+      let agentRan = false;
+      // Правки, предложенные агентом, — карточками «Принять» в конце ответа.
+      const proposals: EditProposal[] = [];
+      const reminders: ReminderProposal[] = [];
+      const finish = async (rawReply: string): Promise<ChatMessage> => {
+        const replyText = appendReminderBlocks(appendEditBlocks(rawReply, proposals), reminders);
+        if (agentRan) {
+          const cited = citedProvisionNumbers(rawReply);
+          const seenRefs = new Set<string>();
+          foundRefs = [...agentUsed, ...[...foundRefs, ...agentFound].filter((r) => cited.has(refNumber(r.label) ?? ''))].filter((r) => {
+            const key = `${r.label}|${r.doc}`;
+            if (seenRefs.has(key)) return false;
+            seenRefs.add(key);
+            return true;
+          });
+        }
         const messageId = newId('m');
         await db.query(
           `INSERT INTO chat_messages (id, session_id, role, kind, text, refs) VALUES ($1, $2, 'assistant', 'text', $3, $4::jsonb)`,
@@ -598,6 +626,47 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
         return { id: messageId, role: 'assistant', kind: 'text', text: replyText, ...(foundRefs.length ? { refs: foundRefs } : {}) };
       };
 
+      // Агент (платные тарифы — Claude, Free — DeepSeek): модель сама ищет
+      // нормы, открывает и проверяет статьи, перечитывает договор и считает.
+      // Каждый вызов — шаг tool-N в ходе работы; инструменты только читают.
+      // Разбор этого чата: читать правки может любой, кому он открыт (чат уже
+      // проверил доступ); предлагать правки — только с правом на запись.
+      let review: { analysisId: string; ownerId: string; documentId?: string | null; documentName?: string } | undefined;
+      let editTarget: EditTarget | undefined;
+      if (analysisId && usesChatAgent(plan)) {
+        const owner = await resolveAnalysisAccess(db, req.currentUser.id, analysisId).catch(() => null);
+        if (owner) {
+          const docName = owner.documentId
+            ? (await db.query<{ name: string }>('SELECT name FROM documents WHERE id = $1', [owner.documentId])).rows[0]?.name
+            : undefined;
+          review = { analysisId, ownerId: owner.analysisUserId, documentId: owner.documentId, documentName: docName };
+        }
+        editTarget = (await loadEditTarget(db, req.currentUser.id, analysisId)) ?? undefined;
+      }
+      const agent: ChatAgent | undefined = usesChatAgent(plan)
+        ? (() => {
+            const runner = createChatToolRunner({
+              db,
+              userId: req.currentUser.id,
+              plan,
+              review,
+              editTarget,
+              onProposal: (p) => proposals.push(p),
+              onReminder: (r) => reminders.push(r),
+              jurisdiction: corpus,
+              documents: agentDocs,
+              onStep: (s) => step(s),
+              toRefs: async (units) => {
+                const links = await unitLinks(db, units.map((u) => u.unitId)).catch(() => new Map<string, string>());
+                return units.map((u) => refOf(u, links)).filter((r) => r.label);
+              },
+              onRefs: (refs, kind) => (kind === 'used' ? agentUsed : agentFound).push(...refs),
+            });
+            return { tools: runner.tools, run: runner.run, instructions: CHAT_AGENT_INSTRUCTIONS };
+          })()
+        : undefined;
+      agentRan = Boolean(agent);
+
       // «Обдумываю ответ» — до первого слова модели (клиент закрывает шаг сам).
       step({ id: 'answer', status: 'active' });
       const replyText = await generateChatReply(
@@ -610,6 +679,7 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
         summary,
         legalContext,
         mode,
+        agent,
       );
       const message = await finish(replyText);
       if (!channel) return message;

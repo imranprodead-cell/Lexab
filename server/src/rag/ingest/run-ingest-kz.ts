@@ -10,6 +10,7 @@ import { getDb, migrate } from '../../db.ts';
 import { newId } from '../../lib/ids.ts';
 import { fetchAdiletHtml, parseAdiletHtml } from './adilet-kz.ts';
 import { upsertParsedDocument } from './upsert.ts';
+import { pathToFileURL } from 'node:url';
 
 /** Пилот: договорное право РК (зеркалит узбекский набор). */
 export const PILOT_KZ_DOCS = [
@@ -68,4 +69,6 @@ async function main(): Promise<void> {
   if (errors > 0) process.exitCode = 1;
 }
 
-void main();
+// Запуск только напрямую (npm run rag:ingest…): импорт списка документов из
+// другого скрипта не должен сам писать в базу.
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) void main();

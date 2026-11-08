@@ -97,6 +97,17 @@ export const analysisApi = {
     return http<AnalysisResult>(`/documents/${documentId}/analysis`, { signal });
   },
 
+  /** Правка, предложенная агентом в чате, — по кнопке «Принять» (сервер проверяет права и что пункт есть в договоре). */
+  async addRedline(analysisId: string, delText: string, insText: string): Promise<Redline> {
+    if (USE_MOCK) {
+      await delay(80);
+      const rl: Redline = { id: `r${db.analysis.redlines.length + 1}`, delText, insText, severity: 'Medium', status: 'accepted' };
+      db.analysis.redlines.push(rl);
+      return clone(rl);
+    }
+    return http<Redline>(`/analysis/${analysisId}/redlines`, { method: 'POST', body: { delText, insText } });
+  },
+
   /** Persist a redline decision — accept, reject, or revert back to pending (undo). */
   async updateRedline(analysisId: string, redlineId: string, status: RedlineStatus): Promise<void> {
     if (USE_MOCK) {

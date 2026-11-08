@@ -180,6 +180,13 @@ export const config = {
    *  «переписать со страницы», а не рассуждать, — поэтому самая дешёвая модель,
    *  читающая PDF. Один вызов на документ. */
   ocrModel: env('OCR_MODEL', MODELS.haiku),
+  /** Агент чата (инструменты: база законов, проверка ссылок, договор,
+   *  калькулятор) на тарифах с моделью Claude. CHAT_AGENT=0 — выключить без
+   *  выкатки (чат вернётся к одному запросу). */
+  chatAgentEnabled: env('CHAT_AGENT', '1') !== '0',
+  /** Агент чинит неподтверждённые ссылки в разборе договора (вместо простого
+   *  понижения риска). ANALYSIS_AGENT=0 — выключить без выкатки. */
+  analysisAgentEnabled: env('ANALYSIS_AGENT', '1') !== '0',
   /** Per-plan model: better plan → smarter model (see llm.ts modelForPlan).
    *  Models prefixed "deepseek" route to the DeepSeek client, everything else
    *  to Anthropic. Free defaults to DeepSeek when DEEPSEEK_API_KEY is set. */

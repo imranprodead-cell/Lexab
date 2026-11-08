@@ -18,6 +18,7 @@ import { TaskSidebar } from '@/components/chat/TaskSidebar';
 import { CloudImportModal } from '@/components/chat/CloudImportModal';
 import { MessageActions } from '@/components/chat/MessageActions';
 import { MarkdownMessage } from '@/components/chat/MarkdownMessage';
+import { AgentActionCards } from '@/components/chat/EditProposalCards';
 import { DeckCard } from '@/components/chat/DeckCard';
 import { ArtifactPanel } from '@/components/chat/ArtifactPanel';
 import { PlanApprovalCard, PlanApprovedPill, QuestionCard } from '@/components/chat/ChoiceCards';
@@ -786,6 +787,8 @@ export function ChatPage() {
               </div>
             ) : null
           )}
+          {/* Правки, предложенные агентом: «Принять» вносит их в документ. */}
+          {!m.streaming && m.text ? <AgentActionCards text={m.text} /> : null}
           {!m.streaming && shown.trim() ? (
             <MessageActions message={{ ...m, text: displayText(m.text ?? '') }} onFeedback={setFeedback} />
           ) : null}
@@ -1038,7 +1041,13 @@ export function ChatPage() {
     </div>
     {/* Progress / Context — в переписке; открытый документ занимает его место. */}
     {!panel && !onWelcome && messages.length > 0 ? (
-      <TaskSidebar messages={messages} sessionKey={serverSessionId ?? (USE_MOCK ? 'local' : null)} onOpenArtifact={openArtifact} />
+      <TaskSidebar
+        messages={messages}
+        sessionKey={serverSessionId ?? (USE_MOCK ? 'local' : null)}
+        onOpenArtifact={openArtifact}
+        analysis={phase === 'analyzed' ? analysis : null}
+        onOpenWorkspace={openWorkspace}
+      />
     ) : null}
     {panel ? <ArtifactPanel artifact={panel} onClose={() => setPanel(null)} /> : null}
     </div>

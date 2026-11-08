@@ -214,7 +214,7 @@ export function SettingsPage() {
   if (loading || !form) {
     return (
       <div className={styles.page}>
-        <TopBar title={t('settings.title')} />
+        <TopBar title={t('settings.title')} hideCountry />
         <div style={{ padding: '24px 32px' }}>
           <SkeletonRows rows={6} height={56} />
         </div>
@@ -330,7 +330,7 @@ export function SettingsPage() {
 
   return (
     <div className={styles.page}>
-      <TopBar title={t('settings.title')} />
+      <TopBar title={t('settings.title')} hideCountry />
       <div className={`${styles.body} scroll`}>
         <div className={styles.container}>
           <div className={styles.pageHead} ref={headReveal}>

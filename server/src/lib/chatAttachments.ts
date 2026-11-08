@@ -115,7 +115,13 @@ export async function buildAttachmentsContext(
   db: Db,
   userId: string,
   attachments: StoredAttachment[],
-  opts: { plan?: string; budget?: number; log?: (msg: string) => void } = {},
+  opts: {
+    plan?: string;
+    budget?: number;
+    log?: (msg: string) => void;
+    /** Полный текст каждого читаемого файла (без обрезки) — для инструмента read_contract. */
+    onText?: (name: string, text: string) => void;
+  } = {},
 ): Promise<string | undefined> {
   if (!attachments.length) return undefined;
   const budget = opts.budget ?? ATTACHMENTS_BUDGET;
@@ -136,6 +142,7 @@ export async function buildAttachmentsContext(
     const text = await readableUploadText(db, { id: row.id, fileName: a.name, stored: row.extracted_text }, decrypted);
     if (text?.trim()) {
       const clean = text.trim();
+      opts.onText?.(a.name, clean);
       const shown = clean.length > perFile ? clean.slice(0, perFile) : clean;
       const cut =
         clean.length > perFile

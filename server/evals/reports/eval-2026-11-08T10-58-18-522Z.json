@@ -1,0 +1,28 @@
+{
+  "at": "2026-11-08T10:48:55.582Z",
+  "model": "deepseek-flash",
+  "golden": "uz-wave7.jsonl",
+  "questions": 20,
+  "retrieval": {
+    "hit@5": 1,
+    "hit@10": 1,
+    "recall@10": 1
+  },
+  "corpus": {
+    "jurisdiction": "UZ",
+    "documents": 175,
+    "chunks": 11730,
+    "contextCoverage": 1,
+    "embeddingCoverage": 1
+  },
+  "baseline": {
+    "findings": 16,
+    "citationPrecision": 0.063,
+    "unverifiedShare": 0.938
+  },
+  "rag": {
+    "findings": 56,
+    "citationPrecision": 1,
+    "unverifiedShare": 0
+  }
+}

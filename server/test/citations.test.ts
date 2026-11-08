@@ -3,8 +3,8 @@
    Плюс parseUzDecreeCitation («п. 5 УП-6079») и normalizeUzDocNumber. */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseRuCitation, parseUzDecreeCitation } from '../src/rag/retrieve.ts';
-import { normalizeUzDocNumber } from '../src/rag/uz-doc-number.ts';
+import { parseRuCitation, parseUzDecreeCitation, parseUzPlenumCitation } from '../src/rag/retrieve.ts';
+import { normalizePlenumNumber, normalizeUzDocNumber, plenumDocNumber } from '../src/rag/uz-doc-number.ts';
 
 const uz = (c: string) => parseRuCitation(c, 'UZ');
 const kz = (c: string) => parseRuCitation(c, 'KZ');
@@ -191,4 +191,97 @@ test('волна 6: ГПК выше ГК, новые алиасы законов
   assert.equal(uz('ст. 14 Закона о защите частной собственности')?.titlePattern, '%О защите частной собственности%');
   assert.equal(uz('ст. 30 Закона об административных процедурах')?.titlePattern, '%Об административных процедурах%');
   assert.equal(uz('ст. 16 Закона о медиации')?.titlePattern, '%О медиации%');
+});
+
+test('Конституция и Закон о НПА: ловятся, но не перебивают прежние алиасы', () => {
+  assert.deepEqual(uz('ст. 15 Конституции Республики Узбекистан'), { number: '15', titlePattern: 'Конституция Республики Узбекистан%' });
+  assert.equal(uz('статья 53 Конституции')?.titlePattern, 'Конституция Республики Узбекистан%');
+  assert.equal(uz('Konstitutsiyaning 20-moddasi')?.titlePattern, 'Конституция Республики Узбекистан%');
+  assert.deepEqual(uz('ст. 18 Закона о нормативно-правовых актах'), { number: '18', titlePattern: '%О нормативно-правовых актах%' });
+  assert.equal(uz('ст. 18 Закона «О нормативно-правовых актах»')?.titlePattern, '%О нормативно-правовых актах%');
+  // «Конституционный закон» и узб. «конституциявий» — не Конституция.
+  assert.equal(uz('ст. 5 Конституционного закона о Кабинете Министров'), null);
+  assert.equal(uz('5-модда конституциявий қонун'), null);
+  // Алиасы в конце списка: смешанная цитата остаётся за прежним алиасом.
+  assert.equal(uz('ст. 164 ГК (в свете ст. 53 Конституции)')?.titlePattern, 'Гражданский кодекс%');
+});
+
+const pl = (c: string) => parseUzPlenumCitation(c);
+
+test('Пленум: суд, номер постановления, пункт, год', () => {
+  assert.deepEqual(pl('п. 6 постановления Пленума ВХС № 163 от 15.06.2007'), { number: '6', court: 'ВХС', actNumber: '163', year: '2007' });
+  assert.deepEqual(pl('пункт 3 постановления Пленума Верховного суда от 22 декабря 2006 года № 17'), { number: '3', court: 'ВС', actNumber: '17', year: '2006' });
+  assert.deepEqual(pl('п. 12 постановления Пленума Высшего хозяйственного суда Республики Узбекистан № 269'), { number: '12', court: 'ВХС', actNumber: '269', year: null });
+  // Совместные: по «/» в номере или по обоим судам.
+  assert.deepEqual(pl('п. 5 совместного постановления Пленумов ВС и ВХС № 13/150 от 22.12.2006'), { number: '5', court: 'ВС+ВХС', actNumber: '13/150', year: '2006' });
+  assert.equal(pl('п. 2 постановления Пленума ВС № 06/196')?.actNumber, '6/196');
+  // Подпункты вида 19.8 и вставные 4-1.
+  assert.equal(pl('п. 19.8 постановления Пленума ВХС № 234')?.number, '19.8');
+});
+
+test('Пленум: fail-closed', () => {
+  assert.equal(pl('п. 6 УП-6079'), null); // не Пленум
+  assert.equal(pl('постановление Пленума ВХС № 163'), null); // нет пункта
+  assert.equal(pl('п. 6 постановления Пленума ВХС'), null); // нет номера
+  assert.equal(pl('п. 6 постановления Пленума № 163'), null); // нет суда
+  assert.equal(pl('п. 3 приложения к постановлению Пленума ВС № 17'), null);
+  // Указная ветка Пленум не перехватывает: номер не УП/ПП.
+  assert.equal(dec('п. 6 постановления Пленума ВХС № 163'), null);
+  // Статейная цитата остаётся на старом пути.
+  assert.equal(uz('п. 6 постановления Пленума ВХС № 163'), null);
+});
+
+test('Пленум: канонический номер', () => {
+  assert.equal(normalizePlenumNumber('06/196'), '6/196');
+  assert.equal(normalizePlenumNumber(' 05 '), '5');
+  assert.equal(normalizePlenumNumber('5А'), '5а');
+  assert.equal(normalizePlenumNumber('УП-60'), null);
+  assert.equal(normalizePlenumNumber('1/2/3'), null);
+  assert.equal(plenumDocNumber('ВХС', '163', '2007'), 'ПВХС-163-2007');
+  assert.equal(plenumDocNumber('ВС', '05', 2011), 'ПВС-5-2011');
+  assert.equal(plenumDocNumber('ВС+ВХС', '13/150', '2006'), 'ПВС-ПВХС-13/150-2006');
+  assert.equal(plenumDocNumber('ВС', '17', '206'), null);
+});
+
+test('волна 7: новые кодексы и законы, приоритет над общими алиасами', () => {
+  assert.equal(uz('ст. 175 КоАО')?.titlePattern, '%об административной ответственности%');
+  assert.equal(uz('статья 98 Кодекса об административной ответственности')?.titlePattern, '%об административной ответственности%');
+  assert.equal(uz('ст. 27 Кодекса об административном судопроизводстве')?.titlePattern, '%об административном судопроизводстве%');
+  assert.equal(uz('ст. 29 Семейного кодекса')?.titlePattern, 'Семейный кодекс%');
+  assert.equal(uz('ст. 29 СК')?.titlePattern, 'Семейный кодекс%');
+  assert.equal(uz('ст. 5 Закона о семейном предпринимательстве')?.titlePattern, '%О семейном предпринимательстве%');
+  // Специфичные — выше общих: залоговый реестр не уходит в «О залоге», ОСАГО — не в «О страховой деятельности».
+  assert.equal(uz('ст. 7 Закона о залоговом реестре')?.titlePattern, '%О залоговом реестре%');
+  assert.equal(uz('ст. 7 Закона о залоге')?.titlePattern, '%О залоге%');
+  assert.equal(uz('ст. 16 Закона об обязательном страховании гражданской ответственности владельцев транспортных средств')?.titlePattern, '%Об обязательном страховании гражданской ответственности%');
+  assert.equal(uz('ст. 10 Закона о страховой деятельности')?.titlePattern, '%О страховой деятельности%');
+  assert.equal(uz('ст. 5 Закона о Центральном банке')?.titlePattern, '%О Центральном банке%');
+  assert.equal(uz('ст. 5 Закона о банках и банковской деятельности')?.titlePattern, '%О банках и банковской деятельности%');
+  assert.equal(uz('ст. 3 Закона о судах')?.titlePattern, '%О судах%');
+  assert.equal(uz('ст. 3 Закона о третейских судах')?.titlePattern, '%О третейских судах%');
+  assert.equal(uz('ст. 9 Закона об охране труда')?.titlePattern, '%Об охране труда%');
+  assert.equal(uz('ст. 9 ТК')?.titlePattern, '%Трудовой кодекс%');
+  assert.equal(uz('ст. 20 ОСАГО')?.titlePattern, '%Об обязательном страховании гражданской ответственности%');
+  assert.equal(uz('ст. 333 Гражданского кодекса')?.titlePattern, 'Гражданский кодекс%');
+});
+
+test('вставные статьи: надстрочный номер → «N-k»', () => {
+  assert.deepEqual(uz('ст. 383¹ ГК'), { number: '383-1', titlePattern: 'Гражданский кодекс%' });
+  assert.equal(uz('статья 27² Кодекса об административном судопроизводстве')?.number, '27-2');
+  assert.deepEqual(uz('ст. 24-4 Земельного кодекса'), { number: '24-4', titlePattern: 'Земельный кодекс%' });
+  assert.equal(uz('ст. 100 НК')?.titlePattern, 'Налоговый кодекс%');
+  assert.equal(uz('ст. 100 Налогового кодекса')?.titlePattern, 'Налоговый кодекс%');
+  assert.equal(uz('ст. 12¹⁰ ЭПК')?.number, '12-10');
+});
+
+test('акты волны 2: ссылки без кавычек', () => {
+  assert.equal(uz('ст. 11 Закона о валютном регулировании')?.titlePattern, '%О валютном регулировании%');
+  assert.equal(uz('ст. 5 Закона об инвестициях и инвестиционной деятельности')?.titlePattern, '%Об инвестициях и инвестиционной деятельности%');
+  assert.equal(uz('ст. 20 Закона о государственных закупках')?.titlePattern, '%О государственных закупках%');
+  assert.equal(uz('ст. 3 Закона о лицензировании')?.titlePattern, '%О лицензировании%');
+  assert.equal(uz('ст. 7 Закона о неплатежеспособности')?.titlePattern, '%О неплатежеспособности%');
+  assert.equal(uz('ст. 12 Закона о конкуренции')?.titlePattern, '%О конкуренции%');
+  // Прежние не задеты.
+  assert.equal(uz('ст. 5 Закона о государственной пошлине')?.titlePattern, '%О государственной пошлине%');
+  assert.equal(uz('ст. 5 Закона о государственно-частном партнерстве')?.titlePattern, '%О государственно-частном партнерстве%');
 });

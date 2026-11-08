@@ -381,6 +381,51 @@ export async function withAiRequest<T>(db: Db, userId: string, work: (plan: stri
   }
 }
 
+/**
+ * Месячный потолок кнопки «Улучшить промпт» по тарифам (решения владельца
+ * 2026-10-30). Это ОТДЕЛЬНЫЙ счётчик, не лимит ИИ-запросов (PLAN_LIMITS.ai).
+ * Тарифа нет в списке (Business, Enterprise) — месячного потолка нет, остаётся
+ * только 10 в минуту. Участник Business-команды считается по тарифу команды.
+ */
+export const IMPROVE_MONTHLY_LIMIT: Readonly<Record<string, number>> = { Free: 25, Standard: 120, Pro: 550 };
+
+/**
+ * Атомарно занять одно нажатие «Улучшить» в этом месяце; 402 improve_limit,
+ * если потолок тарифа исчерпан. Пара к releaseImproveRequest при сбое модели.
+ */
+export async function reserveImproveRequest(db: Db, userId: string): Promise<{ reserved: boolean; quotaUserId: string }> {
+  const { ownerId: quotaUserId, plan } = await quotaOwnerFor(db, userId);
+  const limit = IMPROVE_MONTHLY_LIMIT[plan];
+  if (limit === undefined) return { reserved: false, quotaUserId };
+  const res = await db.query<{ improve_requests: number | string }>(
+    `INSERT INTO usage_counters (user_id, month, improve_requests)
+     VALUES ($1, date_trunc('month', now())::date, 1)
+     ON CONFLICT (user_id, month)
+     DO UPDATE SET improve_requests = usage_counters.improve_requests + 1
+       WHERE usage_counters.improve_requests < $2
+     RETURNING improve_requests`,
+    [quotaUserId, limit],
+  );
+  if (res.rows.length === 0) {
+    throw new HttpError(
+      402,
+      `Лимит кнопки «Улучшить» тарифа ${plan} исчерпан (${limit}/${limit} в этом месяце). ${upgradeHint}`,
+      'improve_limit',
+      { plan, limit, used: limit },
+    );
+  }
+  return { reserved: true, quotaUserId };
+}
+
+/** Вернуть занятое нажатие, если модель не ответила (ниже нуля не опускается). */
+export async function releaseImproveRequest(db: Db, quotaUserId: string): Promise<void> {
+  await db.query(
+    `UPDATE usage_counters SET improve_requests = GREATEST(improve_requests - 1, 0)
+     WHERE user_id = $1 AND month = date_trunc('month', now())::date`,
+    [quotaUserId],
+  );
+}
+
 /** Месячный потолок вызовов публичного API (Business; Enterprise — безлимит). */
 export function apiMonthlyLimitFor(plan: string): number | null {
   return plan === 'Enterprise' ? null : config.apiMonthlyLimit;

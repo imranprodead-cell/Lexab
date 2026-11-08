@@ -347,7 +347,7 @@ curl "${apiBase}/analyses/apireq_XXXXXXXX?report=1" -H "Authorization: Bearer YO
 
   return (
     <div className={styles.page}>
-      <TopBar title={t('api.title')} />
+      <TopBar title={t('api.title')} hideCountry />
       <div className={`${styles.body} scroll`}>
         <div className={styles.container}>
           <div className={styles.pageHead} ref={headReveal}>

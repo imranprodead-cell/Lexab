@@ -4,17 +4,16 @@ import styles from './chat.module.css';
 
 interface RiskGaugeProps {
   score: number; // 0..100
+  /** sm — компактная шкала для строки риска в разборе (без подписи «risk score»). */
+  size?: 'lg' | 'sm';
 }
 
 /* Вариант 2b макета «Шкала риска» (цвет по зонам + пульс): дуга — градиент
    зелёный → жёлтый (середина) → красный, число набирается вместе с дугой и
    красится в цвет её конца; по приходу к значению — два импульса ореола. */
 
-const SIZE = 132;
-/** Толщина кольца = диаметр точек-«шапок» на концах дуги. */
-const RING = 10;
-/** Радиус, по которому ходит центр точки на конце дуги. */
-const CAP_R = SIZE / 2 - RING / 2;
+/** Диаметр шкалы и толщина кольца (= диаметр точек-«шапок» на концах дуги). */
+const DIMENSIONS = { lg: { size: 132, ring: 10 }, sm: { size: 56, ring: 5 } } as const;
 const SWEEP_MS = 2200;
 
 const GREEN = [63, 178, 107];
@@ -34,8 +33,12 @@ function zoneColor(p: number): string {
 const easeInOutCubic = (x: number) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
 
 /** Radial risk gauge — zone-coloured sweep, count-up and an arrival pulse. */
-export function RiskGauge({ score }: RiskGaugeProps) {
+export function RiskGauge({ score, size = 'lg' }: RiskGaugeProps) {
   const target = Math.min(100, Math.max(0, score));
+  const { size: SIZE, ring: RING } = DIMENSIONS[size];
+  /** Радиус, по которому ходит центр точки на конце дуги. */
+  const CAP_R = SIZE / 2 - RING / 2;
+  const small = size === 'sm';
   const [progress, setProgress] = useState(() => (prefersReducedMotion() ? 1 : 0));
   const [pulse, setPulse] = useState(false);
 
@@ -63,7 +66,7 @@ export function RiskGauge({ score }: RiskGaugeProps) {
   const capsOn = progress > 0.002;
 
   return (
-    <div className={styles.gaugeWrap} role="img" aria-label={`risk score ${score} / 100`}>
+    <div className={`${styles.gaugeWrap} ${small ? styles.gaugeSm : ''}`} role="img" aria-label={`risk score ${score} / 100`}>
       <div className={styles.gauge} aria-hidden="true">
         {pulse ? <div className={styles.gaugeHalo} style={{ borderColor: zoneColor(target / 100) }} /> : null}
         <div
@@ -88,9 +91,11 @@ export function RiskGauge({ score }: RiskGaugeProps) {
           <div className={styles.gaugeOf}>/ 100</div>
         </div>
       </div>
-      <div className={styles.gaugeLabel} aria-hidden="true">
-        risk score
-      </div>
+      {small ? null : (
+        <div className={styles.gaugeLabel} aria-hidden="true">
+          risk score
+        </div>
+      )}
     </div>
   );
 }

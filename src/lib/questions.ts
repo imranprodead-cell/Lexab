@@ -13,6 +13,8 @@
  * видит служебную разметку ни на миг.
  */
 
+import { stripEditBlocks } from './editProposals';
+
 export interface ClarifyQuestion {
   question: string;
   options: string[];
@@ -44,7 +46,9 @@ function clean(s: string): string {
     .trim();
 }
 
-export function extractQuestions(text: string): ClarifyParts {
+export function extractQuestions(raw: string): ClarifyParts {
+  // Карточки правок агента (```lexab-edit) рисуются отдельно — в тексте их нет.
+  const text = stripEditBlocks(raw);
   const open = /```[ \t]*questions?\b[^\n]*\n?/gi;
   let start = -1;
   let contentFrom = -1;

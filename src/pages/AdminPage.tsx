@@ -257,7 +257,7 @@ export function AdminPage() {
   if (allowed === null) {
     return (
       <div className={shell.page}>
-        <TopBar title="Админ-панель" />
+        <TopBar title="Админ-панель" hideCountry />
         <div className={`${shell.body} scroll`}>
           <div className={shell.container}>
             <SkeletonRows rows={4} />
@@ -270,7 +270,7 @@ export function AdminPage() {
   if (!allowed) {
     return (
       <div className={shell.page}>
-        <TopBar title="Раздел не найден" />
+        <TopBar title="Раздел не найден" hideCountry />
         <div className={`${shell.body} scroll`}>
           <div className={shell.container}>
             <ErrorState message="Такого раздела нет." onRetry={() => navigate('/chat')} />
@@ -284,7 +284,7 @@ export function AdminPage() {
 
   return (
     <div className={shell.page}>
-      <TopBar title="Админ-панель" />
+      <TopBar title="Админ-панель" hideCountry />
       <div className={`${shell.body} scroll`}>
         <div className={shell.container}>
           {stats ? (

@@ -154,6 +154,55 @@ describe('resolveCitationText — указы/постановления по doc
   });
 });
 
+describe('resolveCitationText — постановления Пленума по doc_number', () => {
+  async function seedPlenum(docId: string, docNumber: string, title: string): Promise<void> {
+    await db.query(
+      `INSERT INTO legal_documents (id, jurisdiction, official_source_id, doc_type, doc_number, title, source_url, retrieved_at, sha256_checksum)
+       VALUES ($1, 'UZ', $1, 'plenum', $2, $3, 'https://lex.uz/ru/docs/test', now(), $1)
+       ON CONFLICT (id) DO NOTHING`,
+      [docId, docNumber, title],
+    );
+  }
+
+  before(async () => {
+    // У ВС номера повторяются по годам: № 16 есть и в 1999, и в 2023.
+    await seedPlenum('ld_uz_test_pvs16_1999', 'ПВС-16-1999', 'Постановление Пленума Верховного суда (ВС) № 16 от 24.09.1999 «О применении ГК»');
+    await seedPoint('ld_uz_test_pvs16_1999', 'p-3', '3', 2, null);
+    await seedPlenum('ld_uz_test_pvs16_2023', 'ПВС-16-2023', 'Постановление Пленума Верховного суда (ВС) № 16 от 23.06.2023 «О прямом применении Конституции»');
+    await seedPoint('ld_uz_test_pvs16_2023', 'p-3', '3', 2, null);
+    await seedPlenum('ld_uz_test_pvhs163', 'ПВХС-163-2007', 'Постановление Пленума Высшего хозяйственного суда (ВХС) № 163 от 15.06.2007 «Об ответственности»');
+    await seedPoint('ld_uz_test_pvhs163', 'p-6', '6', 5, null);
+    // Название Пленума содержит имя закона; у закона нет статьи 40, у Пленума есть п. 40.
+    await seedAct('ld_uz_test_dogbaza', 'О договорно-правовой базе деятельности хозяйствующих субъектов', '5');
+    await seedPlenum('ld_uz_test_pvhs103', 'ПВХС-103-2002', 'Постановление Пленума ВХС № 103 от 04.03.2002 «О применении Закона «О договорно-правовой базе деятельности хозяйствующих субъектов»»');
+    await seedPoint('ld_uz_test_pvhs103', 'p-5', '5', 4, null);
+    await seedPoint('ld_uz_test_pvhs103', 'p-40', '40', 39, null);
+  });
+
+  it('с годом — точный документ', async () => {
+    assert.equal(await resolveCitationText(db, 'п. 3 постановления Пленума ВС № 16 от 23.06.2023', 'UZ'), 'ld_uz_test_pvs16_2023_p-3');
+    assert.equal(await resolveCitationText(db, 'пункт 3 постановления Пленума Верховного суда от 24 сентября 1999 года № 16', 'UZ'), 'ld_uz_test_pvs16_1999_p-3');
+  });
+
+  it('без года: единственный документ — резолвится, два — null', async () => {
+    assert.equal(await resolveCitationText(db, 'п. 6 постановления Пленума ВХС № 163', 'UZ'), 'ld_uz_test_pvhs163_p-6');
+    assert.equal(await resolveCitationText(db, 'п. 3 постановления Пленума ВС № 16', 'UZ'), null);
+  });
+
+  it('несуществующий пункт, не тот суд или год → null', async () => {
+    assert.equal(await resolveCitationText(db, 'п. 99 постановления Пленума ВХС № 163', 'UZ'), null);
+    assert.equal(await resolveCitationText(db, 'п. 6 постановления Пленума ВС № 163', 'UZ'), null);
+    assert.equal(await resolveCitationText(db, 'п. 6 постановления Пленума ВХС № 163 от 15.06.2008', 'UZ'), null);
+  });
+
+  it('кросс-захват исключён: статья закона не уезжает в пункт Пленума', async () => {
+    assert.equal(await resolveCitationText(db, 'ст. 5 Закона «О договорно-правовой базе деятельности хозяйствующих субъектов»', 'UZ'), 'ld_uz_test_dogbaza_st-5');
+    // У закона нет ст. 40, у Пленума есть п. 40 — титульная ветка Пленумы не берёт.
+    assert.equal(await resolveCitationText(db, 'ст. 40 Закона о договорно-правовой базе', 'UZ'), null);
+    assert.equal(await resolveCitationText(db, 'п. 40 постановления Пленума ВХС № 103', 'UZ'), 'ld_uz_test_pvhs103_p-40');
+  });
+});
+
 after(async () => {
   await db.close();
   try {

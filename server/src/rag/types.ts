@@ -6,7 +6,7 @@ export interface LegalDocument {
   id: string;
   jurisdiction: JurisdictionCode;
   officialSourceId: string; // e.g. 'ukpga/1979/54'
-  docType: 'act' | 'code' | 'regulation' | 'decree' | 'resolution';
+  docType: 'act' | 'code' | 'regulation' | 'decree' | 'resolution' | 'plenum';
   /** Официальный номер подзаконного акта («УП-6079»/«ПП-3724»), NULL у законов. */
   docNumber?: string | null;
   title: string;

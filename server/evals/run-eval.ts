@@ -13,6 +13,7 @@
  *   npm run eval                       # everything (retrieval + both modes)
  *   npm run eval -- --retrieval-only
  *   npm run eval -- --model claude-opus-5-5
+ *   npm run eval -- --repair           # + агент чинит неподтверждённые ссылки (lib/citationRepair.ts)
  *
  * RULE (also in CLAUDE.md): run this before and after ANY change to ranking,
  * prompts or the index; reports land in evals/reports/.
@@ -28,6 +29,8 @@ import { extractJsonObject, isDeepSeekModel } from '../src/llm.ts';
 import { MODELS } from '../src/models.ts';
 import { resolveCitationText, retrieveLegalContext } from '../src/rag/retrieve.ts';
 import { validateFindings } from '../src/rag/validate-citations.ts';
+import { repairFindingCitations } from '../src/lib/citationRepair.ts';
+import type { JurisdictionCode } from '../src/rag/types.ts';
 import type { Finding } from '../src/types.ts';
 
 interface GoldenRow {
@@ -74,7 +77,7 @@ const FINDINGS_SCHEMA = (withUnitId: boolean) =>
 
 const ASK_SYSTEM: Record<string, string> = {
   UK: 'You are Lexab, a UK commercial lawyer. Answer the legal question as 1-3 findings, each with a precise statutory citation.',
-  UZ: 'Ты Lexab, юрист по праву Республики Узбекистан. Ответь на вопрос 1-3 выводами, каждый с точной ссылкой на норму (например, «ст. 260 ГК», «ст. 18 Закона «О защите прав потребителей»»; для указов/постановлений Президента — «п. 5 УП-6079», «п. 2 ПП-3724»).',
+  UZ: 'Ты Lexab, юрист по праву Республики Узбекистан. Ответь на вопрос 1-3 выводами, каждый с точной ссылкой на норму (например, «ст. 260 ГК», «ст. 18 Закона «О защите прав потребителей»»; для указов/постановлений Президента — «п. 5 УП-6079», «п. 2 ПП-3724»; для постановлений Пленума Верховного суда — «п. 6 постановления Пленума ВХС № 163 от 15.06.2007»).',
   KZ: 'Ты Lexab, юрист по праву Республики Казахстан. Ответь на вопрос 1-3 выводами, каждый с точной ссылкой на норму.',
   DE: 'Du bist Lexab, ein deutscher Wirtschaftsjurist. Beantworte die Rechtsfrage mit 1-3 Feststellungen, jede mit einer präzisen Gesetzeszitat (z. B. „§ 433 BGB“).',
   US: 'You are Lexab, a U.S. commercial lawyer. Answer the legal question as 1-3 findings, each with a precise federal statutory citation (e.g. "9 U.S.C. § 2").',
@@ -139,6 +142,8 @@ async function askModel(
 
 async function main(): Promise<void> {
   const retrievalOnly = process.argv.includes('--retrieval-only');
+  // --repair: в режиме RAG после проверки ссылок их чинит агент — замер «до/после».
+  const withRepair = process.argv.includes('--repair');
   const modelFlag = process.argv.indexOf('--model');
   const model = modelFlag > -1 ? process.argv[modelFlag + 1] : MODELS.sonnet;
   const goldenArg = process.argv.find((a) => a.startsWith('--golden='));
@@ -225,7 +230,7 @@ async function main(): Promise<void> {
   /* ── Pipeline: baseline (no RAG) vs RAG ─────────────────────────────────── */
   if (!retrievalOnly) {
     for (const mode of ['baseline', 'rag'] as const) {
-      let citations = 0, verified = 0, findingsTotal = 0;
+      let citations = 0, verified = 0, findingsTotal = 0, verifiedAfterRepair = 0, repaired = 0;
       for (const row of rows) {
         const hits = mode === 'rag' ? retrieved.get(row.question)! : [];
         const contextBlock =
@@ -244,6 +249,17 @@ async function main(): Promise<void> {
         }
         const validated = await validateFindings(db, withIds, row.as_of_date, row.jurisdiction);
         verified += validated.filter((f) => !f.unverified).length;
+        if (mode === 'rag' && withRepair) {
+          const rep = await repairFindingCitations(db, {
+            findings: validated,
+            originalSeverity: validated.map(() => 'Medium' as const),
+            jurisdiction: row.jurisdiction as JurisdictionCode,
+            model,
+            log: (m) => console.log(`  [repair] ${m}`),
+          });
+          verifiedAfterRepair += rep.findings.filter((f) => !f.unverified).length;
+          repaired += rep.repaired;
+        }
       }
       const stats = {
         findings: findingsTotal,
@@ -252,6 +268,15 @@ async function main(): Promise<void> {
       };
       report[mode] = stats;
       console.log(`=== PIPELINE ${mode.toUpperCase()} (${model}) ===`, JSON.stringify(stats));
+      if (mode === 'rag' && withRepair) {
+        const after = {
+          repaired,
+          citationPrecision: citations ? +(verifiedAfterRepair / citations).toFixed(3) : 0,
+          unverifiedShare: citations ? +(1 - verifiedAfterRepair / citations).toFixed(3) : 1,
+        };
+        report.ragRepair = after;
+        console.log(`=== PIPELINE RAG + REPAIR (${model}) ===`, JSON.stringify(after));
+      }
     }
     const b = report.baseline as { citationPrecision: number };
     const r = report.rag as { citationPrecision: number };

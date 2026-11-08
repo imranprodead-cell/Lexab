@@ -1,0 +1,28 @@
+{
+  "at": "2026-11-08T10:38:58.205Z",
+  "model": "deepseek-flash",
+  "golden": "uz-hierarchy-plenums.jsonl",
+  "questions": 23,
+  "retrieval": {
+    "hit@5": 0.957,
+    "hit@10": 1,
+    "recall@10": 1
+  },
+  "corpus": {
+    "jurisdiction": "UZ",
+    "documents": 175,
+    "chunks": 11730,
+    "contextCoverage": 1,
+    "embeddingCoverage": 1
+  },
+  "baseline": {
+    "findings": 9,
+    "citationPrecision": 0.444,
+    "unverifiedShare": 0.556
+  },
+  "rag": {
+    "findings": 70,
+    "citationPrecision": 1,
+    "unverifiedShare": 0
+  }
+}

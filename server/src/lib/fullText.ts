@@ -152,6 +152,14 @@ function findOccurrences(hay: string, needle: string, from = 0): Generator<numbe
   })();
 }
 
+/** Есть ли формулировка в тексте — по тем же правилам, по которым к нему
+ *  применяются правки (пробелы нестрого): что найдено здесь, то и заменится. */
+export function containsLoose(text: string, needle: string): boolean {
+  const pattern = needle.replace(/\s+/g, ' ').trim();
+  if (!pattern) return false;
+  return !findOccurrences(collapseSpaces(text).flat, pattern).next().done;
+}
+
 /** Заменить ВСЕ вхождения формулировки (пробелы — нестрого). */
 function replaceAllLoose(text: string, needle: string, replacement: string): { text: string; hit: boolean } {
   const pattern = needle.replace(/\s+/g, ' ');

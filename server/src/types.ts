@@ -88,15 +88,39 @@ export interface ChatMessage {
   refs?: { label: string; doc: string; url?: string }[];
 }
 
+/** Инструменты агента чата (lib/chatTools.ts). */
+export type ChatToolName =
+  | 'search_law'
+  | 'get_provision'
+  | 'verify_citation'
+  | 'read_contract'
+  | 'search_documents'
+  | 'propose_edit'
+  | 'get_review_edits'
+  | 'propose_reminder'
+  | 'get_playbook'
+  | 'compare_versions'
+  | 'calculate';
+
 /**
  * Шаг работы над ответом чата (SSE-событие `step`): клиент показывает их
  * списком «Работаю…», как процесс у Claude. Только то, что сервер реально
  * делает, — подписи шагов клиент берёт из своих переводов по id.
  */
 export interface ChatStep {
-  id: 'prompt' | 'contract' | 'files' | 'memory' | 'search' | 'mode' | 'answer';
+  /** tool-N — вызов инструмента агентом (N — номер вызова в этом ответе). */
+  id: 'prompt' | 'contract' | 'files' | 'memory' | 'search' | 'mode' | 'answer' | `tool-${number}`;
   status: 'active' | 'done';
   data?: {
+    /** tool-N: какой инструмент агента вызван. */
+    tool?: ChatToolName;
+    /** tool-N (verify_citation, get_provision): ссылка, которую агент открыл или проверил. */
+    citation?: string;
+    /** tool-N (verify_citation): итог проверки ссылки. */
+    verdict?: 'supported' | 'not_supported' | 'not_found' | 'unchecked';
+    /** tool-N (calculate): что посчитано и результат. */
+    expression?: string;
+    result?: string;
     /** contract: имя договора или черновика. */
     name?: string;
     /** files: имена файлов чата, которые читает модель. */

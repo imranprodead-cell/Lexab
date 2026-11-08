@@ -16,6 +16,7 @@ import { assertFeature } from '../lib/limits.ts';
 import { canEdit, resolveDocumentAccess } from '../lib/teamAccess.ts';
 import { attachmentDisposition, formatSize, looksRussian, toIso } from '../lib/format.ts';
 import { buildSimplePdf } from '../lib/pdf.ts';
+import { plainDocToDocx, plainDocToPdfSections } from '../lib/plainDoc.ts';
 import { asObject, requireOneOf, requireString } from '../lib/validate.ts';
 import { audit } from '../lib/audit.ts';
 import type { ContractDocument, DocBlock, DocumentVersion, Redline } from '../types.ts';
@@ -416,12 +417,9 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
     const body = asObject(req.body);
     const title = requireString(body, 'title', { min: 1, max: 300 });
     const content = requireString(body, 'content', { min: 1, max: 500_000 });
-    const paragraphs = [
-      new Paragraph({ text: title, heading: HeadingLevel.HEADING_1 }),
-      ...content.split('\n').map((line) => new Paragraph({ children: [new TextRun(line)] })),
-    ];
-    const file = new Document({ sections: [{ children: paragraphs }] });
-    const buffer = await Packer.toBuffer(file);
+    // Заголовки «#», **жирное** и таблицы «| … |» (протокол разногласий) —
+    // настоящими заголовками, жирным и таблицами Word (lib/plainDoc.ts).
+    const buffer = await Packer.toBuffer(plainDocToDocx(title, content));
     reply.header('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     reply.header('Content-Disposition', attachmentDisposition(title, 'docx'));
     reply.header('Cache-Control', 'no-store');
@@ -435,11 +433,8 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
     const body = asObject(req.body);
     const title = requireString(body, 'title', { min: 1, max: 300 });
     const content = requireString(body, 'content', { min: 1, max: 200_000 });
-    const sections = content
-      .split('\n')
-      .filter((line) => line.trim())
-      .map((text) => ({ text }));
-    const pdf = await buildSimplePdf(title, sections);
+    // Таблица — построчно «колонка: значение», заголовки — жирным (lib/plainDoc.ts).
+    const pdf = await buildSimplePdf(title, plainDocToPdfSections(content));
     reply.header('Content-Type', 'application/pdf');
     reply.header('Content-Disposition', attachmentDisposition(title, 'pdf'));
     reply.header('Cache-Control', 'no-store');

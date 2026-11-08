@@ -10,7 +10,7 @@ export interface ParsedDocument {
   docId: string; // deterministic: ld_uk_ukpga-1979-54 / ld_uz_111181 / ld_de_bgb
   jurisdiction: 'UK' | 'UZ' | 'KZ' | 'DE' | 'US' | 'CA' | 'AE';
   officialSourceId: string;
-  docType: 'act' | 'code' | 'regulation' | 'decree' | 'resolution';
+  docType: 'act' | 'code' | 'regulation' | 'decree' | 'resolution' | 'plenum';
   /** Канонический номер подзаконного акта («УП-6079»); у законов отсутствует. */
   docNumber?: string | null;
   title: string;

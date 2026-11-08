@@ -139,10 +139,30 @@ export interface PlanProgress {
  * Шаг работы над ответом (SSE-событие `step`, зеркало ChatStep на сервере).
  * Подписи — из переводов по id; данные — то, что сервер реально сделал.
  */
+/** Инструменты агента чата (зеркало ChatToolName на сервере). */
+export type ChatToolName =
+  | 'search_law'
+  | 'get_provision'
+  | 'verify_citation'
+  | 'read_contract'
+  | 'search_documents'
+  | 'propose_edit'
+  | 'get_review_edits'
+  | 'propose_reminder'
+  | 'get_playbook'
+  | 'compare_versions'
+  | 'calculate';
+
 export interface ChatStep {
-  id: 'prompt' | 'contract' | 'files' | 'memory' | 'search' | 'mode' | 'answer';
+  /** tool-N — вызов инструмента агентом (N — номер вызова в этом ответе). */
+  id: 'prompt' | 'contract' | 'files' | 'memory' | 'search' | 'mode' | 'answer' | `tool-${number}`;
   status: 'active' | 'done';
   data?: {
+    tool?: ChatToolName;
+    citation?: string;
+    verdict?: 'supported' | 'not_supported' | 'not_found' | 'unchecked';
+    expression?: string;
+    result?: string;
     name?: string;
     files?: string[];
     jurisdiction?: string;

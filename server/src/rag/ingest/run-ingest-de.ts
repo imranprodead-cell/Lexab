@@ -10,6 +10,7 @@ import { getDb, migrate } from '../../db.ts';
 import { newId } from '../../lib/ids.ts';
 import { fetchGesetzXml, parseGesetzXml } from './gesetze-de.ts';
 import { upsertParsedDocument } from './upsert.ts';
+import { pathToFileURL } from 'node:url';
 
 /** Пилот: договорное право Германии. BGB — ядро (обязательства §§ 241–853,
  *  заключение договора §§ 145–157, купля-продажа §§ 433–479 и т.д.). */
@@ -66,4 +67,6 @@ async function main(): Promise<void> {
   if (errors > 0) process.exitCode = 1;
 }
 
-void main();
+// Запуск только напрямую (npm run rag:ingest…): импорт списка документов из
+// другого скрипта не должен сам писать в базу.
+if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) void main();

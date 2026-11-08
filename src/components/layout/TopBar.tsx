@@ -9,7 +9,8 @@ interface TopBarProps {
   right?: ReactNode;
   left?: ReactNode;
   /** Без флага страны: в разделах, где страна ни на что не влияет (Vault,
-   *  Projects, E-signatures, Analytics, Team — решение владельца 2026-10-25). */
+   *  Projects, E-signatures, Analytics, Team — решение владельца 2026-10-25;
+   *  API, документация API, Архив, Тарифы, Настройки, админка — 2026-10-31). */
   hideCountry?: boolean;
 }
 

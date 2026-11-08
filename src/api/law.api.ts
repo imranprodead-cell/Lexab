@@ -7,6 +7,8 @@ export interface LawUnit {
   actTitle: string;
   jurisdiction: string;
   sourceUrl: string | null;
+  /** Точный адрес статьи на официальном сайте (lex.uz/…#id); старый сервер его не шлёт. */
+  officialUrl?: string | null;
   retrievedAt: string | null;
 }
 
@@ -24,6 +26,7 @@ export const lawApi = {
         actTitle: 'Гражданский кодекс Республики Узбекистан',
         jurisdiction: 'UZ',
         sourceUrl: 'https://lex.uz/docs/-111181',
+        officialUrl: 'https://lex.uz/docs/-111181',
         retrievedAt: new Date().toISOString(),
       };
       cache.set(unitId, mock);
