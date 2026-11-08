@@ -19,7 +19,7 @@ process.env.JWT_SECRET = 'test-secret-that-is-definitely-long-enough-32+';
 process.env.SEED_DEMO_DATA = 'false';
 
 const { getDb, migrate } = await import('../src/db.ts');
-const { addPeriod, citedProvisionNumbers, createChatToolRunner, evaluateExpression, parseDate, refNumber, CHAT_TOOLS } = await import('../src/lib/chatTools.ts');
+const { addPeriod, citedProvisionNumbers, citesProvision, createChatToolRunner, evaluateExpression, parseDate, refNumber, CHAT_TOOLS, CHAT_AGENT_INSTRUCTIONS, UI_LABELS } = await import('../src/lib/chatTools.ts');
 const { runAgentLoop, runDeepseekAgentLoop, TRUNCATED_NOTE } = await import('../src/llm.ts');
 const { repairFindingCitations } = await import('../src/lib/citationRepair.ts');
 const { encText, encJsonForJsonb, decJsonFromJsonb } = await import('../src/lib/docCrypto.ts');
@@ -522,6 +522,15 @@ describe('agent document actions (propose_edit → Accept)', () => {
   const CLAUSE = 'п. 5. Неустойка за просрочку оплаты составляет 0,2% за каждый день.';
   const NEW = 'п. 5. Неустойка за просрочку оплаты составляет 0,1% за каждый день, но не более 10% суммы.';
 
+  it('propose_edit tells the agent the real button label in every UI language, not English only', async () => {
+    const target = await loadEditTarget(db, 'u_owner', 'an_d_shared');
+    const r = createChatToolRunner({ db, jurisdiction: 'UZ', documents: [], toRefs: async () => [], editTarget: target ?? undefined, onProposal: () => undefined });
+    const ok = await r.run({ id: 'lbl', name: 'propose_edit', input: { clause: CLAUSE, new_text: NEW, reason: 'метки' } });
+    for (const l of Object.values(UI_LABELS.acceptEdit)) assert.ok(ok.content.includes(l), l);
+    assert.match(ok.content, /language of your answer/);
+    assert.ok(!/an Accept button/.test(ok.content));
+  });
+
   it('propose_edit: needs an editable review, an exact clause from the contract, and never changes the document itself', async () => {
     const target = await loadEditTarget(db, 'u_owner', 'an_d_shared');
     assert.ok(target, 'владелец может править');
@@ -717,5 +726,53 @@ describe('long answers (bilingual contracts) are never cut silently', () => {
     const ds = fakeDeepseek([[delta({ content: 'ДОГОВОР / SHARTNOMA …' }), delta({}, 'length')]]);
     const out = await runDeepseekAgentLoop({ create: ds.create, messages: [{ role: 'user', content: 'q' }], agent: { tools: [], instructions: '', run: async () => ({ content: '' }) } });
     assert.ok(out.endsWith(TRUNCATED_NOTE));
+  });
+});
+
+describe('Sources: the reply must cite THIS provision — same number AND same act', () => {
+  const GK = 'Гражданский кодекс Республики Узбекистан (часть первая)';
+  const TK = 'Трудовой кодекс Республики Узбекистан';
+  const LAW670 = '670-I-сон 29.08.1998. О договорно-правовой базе деятельности хозяйствующих субъектов';
+  const CB = 'ЗРУ-582-сон 11.11.2019. О Центральном банке Республики Узбекистан (в новой редакции)';
+  const PL163 = 'Постановление Пленума Высшего хозяйственного суда (ВХС) № 163 от 15.06.2007 «О некоторых вопросах ответственности»';
+  const PL103 = 'Постановление Пленума Высшего хозяйственного суда (ВХС) № 103 от 04.03.2002 «О применении Закона»';
+  const UP6079 = 'УП-6079-сон 05.10.2020. Об утверждении Стратегии «Цифровой Узбекистан-2030»';
+  const UP60 = 'УП-60-сон 28.01.2022. О Стратегии развития';
+
+  it('«ст. 333 ГК» is the Civil Code article, not article 333 of the Labour Code (live bug 2026-11-08)', () => {
+    const text = '- **Ст. 333 ГК** — для предпринимателя ответственность наступает без вины, кроме форс-мажора.';
+    assert.equal(citesProvision(text, '333', GK, 'UZ'), true);
+    assert.equal(citesProvision(text, '333', TK, 'UZ'), false);
+  });
+
+  it('lists «статьи 326 и 327 ГК» cover every number; quoted law names are matched too', () => {
+    assert.equal(citesProvision('см. статьи 326 и 327 ГК', '327', GK, 'UZ'), true);
+    const t = 'ст. 10 Закона «О договорно-правовой базе деятельности хозяйствующих субъектов»';
+    assert.equal(citesProvision(t, '10', LAW670, 'UZ'), true);
+    assert.equal(citesProvision(t, '10', CB, 'UZ'), false);
+  });
+
+  it('Plenum and decree points match by court/number and decree number', () => {
+    const p = 'п. 4 постановления Пленума ВХС № 163 — нижний предел снижения';
+    assert.equal(citesProvision(p, '4', PL163, 'UZ'), true);
+    assert.equal(citesProvision(p, '4', PL103, 'UZ'), false);
+    assert.equal(citesProvision('п. 5 УП-6079 о цифровизации', '5', UP6079, 'UZ'), true);
+    assert.equal(citesProvision('п. 5 УП-6079 о цифровизации', '5', UP60, 'UZ'), false, 'УП-60 ≠ УП-6079');
+    // «п. 2 ст. 260 ГК» — подпункт статьи, а не пункт 2 Пленума.
+    assert.equal(citesProvision('п. 2 ст. 260 ГК', '2', PL163, 'UZ'), false);
+  });
+
+  it('no act next to the number → old rule (number match keeps the source); number absent → dropped', () => {
+    assert.equal(citesProvision('Пеня — по ст. 32: 0,4% в день.', '32', LAW670, 'UZ'), true);
+    assert.equal(citesProvision('Пеня — по ст. 32: 0,4% в день.', '33', LAW670, 'UZ'), false);
+    // Страны без таблицы алиасов — прежнее правило.
+    assert.equal(citesProvision('Under s.14 the goods must be of satisfactory quality.', '14', 'Sale of Goods Act 1979', 'UK'), true);
+  });
+
+  it('agent instructions name the edit button in every UI language', () => {
+    for (const l of Object.values(UI_LABELS.acceptEdit)) assert.ok(CHAT_AGENT_INSTRUCTIONS.includes(l), l);
+    const reminder = CHAT_TOOLS.find((t) => t.name === 'propose_reminder');
+    for (const l of Object.values(UI_LABELS.addReminder)) assert.ok(String(reminder?.description).includes(l), l);
+    assert.ok(!/«Add reminder» button|an Accept button|presses Accept/.test(JSON.stringify(CHAT_TOOLS) + CHAT_AGENT_INSTRUCTIONS));
   });
 });

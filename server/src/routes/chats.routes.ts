@@ -21,7 +21,7 @@ import { newId } from '../lib/ids.ts';
 import { openSSE, wantsSSE, type SseChannel } from '../lib/sse.ts';
 import { asObject, requireString } from '../lib/validate.ts';
 import { canTranscribeScans, generateChatReply, generateHistorySummary, usesChatAgent, type ChatAgent, type ChatTurn } from '../llm.ts';
-import { CHAT_AGENT_INSTRUCTIONS, citedProvisionNumbers, createChatToolRunner, refNumber, type ChatDocument } from '../lib/chatTools.ts';
+import { CHAT_AGENT_INSTRUCTIONS, citedProvisionNumbers, citesProvision, createChatToolRunner, refNumber, type ChatDocument } from '../lib/chatTools.ts';
 import { appendEditBlocks, appendReminderBlocks, loadEditTarget, type EditProposal, type EditTarget, type ReminderProposal } from '../lib/chatActions.ts';
 import { jurisdictionCode, retrieveLegalContext } from '../rag/retrieve.ts';
 import type { ChatMessage, ChatSession, ChatStep } from '../types.ts';
@@ -556,6 +556,12 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
       // Статьи, найденные в базе для этого ответа, — сохраняются у ответа
       // (вкладка Sources правой колонки чата).
       let foundRefs: LawRef[] = [];
+      // Полное название акта каждой найденной нормы (подпись в Sources обрезана):
+      // по нему проверяем, что ответ цитирует ИМЕННО эту норму, а не тот же
+      // номер другого акта.
+      const refActs = new Map<string, string>();
+      const rememberActs = (units: { breadcrumb: string }[], refs: LawRef[]) =>
+        refs.forEach((r, i) => refActs.set(`${r.label}|${r.doc}`, actTitleOf(units[i]?.breadcrumb ?? '')));
       if (corpus && ragQuery.trim()) {
         // Запросы — те, по которым реально идёт поиск: переформулировки
         // вопроса (без него самого — его пользователь и так видит).
@@ -577,7 +583,9 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
           }
           // Точные адреса статей на официальных сайтах — для ссылок в Sources.
           const links = await unitLinks(db, hits.map((h) => h.unitId)).catch(() => new Map<string, string>());
-          foundRefs = hits.map((h) => refOf(h, links)).filter((r) => r.label);
+          const hitRefs = hits.map((h) => refOf(h, links));
+          rememberActs(hits, hitRefs);
+          foundRefs = hitRefs.filter((r) => r.label);
           step({ id: 'search', status: 'done', data: { ...searching, queries, found: hits.length, refs: foundRefs.slice(0, 4) } });
         } catch (err) {
           req.log.warn(err, 'chat RAG retrieval failed');
@@ -602,7 +610,11 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
         if (agentRan) {
           const cited = citedProvisionNumbers(rawReply);
           const seenRefs = new Set<string>();
-          foundRefs = [...agentUsed, ...[...foundRefs, ...agentFound].filter((r) => cited.has(refNumber(r.label) ?? ''))].filter((r) => {
+          const citedHere = (r: LawRef) => {
+            const num = refNumber(r.label) ?? '';
+            return cited.has(num) && citesProvision(rawReply, num, refActs.get(`${r.label}|${r.doc}`) ?? r.doc, corpus ?? '');
+          };
+          foundRefs = [...agentUsed, ...[...foundRefs, ...agentFound].filter(citedHere)].filter((r) => {
             const key = `${r.label}|${r.doc}`;
             if (seenRefs.has(key)) return false;
             seenRefs.add(key);
@@ -658,7 +670,9 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
               onStep: (s) => step(s),
               toRefs: async (units) => {
                 const links = await unitLinks(db, units.map((u) => u.unitId)).catch(() => new Map<string, string>());
-                return units.map((u) => refOf(u, links)).filter((r) => r.label);
+                const refs = units.map((u) => refOf(u, links));
+                rememberActs(units, refs);
+                return refs.filter((r) => r.label);
               },
               onRefs: (refs, kind) => (kind === 'used' ? agentUsed : agentFound).push(...refs),
             });
@@ -745,6 +759,12 @@ function clip(s: string, max: number): string {
 
 /** «UZ / Гражданский кодекс … / Статья 333» → { label: 'Статья 333', doc: 'Гражданский кодекс …' }. */
 type LawRef = { label: string; doc: string; url?: string };
+
+/** «UZ / <акт> / … / ст.333» → полное название акта. */
+function actTitleOf(breadcrumb: string): string {
+  const parts = breadcrumb.split(' / ').map((p) => p.trim()).filter(Boolean);
+  return parts.length > 2 ? parts[1] : '';
+}
 
 function refOf(h: { breadcrumb: string; unitId?: string }, links?: Map<string, string>): LawRef {
   const parts = h.breadcrumb.split(' / ').map((p) => p.trim()).filter(Boolean);

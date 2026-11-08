@@ -14,7 +14,7 @@
  */
 import type Anthropic from '@anthropic-ai/sdk';
 import type { Db } from '../db.ts';
-import { resolveCitationText, retrieveLegalContext } from '../rag/retrieve.ts';
+import { parseRuCitation, parseUzDecreeCitation, parseUzPlenumCitation, resolveCitationText, retrieveLegalContext } from '../rag/retrieve.ts';
 import type { JurisdictionCode } from '../rag/types.ts';
 import { judgeProvision } from '../rag/validate-citations.ts';
 import type { ChatStep, ChatToolName } from '../types.ts';
@@ -82,6 +82,25 @@ const JURISDICTION_PROP = {
 } as const;
 
 /** Описания — когда ВЫЗЫВАТЬ, а не только что делает (модель решает по ним). */
+/**
+ * Подписи кнопок и раздела — ровно как в интерфейсе (src/i18n/messages.ts и
+ * translations/*). Агент называет их на языке своего ответа: спросили
+ * по-русски — «Принять правку», по-английски — «Accept edit». Раньше в
+ * подсказках стояли только английские названия, и в русском ответе агент
+ * отсылал к кнопке «Add reminder», которой на экране нет.
+ */
+export const UI_LABELS = {
+  acceptEdit: { Russian: 'Принять правку', English: 'Accept edit', Uzbek: 'Tuzatishni qabul qilish', Kazakh: 'Түзетуді қабылдау', German: 'Änderung annehmen', Arabic: 'قبول التعديل' },
+  addReminder: { Russian: 'Добавить напоминание', English: 'Add reminder', Uzbek: 'Eslatma qoʻshish', Kazakh: 'Еске салуды қосу', German: 'Erinnerung hinzufügen', Arabic: 'إضافة تذكير' },
+  deadlinesSection: { Russian: 'Сроки и обязательства', English: 'Key dates & obligations', Uzbek: 'Muddatlar va majburiyatlar', Kazakh: 'Мерзімдер мен міндеттемелер', German: 'Fristen und Pflichten', Arabic: 'المواعيد والالتزامات' },
+} as const;
+
+/** «Принять правку» (Russian), «Accept edit» (English), … — для подсказок агенту. */
+export const uiLabel = (key: keyof typeof UI_LABELS): string =>
+  Object.entries(UI_LABELS[key]).map(([lang, label]) => `«${label}» (${lang})`).join(', ');
+
+const LABEL_RULE = 'When you mention a button or section, use its label in the language of your answer.';
+
 export const CHAT_TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: 'search_law',
@@ -152,7 +171,7 @@ export const CHAT_TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: 'propose_edit',
     description:
-      'Propose a change to one clause of the contract under review. The user sees a card «was → becomes» with an Accept button under your answer; only their click changes the document. Call it when the user asks you to fix, rewrite, soften or delete a clause, or agrees to a change you suggested — one call per clause. `clause` is the exact current wording copied from the contract (find it with read_contract); `new_text` is the full replacement wording (empty to delete the clause); `reason` is one sentence. Do not repeat the new wording in your answer — the card shows it.',
+      'Propose a change to one clause of the contract under review. The user sees a card «was → becomes» with a button labelled ' + uiLabel('acceptEdit') + ' under your answer; only their click changes the document. ' + LABEL_RULE + ' Call it when the user asks you to fix, rewrite, soften or delete a clause, or agrees to a change you suggested — one call per clause. `clause` is the exact current wording copied from the contract (find it with read_contract); `new_text` is the full replacement wording (empty to delete the clause); `reason` is one sentence. Do not repeat the new wording in your answer — the card shows it.',
     eager_input_streaming: true,
     input_schema: {
       type: 'object',
@@ -191,7 +210,7 @@ export const CHAT_TOOLS: Anthropic.Beta.BetaTool[] = [
   {
     name: 'propose_reminder',
     description:
-      'Offer to track a deadline the user must meet under a contract — a payment, delivery, notice, claim response or renewal date — with an email reminder before it. The user sees a card with the date and an «Add reminder» button; only their click adds it to Deadlines & obligations. One call per deadline; compute the exact date with calculate first. Defaults to the contract under review; for another contract pass its document_id from search_documents.',
+      'Offer to track a deadline the user must meet under a contract — a payment, delivery, notice, claim response or renewal date — with an email reminder before it. The user sees a card with the date and a button labelled ' + uiLabel('addReminder') + '; only their click adds it to the section ' + uiLabel('deadlinesSection') + '. ' + LABEL_RULE + ' One call per deadline; compute the exact date with calculate first. Defaults to the contract under review; for another contract pass its document_id from search_documents.',
     eager_input_streaming: true,
     input_schema: {
       type: 'object',
@@ -264,7 +283,7 @@ export const CHAT_AGENT_INSTRUCTIONS = `TOOLS. You have tools for Lexab's verifi
 - Use read_contract to find and quote the user's clauses exactly, and to read parts of long files that the context cuts off.
 - Use search_documents for the user's earlier documents and the team's shared ones: past contracts with this counterparty, how they usually word a clause, earlier reviews. Name the document you rely on; never present a past document's terms as the current contract's.
 - Do every computation that appears in your answer (penalties, interest, totals, deadlines, days between dates) with calculate.
-- To change the contract under review, use propose_edit — one call per clause, with the clause copied exactly from the contract. The document changes only when the user presses Accept on the card, so never say it has already changed.
+- To change the contract under review, use propose_edit — one call per clause, with the clause copied exactly from the contract. The document changes only when the user presses the card's button (${uiLabel('acceptEdit')}), so never say it has already changed. ${LABEL_RULE}
 - When the user asks for a document — a claim letter, supplementary agreement, notice, reply to a claim — take the parties, contract number and date, amounts and deadlines from the contract (read_contract) and their earlier documents (search_documents), compute sums with calculate, cite only verified provisions, leave [square brackets] for anything unknown, and put the whole document in ONE fenced block (\`\`\`) so the user can edit it, save it to Vault and export it.
 - When the contract or the conversation sets a deadline the user must meet (payment, delivery, notice, claim response, renewal), offer to track it with propose_reminder — one call per deadline, with the exact date from calculate. It is added only when the user presses the button.
 - For the firm's standard positions, call get_playbook and follow them in your advice; say which position you rely on.
@@ -606,6 +625,61 @@ export function citedProvisionNumbers(text: string): Set<string> {
   return out;
 }
 
+/** Шаблон ILIKE («%О залоге%», «Гражданский кодекс%») → совпадает ли строка. */
+function likeMatches(pattern: string, value: string): boolean {
+  const body = pattern
+    .split('%')
+    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('.*');
+  return new RegExp(`^${body}$`, 'isu').test(value);
+}
+
+/**
+ * Назван ли рядом с номером нормы тот же акт: «ст. 333 ГК» → Гражданский
+ * кодекс, «п. 4 постановления Пленума ВХС № 163» → Пленум ВХС № 163,
+ * «п. 5 УП-6079» → указ УП-6079. Акт не назван или страна без таблицы
+ * алиасов → 'unknown' (решает прежнее правило — по номеру).
+ */
+function actAgrees(window: string, actTitle: string, jurisdiction: string, isPoint: boolean): 'match' | 'mismatch' | 'unknown' {
+  if (isPoint && jurisdiction === 'UZ') {
+    const pl = parseUzPlenumCitation(window);
+    if (pl) {
+      const court = pl.court === 'ВС+ВХС' ? '(ВС и ВХС)' : `(${pl.court})`;
+      const num = new RegExp(`№ ${pl.actNumber.replace('/', '\\/')}(?![\\d/])`, 'u');
+      return actTitle.includes(court) && num.test(actTitle) ? 'match' : 'mismatch';
+    }
+    const dec = parseUzDecreeCitation(window);
+    if (dec) return new RegExp(`(?<![А-ЯA-Z])${dec.docNumber}(?!\\d)`, 'u').test(actTitle) ? 'match' : 'mismatch';
+  }
+  const ru = parseRuCitation(window, jurisdiction);
+  if (ru) return likeMatches(ru.titlePattern, actTitle) ? 'match' : 'mismatch';
+  return 'unknown';
+}
+
+/**
+ * Цитирует ли ответ ИМЕННО эту норму, а не одноимённый номер другого акта.
+ * Раньше источник попадал в Sources по одному номеру: «ст. 333 ГК» в тексте
+ * подтягивала найденную по ходу ст. 333 Трудового кодекса. Теперь рядом с
+ * номером должен стоять тот же акт; если акт возле номера не назван —
+ * прежнее правило (номер совпал — источник показываем).
+ */
+export function citesProvision(text: string, number: string, actTitle: string, jurisdiction: string): boolean {
+  const re =
+    /(?<!\p{L})(ст\.|ст(?=\s)|стать[а-яё]*|§§?|ss?\.|sections?|art\.|articles?|п\.|пункт[а-яё]*|modda[a-z]*)\s*(\d+[a-zа-я]?(?:\s*(?:,|и|and|va|–|-)\s*\d+[a-zа-я]?)*)/giu;
+  const want = number.toLowerCase();
+  let unknown = false;
+  for (const m of text.matchAll(re)) {
+    const nums: string[] = m[2].toLowerCase().match(/\d+[a-zа-я]?/gu) ?? [];
+    if (!nums.includes(want)) continue;
+    const end = (m.index ?? 0) + m[0].length;
+    const tail = text.slice(end, end + 90).split('\n')[0];
+    const verdict = actAgrees(`${m[1]} ${number}${tail}`, actTitle, jurisdiction, /^п/iu.test(m[1]));
+    if (verdict === 'match') return true;
+    if (verdict === 'unknown') unknown = true;
+  }
+  return unknown;
+}
+
 /* ── сами инструменты ──────────────────────────────────────────────────── */
 
 const MAX_RESULT_CHARS = 9000;
@@ -768,7 +842,7 @@ export function createChatToolRunner(ctx: ChatToolContext): { tools: Anthropic.B
           }
           step('done', { citation: clause.replace(/\s+/g, ' ').slice(0, 80) });
           return {
-            content: 'PROPOSED: the user sees this edit as a card with an Accept button under your answer. Say in one sentence what it changes; do not repeat the new wording.',
+            content: `PROPOSED: the user sees this edit as a card with a button labelled ${uiLabel('acceptEdit')} under your answer. Say in one sentence what it changes; do not repeat the new wording. ${LABEL_RULE}`,
           };
         }
 
@@ -838,7 +912,7 @@ export function createChatToolRunner(ctx: ChatToolContext): { tools: Anthropic.B
 
         case 'propose_reminder': {
           if (!ctx.userId) throw new InputError('reminders are not available here');
-          const locked = lockedFor('clm', 'deadline reminders (Deadlines & obligations)');
+          const locked = lockedFor('clm', `deadline reminders (section ${uiLabel('deadlinesSection')})`);
           if (locked) return { content: locked, isError: true };
           const what = reqString(o, 'what', 300);
           const due = parseDate(reqString(o, 'due_date', 20)).toISOString().slice(0, 10);
@@ -872,7 +946,7 @@ export function createChatToolRunner(ctx: ChatToolContext): { tools: Anthropic.B
           const [y, m, d] = due.split('-');
           step('done', { citation: `${d}.${m}.${y} — ${what.slice(0, 60)}` });
           return {
-            content: `PROPOSED: the user sees a card «${what}» due ${d}.${m}.${y} with an «Add reminder» button; after they press it, an email comes ${days} day(s) before. Mention it in one sentence.`,
+            content: `PROPOSED: the user sees a card «${what}» due ${d}.${m}.${y} with a button labelled ${uiLabel('addReminder')}; after they press it, the deadline goes to ${uiLabel('deadlinesSection')} and an email comes ${days} day(s) before. Mention it in one sentence. ${LABEL_RULE}`,
           };
         }
 
