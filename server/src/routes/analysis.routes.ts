@@ -59,8 +59,9 @@ export async function loadAnalysis(db: Db, userId: string, id: string): Promise<
   // Owner, or an active team member when the linked document is shared.
   const access = await resolveAnalysisAccess(db, userId, id);
   const canEdit = access.access === 'owner' || access.access === 'admin' || access.access === 'editor';
-  const res = await db.query<AnalysisRow & { document_id: string; user_id: string }>(
-    `SELECT id, user_id, document_id, file_name, file_size, summary, risk_score, risk_level, clauses_reviewed, document_blocks
+  const res = await db.query<AnalysisRow & { document_id: string; user_id: string; repair_started_at: Date | string | null }>(
+    `SELECT id, user_id, document_id, file_name, file_size, summary, risk_score, risk_level, clauses_reviewed, document_blocks,
+            repair_started_at
      FROM analyses WHERE id = $1`,
     [id],
   );
@@ -121,7 +122,15 @@ export async function loadAnalysis(db: Db, userId: string, id: string): Promise<
     redlines: decRedlines,
     document: blocks,
     canEdit,
+    ...(isRepairPending(row.repair_started_at) ? { repairPending: true } : {}),
   };
+}
+
+/** Идёт ли ещё фоновая починка ссылок (зависшая отметка не считается). */
+function isRepairPending(startedAt: Date | string | null | undefined): boolean {
+  if (!startedAt) return false;
+  const t = new Date(startedAt).getTime();
+  return Number.isFinite(t) && Date.now() - t < REPAIR_PENDING_MS;
 }
 
 export interface AnalysisSource {
@@ -756,6 +765,13 @@ export async function persistAnalysis(
 
 /** Демоция непроверенных цитат: находка без подтверждённой ссылки из корпуса
  *  помечается unverified и (при связанной правке) синхронизирует её тяжесть. */
+/** Проверенный разбор; repair — отложенная починка ссылок (только когда её
+ *  попросили отложить и есть что чинить). */
+export interface ValidatedAnalysis {
+  gen: GeneratedAnalysis;
+  repair?: () => Promise<GeneratedAnalysis>;
+}
+
 async function validateGen(
   db: Db,
   gen: GeneratedAnalysis,
@@ -764,25 +780,70 @@ async function validateGen(
   retrievalFailed: boolean,
   plan: string,
   logWarn: (msg: string) => void,
-): Promise<GeneratedAnalysis> {
+  deferRepair = false,
+): Promise<ValidatedAnalysis> {
   if (legalContext.length) {
     const originalSeverity = gen.findings.map((f) => f.severity);
-    let findings = await validateFindings(db, gen.findings, undefined, corpus ?? 'UK');
+    const findings = await validateFindings(db, gen.findings, undefined, corpus ?? 'UK');
+    const withFindings = (fs: GeneratedAnalysis['findings']): GeneratedAnalysis => {
+      const sevByRedline = new Map(fs.filter((f) => f.redlineId).map((f) => [f.redlineId as string, f.severity]));
+      const redlines = gen.redlines.map((r) => (sevByRedline.has(r.id) ? { ...r, severity: sevByRedline.get(r.id) as typeof r.severity } : r));
+      return { ...gen, findings: fs, redlines };
+    };
     // Неподтверждённые ссылки чинит агент (lib/citationRepair.ts): найденную им
     // норму снова проверяет код; подтвердилась — риску возвращается исходная
     // серьёзность, нет — он остаётся пониженным (правило №4).
     if (corpus && findings.some((f) => f.unverified) && usesAnalysisAgent(plan)) {
       const clauses = new Map(gen.redlines.map((r) => [r.id, { delText: r.delText, insText: r.insText }]));
-      findings = (await repairFindingCitations(db, { findings, originalSeverity, jurisdiction: corpus, plan, clauses, log: logWarn })).findings;
+      const repair = async () =>
+        withFindings((await repairFindingCitations(db, { findings, originalSeverity, jurisdiction: corpus, plan, clauses, log: logWarn })).findings);
+      // Экран сайта получает разбор сразу, починка идёт после ответа
+      // (finishRepairInBackground). Остальные вызовы ждут её, как раньше.
+      return deferRepair ? { gen: withFindings(findings), repair } : { gen: await repair() };
     }
-    const sevByRedline = new Map(findings.filter((f) => f.redlineId).map((f) => [f.redlineId as string, f.severity]));
-    const redlines = gen.redlines.map((r) => (sevByRedline.has(r.id) ? { ...r, severity: sevByRedline.get(r.id) as typeof r.severity } : r));
-    return { ...gen, findings, redlines };
+    return { gen: withFindings(findings) };
   }
   // Юрисдикция с базой законов, чью проверку не удалось выполнить, не должна
   // выглядеть «проверенной» — каждую цитату помечаем неподтверждённой.
-  if (retrievalFailed) return { ...gen, findings: gen.findings.map((f) => ({ ...f, unverified: true })) };
-  return gen;
+  if (retrievalFailed) return { gen: { ...gen, findings: gen.findings.map((f) => ({ ...f, unverified: true })) } };
+  return { gen };
+}
+
+/** Через сколько отметка «идёт починка ссылок» считается зависшей (перезапуск
+ *  сервера посреди починки): дальше интерфейс перестаёт ждать. */
+const REPAIR_PENDING_MS = 5 * 60 * 1000;
+
+/**
+ * Отложенная починка ссылок разбора: агент дочинивает неподтверждённые ссылки
+ * ПОСЛЕ ответа, результат дописывается в уже сохранённые строки находок и
+ * правок. Сбой — разбор остаётся как был (неподтверждённые ссылки помечены),
+ * отметка снимается в любом случае. Никогда не бросает.
+ */
+export async function finishRepairInBackground(
+  db: Db,
+  analysisId: string,
+  repair: () => Promise<GeneratedAnalysis>,
+  logWarn: (msg: string) => void = () => undefined,
+): Promise<void> {
+  try {
+    const fixed = await repair();
+    await db.withTx(async (tx) => {
+      for (let i = 0; i < fixed.findings.length; i++) {
+        const f = fixed.findings[i];
+        await tx.query(
+          'UPDATE findings SET severity = $3, citation = $4, unit_id = $5, unverified = $6 WHERE analysis_id = $1 AND id = $2',
+          [analysisId, `f${i + 1}`, f.severity, f.citation, f.unitId ?? null, f.unverified ?? false],
+        );
+      }
+      for (const r of fixed.redlines) {
+        await tx.query('UPDATE redlines SET severity = $3 WHERE analysis_id = $1 AND id = $2', [analysisId, r.id, r.severity]);
+      }
+    });
+  } catch (err) {
+    logWarn(`[analysis] background citation repair failed (analysis kept as is): ${(err as Error).message}`);
+  } finally {
+    await db.query('UPDATE analyses SET repair_started_at = NULL WHERE id = $1', [analysisId]).catch(() => undefined);
+  }
 }
 
 /** Полный конвейер «источник → проверенный анализ»: RAG-контекст по юрисдикции,
@@ -796,6 +857,19 @@ export async function analyzeSource(
   plan: string,
   logWarn: (msg: string) => void = () => undefined,
 ): Promise<GeneratedAnalysis> {
+  return (await analyzeSourceDeferred(db, requesterId, source, plan, logWarn, false)).gen;
+}
+
+/** То же, но починку неподтверждённых ссылок можно отложить (deferRepair):
+ *  разбор возвращается сразу, repair() запускает вызывающий. */
+export async function analyzeSourceDeferred(
+  db: Db,
+  requesterId: string,
+  source: AnalysisSource,
+  plan: string,
+  logWarn: (msg: string) => void = () => undefined,
+  deferRepair = true,
+): Promise<ValidatedAnalysis> {
   const corpus = jurisdictionCode(source.jurisdiction);
   // Скан или фото без текстового слоя. Модель с «глазами» (Claude) читает
   // страницы сама, а рядом дешёвая модель один раз распознаёт полный текст —
@@ -837,7 +911,7 @@ export async function analyzeSource(
     legalContext,
     playbook,
   });
-  return validateGen(db, gen, legalContext, corpus, retrievalFailed, plan, logWarn);
+  return validateGen(db, gen, legalContext, corpus, retrievalFailed, plan, logWarn, deferRepair);
 }
 
 export function analysisRoutes(app: FastifyInstance, db: Db): void {
@@ -973,10 +1047,16 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
       return reply;
     }
 
-    const gen = await analyzeSource(db, req.currentUser.id, source, plan, (m) => req.log.warn(m));
+    // Экран сайта: разбор отдаётся сразу после проверки ссылок, а
+    // неподтверждённые ссылки агент дочинивает уже после ответа; интерфейс
+    // опрашивает GET /analysis/:id, пока repairPending.
+    const { gen, repair } = await analyzeSourceDeferred(db, req.currentUser.id, source, plan, (m) => req.log.warn(m));
     const result = await persistAnalysis(db, source.ownerUserId ?? req.currentUser.id, source, gen, req.currentUser.id, req);
     reply.code(201);
-    return result;
+    if (!repair) return result;
+    await db.query('UPDATE analyses SET repair_started_at = now() WHERE id = $1', [result.id]);
+    void finishRepairInBackground(db, result.id, repair, (m) => req.log.warn(m));
+    return { ...result, repairPending: true };
   });
 
   app.get('/analysis/:id', { preHandler: [app.authenticate] }, async (req) => {

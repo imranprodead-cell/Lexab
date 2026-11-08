@@ -399,8 +399,8 @@ export function TaskSidebar({ messages, sessionKey, onOpenArtifact, analysis, on
                           </span>
                         ) : src.state === 'unverified' ? (
                           <span className={styles.sideSrcWarn}>
-                            <Icon name="alert" size={12} />
-                            {t('memo.notVerified')}
+                            <Icon name={analysis?.repairPending ? 'clock' : 'alert'} size={12} />
+                            {t(analysis?.repairPending ? 'memo.checking' : 'memo.notVerified')}
                           </span>
                         ) : null}
                         {src.state === 'verified' && src.unitId ? (

@@ -70,6 +70,9 @@ export interface AnalysisResult {
    *  'pending' — ещё распознаётся, 'done' — готов, 'failed' — не вышло.
    *  Нет поля — текст взят из самого файла. */
   scanOcr?: 'pending' | 'done' | 'failed';
+  /** Агент ещё дочинивает неподтверждённые ссылки в фоне: интерфейс показывает
+   *  «проверяем ссылку» и опрашивает GET /analysis/:id, пока поле не пропадёт. */
+  repairPending?: boolean;
 }
 
 export interface ChatMessage {

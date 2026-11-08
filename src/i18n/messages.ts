@@ -523,6 +523,7 @@ export const MESSAGES: Dict = {
   // Citation verification badge (statute corpus)
   'finding.verified': { ru: 'Проверено по базе законодательства', en: 'Verified against legislation database' },
   'finding.unverified': { ru: 'Источник не подтверждён', en: 'Source not confirmed' },
+  'finding.checking': { ru: 'Проверяем ссылку по базе…', en: 'Checking the citation…' },
 
   // Playbooks — team standard positions the AI checks contracts against
   'playbooks.title': { ru: 'Плейбуки', en: 'Playbooks' },
@@ -703,6 +704,11 @@ export const MESSAGES: Dict = {
   "memo.undo": { ru: "Отменить", en: "Undo" },
   "memo.verified": { ru: "Проверено по базе законов", en: "Verified against the statute database" },
   "memo.notVerified": { ru: "Нет в базе, проверьте вручную", en: "Not in the database, check manually" },
+  // Фоновая починка ссылок разбора (2026-11-08): пока агент ищет подтверждение.
+  "memo.checking": { ru: "Проверяем по базе…", en: "Checking the database…" },
+  "memo.checkingLabel": { ru: "Проверяется", en: "Checking" },
+  "memo.checkingTitle": { ru: "Проверяем ссылки по базе законов", en: "Checking citations against the law database" },
+  "memo.checkingNote": { ru: "Агент ищет подтверждение в базе законов — разбор обновится сам через несколько секунд.", en: "The agent is looking for confirmation in the law database — the review updates by itself in a few seconds." },
   "memo.playbookSource": { ru: "Плейбук команды", en: "Team playbook" },
   "memo.playbookNote": { ru: "Позиции команды, с которыми сверялся договор", en: "Team positions the contract was checked against" },
   "memo.openDoc": { ru: "Открыть договор с правками", en: "Open contract with edits" },

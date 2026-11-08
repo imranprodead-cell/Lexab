@@ -439,7 +439,7 @@ export function WorkspacePage() {
                       <span className={styles.findingCardDot} style={{ background: toneColor(f.severity) }} />
                       <div style={{ minWidth: 0, flex: 1 }}>
                         <div className={styles.findingCardTitle}>{f.title}</div>
-                        <CitationLine finding={f} />
+                        <CitationLine finding={f} pending={analysis?.repairPending} />
                       </div>
                       {/* «Обсудить в чате»: вопрос по находке ложится в плашку
                           (НЕ отправляется сам — пользователь правит и шлёт). */}

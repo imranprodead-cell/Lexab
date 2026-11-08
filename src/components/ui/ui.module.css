@@ -235,6 +235,11 @@
   background: var(--hover);
   border: 1px dashed var(--border);
 }
+.verifyPending {
+  color: var(--dim);
+  background: var(--hover);
+  border: 1px solid var(--border);
+}
 .verifyDeviation {
   color: var(--sev-med);
   background: color-mix(in srgb, var(--sev-med) 12%, transparent);

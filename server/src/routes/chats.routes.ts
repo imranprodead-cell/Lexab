@@ -22,6 +22,7 @@ import { openSSE, wantsSSE, type SseChannel } from '../lib/sse.ts';
 import { asObject, requireString } from '../lib/validate.ts';
 import { canTranscribeScans, generateChatReply, generateHistorySummary, usesChatAgent, type ChatAgent, type ChatTurn } from '../llm.ts';
 import { CHAT_AGENT_INSTRUCTIONS, citedProvisionNumbers, citesProvision, createChatToolRunner, refNumber, type ChatDocument } from '../lib/chatTools.ts';
+import { isSmallTalk } from '../lib/smallTalk.ts';
 import { appendEditBlocks, appendReminderBlocks, loadEditTarget, type EditProposal, type EditTarget, type ReminderProposal } from '../lib/chatActions.ts';
 import { jurisdictionCode, retrieveLegalContext } from '../rag/retrieve.ts';
 import type { ChatMessage, ChatSession, ChatStep } from '../types.ts';
@@ -562,7 +563,9 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
       const refActs = new Map<string, string>();
       const rememberActs = (units: { breadcrumb: string }[], refs: LawRef[]) =>
         refs.forEach((r, i) => refActs.set(`${r.label}|${r.doc}`, actTitleOf(units[i]?.breadcrumb ?? '')));
-      if (corpus && ragQuery.trim()) {
+      // «Привет», «Спасибо», «Ок» — без поиска по базе законов (−2–5 с);
+      // любое сообщение с вопросом или делом ищет как раньше (lib/smallTalk.ts).
+      if (corpus && ragQuery.trim() && (mode || !isSmallTalk(text))) {
         // Запросы — те, по которым реально идёт поиск: переформулировки
         // вопроса (без него самого — его пользователь и так видит).
         let queries: string[] = [];

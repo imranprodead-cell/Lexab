@@ -10,6 +10,7 @@
  */
 import { create } from 'zustand';
 import { consumePendingProject, USE_MOCK, analysisApi, documentsApi } from '@/api';
+import { mergeRepaired, REPAIR_POLL_MS, REPAIR_WAIT_MS } from '@/lib/analysisRepair';
 import { chatsApi } from '@/api/chats.api';
 import { uploadsApi, type UploadedFile } from '@/api/uploads.api';
 import { ApiError } from '@/api/util';
@@ -1206,3 +1207,39 @@ function persistDocument(analysisId: string, document: DocBlock[], redlines?: Re
     .then(() => undefined)
     .catch(() => useUIStore.getState().pushToast(tStandalone('common.error'), 'error'));
 }
+
+/* ── Фоновая починка ссылок разбора ─────────────────────────────────────────
+ * Сервер отдаёт разбор сразу, а неподтверждённые ссылки агент дочинивает
+ * после ответа (analysis.repairPending). Пока отметка стоит, раз в 3 с
+ * спрашиваем разбор и подставляем дочиненные находки (lib/analysisRepair.ts),
+ * не трогая документ и историю правок. Один наблюдатель на разбор. */
+let repairWatch: string | null = null;
+
+async function watchRepair(id: string): Promise<void> {
+  const deadline = Date.now() + REPAIR_WAIT_MS;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, REPAIR_POLL_MS));
+    const current = useChatStore.getState().analysis;
+    if (current?.id !== id || !current.repairPending) return;
+    const fresh = await analysisApi.get(id).catch(() => null);
+    if (fresh && !fresh.repairPending) {
+      useChatStore.setState((s) => (s.analysis?.id === id ? { analysis: mergeRepaired(s.analysis, fresh) } : {}));
+      return;
+    }
+  }
+  // Сервер не закончил за отведённое время — перестаём ждать: риски остаются
+  // с честной пометкой «проверьте вручную».
+  useChatStore.setState((s) =>
+    s.analysis?.id === id && s.analysis.repairPending ? { analysis: { ...s.analysis, repairPending: undefined } } : {},
+  );
+}
+
+useChatStore.subscribe((s) => {
+  const a = s.analysis;
+  if (USE_MOCK || !a?.repairPending || repairWatch === a.id) return;
+  const id = a.id;
+  repairWatch = id;
+  void watchRepair(id).finally(() => {
+    if (repairWatch === id) repairWatch = null;
+  });
+});

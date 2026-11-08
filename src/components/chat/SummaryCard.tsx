@@ -134,6 +134,8 @@ export function SummaryCard({ analysis, onOpenWorkspace, onOpenFinding, onAsk, o
   const main = analysis.findings.filter((f) => !f.unverified);
   const toCheck = analysis.findings.filter((f) => f.unverified);
   const canEdit = analysis.canEdit !== false;
+  // Ссылки ещё дочиниваются в фоне: вместо «проверьте вручную» — «проверяем».
+  const checking = analysis.repairPending === true;
   const count = (s: Severity) => main.filter((f) => f.severity === s).length;
 
   // Первая правка раскрыта сразу — видно «было → стало»; остальные по клику.
@@ -175,7 +177,7 @@ export function SummaryCard({ analysis, onOpenWorkspace, onOpenFinding, onAsk, o
             {f.unverified ? (
               <span className={styles.memoSev}>
                 <span className={`${styles.sevBox} ${styles.sevBoxGrey}`} aria-hidden="true" />
-                {t('memo.checkLabel')}
+                {t(checking ? 'memo.checkingLabel' : 'memo.checkLabel')}
               </span>
             ) : (
               <span className={styles.memoSev} style={sevStyle(f.severity)}>
@@ -217,7 +219,7 @@ export function SummaryCard({ analysis, onOpenWorkspace, onOpenFinding, onAsk, o
               <LawTextBox unitId={lawUnit} />
             </div>
           ) : null}
-          {f.unverified ? <p className={styles.memoNote}>{t('memo.checkNote')}</p> : null}
+          {f.unverified ? <p className={styles.memoNote}>{t(checking ? 'memo.checkingNote' : 'memo.checkNote')}</p> : null}
           {redline ? (
             <>
               <button
@@ -288,7 +290,7 @@ export function SummaryCard({ analysis, onOpenWorkspace, onOpenFinding, onAsk, o
             {toCheck.length ? (
               <span className={styles.memoCount}>
                 <span className={`${styles.sevBox} ${styles.sevBoxGrey}`} aria-hidden="true" />
-                {t('memo.checkLabel')} {toCheck.length}
+                {t(checking ? 'memo.checkingLabel' : 'memo.checkLabel')} {toCheck.length}
               </span>
             ) : null}
           </span>
@@ -306,7 +308,7 @@ export function SummaryCard({ analysis, onOpenWorkspace, onOpenFinding, onAsk, o
 
       {toCheck.length ? (
         <section className={styles.memoSection}>
-          <h3 className={styles.memoH}>{t('memo.checkTitle')}</h3>
+          <h3 className={styles.memoH}>{t(checking ? 'memo.checkingTitle' : 'memo.checkTitle')}</h3>
           <ol className={styles.memoList}>{toCheck.map((f, i) => renderFinding(f, main.length + i + 1))}</ol>
         </section>
       ) : null}

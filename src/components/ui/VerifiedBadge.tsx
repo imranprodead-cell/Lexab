@@ -14,8 +14,17 @@ import styles from './ui.module.css';
  * muted note when validation could not confirm the source, nothing when
  * the analysis predates RAG (no verification data at all).
  */
-export function VerifiedBadge({ finding }: { finding: Pick<Finding, 'unitId' | 'unverified'> }) {
+export function VerifiedBadge({ finding, pending = false }: { finding: Pick<Finding, 'unitId' | 'unverified'>; pending?: boolean }) {
   const { t } = useI18n();
+  // Агент ещё дочинивает ссылку в фоне — не пугаем «не подтверждён» раньше времени.
+  if (finding.unverified && pending) {
+    return (
+      <span className={`${styles.verify} ${styles.verifyPending}`} title={t('finding.checking')}>
+        <Icon name="clock" size={12} />
+        <span className={styles.verifyText}>{t('finding.checking')}</span>
+      </span>
+    );
+  }
   if (finding.unverified) {
     return (
       <span className={`${styles.verify} ${styles.verifyWarn}`} title={t('finding.unverified')}>
@@ -53,13 +62,16 @@ export function PlaybookDeviationBadge({ finding }: { finding: Pick<Finding, 'pl
 /** Citation chip + verification mark + playbook-deviation mark on one wrapping line. */
 export function CitationLine({
   finding,
+  pending = false,
 }: {
   finding: Pick<Finding, 'citation' | 'unitId' | 'unverified' | 'playbookDeviation'>;
+  /** Ссылки разбора ещё дочиниваются в фоне (analysis.repairPending). */
+  pending?: boolean;
 }) {
   return (
     <span className={styles.citeRow}>
       <CitationChip citation={finding.citation} />
-      <VerifiedBadge finding={finding} />
+      <VerifiedBadge finding={finding} pending={pending} />
       <PlaybookDeviationBadge finding={finding} />
       {finding.unitId && !finding.unverified ? <LawTextToggle unitId={finding.unitId} /> : null}
     </span>

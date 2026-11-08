@@ -106,6 +106,9 @@ export interface AnalysisResult {
   /** Договор загружен сканом или фото, и его текст для чата распознаёт ИИ:
    *  'pending' — ещё распознаётся, 'done' — готов, 'failed' — не вышло. */
   scanOcr?: 'pending' | 'done' | 'failed';
+  /** Агент ещё дочинивает неподтверждённые ссылки в фоне (сервер вернул разбор
+   *  сразу): показываем «проверяем ссылку» и опрашиваем разбор, пока поле есть. */
+  repairPending?: boolean;
 }
 
 /** A chat message in the conversational canvas. */
