@@ -171,7 +171,7 @@ interface ChatState {
   startAnalysis: (
     file: { name: string; size: string },
     rawFile?: File,
-    opts?: { keepCanvas?: boolean; uploadId?: string; photos?: File[]; newSession?: boolean; side?: ContractSide | null },
+    opts?: { keepCanvas?: boolean; uploadId?: string; photos?: File[]; newSession?: boolean; side?: ContractSide | null; note?: string },
   ) => Promise<void>;
   /** Отменить идущий анализ (кнопка «Отменить» на карточке). */
   cancelAnalysis: () => void;
@@ -619,6 +619,7 @@ export const useChatStore = create<ChatState>((set, get) => {
           jurisdiction: defaultLaw(),
           ...(uploadId ? { uploadId } : {}),
           ...(opts?.side ? { side: opts.side } : {}),
+          ...(opts?.note ? { note: opts.note } : {}),
         },
         controller?.signal,
       );

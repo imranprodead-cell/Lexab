@@ -40,7 +40,7 @@ import { formatFileSize } from '@/lib/format';
 import { isAttachFile, isDocFile, MAX_DOC_BYTES, maxAttachments } from '@/lib/docFormats';
 import { isSlidesCommand, parseDeck } from '@/lib/deck';
 import { extractArtifacts, type Artifact } from '@/lib/artifacts';
-import { answersMessage, displayText, extractQuestions, isApproveCommand, isPlanCommand, looksLikePlan } from '@/lib/questions';
+import { answersMessage, displayText, extractQuestions, isApproveCommand, isPlanCommand, looksLikePlan, type ClarifyQuestion } from '@/lib/questions';
 import { COMMANDS } from '@/data/seed';
 import { plansLabel } from '@/lib/planFeatures';
 import { MAX_PHOTO_BYTES, MAX_PHOTOS, uploadsApi, type UploadedFile } from '@/api/uploads.api';
@@ -376,7 +376,7 @@ export function ChatPage() {
   const analysisStartedAt = useChatStore((s) => s.analysisStartedAt);
   const cancelAnalysis = useChatStore((s) => s.cancelAnalysis);
 
-  const analyze = (file: { name: string; size: string }, rawFile?: File, opts?: { uploadId?: string; photos?: File[]; side?: ContractSide | null }) => {
+  const analyze = (file: { name: string; size: string }, rawFile?: File, opts?: { uploadId?: string; photos?: File[]; side?: ContractSide | null; note?: string }) => {
     // Новый договор — новый чат в боковой панели. Создаёт его и привязывает
     // к нему анализ сам стор (newSession): раньше чат создавался здесь
     // параллельно с анализом, и разбор нового договора мог прицепиться к
@@ -403,13 +403,17 @@ export function ChatPage() {
   // договор без текста — полный разбор рисков, как раньше.
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const attachSeq = useRef(0);
-  // «Моя сторона» для разбора прикреплённого договора (переключатель у файла).
-  const [contractSide, setContractSide] = useState<ContractSide | null>(null);
+  // Уточняющий вопрос перед разбором договора: «Чью сторону вы представляете?»
+  // (решение владельца 2026-11-09). Варианты — стороны из шапки договора
+  // (POST /analysis/precheck, без ИИ); можно выбрать, написать свой ответ или
+  // пропустить (нейтральный разбор, как раньше). Сторон меньше двух — не спрашиваем.
+  const [preAsk, setPreAsk] = useState<{ attachment: ComposerAttachment; question: ClarifyQuestion; choices: Map<string, ContractSide | null> } | null>(null);
+  const prechecking = useRef(false);
   const maxFiles = maxAttachments(limits?.plan);
   // Другой чат — свои вложения: карточки не переезжают в чужую переписку.
   useEffect(() => {
     setAttachments([]);
-    setContractSide(null);
+    setPreAsk(null);
   }, [sessionId]);
 
   const limitToast = () =>
@@ -485,12 +489,52 @@ export function ChatPage() {
     }
   };
 
-  /** Полный разбор рисков прикреплённого договора (файл уже на сервере). */
-  const analyzeAttachment = (a: ComposerAttachment) => {
-    if (!a.uploadId) return;
+  /** Запуск разбора: роль из ответа на вопрос или свой текст пользователя. */
+  const runAnalysis = (a: ComposerAttachment, extra: { side?: ContractSide | null; note?: string } = {}) => {
     setAttachments([]);
-    analyze({ name: a.name, size: a.size }, undefined, { uploadId: a.uploadId, ...(contractSide ? { side: contractSide } : {}) });
-    setContractSide(null);
+    analyze({ name: a.name, size: a.size }, undefined, {
+      uploadId: a.uploadId,
+      ...(extra.side ? { side: extra.side } : {}),
+      ...(extra.note ? { note: extra.note } : {}),
+    });
+  };
+
+  /** Полный разбор рисков прикреплённого договора (файл уже на сервере):
+   *  сначала — уточняющий вопрос о стороне, если в договоре две стороны и больше. */
+  const analyzeAttachment = (a: ComposerAttachment) => {
+    if (!a.uploadId || prechecking.current) return;
+    prechecking.current = true;
+    analysisApi
+      .precheck(a.uploadId)
+      .then(({ parties }) => {
+        if (parties.length < 2) return runAnalysis(a);
+        const choices = new Map<string, ContractSide | null>();
+        const options = parties.map((p) => {
+          const label = p.name ? `${p.role} — ${p.name}` : p.role;
+          choices.set(label, p.side);
+          return label;
+        });
+        const neutral = t('analysis.ask.neutral');
+        choices.set(neutral, null);
+        setPreAsk({ attachment: a, question: { question: t('analysis.ask.side'), options: [...options.slice(0, 4), neutral] }, choices });
+      })
+      // Вопрос не получился — разбор как раньше, без задержки.
+      .catch(() => runAnalysis(a))
+      .finally(() => {
+        prechecking.current = false;
+      });
+  };
+
+  const onPreAskDone = (answered: { question: string; answer: string }[]) => {
+    const pending = preAsk;
+    setPreAsk(null);
+    if (!pending) return;
+    const answer = answered[0]?.answer?.trim();
+    if (!answer || answer === t('analysis.ask.neutral')) return runAnalysis(pending.attachment); // пропустили / нейтрально
+    const side = pending.choices.get(answer);
+    if (side) return runAnalysis(pending.attachment, { side });
+    // Роль вне списка разбора (Агент, Принципал…) или свой ответ — модели текстом.
+    runAnalysis(pending.attachment, { note: `${pending.question.question} — ${answer}` });
   };
 
   /** /analyze: разбор рисков — ровно для одного прикреплённого договора. */
@@ -590,8 +634,6 @@ export function ChatPage() {
       jurisdiction={<CountrySelector variant="composer" />}
       attachments={attachments}
       onRemoveAttachment={removeAttachment}
-      // Переключатель — только для одного прикреплённого договора (его разбор).
-      {...(attachments.length === 1 && isDocFile(attachments[0].name) ? { contractSide, onContractSideChange: setContractSide } : {})}
       placeholder={composerPlaceholder}
       onSend={onComposerSend}
       banner={
@@ -853,7 +895,7 @@ export function ChatPage() {
               transition={{ duration: 0.55, ease: EASE, delay: 0.24, layout: { duration: 0.3, ease: EASE } }}
               className={chat.welcomeComposer}
             >
-              {composerEl}
+              {preAsk ? <QuestionCard key="pre-analysis" questions={[preAsk.question]} onDone={onPreAskDone} /> : composerEl}
             </motion.div>
           }
         />
@@ -962,7 +1004,7 @@ export function ChatPage() {
               transition={{ duration: 0.5, ease: EASE }}
               className={chat.dockSlide}
             >
-              {composerEl}
+              {preAsk ? <QuestionCard key="pre-analysis" questions={[preAsk.question]} onDone={onPreAskDone} /> : composerEl}
             </motion.div>
           )}
         </div>

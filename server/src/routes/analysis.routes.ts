@@ -12,6 +12,7 @@ import type { Db } from '../db.ts';
 import { ALLOWED_EXTENSIONS, assertValidFileContent, extractText, fileExtension, MAX_UPLOAD_BYTES } from '../extract.ts';
 import { badRequest, HttpError, notFound } from '../lib/errors.ts';
 import { parseSide, type ContractSide } from '../lib/contractSide.ts';
+import { extractParties, sideFromText } from '../lib/contractParties.ts';
 import { assertDocumentAllowance, assertFeature, assertStorageAllowance, DOC_COST, planFor, planHasFeature, quotaOwnerFor, reserveDocument, withDocumentUnits, withStorageReservation } from '../lib/limits.ts';
 import { notify } from '../lib/notify.ts';
 import { resolveAnalysisAccess, resolveDocumentAccess } from '../lib/teamAccess.ts';
@@ -153,6 +154,8 @@ export interface AnalysisSource {
    *  when two uploads share a name. Null for re-analysis of legacy rows. */
   uploadId?: string | null;  /** «На чьей вы стороне» (lib/contractSide.ts): null — нейтральный разбор. */
   side?: ContractSide | null;
+  /** Свободный ответ пользователя на уточняющий вопрос перед разбором. */
+  note?: string | null;
 }
 
 /** Render document blocks to plain text with the CURRENT redline states applied
@@ -354,14 +357,17 @@ export async function readSource(db: Db, req: FastifyRequest): Promise<AnalysisS
   const jurisdiction = optionalString(body, 'jurisdiction')?.slice(0, 60) ?? null;
   // Роль пользователя по договору; 'neutral' — явно нейтрально (сброс роли).
   const sideRaw = optionalString(body, 'side', { max: 20 });
-  const side = parseSide(sideRaw);
+  // Свободный ответ на уточняющий вопрос («мы покупатель, важно снизить
+  // предоплату») — модели как есть; роль из него — если названа однозначно.
+  const note = optionalString(body, 'note', { max: 600 })?.trim() || null;
+  const side = parseSide(sideRaw) ?? (note ? sideFromText(note) : null);
 
   // Re-analysis of an existing review: { analysisId } instead of a file.
   const analysisId = optionalString(body, 'analysisId');
   if (analysisId) {
     const source = await sourceFromAnalysis(db, req.currentUser.id, analysisId);
     // Повторный разбор помнит роль, пока пользователь не выбрал другую.
-    return { ...source, jurisdiction, side: sideRaw === undefined ? source.side : side };
+    return { ...source, jurisdiction, side: sideRaw === undefined && !note ? source.side : side, note };
   }
 
   const fileName = requireString(body, 'fileName', { min: 1, max: 300 });
@@ -370,7 +376,7 @@ export async function readSource(db: Db, req: FastifyRequest): Promise<AnalysisS
   // разрешать его по ИМЕНИ незачем (при двух одноимённых взяли бы не тот).
   const requestedUploadId = optionalString(body, 'uploadId', { max: 60 }) ?? null;
   const uploaded = await resolveUploadedContent(db, req.currentUser.id, fileName, requestedUploadId);
-  return { fileName, fileSizeLabel, sizeBytes: uploaded.sizeBytes, text: uploaded.text, pdf: uploaded.pdf, jurisdiction, uploadId: uploaded.uploadId, side };
+  return { fileName, fileSizeLabel, sizeBytes: uploaded.sizeBytes, text: uploaded.text, pdf: uploaded.pdf, jurisdiction, uploadId: uploaded.uploadId, side, note };
 }
 
 /** Последний разбор ЭТОЙ загрузки в живом документе владельца (или null). */
@@ -924,6 +930,7 @@ export async function analyzeSourceDeferred(
     legalContext,
     playbook,
     side: source.side ?? null,
+    note: source.note ?? null,
   });
   return validateGen(db, gen, legalContext, corpus, retrievalFailed, plan, logWarn, deferRepair);
 }
@@ -932,6 +939,18 @@ export function analysisRoutes(app: FastifyInstance, db: Db): void {
   // POST /analysis/draft — generate a fresh contract from a free-text prompt and
   // persist it as an analysis, so it opens directly in the editable workspace
   // sheet (edit / review / download). Fails loud if the AI is unavailable.
+  // Уточняющий вопрос перед разбором (решение владельца 2026-11-09): стороны
+  // договора по его шапке — без ИИ и бесплатно (lib/contractParties.ts). Клиент
+  // спрашивает «Чью сторону вы представляете?», если сторон две и больше.
+  app.post('/analysis/precheck', { preHandler: [app.authenticateReal], config: { rateLimit: { max: 30, timeWindow: '1 minute' } } }, async (req) => {
+    const body = asObject(req.body);
+    const uploadId = requireString(body, 'uploadId', { min: 1, max: 60 });
+    const up = await db.query<{ extracted_text: string | null }>('SELECT extracted_text FROM uploads WHERE id = $1 AND user_id = $2', [uploadId, req.currentUser.id]);
+    if (!up.rows[0]) throw notFound('Upload not found');
+    const text = (await decText(db, req.currentUser.id, up.rows[0].extracted_text).catch(() => null)) ?? '';
+    return { parties: extractParties(text) };
+  });
+
   app.post('/analysis/draft', { preHandler: [app.authenticateReal], config: RATE_LIMIT }, async (req, reply) => {
     await assertFeature(db, req.currentUser.id, 'drafting');
     const body = asObject(req.body);

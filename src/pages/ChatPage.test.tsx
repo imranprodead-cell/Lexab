@@ -20,7 +20,7 @@ vi.mock('@/api', () => ({
     ]),
   },
 }));
-vi.mock('@/api/analysis.api', () => ({ analysisApi: { draft: vi.fn() } }));
+vi.mock('@/api/analysis.api', () => ({ analysisApi: { draft: vi.fn(), precheck: vi.fn().mockResolvedValue({ parties: [] }) } }));
 vi.mock('@/api/chats.api', () => ({
   chatsApi: {
     messages: vi.fn(),
@@ -44,6 +44,7 @@ vi.mock('@/store/useChatHistoryStore', () => ({
 import { analysisApi } from '@/api';
 import { chatsApi } from '@/api/chats.api';
 import { uploadsApi } from '@/api/uploads.api';
+import { analysisApi as analysisFileApi } from '@/api/analysis.api';
 import { useUIStore } from '@/store/useUIStore';
 import { useChatStore } from '@/store/useChatStore';
 import { ChatPage } from './ChatPage';
@@ -303,16 +304,47 @@ describe('ChatPage — attaching files to the composer', () => {
     expect(analysisSpy).toHaveBeenCalledWith({ name: 'Договор.pdf', size: '48 KB' }, undefined, { uploadId: 'up_1', newSession: true });
   });
 
-  it('«Моя сторона» у одного договора уходит в разбор', async () => {
+  // Уточняющий вопрос перед разбором: стороны — из шапки договора (precheck).
+  const twoParties = {
+    parties: [
+      { role: 'Поставщик', name: 'ООО «Альфа»', side: 'seller' },
+      { role: 'Покупатель', name: 'ООО «Бета»', side: 'buyer' },
+    ],
+  };
+
+  it('before the review it asks which party you represent; the chosen side goes to the review', async () => {
+    (analysisFileApi.precheck as ReturnType<typeof vi.fn>).mockResolvedValueOnce(twoParties);
     await attach('Договор.pdf');
-    const select = host.querySelector('select') as HTMLSelectElement;
-    expect(select).toBeTruthy();
-    await act(async () => {
-      select.value = 'buyer';
-      select.dispatchEvent(new Event('change', { bubbles: true }));
-    });
     await send();
+    expect(analysisSpy).not.toHaveBeenCalled(); // ждёт ответа
+    expect(host.textContent).toContain('Which party do you represent in this contract?');
+    const option = [...host.querySelectorAll('button[role="option"]')].find((b) => b.textContent?.includes('Покупатель — ООО «Бета»')) as HTMLButtonElement;
+    await act(async () => {
+      option.click();
+    });
+    await flush();
     expect(analysisSpy).toHaveBeenCalledWith({ name: 'Договор.pdf', size: '48 KB' }, undefined, { uploadId: 'up_1', side: 'buyer', newSession: true });
+  });
+
+  it('an own answer goes to the review as text', async () => {
+    (analysisFileApi.precheck as ReturnType<typeof vi.fn>).mockResolvedValueOnce(twoParties);
+    await attach('Договор.pdf');
+    await send();
+    const input = host.querySelector('input[type="text"], input:not([type])') as HTMLInputElement;
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+    await act(async () => {
+      setter?.call(input, 'мы покупатель, важно снизить предоплату');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
+    await flush();
+    expect(analysisSpy).toHaveBeenCalledWith({ name: 'Договор.pdf', size: '48 KB' }, undefined, {
+      uploadId: 'up_1',
+      note: 'Which party do you represent in this contract? — мы покупатель, важно снизить предоплату',
+      newSession: true,
+    });
   });
 
   it('a spreadsheet without text asks what to do instead of a risk review', async () => {

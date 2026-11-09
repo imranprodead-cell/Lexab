@@ -1294,36 +1294,6 @@
 .attChip[data-status='error'] .attSub {
   color: var(--danger);
 }
-/* «Моя сторона» для разбора договора — рядом с карточкой файла. */
-.sidePick {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  align-self: center;
-  font-size: 12.5px;
-  color: var(--mut);
-}
-
-.sidePickLabel {
-  white-space: nowrap;
-}
-
-.sidePickSelect {
-  font: inherit;
-  color: var(--text);
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 4px 8px;
-  max-width: 220px;
-  cursor: pointer;
-}
-
-.sidePickSelect:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
-
 .attRemove {
   position: absolute;
   top: -7px;

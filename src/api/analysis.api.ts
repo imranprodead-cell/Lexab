@@ -22,6 +22,15 @@ export interface AnalyzeInput {
   uploadId?: string;
   /** «На чьей вы стороне»: роль пользователя по договору; нет — нейтральный разбор. */
   side?: ContractSide;
+  /** Свободный ответ на уточняющий вопрос перед разбором («мы покупатель, …»). */
+  note?: string;
+}
+
+/** Сторона договора по его шапке (POST /analysis/precheck) — для вопроса перед разбором. */
+export interface ContractParty {
+  role: string;
+  name: string;
+  side: ContractSide | null;
 }
 
 /** «Весь договор»: полный текст исходного файла с принятыми правками —
@@ -56,6 +65,12 @@ export const analysisApi = {
   analyze(input: AnalyzeInput, signal?: AbortSignal): Promise<AnalysisResult> {
     if (USE_MOCK) return analyzeMock(input);
     return http<AnalysisResult>('/analysis', { method: 'POST', body: input, signal });
+  },
+
+  /** Стороны договора по шапке загруженного файла — без ИИ (вопрос «Чью сторону вы представляете?»). */
+  async precheck(uploadId: string): Promise<{ parties: ContractParty[] }> {
+    if (USE_MOCK) return { parties: [] };
+    return http<{ parties: ContractParty[] }>('/analysis/precheck', { method: 'POST', body: { uploadId } });
   },
 
   get(id: string, signal?: AbortSignal): Promise<AnalysisResult> {
