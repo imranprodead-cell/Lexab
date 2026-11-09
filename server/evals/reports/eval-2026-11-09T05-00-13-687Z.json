@@ -1,0 +1,40 @@
+{
+  "at": "2026-11-09T04:58:56.068Z",
+  "model": "claude-sonnet-5-5",
+  "golden": "uz-hierarchy-plenums.jsonl",
+  "questions": 23,
+  "linkedNorms": false,
+  "rewritesCached": true,
+  "retrieval": {
+    "hit@5": 0.957,
+    "hit@10": 0.957,
+    "recall@10": 0.957
+  },
+  "misses": [
+    {
+      "question": "Договором предусмотрен претензионный порядок, а истец сразу обратился в экономический суд. Что будет с таким иском?",
+      "expected_unit_ids": [
+        "lu_uz_2026136_p-19"
+      ],
+      "top10_unit_ids": [
+        "lu_uz_4395744_p-3",
+        "lu_uz_2338576_p-7.6",
+        "lu_uz_3523895_st-148",
+        "lu_uz_10872_st-19",
+        "lu_uz_3523895_st-107",
+        "lu_uz_3523895_st-155",
+        "lu_uz_4395744_p-11",
+        "lu_uz_3523895_st-26",
+        "lu_uz_3523895_st-149",
+        "lu_uz_3523895_st-110"
+      ]
+    }
+  ],
+  "corpus": {
+    "jurisdiction": "UZ",
+    "documents": 175,
+    "chunks": 11730,
+    "contextCoverage": 1,
+    "embeddingCoverage": 1
+  }
+}

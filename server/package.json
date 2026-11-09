@@ -25,6 +25,7 @@
     "rag:ingest:ae": "node --env-file-if-exists=.env src/rag/ingest/run-ingest-ae.ts",
     "rag:index": "node --env-file-if-exists=.env src/rag/build-index.ts",
     "rag:embed": "node --env-file-if-exists=.env src/rag/build-index.ts --embed-only",
+    "rag:links": "node --env-file-if-exists=.env src/rag/build-links.ts",
     "eval": "node --env-file-if-exists=.env evals/run-eval.ts",
     "lint": "eslint . --ext ts",
     "verify:db": "node --env-file-if-exists=.env scripts/verify-db.ts",

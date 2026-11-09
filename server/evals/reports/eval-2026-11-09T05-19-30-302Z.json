@@ -1,0 +1,20 @@
+{
+  "at": "2026-11-09T05:17:12.027Z",
+  "model": "claude-sonnet-5-5",
+  "golden": "uz-wave7.jsonl",
+  "questions": 20,
+  "linkedNorms": true,
+  "rewritesCached": true,
+  "retrieval": {
+    "hit@5": 1,
+    "hit@10": 1,
+    "recall@10": 1
+  },
+  "corpus": {
+    "jurisdiction": "UZ",
+    "documents": 175,
+    "chunks": 11730,
+    "contextCoverage": 1,
+    "embeddingCoverage": 1
+  }
+}

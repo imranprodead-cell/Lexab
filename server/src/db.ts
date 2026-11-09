@@ -97,7 +97,12 @@ async function createDb(): Promise<Db> {
       // именно так одна фоновая задача останавливала всю очередь (аудит
       // 2026-08-03). Плюс потолки на сам запрос и на «забытую» транзакцию —
       // иначе одно подвисшее соединение выедает лимит сессий Supabase.
-      connectionTimeoutMillis: 5_000,
+      // PG_CONNECT_TIMEOUT_MS — только для локальных скриптов (eval/ингест) на
+      // медленном канале: в pg-pool этот лимит действует и на ОЖИДАНИЕ
+      // свободного соединения в очереди, а поиск шлёт ~12 запросов разом —
+      // с маленьким PG_POOL_MAX хвост очереди не дожидался 5 с (2026-11-08).
+      // Сервер работает с умолчанием 5 с.
+      connectionTimeoutMillis: Math.max(1000, Number(process.env.PG_CONNECT_TIMEOUT_MS ?? 5000) || 5000),
       statement_timeout: 60_000,
       idle_in_transaction_session_timeout: 30_000,
       ...(useSsl ? { ssl: resolveSslOptions() } : {}),

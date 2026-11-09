@@ -1,0 +1,22 @@
+{
+  "at": "2026-11-09T05:07:30.062Z",
+  "model": "claude-sonnet-5-5",
+  "golden": "uz-multihop.jsonl",
+  "questions": 30,
+  "linkedNorms": true,
+  "rewritesCached": true,
+  "retrieval": {
+    "hit@5": 1,
+    "hit@10": 1,
+    "recall@10": 0.946,
+    "all@5": 0.8,
+    "all@10": 1
+  },
+  "corpus": {
+    "jurisdiction": "UZ",
+    "documents": 175,
+    "chunks": 11730,
+    "contextCoverage": 1,
+    "embeddingCoverage": 1
+  }
+}

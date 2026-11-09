@@ -20,7 +20,7 @@
  * RULE (also in CLAUDE.md): run this before and after ANY change to ranking,
  * prompts or the index; reports land in evals/reports/.
  */
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Anthropic from '@anthropic-ai/sdk';
@@ -164,10 +164,24 @@ async function main(): Promise<void> {
     .map((l) => JSON.parse(l) as GoldenRow)
     .slice(0, limit);
 
+  // --rewrites-cache=FILE: переформулировки запросов берутся из файла (новые
+  // дописываются) — «до» и «после» ищут по ОДНИМ И ТЕМ ЖЕ запросам, и за
+  // переписчик платим один раз. RAG_LINKS=off — поиск без карты связей.
+  const cacheArg = process.argv.find((a) => a.startsWith('--rewrites-cache='));
+  const cachePath = cacheArg ? cacheArg.slice('--rewrites-cache='.length) : null;
+  const rewriteCache: Record<string, string[]> = cachePath && existsSync(cachePath) ? JSON.parse(readFileSync(cachePath, 'utf8')) : {};
+
   const db = await getDb();
   await migrate(db);
   const api = new Anthropic({ apiKey: config.anthropicApiKey });
-  const report: Record<string, unknown> = { at: new Date().toISOString(), model, golden: goldenFile, questions: rows.length };
+  const report: Record<string, unknown> = {
+    at: new Date().toISOString(),
+    model,
+    golden: goldenFile,
+    questions: rows.length,
+    linkedNorms: process.env.RAG_LINKS !== 'off',
+    rewritesCached: Boolean(cachePath),
+  };
 
   /* ── Retrieval metrics ─────────────────────────────────────────────────── */
   let hit5 = 0, hit10 = 0, recallSum = 0;
@@ -181,7 +195,20 @@ async function main(): Promise<void> {
   let multiRows = 0, all5 = 0, all10 = 0;
   const incomplete: { question: string; missing_groups: string[][]; top10_unit_ids: string[] }[] = [];
   for (const row of rows) {
-    const hits = await retrieveLegalContext(db, { query: row.question, jurisdiction: row.jurisdiction, asOfDate: row.as_of_date, topK: 10 });
+    const cached = rewriteCache[row.question];
+    const hits = await retrieveLegalContext(db, {
+      query: row.question,
+      jurisdiction: row.jurisdiction,
+      asOfDate: row.as_of_date,
+      topK: 10,
+      rewrites: cached,
+      onQueries: (qs) => {
+        if (cached) return;
+        rewriteCache[row.question] = qs.filter((q) => q !== row.question);
+        // Сразу на диск: упавший посередине прогон не теряет оплаченные переформулировки.
+        if (cachePath) writeFileSync(cachePath, JSON.stringify(rewriteCache, null, 1));
+      },
+    });
     retrieved.set(row.question, hits);
     const ids5 = new Set(hits.slice(0, 5).map((h) => h.unitId));
     const ids10 = new Set(hits.map((h) => h.unitId));
@@ -207,6 +234,7 @@ async function main(): Promise<void> {
     retrieval['all@10'] = +(all10 / multiRows).toFixed(3);
   }
   report.retrieval = retrieval;
+  if (cachePath) writeFileSync(cachePath, JSON.stringify(rewriteCache, null, 1));
   if (misses.length) report.misses = misses;
   if (incomplete.length) report.incomplete = incomplete;
   console.log('\n=== RETRIEVAL ===', JSON.stringify(retrieval));

@@ -173,7 +173,7 @@ export async function retrieveLegalContext(db: Db, params: RetrieveParams): Prom
   // Russian for UZ/KZ, English for UK/US/CA. Must mirror the `tsv` CASE in the
   // FTS migrations, or lexical scoring uses the wrong stemmer.
   const ftsConfig = FTS_CONFIG[params.jurisdiction] ?? 'english';
-  const rewrites = await rewriteQuery(params.query, params.jurisdiction);
+  const rewrites = params.rewrites ?? (await rewriteQuery(params.query, params.jurisdiction));
   // Original question + rewrites (deduped) all participate in the search.
   const queries = [...new Set([params.query, ...rewrites])].slice(0, 4);
   params.onQueries?.(queries);
@@ -266,21 +266,120 @@ export async function retrieveLegalContext(db: Db, params: RetrieveParams): Prom
   const fused = [...byId.values()]
     .sort((a, b) => b.score - a.score)
     .slice(0, Math.max(topK * 2, topK))
-    .map(({ row, score }): RetrievedChunk => ({
-      chunkId: row.id,
-      unitId: row.unit_id,
-      documentId: row.document_id,
-      jurisdiction: row.jurisdiction,
-      breadcrumb: row.breadcrumb,
-      contextSummary: row.context_summary,
-      body: row.body,
-      validFrom: row.valid_from,
-      validTo: row.valid_to,
-      sourceUrl: row.source_url,
-      score,
-    }));
+    .map(({ row, score }): RetrievedChunk => toRetrieved(row, score));
 
-  return (await rerank(params.query, fused)).slice(0, topK);
+  // Связанные нормы — ПОСЛЕ основного списка: без реранкера (сбой) они в топ-K
+  // не попадают и поиск ведёт себя как раньше.
+  const linked = await expandWithLinks(db, fused, queries, ftsConfig, params.jurisdiction, asOf, topK);
+  return (await rerank(params.query, [...fused, ...linked])).slice(0, topK);
+}
+
+function toRetrieved(row: ChunkRow, score: number): RetrievedChunk {
+  return {
+    chunkId: row.id,
+    unitId: row.unit_id,
+    documentId: row.document_id,
+    jurisdiction: row.jurisdiction,
+    breadcrumb: row.breadcrumb,
+    contextSummary: row.context_summary,
+    body: row.body,
+    validFrom: row.valid_from,
+    validTo: row.valid_to,
+    sourceUrl: row.source_url,
+    score,
+  };
+}
+
+/** Сколько лучших найденных норм расширяем связями (карта legal_links). */
+const LINK_SEEDS = 5;
+
+/**
+ * Связанные нормы (карта связей, этап 2, 2026-11-08). Замер uz-multihop:
+ * поиск находит правило, но теряет вторую нужную норму — пункт Пленума к
+ * найденной статье, статью, на которую ссылается найденный Пленум, соседнюю
+ * статью главы («3 года» рядом с «началом течения давности»), спецзакон рядом
+ * с общей нормой ГК. К LINK_SEEDS лучшим нормам добавляются кандидаты:
+ *  - статьи, на которые они ссылаются, и статьи, которые разъясняет Пленум;
+ *  - пункты Пленумов, которые разъясняют найденную статью (обратная связь);
+ *  - статьи, названные вместе с ней в одном пункте Пленума;
+ *  - статьи той же главы того же кодекса/закона.
+ * Из них берутся `limit` самых близких к вопросу по словам (ts_rank); итог
+ * решает реранкер. Связи — только из текста закона (rag/links.ts), поэтому
+ * добавка не может привести ненастоящую норму. RAG_LINKS=off — выключить
+ * (сравнение «до/после» в eval). Любой сбой → без добавок.
+ */
+async function expandWithLinks(
+  db: Db,
+  fused: RetrievedChunk[],
+  queries: string[],
+  ftsConfig: string,
+  jurisdiction: string,
+  asOf: string,
+  limit: number,
+): Promise<RetrievedChunk[]> {
+  if (process.env.RAG_LINKS === 'off' || !fused.length || limit < 1) return [];
+  const seeds = fused.slice(0, LINK_SEEDS).map((c) => c.unitId);
+  const have = fused.map((c) => c.unitId);
+  const words = [...new Set(queries.flatMap((q) => q.split(/\s+/)).map((w) => w.replace(/[^\p{L}\p{N}.]/gu, '')).filter((w) => w.length > 2))];
+  const orQuery = words.slice(0, 24).join(' OR ');
+  if (!orQuery) return [];
+  // Две квоты (замер 09.11): в главе о купле-продаже ~100 статей, и «соседи»
+  // вытесняли явные связи из текста (ст.356 по ссылке Пленума). Поэтому:
+  //  1) явные связи (legal_links) — до `limit`, по совпадению слов с вопросом;
+  //  2) статьи той же главы — до 3 на каждую найденную норму, ранг с поправкой
+  //     на длину (ts_rank norm 2): короткая «Общий срок исковой давности — три
+  //     года» не должна проигрывать длинным статьям главы.
+  const filters = `c.jurisdiction = $4
+         AND (c.valid_from IS NULL OR c.valid_from <= $5::date)
+         AND (c.valid_to   IS NULL OR c.valid_to   >= $5::date)
+         AND NOT (c.unit_id = ANY($6::text[]))`;
+  try {
+    const res = await db.query<ChunkRow & { rank: number; grp: number }>(
+      `WITH seeds AS (SELECT unnest($1::text[]) AS unit_id),
+       q AS (SELECT websearch_to_tsquery($3::regconfig, $2) AS q),
+       linked AS (
+         SELECT l.to_unit_id AS unit_id FROM legal_links l JOIN seeds s ON s.unit_id = l.from_unit_id
+         UNION
+         SELECT l.from_unit_id FROM legal_links l JOIN seeds s ON s.unit_id = l.to_unit_id WHERE l.kind = 'interprets'
+       ),
+       link_rows AS (
+         SELECT ${CHUNK_COLS}, ts_rank(c.tsv, q.q) AS rank
+         FROM linked JOIN chunks c ON c.unit_id = linked.unit_id CROSS JOIN q
+         WHERE ${filters}
+         ORDER BY rank DESC, c.unit_id
+         LIMIT $7
+       ),
+       sib_rows AS (
+         SELECT * FROM (
+           SELECT ${CHUNK_COLS}, ts_rank(c.tsv, q.q, 2) AS rank,
+                  ROW_NUMBER() OVER (PARTITION BY s.unit_id ORDER BY ts_rank(c.tsv, q.q, 2) DESC, c.unit_id) AS rn
+           FROM seeds s
+           JOIN legal_units u ON u.id = s.unit_id AND u.parent_id IS NOT NULL
+           JOIN legal_documents d ON d.id = u.document_id AND d.doc_type IN ('code', 'act')
+           JOIN legal_units sib ON sib.parent_id = u.parent_id AND sib.unit_type = 'section' AND sib.id <> u.id
+           JOIN chunks c ON c.unit_id = sib.id
+           CROSS JOIN q
+           WHERE ${filters}
+         ) x
+         WHERE rn <= 3
+       )
+       SELECT id, unit_id, document_id, jurisdiction, breadcrumb, context_summary, body, valid_from, valid_to, source_url, rank, 1 AS grp FROM link_rows
+       UNION ALL
+       SELECT id, unit_id, document_id, jurisdiction, breadcrumb, context_summary, body, valid_from, valid_to, source_url, rank, 2 AS grp FROM sib_rows`,
+      [seeds, orQuery, ftsConfig, jurisdiction, asOf, have, limit],
+    );
+    const seen = new Set<string>();
+    const rows = res.rows.filter((r) => !seen.has(r.unit_id) && seen.add(r.unit_id));
+    const linkedRows = rows.filter((r) => Number(r.grp) === 1);
+    const siblingRows = rows.filter((r) => Number(r.grp) === 2).slice(0, limit);
+    const added = [...linkedRows, ...siblingRows];
+    // RAG_DEBUG_LINKS=1 — разбор в eval: от каких норм расширяли и что добавили.
+    if (process.env.RAG_DEBUG_LINKS) console.log(`[rag:links] seeds=${seeds.join(',')} linked=${linkedRows.map((r) => r.unit_id).join(',')} chapter=${siblingRows.map((r) => r.unit_id).join(',')}`);
+    return added.map((row) => toRetrieved(row, 0));
+  } catch (err) {
+    console.warn(`[rag] linked norms skipped: ${(err as Error).message}`);
+    return [];
+  }
 }
 
 /* ── Русские цитаты: чистый разбор + таблицы алиасов ─────────────────────────
