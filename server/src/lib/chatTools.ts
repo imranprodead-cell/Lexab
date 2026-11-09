@@ -21,7 +21,7 @@ import { judgeProvision } from '../rag/validate-citations.ts';
 import type { ChatStep, ChatToolName } from '../types.ts';
 import { docHeader, loadFirmMemory, scorePassages, searchMemory, stemsOf, type MemoryDoc } from './firmMemory.ts';
 import { buildDocGraph, relatedLines } from './docGraph.ts';
-import { excerpt, fetchOfficial, officialUrl, pageText, parseLexPage, searchLexUz } from './officialWeb.ts';
+import { excerpt, fetchOfficial, lexDocId, officialActRef, officialUrl, pageText, parseLexPage, searchLexUz, shortActName, type OfficialActRef } from './officialWeb.ts';
 import { checkProposal, reviewEditsText, reviewSourceText, type EditProposal, type EditTarget, type ReminderProposal } from './chatActions.ts';
 import { planFor, planHasFeature } from './limits.ts';
 import { loadActivePlaybook, resolvePlaybookOwner } from './playbook.ts';
@@ -67,6 +67,10 @@ export interface ChatToolContext {
   /** Агент брал сведения с официального сайта (хост) — маршрут чата добавит
    *  в конец ответа строку «не из проверенной базы Lexab» (lib/officialWeb.ts). */
   onOfficialSource?: (host: string) => void;
+  /** Акты с официальных сайтов для вкладки Sources и ссылок в конце ответа:
+   *  read — агент открыл страницу (идут всегда); found — действующие акты из
+   *  поиска lex.uz (идут, если ответ называет их номер или ссылку). */
+  onOfficialActs?: (acts: OfficialActRef[], kind: 'read' | 'found') => void;
 }
 
 export interface ToolCall {
@@ -731,6 +735,9 @@ export function createChatToolRunner(ctx: ChatToolContext): { tools: Anthropic.B
   // Предложенные в этом ответе правки: без дублей и не больше пяти.
   const proposed = new Set<string>();
   const reminded = new Set<string>();
+  // Акты из поиска lex.uz этого ответа (по id страницы) — чтобы открытая потом
+  // страница получила в Sources ту же подпись «ПКМ № 428 от 31.08.2023».
+  const lexActs = new Map<string, OfficialActRef>();
   const plan = ctx.plan;
   const lockedFor = (feature: 'clm' | 'playbooks' | 'compare', what: string) =>
     plan && !planHasFeature(plan, feature) ? `NOT_AVAILABLE: ${what} are on the Pro and Business plans (the user is on ${plan}). Tell the user, and help in text instead.` : null;
@@ -1090,6 +1097,11 @@ export function createChatToolRunner(ctx: ChatToolContext): { tools: Anthropic.B
           const hits = await searchLexUz(query, 8);
           step('done', { queries: [query], found: hits.length });
           if (hits.length) ctx.onOfficialSource?.('lex.uz');
+          for (const h of hits) {
+            const id = lexDocId(h.url);
+            if (id) lexActs.set(id, officialActRef(h));
+          }
+          ctx.onOfficialActs?.(hits.filter((h) => h.inForce).map(officialActRef), 'found');
           if (!hits.length) return { content: `NO_RESULTS on lex.uz for «${query}». Try the act's likely title words.` };
           return {
             content: clipResult(
@@ -1110,6 +1122,7 @@ export function createChatToolRunner(ctx: ChatToolContext): { tools: Anthropic.B
           let title = '';
           let notes: string[] = [];
           let text = '';
+          let pageAct = '';
           if (/(^|\.)lex\.uz$/i.test(new URL(url).hostname)) {
             let page = parseLexPage(html);
             notes = page.warnings;
@@ -1126,6 +1139,7 @@ export function createChatToolRunner(ctx: ChatToolContext): { tools: Anthropic.B
             }
             title = page.title;
             text = page.text;
+            pageAct = page.act;
           } else {
             const p = pageText(html);
             title = p.title;
@@ -1135,9 +1149,20 @@ export function createChatToolRunner(ctx: ChatToolContext): { tools: Anthropic.B
             step('done', { citation: target.hostname, found: 0 });
             return { content: `NO_TEXT: could not read text from ${url}.`, isError: true };
           }
-          const refs = [{ label: clipText(title || new URL(url).hostname, 40), doc: new URL(url).hostname, url }];
-          ctx.onRefs?.(refs, 'used');
-          ctx.onOfficialSource?.(new URL(url).hostname.replace(/^www\./, ''));
+          const host = new URL(url).hostname.replace(/^www\./, '');
+          // Подпись в Sources: акт из поиска lex.uz → как в поиске; страница
+          // lex.uz → по её шапке («ПКМ № 428 от …» + название); прочие сайты —
+          // заголовок страницы и сайт.
+          const known = lexActs.get(lexDocId(target.toString()) ?? '') ?? lexActs.get(lexDocId(url) ?? '');
+          const fromPage = pageAct ? shortActName(pageAct) : null;
+          const act: OfficialActRef = known
+            ? { ...known, url }
+            : fromPage
+              ? { label: fromPage.label, doc: clipText(title || host, 60), url, number: fromPage.number }
+              : { label: clipText(title || host, 40), doc: host, url, number: null };
+          const refs = [{ label: act.label, doc: act.doc, url }];
+          ctx.onOfficialActs?.([act], 'read');
+          ctx.onOfficialSource?.(host);
           step('done', { citation: clipText(title || new URL(url).hostname, 80), found: 1, refs });
           return {
             content: clipResult(

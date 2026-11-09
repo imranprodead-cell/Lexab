@@ -26,7 +26,7 @@ import { isSmallTalk } from '../lib/smallTalk.ts';
 import { appendEditBlocks, appendReminderBlocks, loadEditTarget, type EditProposal, type EditTarget, type ReminderProposal } from '../lib/chatActions.ts';
 import { jurisdictionCode, retrieveLegalContext } from '../rag/retrieve.ts';
 import { formatLegalContext } from '../rag/context.ts';
-import { officialSourceNote } from '../lib/officialWeb.ts';
+import { lexDocId, mentionsOfficialAct, officialSourceNote, type OfficialActRef } from '../lib/officialWeb.ts';
 import type { ChatMessage, ChatSession, ChatStep } from '../types.ts';
 import { parseChatMode } from '../lib/chatModes.ts';
 import {
@@ -610,15 +610,33 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
       const agentUsed: LawRef[] = [];
       // Хосты официальных сайтов, с которых агент брал сведения (пометка в ответе).
       const officialHosts = new Set<string>();
+      // Акты с официальных сайтов: открытые агентом и найденные поиском lex.uz.
+      const officialRead: OfficialActRef[] = [];
+      const officialFound: OfficialActRef[] = [];
       const agentFound: LawRef[] = [];
       let agentRan = false;
       // Правки, предложенные агентом, — карточками «Принять» в конце ответа.
       const proposals: EditProposal[] = [];
       const reminders: ReminderProposal[] = [];
       const finish = async (rawReply: string): Promise<ChatMessage> => {
+        // Акты с официальных сайтов, на которые ответ опирается: открытые
+        // агентом — всегда, найденные поиском — если ответ называет их номер или
+        // ссылку. Идут в Sources со ссылкой, как нормы из базы, и ссылками в
+        // строку-пометку ниже (модель сама ссылки пишет не всегда).
+        const officialSeen = new Set<string>();
+        const official: LawRef[] = [...officialRead, ...officialFound.filter((a) => mentionsOfficialAct(rawReply, a))]
+          .filter((a) => {
+            // Один акт — одна строка: та же страница или та же подпись (русская
+            // страница и узбекский оригинал одного акта).
+            const keys = [lexDocId(a.url) ?? a.url, `${a.label}|${a.doc}`];
+            if (keys.some((k) => officialSeen.has(k))) return false;
+            keys.forEach((k) => officialSeen.add(k));
+            return true;
+          })
+          .map(({ label, doc, url }) => ({ label, doc, url }));
         // Сведения с официальных сайтов — пометка КОДОМ, а не только просьбой к
         // модели: «не из проверенной базы Lexab» на языке ответа.
-        const note = officialHosts.size ? officialSourceNote(rawReply, officialHosts) : '';
+        const note = officialHosts.size ? officialSourceNote(rawReply, officialHosts, official.map((r) => ({ label: r.label, url: r.url as string }))) : '';
         const replyText = appendReminderBlocks(appendEditBlocks(note ? `${rawReply.trimEnd()}\n\n${note}` : rawReply, proposals), reminders);
         if (agentRan) {
           const cited = citedProvisionNumbers(rawReply);
@@ -627,7 +645,7 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
             const num = refNumber(r.label) ?? '';
             return cited.has(num) && citesProvision(rawReply, num, refActs.get(`${r.label}|${r.doc}`) ?? r.doc, corpus ?? '');
           };
-          foundRefs = [...agentUsed, ...[...foundRefs, ...agentFound].filter(citedHere)].filter((r) => {
+          foundRefs = [...agentUsed, ...official, ...[...foundRefs, ...agentFound].filter(citedHere)].filter((r) => {
             const key = `${r.label}|${r.doc}`;
             if (seenRefs.has(key)) return false;
             seenRefs.add(key);
@@ -689,6 +707,7 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
               },
               onRefs: (refs, kind) => (kind === 'used' ? agentUsed : agentFound).push(...refs),
               onOfficialSource: (host) => officialHosts.add(host),
+              onOfficialActs: (acts, kind) => (kind === 'read' ? officialRead : officialFound).push(...acts),
             });
             return { tools: runner.tools, run: runner.run, instructions: CHAT_AGENT_INSTRUCTIONS };
           })()

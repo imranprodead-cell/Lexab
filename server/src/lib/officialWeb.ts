@@ -113,18 +113,135 @@ export async function searchLexUz(query: string, limit = 8): Promise<LexSearchHi
   return parseLexSearch(html, limit);
 }
 
+/* ── Акты с официальных сайтов во вкладке Sources (как нормы из базы) ──── */
+
+/** Строка вкладки Sources для акта с официального сайта. */
+export interface OfficialActRef {
+  /** «ПКМ № 428 от 31.08.2023», «УП-157 от 08.09.2025» — как «Статья 333» у нормы из базы. */
+  label: string;
+  /** Название акта: «О мерах по …» (или сайт, если названия нет). */
+  doc: string;
+  url: string;
+  /** Номер акта — по нему видно, что ответ называет этот акт: «428», «УП-157», «2303-7». */
+  number: string | null;
+}
+
+/** Вид акта → короткое имя (номера без буквенного кода: «№ 428», «рег. номер 2303-7»). */
+const ACT_KINDS: [RegExp, string][] = [
+  [/^Постановление\s+Кабинета\s+Министров/iu, 'ПКМ'],
+  [/^Распоряжение\s+Кабинета\s+Министров/iu, 'РКМ'],
+  [/^Постановление\s+Пленума\s+Верховного\s+суда/iu, 'Пленум ВС'],
+  [/^Постановление\s+Пленума\s+Высшего\s+хозяйственного/iu, 'Пленум ВХС'],
+  [/^Постановление\s+Правления\s+Центрального\s+банка/iu, 'ЦБ'],
+  [/^Указ/iu, 'Указ'],
+  [/^Постановление\s+Президента/iu, 'ПП'],
+  [/^Распоряжение/iu, 'Распоряжение'],
+  [/^Закон/iu, 'Закон'],
+  [/^Кодекс/iu, 'Кодекс'],
+  [/^Приказ/iu, 'Приказ'],
+  [/^Постановление/iu, 'Постановление'],
+  [/^Решение/iu, 'Решение'],
+  // Узбекские шапки (оригинал, когда русского текста нет).
+  [/Вазирлар\s+Маҳкамаси/iu, 'ПКМ'],
+];
+
+const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
+
+/**
+ * Вид, номер и дата из строки поиска lex.uz («Постановление Кабинета Министров
+ * Республики Узбекистан, от 31.08.2023 г. № 428») → «ПКМ № 428 от 31.08.2023».
+ * Номер с буквенным кодом — без вида: «УП-157 от 08.09.2025», «ЗРУ-913 …».
+ * Не разобрали — null (подписью станет название акта).
+ */
+export function shortActName(act: string): { label: string; number: string | null } | null {
+  const a = act.replace(/\s+/g, ' ').trim();
+  if (!a) return null;
+  const date = a.match(/(?<!\d)(\d{2}\.\d{2}\.\d{4})(?!\d)/)?.[1] ?? null;
+  const reg = a.match(/рег\.\s*номер\s*([^\s,;]+)/iu)?.[1];
+  // Узбекская строка: «…, 23.11.2023 йилдаги ПҚ-373-сон».
+  const raw = reg ?? a.match(/№\s*([^\s,;]+)/u)?.[1] ?? a.match(/(\p{L}{1,5}-\d[\d-]*?)-сон(?!\p{L})/u)?.[1] ?? null;
+  const num = raw ? raw.replace(/[.)]+$/u, '') : null;
+  const kind = ACT_KINDS.find(([re]) => re.test(a))?.[1] ?? null;
+  const when = date ? ` от ${date}` : '';
+  let label: string;
+  if (num && /^\p{L}{1,5}-\d/u.test(num)) label = `${num}${when}`;
+  else if (num && reg) label = `${kind ?? 'Акт'}, рег. № ${num}${when}`;
+  else if (num) label = `${kind ?? 'Акт'} № ${num}${when}`;
+  else if (kind && date) label = `${kind}${when}`;
+  else return null;
+  return { label, number: num };
+}
+
+/** id документа lex.uz из адреса: https://lex.uz/ru/docs/6591660 → «6591660». */
+export function lexDocId(url: string): string | null {
+  return url.match(/(?:^|\/\/)(?:www\.)?lex\.uz\/(?:[a-z]{2}\/)?docs\/(-?\d+)/i)?.[1] ?? null;
+}
+
+/** Результат поиска lex.uz → строка Sources. */
+export function officialActRef(hit: LexSearchHit): OfficialActRef {
+  const title = hit.title.replace(/\s+/g, ' ').trim();
+  const short = shortActName(hit.act);
+  return short
+    ? { label: short.label, doc: clip(title || hit.act, 60), url: hit.url, number: short.number }
+    : { label: clip(title || 'lex.uz', 40), doc: 'lex.uz', url: hit.url, number: null };
+}
+
+/** Буквенные коды одного вида акта по-русски и по-узбекски (кириллица и латиница). */
+const CODE_ALIASES: string[][] = [
+  ['УП', 'ПФ', 'PF', 'UP'],
+  ['ПП', 'ПҚ', 'ПК', 'PQ', 'PP'],
+  ['ЗРУ', 'ЎРҚ', 'ORQ', 'O‘RQ', "O'RQ", 'OʻRQ', 'ZRU'],
+  ['РП', 'Ф', 'F'],
+];
+
+const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Называет ли ответ этот акт: ссылкой на его страницу lex.uz или номером —
+ * «УП-157» (и узбекское «ПФ-157»), «№ 428», «ПКМ-428», «рег. № 2303-7».
+ * Акты из поиска, которые ответ не называет, в Sources не идут — как нормы
+ * из базы, которые лишь всплыли в поиске.
+ */
+export function mentionsOfficialAct(reply: string, act: { url: string; number: string | null }): boolean {
+  const id = lexDocId(act.url);
+  if (id && new RegExp(`docs/${esc(id)}(?!\\d)`).test(reply)) return true;
+  if (!act.number) return false;
+  const end = '(?![\\p{L}\\d]|[-–]\\d)';
+  const coded = act.number.match(/^(\p{L}{1,5})-(\d.*)$/u);
+  if (coded) {
+    const code = coded[1].toUpperCase();
+    const codes = CODE_ALIASES.find((g) => g.includes(code)) ?? [code];
+    const digits = esc(coded[2]).replace(/-/g, '[-–]');
+    return new RegExp(`(?<![\\p{L}\\d])(?:${codes.map(esc).join('|')})\\s?[-–]\\s?${digits}${end}`, 'iu').test(reply);
+  }
+  const n = esc(act.number).replace(/-/g, '[-–]');
+  return new RegExp(`(?:№|No\\.?)\\s?${n}${end}|(?<![\\p{L}\\d])\\p{L}{2,5}\\s?[-–]\\s?${n}${end}|рег\\.?\\s*(?:номер|№)\\s*${n}${end}`, 'iu').test(reply);
+}
+
 export interface LexPage {
   title: string;
   /** Предупреждения lex.uz: «утратил силу», «в новой редакции», «на узбекском языке». */
   warnings: string[];
   /** Ссылка на оригинал на узбекском, если русского текста нет. */
   originalUrl?: string;
+  /** Вид, орган, дата и номер — как в поиске lex.uz: «Постановление Кабинета
+   *  Министров Республики Узбекистан, от 31.08.2023 г. № 428» (или ''). */
+  act: string;
   text: string;
 }
 
 /** Текст акта со страницы lex.uz: блоки «… lx_elem» с внутренним <div name id>. */
 export function parseLexPage(html: string): LexPage {
-  const title = strip(html.match(/<div class="ACT_TITLE[^"]*"[\s\S]*?<div name="\d+" id="\d+">([\s\S]*?)<\/div>/)?.[1] ?? '');
+  const head = (cls: string) => strip(html.match(new RegExp(`<div class="${cls}[" ][\\s\\S]*?<div name="\\d+" id="\\d+">([\\s\\S]*?)<\\/div>`))?.[1] ?? '');
+  const title = head('ACT_TITLE');
+  // Шапка акта: «Постановление» + «Кабинета Министров Республики Узбекистан»;
+  // дата и номер — из строки «от 05.10.2020 г. № УП-9999» или из заголовка
+  // вкладки «428-сон 31.08.2023. О мерах…».
+  const kind = [head('ACT_FORM'), head('ACCEPTING_BODY')].filter(Boolean).join(' ');
+  const num = strip(html.match(/class="ACT_NUM"[^>]*>([\s\S]*?)<\/div>/)?.[1] ?? '');
+  const tab = strip(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] ?? '').match(/([^\s;]+?)-сон\s+(\d{2}\.\d{2}\.\d{4})/u);
+  const numbered = /№/.test(num) ? num : tab ? `от ${tab[2]} г. № ${tab[1]}` : '';
+  const act = numbered ? [kind, numbered].filter(Boolean).join(', ') : '';
   const warnings: string[] = [];
   let originalUrl: string | undefined;
   for (const m of html.matchAll(/class="COMMENT_FOR_WARNING"[^>]*>([\s\S]*?)<\/div>/g)) {
@@ -140,7 +257,7 @@ export function parseLexPage(html: string): LexPage {
     const t = strip(m[3]);
     if (t) blocks.push(t);
   }
-  return { title, warnings, ...(originalUrl ? { originalUrl } : {}), text: blocks.join('\n') };
+  return { title, warnings, ...(originalUrl ? { originalUrl } : {}), act, text: blocks.join('\n') };
 }
 
 /** Текст обычной страницы госоргана: <main>/<article>, иначе <body>. */
@@ -198,8 +315,18 @@ const OFFICIAL_NOTE: Record<ReplyLang, string> = {
   ar: 'ℹ️ بعض المعلومات مأخوذة من مواقع رسمية ({hosts}) وليست من قاعدة بيانات Lexab الموثقة. يُرجى التحقق عبر الرابط قبل الاعتماد عليها.',
 };
 
-/** Строка в конец ответа, если агент брал сведения с официальных сайтов. */
-export function officialSourceNote(reply: string, hosts: Iterable<string>): string {
+/**
+ * Строка в конец ответа, если агент брал сведения с официальных сайтов.
+ * links — акты, на которые ответ опирается: «Сверьте по ссылке…» получает сами
+ * ссылки (кодом, а не на усмотрение модели — она их часто не пишет).
+ */
+export function officialSourceNote(reply: string, hosts: Iterable<string>, links: { label: string; url: string }[] = []): string {
   const list = [...new Set(hosts)].slice(0, 4).join(', ');
-  return list ? OFFICIAL_NOTE[replyLanguage(reply)].replace('{hosts}', list) : '';
+  if (!list) return '';
+  const note = OFFICIAL_NOTE[replyLanguage(reply)].replace('{hosts}', list);
+  const md = links
+    .slice(0, 4)
+    .map((l) => `[${l.label.replace(/[[\]]/g, '')}](${l.url.replace(/\(/g, '%28').replace(/\)/g, '%29')})`)
+    .join(', ');
+  return md ? `${note.replace(/\.\s*$/u, '')}: ${md}.` : note;
 }
