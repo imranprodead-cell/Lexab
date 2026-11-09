@@ -82,6 +82,8 @@ interface ChatHistoryState {
   addSession: (title: string) => Promise<ChatSession | null>;
   togglePin: (id: string) => void;
   renameSession: (id: string, title: string) => void;
+  /** Заголовок, который сервер уже сохранил (ИИ по первому вопросу), — только в списке. */
+  applyTitle: (id: string, title: string) => void;
   archiveSession: (id: string) => void;
   deleteSession: (id: string) => void;
 }
@@ -139,7 +141,8 @@ export const useChatHistoryStore = create<ChatHistoryState>((set, get) => {
         return session;
       }
       try {
-        const session = await chatsApi.create(cleaned || tStandalone('nav.newReview'));
+        // Чат разбора назван именем договора — заголовком ИИ его не заменять.
+        const session = await chatsApi.create(cleaned || tStandalone('nav.newReview'), { fixed: Boolean(cleaned) });
         await refresh();
         return session;
       } catch {
@@ -156,6 +159,10 @@ export const useChatHistoryStore = create<ChatHistoryState>((set, get) => {
       }
       const isPinned = get().pinned.includes(id);
       mutate(() => chatsApi.update(id, { pinned: !isPinned }));
+    },
+
+    applyTitle: (id, title) => {
+      set((s) => ({ sessions: s.sessions.map((x) => (x.id === id ? { ...x, title } : x)) }));
     },
 
     renameSession: (id, title) => {

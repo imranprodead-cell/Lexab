@@ -3558,3 +3558,62 @@ describe('TRUST_PROXY под fastify 5.12', () => {
     assert.equal(trustProxySetting('1'), false);
   });
 });
+
+// Заголовок чата — один раз (решение владельца 2026-11-09, lib/chatTitle.ts).
+// В тестах модели нет (LLM_FALLBACK=dev) — заголовок из начала вопроса; с
+// моделью — короткий заголовок ИИ, правила «один раз» те же.
+describe('chat auto-title — once', () => {
+  const newChat = async (token: string, title = 'Новый чат') =>
+    JSON.parse((await app.inject({ method: 'POST', url: '/api/chats', headers: auth(token), payload: { title } })).body).id as string;
+  const send = (token: string, sessionId: string, text: string, sse = false) =>
+    app.inject({
+      method: 'POST',
+      url: `/api/chats/${sessionId}/messages`,
+      headers: sse ? { ...auth(token), accept: 'text/event-stream' } : auth(token),
+      payload: { text },
+    });
+  const titleOf = async (token: string, sessionId: string) =>
+    (JSON.parse((await app.inject({ method: 'GET', url: '/api/chats', headers: auth(token) })).body) as { id: string; title: string }[]).find(
+      (c) => c.id === sessionId,
+    )?.title;
+
+  it('first question titles the chat; later questions never rename it', async () => {
+    const { token } = await makeUser();
+    const id = await newChat(token);
+    assert.equal((await send(token, id, 'какая неустойка за просрочку поставки?')).statusCode, 200);
+    assert.equal(await titleOf(token, id), 'Какая неустойка за просрочку поставки?');
+    assert.equal((await send(token, id, 'А если поставщик иностранный?')).statusCode, 200);
+    assert.equal(await titleOf(token, id), 'Какая неустойка за просрочку поставки?', 'not renamed');
+  });
+
+  it('a greeting waits for the first real question; /plan is titled by its subject', async () => {
+    const { token } = await makeUser();
+    const id = await newChat(token);
+    await send(token, id, 'Привет!');
+    assert.equal(await titleOf(token, id), 'Новый чат', 'greeting does not title the chat');
+    await send(token, id, '/plan Взыскать долг с покупателя');
+    assert.equal(await titleOf(token, id), 'Взыскать долг с покупателя');
+  });
+
+  it('SSE: the title arrives as its own event', async () => {
+    const { token } = await makeUser();
+    const id = await newChat(token);
+    const res = await send(token, id, 'Срок исковой давности по договору займа', true);
+    assert.ok(res.body.includes('event: title'), 'title event');
+    assert.ok(res.body.includes('"title":"Срок исковой давности по договору займа"'));
+  });
+
+  it('a manual rename and a contract-review chat are never retitled', async () => {
+    const { token } = await makeUser();
+    const renamed = await newChat(token);
+    const patch = await app.inject({ method: 'PATCH', url: `/api/chats/${renamed}`, headers: auth(token), payload: { title: 'Мой чат' } });
+    assert.equal(patch.statusCode, 200, patch.body);
+    await send(token, renamed, 'Как расторгнуть договор аренды?');
+    assert.equal(await titleOf(token, renamed), 'Мой чат');
+
+    const review = await newChat(token, 'Договор поставки');
+    await db.query(`INSERT INTO chat_messages (id, session_id, role, kind, file_name, file_size) VALUES ($1, $2, 'user', 'file', 'Договор поставки.docx', '12 KB')`, [`m_t_${Date.now()}`, review]);
+    await send(token, review, 'Какие тут риски?');
+    assert.equal(await titleOf(token, review), 'Договор поставки');
+  });
+});

@@ -345,6 +345,7 @@ const de: Record<string, string> = {
   "chat.upsell.title": "Mehr mit Lexab",
   "chat.upsell.cta": "Upgraden",
   "chat.limitReached": "Das monatliche Limit an KI-Anfragen Ihres Tarifs ist aufgebraucht. Führen Sie auf der Seite „Tarife“ ein Upgrade durch, um fortzufahren.",
+  "chat.untitled": "Neuer Chat",
   "chat.error": "Konnte keine KI-Antwort abrufen. Bitte versuchen Sie es gleich noch einmal.",
   "chat.mock.draft": "Erstelle einen Entwurf. Hier ist die Struktur einer beidseitigen NDA (UK-Recht): 1) Parteien und Definitionen; 2) Vertrauliche Informationen; 3) Pflichten des Empfängers; 4) Ausnahmen; 5) Laufzeit und Rückgabe; 6) Rechtsbehelfe; 7) Anwendbares Recht. Sagen Sie mir, welche Klauseln zu präzisieren sind.",
   "chat.mock.compare": "Versionsvergleich: 6 geänderte Klauseln gefunden. Die wichtigsten: Kündigungsfrist von 3 Monaten auf 1 verkürzt; Wettbewerbsverbotsklausel hinzugefügt (12 Monate); Streitbeilegung auf LCIA-Schiedsverfahren umgestellt. Detaillierten Vergleich öffnen?",

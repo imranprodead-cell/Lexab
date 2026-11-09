@@ -28,7 +28,7 @@ vi.mock('@/api/uploads.api', () => ({
   },
 }));
 // Боковая панель чатов: addSession — «создать чат под новый договор».
-const history = vi.hoisted(() => ({ load: vi.fn(), addSession: vi.fn() }));
+const history = vi.hoisted(() => ({ load: vi.fn(), addSession: vi.fn(), applyTitle: vi.fn() }));
 vi.mock('@/store/useChatHistoryStore', () => ({
   useChatHistoryStore: { getState: () => history },
 }));
@@ -140,7 +140,7 @@ describe('chat store — live streaming', () => {
     expect(assistant?.text).toBe('Hello'); // authoritative final text
     expect(assistant?.streaming).toBeFalsy(); // no bubble left stuck streaming
     // The streaming path is taken: an onToken callback is passed through.
-    expect(mockSend).toHaveBeenCalledWith('s_live', 'hi', undefined, expect.anything(), expect.any(Function), undefined, undefined, expect.any(Function));
+    expect(mockSend).toHaveBeenCalledWith('s_live', 'hi', undefined, expect.anything(), expect.any(Function), undefined, undefined, expect.any(Function), expect.any(Function));
   });
 
   // Источники готового ответа (09.11): Sources показывал нормы первого поиска,
@@ -156,6 +156,25 @@ describe('chat store — live streaming', () => {
     const assistant = useChatStore.getState().messages.find((m) => m.role === 'assistant');
     expect(assistant?.id).toBe('srv_r');
     expect(assistant?.refs).toEqual(refs);
+  });
+
+  // Заголовок чата (09.11): новый чат создаётся как «Новый чат», а не текстом
+  // вопроса; заголовок ИИ приходит событием и сразу виден в списке.
+  it('a new chat starts as a placeholder title and takes the server title from the stream', async () => {
+    useChatStore.setState({ serverSessionId: null });
+    const mockCreate = chatsApi.create as ReturnType<typeof vi.fn>;
+    mockCreate.mockResolvedValue({ id: 's_new', title: 'Новый чат', updatedAt: new Date().toISOString() });
+    const mockSend = chatsApi.sendMessage as ReturnType<typeof vi.fn>;
+    mockSend.mockImplementation(async (_sid, _text, _aid, _jur, _onToken, _draft, _ids, _onStep, onTitle?: (t: string) => void) => {
+      onTitle?.('Неустойка по договору поставки');
+      return { id: 'srv_t', role: 'assistant', kind: 'text', text: 'Ответ' };
+    });
+
+    useChatStore.getState().sendMessage('какая неустойка за просрочку поставки?');
+    await new Promise((r) => setTimeout(r, 120));
+
+    expect(mockCreate).toHaveBeenCalledWith(expect.not.stringContaining('неустойка'), { fixed: false });
+    expect(history.applyTitle).toHaveBeenCalledWith('s_new', 'Неустойка по договору поставки');
   });
 
   // «Работаю…» (2026-10-25): шаги с сервера копятся на заглушке ответа,

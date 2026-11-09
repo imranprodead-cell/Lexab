@@ -801,8 +801,10 @@ export const useChatStore = create<ChatState>((set, get) => {
       try {
         let sessionId = get().serverSessionId;
         if (!sessionId) {
-          const title = get().analysis?.fileName ?? trimmed.slice(0, 60);
-          const session = await chatsApi.create(title);
+          // Договор или черновик — заголовок по его имени; иначе «Новый чат»,
+          // пока сервер не даст заголовок по первому вопросу (один раз).
+          const fileName = get().analysis?.fileName;
+          const session = await chatsApi.create(fileName ?? tStandalone('chat.untitled'), { fixed: Boolean(fileName) });
           if (epoch !== canvasEpoch) return;
           sessionId = session.id;
           set({ serverSessionId: sessionId });
@@ -825,6 +827,7 @@ export const useChatStore = create<ChatState>((set, get) => {
           draftSrc ? { title: draftSrc.title, content: draftSrc.content } : undefined,
           attached?.map((f) => f.uploadId),
           (step) => applyStep(assistantId, step),
+          (title) => useChatHistoryStore.getState().applyTitle(sessionId, title),
         );
         painter.cancel();
         pendingReplies.delete(sessionId);

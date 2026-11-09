@@ -23,6 +23,7 @@ import { asObject, requireString } from '../lib/validate.ts';
 import { canTranscribeScans, generateChatReply, generateHistorySummary, usesChatAgent, type ChatAgent, type ChatTurn } from '../llm.ts';
 import { CHAT_AGENT_INSTRUCTIONS, citedProvisionNumbers, citesProvision, createChatToolRunner, refNumber, type ChatDocument } from '../lib/chatTools.ts';
 import { isSmallTalk } from '../lib/smallTalk.ts';
+import { autoTitleChat } from '../lib/chatTitle.ts';
 import { appendEditBlocks, appendReminderBlocks, loadEditTarget, type EditProposal, type EditTarget, type ReminderProposal } from '../lib/chatActions.ts';
 import { jurisdictionCode, retrieveLegalContext } from '../rag/retrieve.ts';
 import { formatLegalContext } from '../rag/context.ts';
@@ -226,11 +227,14 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
   app.post('/chats', { preHandler: [app.authenticate] }, async (req, reply): Promise<ChatSession> => {
     const body = asObject(req.body);
     const title = requireString(body, 'title', { min: 1, max: 300 });
+    // fixed — заголовок уже осмысленный (имя договора, черновика): ИИ его не
+    // заменит. Иначе чат получит заголовок по первому вопросу (lib/chatTitle.ts).
+    const fixed = body.fixed === true;
     const id = newId('c');
     const res = await db.query<SessionRow>(
-      `INSERT INTO chat_sessions (id, user_id, title) VALUES ($1, $2, $3)
+      `INSERT INTO chat_sessions (id, user_id, title, titled_at) VALUES ($1, $2, $3, CASE WHEN $4 THEN now() END)
        RETURNING id, title, updated_at, pinned, archived`,
-      [id, req.currentUser.id, await encText(db, req.currentUser.id, title)],
+      [id, req.currentUser.id, await encText(db, req.currentUser.id, title), fixed],
     );
     reply.code(201);
     // RETURNING carries the ciphertext — respond with the plaintext title.
@@ -249,7 +253,8 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
     if (title !== undefined) {
       if (typeof title !== 'string' || !title.trim()) throw badRequest('Field "title" must be a non-empty string');
       params.push(await encText(db, req.currentUser.id, title.trim().slice(0, 300)));
-      sets.push(`title = $${params.length}`);
+      // Переименован вручную — заголовок ИИ его больше не перепишет (lib/chatTitle.ts).
+      sets.push(`title = $${params.length}`, 'titled_at = now()');
     }
     for (const flag of ['pinned', 'archived'] as const) {
       if (body[flag] !== undefined) {
@@ -457,6 +462,17 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
         `INSERT INTO chat_messages (id, session_id, role, kind, text, attachments) VALUES ($1, $2, 'user', 'text', $3, $4::jsonb)`,
         [newId('m'), sessionId, await encText(db, req.currentUser.id, text), attached.length ? JSON.stringify(attached) : null],
       );
+      // Заголовок чата — один раз, по первому вопросу по делу (lib/chatTitle.ts);
+      // параллельно с ответом, в список чатов — событием title, как только готов.
+      const titleJob = autoTitleChat(db, { sessionId, userId: req.currentUser.id, text, plan, log: (m) => req.log.warn(m) })
+        .then((title) => {
+          if (title) channel?.send('title', { title });
+          return title;
+        })
+        .catch((err: unknown) => {
+          req.log.warn(err, 'chat auto-title failed');
+          return null;
+        });
 
       // Вложения этого вопроса и прежних вопросов чата (новые первыми): модель
       // видит файлы на каждом ходу, пока о них спрашивают. С разбором договора
@@ -729,6 +745,9 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
         agent,
       );
       const message = await finish(replyText);
+      // Заголовок обычно готов раньше ответа; если нет — ждём не дольше 4 с,
+      // чтобы список чатов после ответа уже показал его.
+      await Promise.race([titleJob, new Promise((r) => setTimeout(r, 4000).unref())]);
       if (!channel) return message;
       channel.send('done', message);
       channel.close();

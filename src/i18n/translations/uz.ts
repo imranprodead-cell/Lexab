@@ -345,6 +345,7 @@ const uz: Record<string, string> = {
   "chat.upsell.title": "Lexab bilan koʻproq imkoniyat",
   "chat.upsell.cta": "Yaxshilash",
   "chat.limitReached": "Tarifingizning shu oyga moʻljallangan sunʼiy intellekt soʻrovlari limiti tugadi. Davom etish uchun «Tariflar» boʻlimida tarifni yangilang.",
+  "chat.untitled": "Yangi chat",
   "chat.error": "Sunʼiy intellekt javobini olishning imkoni boʻlmadi. Bir lahzadan soʻng qayta urinib koʻring.",
   "chat.mock.draft": "Loyihani tayyorlayapman. Mana ikki tomonlama NDA tuzilmasi (Buyuk Britaniya huquqi): 1) Tomonlar va taʼriflar; 2) Maxfiy axborot; 3) Qabul qiluvchining majburiyatlari; 4) Istisnolar; 5) Muddat va qaytarish; 6) Huquqiy himoya vositalari; 7) Qoʻllaniladigan huquq. Qaysi bandlarni aniqlashtirish kerakligini ayting.",
   "chat.mock.compare": "Versiyalarni solishtirish: 6 ta oʻzgargan band topildi. Asosiylari: bekor qilish haqida ogohlantirish muddati 3 oydan 1 oyga qisqartirilgan; raqobatlashmaslik sharti qoʻshilgan (12 oy); nizolarni hal qilish tartibi LCIA arbitrajiga oʻzgartirilgan. Batafsil taqqoslashni ochaymi?",

@@ -63,7 +63,9 @@ export const chatsApi = {
     return http<ChatMessage[]>(`/chats/${sessionId}/analysis-ref`, { method: 'POST', body: { analysisId } });
   },
 
-  async create(title: string): Promise<ChatSession> {
+  /** fixed — заголовок уже осмысленный (имя договора/черновика): сервер его не
+   *  заменит заголовком ИИ. Без него чат получит заголовок по первому вопросу. */
+  async create(title: string, opts?: { fixed?: boolean }): Promise<ChatSession> {
     if (USE_MOCK) {
       await delay(150);
       const session: ChatSession = {
@@ -74,7 +76,7 @@ export const chatsApi = {
       db.sessions.unshift(session);
       return clone(session);
     }
-    return http<ChatSession>('/chats', { method: 'POST', body: { title } });
+    return http<ChatSession>('/chats', { method: 'POST', body: { title, ...(opts?.fixed ? { fixed: true } : {}) } });
   },
 
   /** Send a user message; the server persists it and returns the AI reply.
@@ -92,6 +94,8 @@ export const chatsApi = {
     uploadIds?: string[],
     /** Шаги работы над ответом — по мере выполнения на сервере. */
     onStep?: (step: ChatStep) => void,
+    /** Заголовок, который сервер дал чату по первому вопросу (один раз). */
+    onTitle?: (title: string) => void,
   ): Promise<ChatMessage> {
     const body = {
       text,
@@ -105,6 +109,8 @@ export const chatsApi = {
       try {
         return await httpSSE<ChatMessage>(`/chats/${sessionId}/messages`, body, onToken, (event, payload) => {
           if (event === 'step' && onStep) onStep(payload as ChatStep);
+          const title = event === 'title' ? (payload as { title?: unknown } | null)?.title : undefined;
+          if (typeof title === 'string' && title && onTitle) onTitle(title);
         });
       } catch (err) {
         // ONLY the pre-send feature-detect falls back to a plain POST; a
