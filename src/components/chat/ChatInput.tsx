@@ -12,6 +12,7 @@ import { ATTACH_ACCEPT } from '@/lib/docFormats';
 import type { Command } from '@/types/domain';
 import { SlashMenu } from './SlashMenu';
 import { AttachmentChip, type ComposerAttachment } from './Attachments';
+import { CONTRACT_SIDES, type ContractSide } from '@/lib/contractSide';
 import styles from './chat.module.css';
 
 /* Unsent text survives page switches (and reloads) until it is sent. */
@@ -80,13 +81,17 @@ interface ChatInputProps {
   hideDisclaimer?: boolean;
   /** Выбор юрисдикции в нижнем ряду рядом с «Файлы» (чат передаёт CountrySelector). */
   jurisdiction?: ReactNode;
+  /** «Моя сторона» для разбора прикреплённого договора: переключатель под
+   *  карточкой файла. Не передан — переключателя нет. null — нейтрально. */
+  contractSide?: ContractSide | null;
+  onContractSideChange?: (side: ContractSide | null) => void;
 }
 
 /**
  * The chat composer: auto-growing textarea, attach button, and slash-command
  * autocomplete with full keyboard control (↑/↓ to move, ↵ to pick, Esc to close).
  */
-export function ChatInput({ compact = false, onAnalyze, onSend, onFiles, onCloudImport, draftKey = 'chat', hideAttach = false, banner, bare = false, hideDisclaimer = false, jurisdiction, attachments = [], onRemoveAttachment, placeholder }: ChatInputProps) {
+export function ChatInput({ compact = false, onAnalyze, onSend, onFiles, onCloudImport, draftKey = 'chat', hideAttach = false, banner, bare = false, hideDisclaimer = false, jurisdiction, attachments = [], onRemoveAttachment, placeholder, contractSide, onContractSideChange }: ChatInputProps) {
   const { t } = useI18n();
   const [value, setValue] = useState(() => loadDraft(draftKey));
   const [slashOpen, setSlashOpen] = useState(false);
@@ -345,6 +350,23 @@ export function ChatInput({ compact = false, onAnalyze, onSend, onFiles, onCloud
                   onRemove={onRemoveAttachment ? () => onRemoveAttachment(a.key) : undefined}
                 />
               ))}
+              {onContractSideChange ? (
+                <label className={styles.sidePick}>
+                  <span className={styles.sidePickLabel}>{t('side.label')}</span>
+                  <select
+                    className={styles.sidePickSelect}
+                    value={contractSide ?? ''}
+                    onChange={(e) => onContractSideChange((e.target.value || null) as ContractSide | null)}
+                  >
+                    <option value="">{t('side.neutral')}</option>
+                    {CONTRACT_SIDES.map((s) => (
+                      <option key={s} value={s}>
+                        {t(`side.${s}`)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ) : null}
             </div>
           ) : null}
 

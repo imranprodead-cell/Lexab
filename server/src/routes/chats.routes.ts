@@ -26,6 +26,7 @@ import { isSmallTalk } from '../lib/smallTalk.ts';
 import { appendEditBlocks, appendReminderBlocks, loadEditTarget, type EditProposal, type EditTarget, type ReminderProposal } from '../lib/chatActions.ts';
 import { jurisdictionCode, retrieveLegalContext } from '../rag/retrieve.ts';
 import { formatLegalContext } from '../rag/context.ts';
+import { officialSourceNote } from '../lib/officialWeb.ts';
 import type { ChatMessage, ChatSession, ChatStep } from '../types.ts';
 import { parseChatMode } from '../lib/chatModes.ts';
 import {
@@ -607,13 +608,18 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
       // лишь всплыло в поиске, в Sources не идёт (живой прогон 31.10: 25 норм,
       // включая Трудовой и Таможенный кодексы, при ответе по поставке).
       const agentUsed: LawRef[] = [];
+      // Хосты официальных сайтов, с которых агент брал сведения (пометка в ответе).
+      const officialHosts = new Set<string>();
       const agentFound: LawRef[] = [];
       let agentRan = false;
       // Правки, предложенные агентом, — карточками «Принять» в конце ответа.
       const proposals: EditProposal[] = [];
       const reminders: ReminderProposal[] = [];
       const finish = async (rawReply: string): Promise<ChatMessage> => {
-        const replyText = appendReminderBlocks(appendEditBlocks(rawReply, proposals), reminders);
+        // Сведения с официальных сайтов — пометка КОДОМ, а не только просьбой к
+        // модели: «не из проверенной базы Lexab» на языке ответа.
+        const note = officialHosts.size ? officialSourceNote(rawReply, officialHosts) : '';
+        const replyText = appendReminderBlocks(appendEditBlocks(note ? `${rawReply.trimEnd()}\n\n${note}` : rawReply, proposals), reminders);
         if (agentRan) {
           const cited = citedProvisionNumbers(rawReply);
           const seenRefs = new Set<string>();
@@ -682,6 +688,7 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
                 return refs.filter((r) => r.label);
               },
               onRefs: (refs, kind) => (kind === 'used' ? agentUsed : agentFound).push(...refs),
+              onOfficialSource: (host) => officialHosts.add(host),
             });
             return { tools: runner.tools, run: runner.run, instructions: CHAT_AGENT_INSTRUCTIONS };
           })()

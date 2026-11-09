@@ -25,6 +25,8 @@ import {
   fallbackContractDraft,
 } from './fallback.ts';
 import type { RetrievedChunk } from './rag/types.ts';
+import { formatLegalContext } from './rag/context.ts';
+import { sideInstruction, type ContractSide } from './lib/contractSide.ts';
 import type { DocBlock, Finding, Redline, Severity } from './types.ts';
 import { modeInstructions, modeMaxTokens, type ChatMode } from './lib/chatModes.ts';
 import type { ToolCall, ToolOutcome } from './lib/chatTools.ts';
@@ -344,6 +346,8 @@ export interface AnalysisInput {
   /** The team's playbook: standard positions the contract is checked against.
    *  A clause breaking one of these becomes a finding with playbookDeviation=true. */
   playbook?: string | null;
+  /** «На чьей вы стороне» (lib/contractSide.ts): null — нейтральный разбор. */
+  side?: ContractSide | null;
 }
 
 const SEVERITY = ['High', 'Medium', 'Low'];
@@ -500,9 +504,9 @@ function buildAnalysisPrompt(input: AnalysisInput, text: string | null): string 
   // confirms or demotes each finding (rule enforced in code, see Этап 4).
   const contextNote = input.legalContext?.length
     ? `\n\nLEGAL CONTEXT — verified provisions from official sources. When a finding relies on one of them, set its unitId to the id in square brackets. Never invent ids; use "" when none of these provisions applies.\n` +
-      input.legalContext
-        .map((c) => `[${c.unitId}] ${c.breadcrumb}\n${c.body.slice(0, 900)}`)
-        .join('\n---\n')
+      // То же оформление, что у чата (rag/context.ts): вид акта у нормы УЗ и
+      // правила выбора нормы при расхождении актов (этап 3 — и в разборе).
+      formatLegalContext(input.legalContext, input.legalContext[0]?.jurisdiction)
     : '';
   // The team's standard positions. Any clause that breaks one of these must
   // become a finding with playbookDeviation=true — even if it is otherwise
@@ -517,6 +521,7 @@ function buildAnalysisPrompt(input: AnalysisInput, text: string | null): string 
         // модель читает скан визуально, а не сочиняет по имени файла.
         `File name: ${input.fileName}\n\nThe contract is attached above as a PDF document (no machine-readable text layer — read it visually). Review ONLY what the attached document actually contains.`) +
     jurisdictionNote +
+    (input.side ? sideInstruction(input.side) : '') +
     contextNote +
     playbookNote
   );

@@ -16,18 +16,14 @@
  *       моделей, $0): когда правится сама проверка, а не агент.
  * Free — агент на DeepSeek; Pro/Business — на Claude (платно, только с разрешения).
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { getDb, migrate } from "../src/db.ts";
-import { generateChatReply, usesChatAgent } from "../src/llm.ts";
-import {
-  CHAT_AGENT_INSTRUCTIONS,
-  citesProvision,
-  createChatToolRunner,
-} from "../src/lib/chatTools.ts";
-import { formatLegalContext } from "../src/rag/context.ts";
-import { retrieveLegalContext } from "../src/rag/retrieve.ts";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { getDb, migrate } from '../src/db.ts';
+import { generateChatReply, usesChatAgent } from '../src/llm.ts';
+import { CHAT_AGENT_INSTRUCTIONS, citesProvision, createChatToolRunner } from '../src/lib/chatTools.ts';
+import { formatLegalContext } from '../src/rag/context.ts';
+import { retrieveLegalContext } from '../src/rag/retrieve.ts';
 
 interface AnswerRow {
   question: string;
@@ -38,48 +34,37 @@ interface AnswerRow {
 }
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const arg = (name: string) =>
-  process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3);
+const arg = (name: string) => process.argv.find((a) => a.startsWith(`--${name}=`))?.slice(name.length + 3);
 
 async function main(): Promise<void> {
-  const goldenFile = arg("golden") ?? "uz-answers.jsonl";
-  const plan = arg("plan") ?? "Free";
-  const limit = Number(arg("limit") ?? Infinity);
-  const cachePath = arg("rewrites-cache") ?? null;
-  const regradeFrom = arg("regrade") ?? null;
+  const goldenFile = arg('golden') ?? 'uz-answers.jsonl';
+  const plan = arg('plan') ?? 'Free';
+  const limit = Number(arg('limit') ?? Infinity);
+  const cachePath = arg('rewrites-cache') ?? null;
+  const regradeFrom = arg('regrade') ?? null;
   const saved = new Map<string, string>(
     regradeFrom
       ? (
-          JSON.parse(readFileSync(regradeFrom, "utf8")).results as {
+          JSON.parse(readFileSync(regradeFrom, 'utf8')).results as {
             question: string;
             reply: string;
           }[]
         ).map((r) => [r.question, r.reply])
       : [],
   );
-  const cache: Record<string, string[]> =
-    cachePath && existsSync(cachePath)
-      ? JSON.parse(readFileSync(cachePath, "utf8"))
-      : {};
-  const rows = readFileSync(path.join(HERE, "golden", goldenFile), "utf8")
-    .split("\n")
+  const cache: Record<string, string[]> = cachePath && existsSync(cachePath) ? JSON.parse(readFileSync(cachePath, 'utf8')) : {};
+  const rows = readFileSync(path.join(HERE, 'golden', goldenFile), 'utf8')
+    .split('\n')
     .filter(Boolean)
     .map((l) => JSON.parse(l) as AnswerRow)
     .slice(0, limit);
-  if (!regradeFrom && !usesChatAgent(plan))
-    throw new Error(
-      `агент чата для тарифа ${plan} выключен или нет ключа модели`,
-    );
+  if (!regradeFrom && !usesChatAgent(plan)) throw new Error(`агент чата для тарифа ${plan} выключен или нет ключа модели`);
 
   const db = await getDb();
   await migrate(db);
 
   // Номер и название акта каждой нормы из набора — для проверки ссылок в ответе.
-  const ids = [
-    ...new Set(
-      rows.flatMap((r) => [...r.must_cite.flat(), ...r.must_not_cite]),
-    ),
-  ];
+  const ids = [...new Set(rows.flatMap((r) => [...r.must_cite.flat(), ...r.must_not_cite]))];
   const meta = new Map(
     (
       await db.query<{ id: string; number: string; title: string }>(
@@ -89,16 +74,13 @@ async function main(): Promise<void> {
     ).rows.map((r) => [r.id, r]),
   );
   const missing = ids.filter((id) => !meta.has(id));
-  if (missing.length)
-    throw new Error(`нормы из набора не найдены в базе: ${missing.join(", ")}`);
+  if (missing.length) throw new Error(`нормы из набора не найдены в базе: ${missing.join(', ')}`);
   const cites = (text: string, id: string) => {
     const m = meta.get(id)!;
-    return citesProvision(text, m.number, m.title, "UZ");
+    return citesProvision(text, m.number, m.title, 'UZ');
   };
   // Явная ссылка: с настоящим актом — да, с выдуманным — нет (значит, акт назван).
-  const citesExplicitly = (text: string, id: string) =>
-    cites(text, id) &&
-    !citesProvision(text, meta.get(id)!.number, "§ нет такого акта §", "UZ");
+  const citesExplicitly = (text: string, id: string) => cites(text, id) && !citesProvision(text, meta.get(id)!.number, '§ нет такого акта §', 'UZ');
 
   const results: Record<string, unknown>[] = [];
   let passed = 0,
@@ -110,17 +92,17 @@ async function main(): Promise<void> {
     failed = 0;
   for (const [i, row] of rows.entries()) {
     const t0 = Date.now();
-    let reply = "";
+    let reply = '';
     let error: string | undefined;
+    const tools: string[] = [];
     try {
       if (regradeFrom) {
-        if (!saved.has(row.question))
-          throw new Error("нет ответа в сохранённом отчёте");
+        if (!saved.has(row.question)) throw new Error('нет ответа в сохранённом отчёте');
         reply = saved.get(row.question) as string;
       } else {
         const hits = await retrieveLegalContext(db, {
           query: row.question,
-          jurisdiction: "UZ",
+          jurisdiction: 'UZ',
           topK: 8,
           rewrites: cache[row.question],
           onQueries: (qs) => {
@@ -132,42 +114,29 @@ async function main(): Promise<void> {
         const runner = createChatToolRunner({
           db,
           plan,
-          jurisdiction: "UZ",
+          jurisdiction: 'UZ',
           documents: [],
-          toRefs: async (units) =>
-            units.map((u) => ({ label: u.unitId, doc: u.breadcrumb })),
-        });
-        reply = await generateChatReply(
-          [],
-          row.question,
-          undefined,
-          undefined,
-          "Uzbekistan",
-          plan,
-          null,
-          formatLegalContext(hits, "UZ") || null,
-          null,
-          {
-            tools: runner.tools,
-            run: runner.run,
-            instructions: CHAT_AGENT_INSTRUCTIONS,
+          toRefs: async (units) => units.map((u) => ({ label: u.unitId, doc: u.breadcrumb })),
+          // След: какие инструменты агент реально вызвал и что открыл (в отчёт).
+          onStep: (st) => {
+            const d = st.data;
+            if (st.status === 'done' && d?.tool) tools.push([d.tool, d.citation, d.queries?.join(' | ')].filter(Boolean).join(': '));
           },
-        );
+        });
+        reply = await generateChatReply([], row.question, undefined, undefined, 'Uzbekistan', plan, null, formatLegalContext(hits, 'UZ') || null, null, {
+          tools: runner.tools,
+          run: runner.run,
+          instructions: CHAT_AGENT_INSTRUCTIONS,
+        });
       }
     } catch (err) {
       error = (err as Error).message;
       failed++;
     }
     const groups = row.must_cite.map((g) => g.some((id) => cites(reply, id)));
-    const facts = row.facts.map((f) => new RegExp(f, "iu").test(reply));
-    const wrongCites = row.must_not_cite.filter((id) =>
-      citesExplicitly(reply, id),
-    );
-    const ok =
-      !error &&
-      groups.every(Boolean) &&
-      facts.every(Boolean) &&
-      wrongCites.length === 0;
+    const facts = row.facts.map((f) => new RegExp(f, 'iu').test(reply));
+    const wrongCites = row.must_not_cite.filter((id) => citesExplicitly(reply, id));
+    const ok = !error && groups.every(Boolean) && facts.every(Boolean) && wrongCites.length === 0;
     if (ok) passed++;
     groupsOk += groups.filter(Boolean).length;
     groupsAll += groups.length;
@@ -181,11 +150,12 @@ async function main(): Promise<void> {
       facts,
       wrongCites,
       error,
+      tools,
       seconds: Math.round((Date.now() - t0) / 100) / 10,
       reply,
     });
     console.log(
-      `${ok ? "✓" : "✗"} ${i + 1}. ${row.question.slice(0, 70)}${error ? ` — ОШИБКА: ${error.slice(0, 120)}` : ""}${!ok && !error ? ` — нормы ${groups.map((g) => (g ? "+" : "−")).join("")}, цифры ${facts.map((f) => (f ? "+" : "−")).join("")}${wrongCites.length ? `, лишние: ${wrongCites.join(",")}` : ""}` : ""}`,
+      `${ok ? '✓' : '✗'} ${i + 1}. ${row.question.slice(0, 70)}${error ? ` — ОШИБКА: ${error.slice(0, 120)}` : ''}${!ok && !error ? ` — нормы ${groups.map((g) => (g ? '+' : '−')).join('')}, цифры ${facts.map((f) => (f ? '+' : '−')).join('')}${wrongCites.length ? `, лишние: ${wrongCites.join(',')}` : ''}` : ''}`,
     );
   }
   const summary = {
@@ -198,21 +168,11 @@ async function main(): Promise<void> {
     wrongCitations: wrong,
     errors: failed,
   };
-  console.log("\n=== ANSWERS ===", JSON.stringify(summary));
-  const dir = path.join(HERE, "reports");
+  console.log('\n=== ANSWERS ===', JSON.stringify(summary));
+  const dir = path.join(HERE, 'reports');
   mkdirSync(dir, { recursive: true });
-  const file = path.join(
-    dir,
-    `answers-${new Date().toISOString().replace(/[:.]/g, "-")}.json`,
-  );
-  writeFileSync(
-    file,
-    JSON.stringify(
-      { at: new Date().toISOString(), golden: goldenFile, ...summary, results },
-      null,
-      1,
-    ),
-  );
+  const file = path.join(dir, `answers-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
+  writeFileSync(file, JSON.stringify({ at: new Date().toISOString(), golden: goldenFile, ...summary, results }, null, 1));
   console.log(`[answers] report saved: ${file}`);
   await db.close();
 }

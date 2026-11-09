@@ -109,6 +109,8 @@ export interface AnalysisResult {
   /** Агент ещё дочинивает неподтверждённые ссылки в фоне (сервер вернул разбор
    *  сразу): показываем «проверяем ссылку» и опрашиваем разбор, пока поле есть. */
   repairPending?: boolean;
+  /** «На чьей вы стороне»: роль пользователя по договору; нет — нейтральный разбор. */
+  side?: import('@/lib/contractSide').ContractSide;
 }
 
 /** A chat message in the conversational canvas. */
@@ -154,7 +156,9 @@ export type ChatToolName =
   | 'propose_reminder'
   | 'get_playbook'
   | 'compare_versions'
-  | 'calculate';
+  | 'calculate'
+  | 'search_official'
+  | 'read_official';
 
 export interface ChatStep {
   /** tool-N — вызов инструмента агентом (N — номер вызова в этом ответе). */

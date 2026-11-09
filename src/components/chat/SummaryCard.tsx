@@ -278,6 +278,8 @@ export function SummaryCard({ analysis, onOpenWorkspace, onOpenFinding, onAsk, o
         <RiskGauge score={analysis.riskScore} size="sm" />
         <div className={styles.memoRiskMain}>
           <span className={styles.memoRiskValue}>{t(`risk.${analysis.riskLevel}`)}</span>
+          {/* «На чьей вы стороне»: риски и правки — в пользу этой стороны. */}
+          {analysis.side ? <span className={styles.memoSide}>{t('side.reviewFor', { role: t(`side.${analysis.side}`) })}</span> : null}
           <span className={styles.memoCounts}>
             {(['High', 'Medium', 'Low'] as const).map((s) =>
               count(s) ? (

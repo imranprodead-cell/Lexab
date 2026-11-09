@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type DragEvent } from 'react';
+import type { ContractSide } from '@/lib/contractSide';
 import { useNavigate, useParams } from 'react-router-dom';
 import { motion } from 'motion/react';
 import { EASE } from '@/lib/motion';
@@ -375,7 +376,7 @@ export function ChatPage() {
   const analysisStartedAt = useChatStore((s) => s.analysisStartedAt);
   const cancelAnalysis = useChatStore((s) => s.cancelAnalysis);
 
-  const analyze = (file: { name: string; size: string }, rawFile?: File, opts?: { uploadId?: string; photos?: File[] }) => {
+  const analyze = (file: { name: string; size: string }, rawFile?: File, opts?: { uploadId?: string; photos?: File[]; side?: ContractSide | null }) => {
     // Новый договор — новый чат в боковой панели. Создаёт его и привязывает
     // к нему анализ сам стор (newSession): раньше чат создавался здесь
     // параллельно с анализом, и разбор нового договора мог прицепиться к
@@ -402,10 +403,13 @@ export function ChatPage() {
   // договор без текста — полный разбор рисков, как раньше.
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
   const attachSeq = useRef(0);
+  // «Моя сторона» для разбора прикреплённого договора (переключатель у файла).
+  const [contractSide, setContractSide] = useState<ContractSide | null>(null);
   const maxFiles = maxAttachments(limits?.plan);
   // Другой чат — свои вложения: карточки не переезжают в чужую переписку.
   useEffect(() => {
     setAttachments([]);
+    setContractSide(null);
   }, [sessionId]);
 
   const limitToast = () =>
@@ -485,7 +489,8 @@ export function ChatPage() {
   const analyzeAttachment = (a: ComposerAttachment) => {
     if (!a.uploadId) return;
     setAttachments([]);
-    analyze({ name: a.name, size: a.size }, undefined, { uploadId: a.uploadId });
+    analyze({ name: a.name, size: a.size }, undefined, { uploadId: a.uploadId, ...(contractSide ? { side: contractSide } : {}) });
+    setContractSide(null);
   };
 
   /** /analyze: разбор рисков — ровно для одного прикреплённого договора. */
@@ -585,6 +590,8 @@ export function ChatPage() {
       jurisdiction={<CountrySelector variant="composer" />}
       attachments={attachments}
       onRemoveAttachment={removeAttachment}
+      // Переключатель — только для одного прикреплённого договора (его разбор).
+      {...(attachments.length === 1 && isDocFile(attachments[0].name) ? { contractSide, onContractSideChange: setContractSide } : {})}
       placeholder={composerPlaceholder}
       onSend={onComposerSend}
       banner={

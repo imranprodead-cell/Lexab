@@ -303,6 +303,18 @@ describe('ChatPage — attaching files to the composer', () => {
     expect(analysisSpy).toHaveBeenCalledWith({ name: 'Договор.pdf', size: '48 KB' }, undefined, { uploadId: 'up_1', newSession: true });
   });
 
+  it('«Моя сторона» у одного договора уходит в разбор', async () => {
+    await attach('Договор.pdf');
+    const select = host.querySelector('select') as HTMLSelectElement;
+    expect(select).toBeTruthy();
+    await act(async () => {
+      select.value = 'buyer';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await send();
+    expect(analysisSpy).toHaveBeenCalledWith({ name: 'Договор.pdf', size: '48 KB' }, undefined, { uploadId: 'up_1', side: 'buyer', newSession: true });
+  });
+
   it('a spreadsheet without text asks what to do instead of a risk review', async () => {
     await attach('Сроки.xlsx');
     expect(host.textContent).toContain('Excel (.xlsx)');

@@ -139,7 +139,7 @@ describe('law tools', () => {
     assert.equal(badJur.isError, true);
     const unknown = await r.run({ id: 'c', name: 'send_email', input: {} });
     assert.equal(unknown.isError, true);
-    assert.equal(CHAT_TOOLS.length, 11);
+    assert.equal(CHAT_TOOLS.length, 13); // +search_official, read_official (официальные сайты, 2026-11-09)
   });
 });
 

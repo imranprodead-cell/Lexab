@@ -6,6 +6,7 @@
  * animates steps independently (see chat store), so only this module changes.
  */
 import type { AnalysisResult, DocBlock, Redline, RedlineStatus } from '@/types/domain';
+import type { ContractSide } from '@/lib/contractSide';
 import { downloadBlob } from '@/lib/download';
 import { USE_MOCK, http, httpBlob } from './client';
 import { db } from './mock/db';
@@ -19,6 +20,8 @@ export interface AnalyzeInput {
   /** Точная загрузка на сервере (импорт из облака знает её id). Без него сервер
    *  ищет последний файл с таким ИМЕНЕМ — при двух одноимённых взял бы не тот. */
   uploadId?: string;
+  /** «На чьей вы стороне»: роль пользователя по договору; нет — нейтральный разбор. */
+  side?: ContractSide;
 }
 
 /** «Весь договор»: полный текст исходного файла с принятыми правками —

@@ -20,6 +20,8 @@ import type { JurisdictionCode } from '../rag/types.ts';
 import { judgeProvision } from '../rag/validate-citations.ts';
 import type { ChatStep, ChatToolName } from '../types.ts';
 import { docHeader, loadFirmMemory, scorePassages, searchMemory, stemsOf, type MemoryDoc } from './firmMemory.ts';
+import { buildDocGraph, relatedLines } from './docGraph.ts';
+import { excerpt, fetchOfficial, officialUrl, pageText, parseLexPage, searchLexUz } from './officialWeb.ts';
 import { checkProposal, reviewEditsText, reviewSourceText, type EditProposal, type EditTarget, type ReminderProposal } from './chatActions.ts';
 import { planFor, planHasFeature } from './limits.ts';
 import { loadActivePlaybook, resolvePlaybookOwner } from './playbook.ts';
@@ -62,6 +64,9 @@ export interface ChatToolContext {
   /** Нормы для вкладки Sources: used — агент открыл или подтвердил (идут
    *  всегда); found — только всплыли в поиске (идут, если ответ на них ссылается). */
   onRefs?: (refs: LawRef[], kind: 'used' | 'found') => void;
+  /** Агент брал сведения с официального сайта (хост) — маршрут чата добавит
+   *  в конец ответа строку «не из проверенной базы Lexab» (lib/officialWeb.ts). */
+  onOfficialSource?: (host: string) => void;
 }
 
 export interface ToolCall {
@@ -272,15 +277,43 @@ export const CHAT_TOOLS: Anthropic.Beta.BetaTool[] = [
       required: ['operation'],
     },
   },
+  {
+    name: 'search_official',
+    description:
+      "Search Uzbekistan's official legislation portal lex.uz for an act that Lexab's verified database does not have — Cabinet of Ministers resolutions, Central Bank and ministry acts, very new laws. Call it only after search_law found nothing that answers the point. Returns acts with their type, date and number, whether they are in force, and a link to read with read_official. Write the query in Russian, as the act would be titled.",
+    eager_input_streaming: true,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: { query: { type: 'string', description: 'e.g. «порядок государственной регистрации транспортных средств»' } },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'read_official',
+    description:
+      'Read a page of an official source: an act on lex.uz, a page of an Uzbek government site (gov.uz, cbu.uz, soliq.uz, mf.uz, adliya.uz and other *.gov.uz) or the official law portal of another supported country. Pass the URL (from search_official, or one you know on these sites) and a query to get the relevant part of a long act. Text from these sites is NOT from Lexab\'s verified database.',
+    eager_input_streaming: true,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        url: { type: 'string', description: 'https://lex.uz/ru/docs/… or a page of an allowed official site' },
+        query: { type: 'string', description: 'What to find in the page (recommended for long acts).' },
+      },
+      required: ['url'],
+    },
+  },
 ];
 
 /** Инструкция агенту — часть системного промпта (стабильная, кэшируется). */
-export const CHAT_AGENT_INSTRUCTIONS = `TOOLS. You have tools for Lexab's verified statute database and the user's documents: search_law, get_provision, verify_citation, read_contract, search_documents, calculate.
+export const CHAT_AGENT_INSTRUCTIONS = `TOOLS. You have tools for Lexab's verified statute database and the user's documents: search_law, get_provision, verify_citation, read_contract, search_documents, calculate; and, when the database lacks an act, official sites: search_official, read_official.
 - Plan before you call: name the legal questions the answer turns on, check which of them the legal context above already covers, and search only for the rest — one focused query per question. Do not search for background the user did not ask about.
 - Request independent calls together in ONE step — several searches, several provisions, several calculations at once — instead of one call per step: every step makes the user wait.
 - The database holds statutes and codes and, for Uzbekistan, the Constitution, presidential decrees and resolutions, and Supreme Court Plenum resolutions: no individual court decisions or commentary, so do not search for them. A Plenum point explains how courts apply a statute — rely on it alongside the statute, never present it as a law.
 - Use search_law and get_provision to check specifics that may differ from your training — what the law allows, requires, forbids or charges, and its deadlines — even when you feel confident. Statute text comes only from these tools or the legal context: never quote a law from memory.
 - Before you finish, run verify_citation — all in one step — on the articles, sections, decree or Plenum points you cite that no tool and no legal context returned, and fix or drop a citation that comes back NOT_FOUND or NOT_SUPPORTED.
+- When the verified database has no act that answers the point (often Cabinet of Ministers resolutions, Central Bank or ministry acts, very new laws), look on the official sites: search_official (lex.uz), then read_official. In the answer, name the act with its number and date, give its lex.uz link, and say plainly that this text comes from the official site and is not from Lexab's verified database. Do not rely on an act the search marks as NOT in force; if lex.uz warns that the page holds an old version or a text in another language, say so.
 - Use read_contract to find and quote the user's clauses exactly, and to read parts of long files that the context cuts off.
 - Use search_documents for the user's earlier documents and the team's shared ones: past contracts with this counterparty, how they usually word a clause, earlier reviews. Name the document you rely on; never present a past document's terms as the current contract's.
 - Do every computation that appears in your answer (penalties, interest, totals, deadlines, days between dates) with calculate.
@@ -685,6 +718,7 @@ export function citesProvision(text: string, number: string, actTitle: string, j
 
 const MAX_RESULT_CHARS = 9000;
 const clipResult = (s: string) => (s.length > MAX_RESULT_CHARS ? `${s.slice(0, MAX_RESULT_CHARS)}\n[…cut]` : s);
+const clipText = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
 /**
  * Исполнитель инструментов на один ответ. Нумерует шаги tool-1, tool-2, …
@@ -701,6 +735,17 @@ export function createChatToolRunner(ctx: ChatToolContext): { tools: Anthropic.B
   const lockedFor = (feature: 'clm' | 'playbooks' | 'compare', what: string) =>
     plan && !planHasFeature(plan, feature) ? `NOT_AVAILABLE: ${what} are on the Pro and Business plans (the user is on ${plan}). Tell the user, and help in text instead.` : null;
   const firmMemory = () => (memory ??= loadFirmMemory(ctx.db, ctx.userId as string));
+  // Граф документов (lib/docGraph.ts): допсоглашения, приложения, версии — один
+  // раз на ответ, по тем же документам, что видит «память фирмы».
+  let graph: { g: ReturnType<typeof buildDocGraph>; byId: Map<string, MemoryDoc> } | undefined;
+  const related = async (docId: string): Promise<string[]> => {
+    if (!graph) {
+      const docs = await firmMemory();
+      graph = { g: buildDocGraph(docs), byId: new Map(docs.map((d) => [d.id, d])) };
+    }
+    return relatedLines(docId, graph.g, graph.byId);
+  };
+  const relatedBlock = (lines: string[], indent = '') => (lines.length ? `\n${indent}Related documents (from their headings): ${lines.join(' | ')}` : '');
 
   const run = async (call: ToolCall): Promise<ToolOutcome> => {
     const name = call.name as ChatToolName;
@@ -887,7 +932,9 @@ export function createChatToolRunner(ctx: ChatToolContext): { tools: Anthropic.B
             }
             step('done', { files: [doc.name], found: 1, ...(query ? { queries: [query] } : {}) });
             const summary = doc.summary ? `Review summary: ${doc.summary.slice(0, 600)}\n` : '';
-            return { content: clipResult(`${docHeader(doc)}\n${summary}\n${body}`) };
+            const links = await related(doc.id);
+            // Связи — ДО текста: обрезка длинного результата их не съест.
+            return { content: clipResult(`${docHeader(doc)}${relatedBlock(links)}${links.length ? '\nAmendments can change the terms of the contract — when the question is about current terms, check them and say which document a term comes from.' : ''}\n${summary}\n${body}`) };
           }
           const hits = searchMemory(docs, query as string, limit);
           step('done', { queries: [query as string], found: hits.length, files: hits.slice(0, 4).map((h) => h.doc.name) });
@@ -898,12 +945,13 @@ export function createChatToolRunner(ctx: ChatToolContext): { tools: Anthropic.B
                 : 'NO_DOCUMENTS: the user has no saved documents yet.',
             };
           }
+          const hitLinks = await Promise.all(hits.map((h) => related(h.doc.id)));
           return {
             content: clipResult(
               hits
                 .map(
-                  (h) =>
-                    `${docHeader(h.doc)}\n${h.doc.summary ? `Summary: ${h.doc.summary.slice(0, 300)}\n` : ''}` +
+                  (h, i) =>
+                    `${docHeader(h.doc)}${relatedBlock(hitLinks[i])}\n${h.doc.summary ? `Summary: ${h.doc.summary.slice(0, 300)}\n` : ''}` +
                     h.passages.map((p) => `[chars ${p.start}–${p.end}] ${p.text.slice(0, 700)}`).join('\n…\n'),
                 )
                 .join('\n---\n') + '\n\nRead one further with document_id.',
@@ -1034,6 +1082,71 @@ export function createChatToolRunner(ctx: ChatToolContext): { tools: Anthropic.B
             return { content: `${showDate(start)} + ${parts} = ${showDate(end)}. Calendar days; holidays and weekends are not excluded.` };
           }
           throw new InputError('operation must be evaluate, days_between or add_period');
+        }
+
+        case 'search_official': {
+          const query = reqString(o, 'query', 300);
+          step('active', { queries: [query] });
+          const hits = await searchLexUz(query, 8);
+          step('done', { queries: [query], found: hits.length });
+          if (hits.length) ctx.onOfficialSource?.('lex.uz');
+          if (!hits.length) return { content: `NO_RESULTS on lex.uz for «${query}». Try the act's likely title words.` };
+          return {
+            content: clipResult(
+              `lex.uz search — OFFICIAL SITE, not Lexab's verified database:\n` +
+                hits.map((h, i) => `${i + 1}. ${h.act || 'act'} — «${h.title}» — ${h.inForce ? 'in force' : 'NOT in force'} — ${h.url}`).join('\n') +
+                '\n\nRead one with read_official (pass a query for long acts).',
+            ),
+          };
+        }
+
+        case 'read_official': {
+          const raw = reqString(o, 'url', 500);
+          const query = optString(o, 'query', 300);
+          const target = officialUrl(raw);
+          if (!target) throw new InputError('only official law portals and government sites from the allowed list can be read (lex.uz, gov.uz, cbu.uz, soliq.uz, mf.uz, adliya.uz, …)');
+          step('active', { citation: target.hostname, ...(query ? { queries: [query] } : {}) });
+          let { url, html } = await fetchOfficial(target.toString());
+          let title = '';
+          let notes: string[] = [];
+          let text = '';
+          if (/(^|\.)lex\.uz$/i.test(new URL(url).hostname)) {
+            let page = parseLexPage(html);
+            notes = page.warnings;
+            // Русского текста нет — читаем официальный оригинал (на узбекском).
+            if (page.text.length < 1500 && page.originalUrl) {
+              const orig = await fetchOfficial(page.originalUrl);
+              const p2 = parseLexPage(orig.html);
+              if (p2.text.length > page.text.length) {
+                url = orig.url;
+                html = orig.html;
+                page = { ...p2, warnings: [...page.warnings, 'Russian text not available — showing the official original (Uzbek).'] };
+                notes = page.warnings;
+              }
+            }
+            title = page.title;
+            text = page.text;
+          } else {
+            const p = pageText(html);
+            title = p.title;
+            text = p.text;
+          }
+          if (!text.trim()) {
+            step('done', { citation: target.hostname, found: 0 });
+            return { content: `NO_TEXT: could not read text from ${url}.`, isError: true };
+          }
+          const refs = [{ label: clipText(title || new URL(url).hostname, 40), doc: new URL(url).hostname, url }];
+          ctx.onRefs?.(refs, 'used');
+          ctx.onOfficialSource?.(new URL(url).hostname.replace(/^www\./, ''));
+          step('done', { citation: clipText(title || new URL(url).hostname, 80), found: 1, refs });
+          return {
+            content: clipResult(
+              `SOURCE: ${url} — OFFICIAL SITE, NOT Lexab's verified database. Say so when you rely on it.\n` +
+                (title ? `Title: ${title}\n` : '') +
+                (notes.length ? `Site notes: ${notes.join(' | ')}\n` : '') +
+                `\n${excerpt(text, query, 7000)}`,
+            ),
+          };
         }
 
         default:

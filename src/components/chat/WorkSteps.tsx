@@ -71,6 +71,8 @@ export function WorkSteps({ work, working }: { work?: ChatWork; working: boolean
       if (d.tool === 'get_playbook') return t('work.tool.playbook');
       if (d.tool === 'compare_versions') return t('work.tool.compare');
       if (d.tool === 'calculate') return t('work.tool.calculate');
+      if (d.tool === 'search_official') return t('work.tool.searchOfficial');
+      if (d.tool === 'read_official') return t('work.tool.readOfficial');
       return null;
     }
     switch (step.id) {
@@ -184,6 +186,9 @@ export function WorkSteps({ work, working }: { work?: ChatWork; working: boolean
         </>
       );
     }
+    // Официальные сайты (lex.uz и госорганы): запрос поиска / прочитанная страница.
+    if (d.tool === 'search_official') return d.queries?.length ? chips(d.queries, 'search') : null;
+    if (d.tool === 'read_official') return d.citation ? chips([d.citation], 'doc') : null;
     if (d.tool === 'calculate' && d.expression) {
       return <div className={styles.workDesc}>{d.result ? `${d.expression} = ${d.result}` : d.expression}</div>;
     }

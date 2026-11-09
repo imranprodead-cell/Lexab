@@ -73,6 +73,8 @@ export interface AnalysisResult {
   /** Агент ещё дочинивает неподтверждённые ссылки в фоне: интерфейс показывает
    *  «проверяем ссылку» и опрашивает GET /analysis/:id, пока поле не пропадёт. */
   repairPending?: boolean;
+  /** «На чьей вы стороне»: роль пользователя по договору (lib/contractSide.ts); нет — нейтральный разбор. */
+  side?: 'buyer' | 'seller' | 'customer' | 'contractor' | 'lessee' | 'lessor' | 'borrower' | 'lender' | 'employee' | 'employer';
 }
 
 export interface ChatMessage {
@@ -103,7 +105,9 @@ export type ChatToolName =
   | 'propose_reminder'
   | 'get_playbook'
   | 'compare_versions'
-  | 'calculate';
+  | 'calculate'
+  | 'search_official'
+  | 'read_official';
 
 /**
  * Шаг работы над ответом чата (SSE-событие `step`): клиент показывает их

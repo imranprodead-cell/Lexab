@@ -11,6 +11,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { Db } from '../db.ts';
 import { ALLOWED_EXTENSIONS, assertValidFileContent, extractText, fileExtension, MAX_UPLOAD_BYTES } from '../extract.ts';
 import { badRequest, HttpError, notFound } from '../lib/errors.ts';
+import { parseSide, type ContractSide } from '../lib/contractSide.ts';
 import { assertDocumentAllowance, assertFeature, assertStorageAllowance, DOC_COST, planFor, planHasFeature, quotaOwnerFor, reserveDocument, withDocumentUnits, withStorageReservation } from '../lib/limits.ts';
 import { notify } from '../lib/notify.ts';
 import { resolveAnalysisAccess, resolveDocumentAccess } from '../lib/teamAccess.ts';
@@ -59,9 +60,9 @@ export async function loadAnalysis(db: Db, userId: string, id: string): Promise<
   // Owner, or an active team member when the linked document is shared.
   const access = await resolveAnalysisAccess(db, userId, id);
   const canEdit = access.access === 'owner' || access.access === 'admin' || access.access === 'editor';
-  const res = await db.query<AnalysisRow & { document_id: string; user_id: string; repair_started_at: Date | string | null }>(
+  const res = await db.query<AnalysisRow & { document_id: string; user_id: string; repair_started_at: Date | string | null; side: string | null }>(
     `SELECT id, user_id, document_id, file_name, file_size, summary, risk_score, risk_level, clauses_reviewed, document_blocks,
-            repair_started_at
+            repair_started_at, side
      FROM analyses WHERE id = $1`,
     [id],
   );
@@ -123,6 +124,10 @@ export async function loadAnalysis(db: Db, userId: string, id: string): Promise<
     document: blocks,
     canEdit,
     ...(isRepairPending(row.repair_started_at) ? { repairPending: true } : {}),
+    ...((): { side?: ContractSide } => {
+      const side = parseSide(row.side);
+      return side ? { side } : {};
+    })(),
   };
 }
 
@@ -146,7 +151,8 @@ export interface AnalysisSource {
   /** The exact upload this analysis is built from (uploads.id). Persisted on the
    *  analysis so re-analysis / chat grounding / export read the RIGHT file even
    *  when two uploads share a name. Null for re-analysis of legacy rows. */
-  uploadId?: string | null;
+  uploadId?: string | null;  /** «На чьей вы стороне» (lib/contractSide.ts): null — нейтральный разбор. */
+  side?: ContractSide | null;
 }
 
 /** Render document blocks to plain text with the CURRENT redline states applied
@@ -188,8 +194,9 @@ export async function sourceFromAnalysis(db: Db, userId: string, analysisId: str
   // and could even declare the contract "clean". Prefer the full original text
   // from the exact upload this analysis was built from; fall back to the draft
   // blocks for prompt-drafts (no upload) and legacy rows without a link.
-  const linked = await db.query<{ upload_id: string | null }>('SELECT upload_id FROM analyses WHERE id = $1', [analysisId]);
+  const linked = await db.query<{ upload_id: string | null; side: string | null }>('SELECT upload_id, side FROM analyses WHERE id = $1', [analysisId]);
   const uploadId = linked.rows[0]?.upload_id ?? null;
+  const storedSide = parseSide(linked.rows[0]?.side);
   let fullText: string | null = null;
   let scanPdf: Buffer | null = null;
   if (uploadId) {
@@ -221,6 +228,7 @@ export async function sourceFromAnalysis(db: Db, userId: string, analysisId: str
     pdf: scanPdf,
     ownerUserId: ownerId,
     uploadId,
+    side: storedSide,
   };
 }
 
@@ -344,12 +352,16 @@ export async function readSource(db: Db, req: FastifyRequest): Promise<AnalysisS
 
   const body = asObject(req.body);
   const jurisdiction = optionalString(body, 'jurisdiction')?.slice(0, 60) ?? null;
+  // Роль пользователя по договору; 'neutral' — явно нейтрально (сброс роли).
+  const sideRaw = optionalString(body, 'side', { max: 20 });
+  const side = parseSide(sideRaw);
 
   // Re-analysis of an existing review: { analysisId } instead of a file.
   const analysisId = optionalString(body, 'analysisId');
   if (analysisId) {
     const source = await sourceFromAnalysis(db, req.currentUser.id, analysisId);
-    return { ...source, jurisdiction };
+    // Повторный разбор помнит роль, пока пользователь не выбрал другую.
+    return { ...source, jurisdiction, side: sideRaw === undefined ? source.side : side };
   }
 
   const fileName = requireString(body, 'fileName', { min: 1, max: 300 });
@@ -358,7 +370,7 @@ export async function readSource(db: Db, req: FastifyRequest): Promise<AnalysisS
   // разрешать его по ИМЕНИ незачем (при двух одноимённых взяли бы не тот).
   const requestedUploadId = optionalString(body, 'uploadId', { max: 60 }) ?? null;
   const uploaded = await resolveUploadedContent(db, req.currentUser.id, fileName, requestedUploadId);
-  return { fileName, fileSizeLabel, sizeBytes: uploaded.sizeBytes, text: uploaded.text, pdf: uploaded.pdf, jurisdiction, uploadId: uploaded.uploadId };
+  return { fileName, fileSizeLabel, sizeBytes: uploaded.sizeBytes, text: uploaded.text, pdf: uploaded.pdf, jurisdiction, uploadId: uploaded.uploadId, side };
 }
 
 /** Последний разбор ЭТОЙ загрузки в живом документе владельца (или null). */
@@ -583,8 +595,8 @@ export async function persistAnalysis(
     );
 
     await tx.query(
-      `INSERT INTO analyses (id, user_id, document_id, file_name, file_size, summary, risk_score, risk_level, clauses_reviewed, document_blocks, upload_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+      `INSERT INTO analyses (id, user_id, document_id, file_name, file_size, summary, risk_score, risk_level, clauses_reviewed, document_blocks, upload_id, side)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
       [
         analysisId,
         userId,
@@ -597,6 +609,7 @@ export async function persistAnalysis(
         gen.clausesReviewed,
         encBlocks,
         source.uploadId ?? null,
+        source.side ?? null,
       ],
     );
     for (let i = 0; i < gen.findings.length; i++) {
@@ -910,6 +923,7 @@ export async function analyzeSourceDeferred(
     plan,
     legalContext,
     playbook,
+    side: source.side ?? null,
   });
   return validateGen(db, gen, legalContext, corpus, retrievalFailed, plan, logWarn, deferRepair);
 }

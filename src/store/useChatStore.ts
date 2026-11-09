@@ -9,6 +9,7 @@
  * backed by the API layer.
  */
 import { create } from 'zustand';
+import type { ContractSide } from '@/lib/contractSide';
 import { consumePendingProject, USE_MOCK, analysisApi, documentsApi } from '@/api';
 import { mergeRepaired, REPAIR_POLL_MS, REPAIR_WAIT_MS } from '@/lib/analysisRepair';
 import { chatsApi } from '@/api/chats.api';
@@ -170,7 +171,7 @@ interface ChatState {
   startAnalysis: (
     file: { name: string; size: string },
     rawFile?: File,
-    opts?: { keepCanvas?: boolean; uploadId?: string; photos?: File[]; newSession?: boolean },
+    opts?: { keepCanvas?: boolean; uploadId?: string; photos?: File[]; newSession?: boolean; side?: ContractSide | null },
   ) => Promise<void>;
   /** Отменить идущий анализ (кнопка «Отменить» на карточке). */
   cancelAnalysis: () => void;
@@ -617,6 +618,7 @@ export const useChatStore = create<ChatState>((set, get) => {
         fileSize,
           jurisdiction: defaultLaw(),
           ...(uploadId ? { uploadId } : {}),
+          ...(opts?.side ? { side: opts.side } : {}),
         },
         controller?.signal,
       );
