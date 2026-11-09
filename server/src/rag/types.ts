@@ -50,6 +50,9 @@ export interface RetrievedChunk {
   validTo: string | null;
   sourceUrl: string;
   score: number;
+  /** Вид акта (УЗ): «кодекс», «закон», «указ Президента», «постановление
+   *  Пленума…» — заполняет retrieveLegalContext, показывает rag/context.ts. */
+  actKind?: string;
 }
 
 export interface RetrieveParams {

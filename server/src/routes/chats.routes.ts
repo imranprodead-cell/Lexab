@@ -25,6 +25,7 @@ import { CHAT_AGENT_INSTRUCTIONS, citedProvisionNumbers, citesProvision, createC
 import { isSmallTalk } from '../lib/smallTalk.ts';
 import { appendEditBlocks, appendReminderBlocks, loadEditTarget, type EditProposal, type EditTarget, type ReminderProposal } from '../lib/chatActions.ts';
 import { jurisdictionCode, retrieveLegalContext } from '../rag/retrieve.ts';
+import { formatLegalContext } from '../rag/context.ts';
 import type { ChatMessage, ChatSession, ChatStep } from '../types.ts';
 import { parseChatMode } from '../lib/chatModes.ts';
 import {
@@ -575,14 +576,17 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
           const hits = await retrieveLegalContext(db, {
             query: ragQuery,
             jurisdiction: corpus,
-            topK: 5,
+            // 8, а не 5 (2026-11-09): на вопросах «на 2–3 нормы» все нужные
+            // нормы были в топ-10 у 100%, а в топ-5 — только у 80%; чат видел
+            // пятёрку. +3 нормы по 900 символов к контексту.
+            topK: 8,
             onQueries: (all) => {
               queries = (all.length > 1 ? all.slice(1) : all).map((q) => clip(q.replace(/\s+/g, ' '), 80));
               step({ id: 'search', status: 'active', data: { ...searching, queries } });
             },
           });
           if (hits.length) {
-            legalContext = hits.map((h) => `[${h.unitId}] ${h.breadcrumb}\n${h.body.slice(0, 900)}`).join('\n---\n');
+            legalContext = formatLegalContext(hits, corpus);
           }
           // Точные адреса статей на официальных сайтах — для ссылок в Sources.
           const links = await unitLinks(db, hits.map((h) => h.unitId)).catch(() => new Map<string, string>());

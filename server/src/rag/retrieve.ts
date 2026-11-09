@@ -14,6 +14,7 @@ import type { Db } from '../db.ts';
 import { MODELS, noThinking } from '../models.ts';
 import { embeddingsEnabled, embedTexts, rerankTexts, toVectorLiteral } from './embeddings.ts';
 import type { RetrieveParams, RetrievedChunk } from './types.ts';
+import { uzActKind } from './context.ts';
 import { normalizePlenumNumber, normalizeUzDocNumber, plenumPrefix, type PlenumCourt } from './uz-doc-number.ts';
 
 const REWRITE_SCHEMA = {
@@ -265,13 +266,32 @@ export async function retrieveLegalContext(db: Db, params: RetrieveParams): Prom
   }
   const fused = [...byId.values()]
     .sort((a, b) => b.score - a.score)
-    .slice(0, Math.max(topK * 2, topK))
+    // Не меньше MIN_POOL кандидатов реранкеру при любом topK: у чата (8 норм) пул
+    // 16 терял вторую нужную норму, которую пул 20 разбора находил (замер 09.11).
+    .slice(0, Math.max(topK * 2, MIN_POOL))
     .map(({ row, score }): RetrievedChunk => toRetrieved(row, score));
 
   // Связанные нормы — ПОСЛЕ основного списка: без реранкера (сбой) они в топ-K
   // не попадают и поиск ведёт себя как раньше.
   const linked = await expandWithLinks(db, fused, queries, ftsConfig, params.jurisdiction, asOf, topK);
-  return (await rerank(params.query, [...fused, ...linked])).slice(0, topK);
+  const top = (await rerank(params.query, [...fused, ...linked])).slice(0, topK);
+  return params.jurisdiction === 'UZ' ? withActKinds(db, top) : top;
+}
+
+/** Вид акта у каждой нормы УЗ (этап 3): модель видит, где кодекс, где указ,
+ *  где разъяснение Пленума, — и выбирает норму по правилам rag/context.ts. */
+async function withActKinds(db: Db, hits: RetrievedChunk[]): Promise<RetrievedChunk[]> {
+  if (!hits.length) return hits;
+  try {
+    const docs = await db.query<{ id: string; doc_type: string; title: string }>(
+      `SELECT id, doc_type, title FROM legal_documents WHERE id = ANY($1::text[])`,
+      [[...new Set(hits.map((h) => h.documentId))]],
+    );
+    const kind = new Map(docs.rows.map((d) => [d.id, uzActKind(d.doc_type, d.title)]));
+    return hits.map((h) => ({ ...h, actKind: kind.get(h.documentId) || undefined }));
+  } catch {
+    return hits; // пометка — подсказка, не повод уронить поиск
+  }
 }
 
 function toRetrieved(row: ChunkRow, score: number): RetrievedChunk {
@@ -292,6 +312,8 @@ function toRetrieved(row: ChunkRow, score: number): RetrievedChunk {
 
 /** Сколько лучших найденных норм расширяем связями (карта legal_links). */
 const LINK_SEEDS = 5;
+/** Минимальный пул кандидатов для реранкера (см. retrieveLegalContext). */
+const MIN_POOL = 20;
 
 /**
  * Связанные нормы (карта связей, этап 2, 2026-11-08). Замер uz-multihop:

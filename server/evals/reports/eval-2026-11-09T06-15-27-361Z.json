@@ -1,0 +1,71 @@
+{
+  "at": "2026-11-09T06:03:09.586Z",
+  "model": "claude-sonnet-5-5",
+  "golden": "uz-contract-law.jsonl",
+  "questions": 120,
+  "topK": 8,
+  "linkedNorms": true,
+  "rewritesCached": true,
+  "retrieval": {
+    "hit@5": 0.95,
+    "hit@8": 0.975,
+    "recall@8": 0.947
+  },
+  "misses": [
+    {
+      "question": "Какими вообще способами государственный заказчик вправе выбирать поставщика — какие форматы проведения закупок для госзаказа допускает закон?",
+      "expected_unit_ids": [
+        "lu_uz_5382983_st-30"
+      ],
+      "top10_unit_ids": [
+        "lu_uz_5382983_st-56",
+        "lu_uz_5382983_st-51",
+        "lu_uz_5382983_st-71",
+        "lu_uz_5382983_st-64",
+        "lu_uz_5382983_st-58",
+        "lu_uz_5382983_st-19",
+        "lu_uz_5382983_st-67",
+        "lu_uz_5382983_st-20"
+      ]
+    },
+    {
+      "question": "Hamkorimiz shartnoma bo'yicha majburiyatini bajarmadi. Shartnomada neustoyka (penya) ko'zda tutilgan — uni undirish uchun men aynan qancha zarar ko'rganimni isbotlab berishim shartmi?",
+      "expected_unit_ids": [
+        "lu_uz_111181_st-260"
+      ],
+      "top10_unit_ids": [
+        "lu_uz_10872_st-34",
+        "lu_uz_1636812_p-2",
+        "lu_uz_111181_st-326",
+        "lu_uz_111181_st-325",
+        "lu_uz_111181_st-261",
+        "lu_uz_1636812_p-13",
+        "lu_uz_14643_st-19",
+        "lu_uz_111181_st-263"
+      ]
+    },
+    {
+      "question": "Вправе ли административный орган обременять заявителя лишними обязанностями или отказывать в правах из бюрократического формализма?",
+      "expected_unit_ids": [
+        "lu_uz_3492203_st-12"
+      ],
+      "top10_unit_ids": [
+        "lu_uz_5957616_st-96",
+        "lu_uz_111181_st-342",
+        "lu_uz_14643_st-27",
+        "lu_uz_111181_st-263",
+        "lu_uz_1643250_p-11",
+        "lu_uz_14643_st-29",
+        "lu_uz_14643_st-19",
+        "lu_uz_5957616_st-213"
+      ]
+    }
+  ],
+  "corpus": {
+    "jurisdiction": "UZ",
+    "documents": 175,
+    "chunks": 11730,
+    "contextCoverage": 1,
+    "embeddingCoverage": 1
+  }
+}

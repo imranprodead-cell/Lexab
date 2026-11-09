@@ -113,7 +113,13 @@ async function main(): Promise<void> {
     const rows = readFileSync(path.join(goldenDir, file), 'utf8')
       .split('\n')
       .filter(Boolean)
-      .map((l, i) => ({ line: i + 1, row: JSON.parse(l) as { question: string; expected_unit_ids: string[] } }));
+      .map((l, i) => {
+        // Два формата: поиск (expected_unit_ids) и ответы агента (must_cite /
+        // must_not_cite, evals/run-answers.ts) — линтим нормы обоих.
+        const raw = JSON.parse(l) as { question: string; expected_unit_ids?: string[]; must_cite?: string[][]; must_not_cite?: string[] };
+        const ids = raw.expected_unit_ids ?? [...(raw.must_cite ?? []).flat(), ...(raw.must_not_cite ?? [])];
+        return { line: i + 1, row: { question: raw.question, expected_unit_ids: ids } };
+      });
     const allIds = [...new Set(rows.flatMap((r) => r.row.expected_unit_ids))];
     const found = await db.query<{ id: string }>(`SELECT id FROM legal_units WHERE id = ANY($1::text[])`, [allIds]);
     const existing = new Set(found.rows.map((r) => r.id));

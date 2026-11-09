@@ -15,6 +15,7 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import type { Db } from '../db.ts';
 import { parseRuCitation, parseUzDecreeCitation, parseUzPlenumCitation, resolveCitationText, retrieveLegalContext } from '../rag/retrieve.ts';
+import { contextLine } from '../rag/context.ts';
 import type { JurisdictionCode } from '../rag/types.ts';
 import { judgeProvision } from '../rag/validate-citations.ts';
 import type { ChatStep, ChatToolName } from '../types.ts';
@@ -724,7 +725,7 @@ export function createChatToolRunner(ctx: ChatToolContext): { tools: Anthropic.B
           if (!hits.length) return { content: `NO_RESULTS in the ${jurisdiction} database for «${query}». Try other wording or another act.` };
           return {
             content: clipResult(
-              hits.map((h) => `[${h.unitId}] ${h.breadcrumb}\n${h.body.slice(0, 1200)}`).join('\n---\n') +
+              hits.map((h) => contextLine(h, 1200)).join('\n---\n') +
                 '\n\nOpen a provision with get_provision before quoting its details.',
             ),
           };

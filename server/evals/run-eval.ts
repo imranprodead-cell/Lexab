@@ -167,6 +167,10 @@ async function main(): Promise<void> {
   // --rewrites-cache=FILE: переформулировки запросов берутся из файла (новые
   // дописываются) — «до» и «после» ищут по ОДНИМ И ТЕМ ЖЕ запросам, и за
   // переписчик платим один раз. RAG_LINKS=off — поиск без карты связей.
+  // --top-k=N: сколько норм возвращает поиск (как в продукте: чат — 8, разбор — 10);
+  // all@N — нашлись ли ВСЕ нужные нормы в этих N.
+  const topKArg = process.argv.find((a) => a.startsWith('--top-k='));
+  const topK = topKArg ? Math.max(1, Math.min(20, Number(topKArg.slice('--top-k='.length)) || 10)) : 10;
   const cacheArg = process.argv.find((a) => a.startsWith('--rewrites-cache='));
   const cachePath = cacheArg ? cacheArg.slice('--rewrites-cache='.length) : null;
   const rewriteCache: Record<string, string[]> = cachePath && existsSync(cachePath) ? JSON.parse(readFileSync(cachePath, 'utf8')) : {};
@@ -179,6 +183,7 @@ async function main(): Promise<void> {
     model,
     golden: goldenFile,
     questions: rows.length,
+    topK,
     linkedNorms: process.env.RAG_LINKS !== 'off',
     rewritesCached: Boolean(cachePath),
   };
@@ -192,7 +197,7 @@ async function main(): Promise<void> {
   // all@k — «нашлись ВСЕ нужные нормы» (только для строк с required_groups):
   // вопрос на правило + исключение + разъяснение Пленума засчитывается, лишь
   // когда в топ-k есть хотя бы одна норма из КАЖДОЙ группы.
-  let multiRows = 0, all5 = 0, all10 = 0;
+  let multiRows = 0, all5 = 0, allK = 0;
   const incomplete: { question: string; missing_groups: string[][]; top10_unit_ids: string[] }[] = [];
   for (const row of rows) {
     const cached = rewriteCache[row.question];
@@ -200,7 +205,7 @@ async function main(): Promise<void> {
       query: row.question,
       jurisdiction: row.jurisdiction,
       asOfDate: row.as_of_date,
-      topK: 10,
+      topK,
       rewrites: cached,
       onQueries: (qs) => {
         if (cached) return;
@@ -219,19 +224,22 @@ async function main(): Promise<void> {
     if (row.required_groups?.length) {
       multiRows++;
       if (row.required_groups.every((g) => g.some((id) => ids5.has(id)))) all5++;
+      if (row.required_groups.every((g) => g.some((id) => ids10.has(id)))) allK++;
       const missing = row.required_groups.filter((g) => !g.some((id) => ids10.has(id)));
-      if (!missing.length) all10++;
-      else incomplete.push({ question: row.question, missing_groups: missing, top10_unit_ids: hits.map((h) => h.unitId) });
+      if (missing.length) incomplete.push({ question: row.question, missing_groups: missing, top10_unit_ids: hits.map((h) => h.unitId) });
     }
   }
+  // Метрики «@10» считаются по всему возвращённому списку: при --top-k меньше
+  // 10 подписываем их честно — @N, а не @10.
+  const k = Math.min(topK, 10);
   const retrieval: Record<string, number> = {
     'hit@5': +(hit5 / rows.length).toFixed(3),
-    'hit@10': +(hit10 / rows.length).toFixed(3),
-    'recall@10': +(recallSum / rows.length).toFixed(3),
+    [`hit@${k}`]: +(hit10 / rows.length).toFixed(3),
+    [`recall@${k}`]: +(recallSum / rows.length).toFixed(3),
   };
   if (multiRows) {
     retrieval['all@5'] = +(all5 / multiRows).toFixed(3);
-    retrieval['all@10'] = +(all10 / multiRows).toFixed(3);
+    retrieval[`all@${k}`] = +(allK / multiRows).toFixed(3);
   }
   report.retrieval = retrieval;
   if (cachePath) writeFileSync(cachePath, JSON.stringify(rewriteCache, null, 1));
