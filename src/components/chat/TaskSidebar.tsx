@@ -12,6 +12,7 @@ import { extractQuestions } from '@/lib/questions';
 import { useUIStore } from '@/store/useUIStore';
 import type { AnalysisResult, ChatMessage, ChatStep, PlanProgress } from '@/types/domain';
 import { FileIcon } from './FileIcon';
+import { TOOL_STEP_KEYS, answerLast } from './toolSteps';
 import styles from './chat.module.css';
 
 interface TaskSidebarProps {
@@ -169,8 +170,16 @@ export function TaskSidebar({ messages, sessionKey, onOpenArtifact, analysis, on
         return t('side.searchLaw');
       case 'mode':
         return t(`work.mode.${s.data?.mode === 'slides' || s.data?.mode === 'approve' ? s.data.mode : 'plan'}`);
-      default:
+      default: {
+        // Шаги агента — своими словами («Ищу на официальном сайте lex.uz»,
+        // «Открываю статью целиком»…), как в ходе работы под ответом.
+        if (s.id.startsWith('tool-')) {
+          if (s.data?.tool === 'search_law') return t('side.searchLaw');
+          const key = s.data?.tool ? TOOL_STEP_KEYS[s.data.tool] : undefined;
+          if (key) return t(key);
+        }
         return t('work.thinking');
+      }
     }
   };
 
@@ -202,7 +211,10 @@ export function TaskSidebar({ messages, sessionKey, onOpenArtifact, analysis, on
     for (const m of messages) {
       if (m.role === 'user' && m.kind === 'file' && m.file) files.set(m.file.name, { name: m.file.name, sub: t('side.reviewed') });
       for (const a of m.attachments ?? []) if (!files.has(a.name)) files.set(a.name, { name: a.name, sub: t('side.attached') });
-      const live = m.work?.steps.find((s) => s.id === 'search')?.data?.refs ?? [];
+      // Пока ответ пишется — нормы первого поиска (предпросмотр); готовый ответ —
+      // только источники от сервера: при агенте это нормы и акты, на которые
+      // ответ опирается, а не всё, что всплыло в первом поиске.
+      const live = m.streaming ? (m.work?.steps.find((s) => s.id === 'search')?.data?.refs ?? []) : [];
       for (const r of [...(m.refs ?? []), ...live]) {
         const key = `${r.label}|${r.doc}`;
         // Та же статья из разных ответов — одна строка; ссылку берём, где она есть.
@@ -275,7 +287,7 @@ export function TaskSidebar({ messages, sessionKey, onOpenArtifact, analysis, on
               <div className={styles.sideGroup}>
                 <div className={styles.sideGroupLabel}>{t('side.answerGroup')}</div>
                 <ul className={styles.sideSteps}>
-                  {lastWork.work.steps.map((s) => {
+                  {answerLast(lastWork.work.steps).map((s) => {
                     const mark: Mark = working && s.status === 'active' ? 'active' : 'done';
                     return (
                       <li key={s.id} className={styles.sideStep} data-done={mark === 'done' ? 'true' : undefined}>

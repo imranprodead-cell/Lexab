@@ -4,6 +4,7 @@ import { COUNTRIES, countryName } from '@/data/countries';
 import { useI18n } from '@/i18n/I18nProvider';
 import type { ChatStep, ChatWork } from '@/types/domain';
 import { FileIcon } from './FileIcon';
+import { TOOL_STEP_KEYS, answerLast } from './toolSteps';
 import styles from './chat.module.css';
 
 /** «UZ» базы законов → страна в списке выбора (у Британии там код GB). */
@@ -39,9 +40,7 @@ export function WorkSteps({ work, working }: { work?: ChatWork; working: boolean
   const [userOpen, setUserOpen] = useState<boolean | null>(null);
   const open = userOpen ?? working;
   const seconds = useElapsed(work, working);
-  // «Обдумываю ответ» — всегда последним: шаги агента (tool-N) приходят после него.
-  const all = work?.steps ?? [];
-  const steps = [...all.filter((s) => s.id !== 'answer'), ...all.filter((s) => s.id === 'answer')];
+  const steps = answerLast(work?.steps ?? []);
 
   const searchTitle = (jurisdiction: string | undefined): ReactNode => {
     const c = lawCountry(jurisdiction);
@@ -61,19 +60,8 @@ export function WorkSteps({ work, working }: { work?: ChatWork; working: boolean
     const d = step.data ?? {};
     if (step.id.startsWith('tool-')) {
       if (d.tool === 'search_law') return searchTitle(d.jurisdiction);
-      if (d.tool === 'get_provision') return t('work.tool.getProvision');
-      if (d.tool === 'verify_citation') return t('work.tool.verifyCitation');
-      if (d.tool === 'read_contract') return t('work.tool.readContract');
-      if (d.tool === 'search_documents') return t('work.tool.searchDocuments');
-      if (d.tool === 'propose_edit') return t('work.tool.proposeEdit');
-      if (d.tool === 'get_review_edits') return t('work.tool.reviewEdits');
-      if (d.tool === 'propose_reminder') return t('work.tool.reminder');
-      if (d.tool === 'get_playbook') return t('work.tool.playbook');
-      if (d.tool === 'compare_versions') return t('work.tool.compare');
-      if (d.tool === 'calculate') return t('work.tool.calculate');
-      if (d.tool === 'search_official') return t('work.tool.searchOfficial');
-      if (d.tool === 'read_official') return t('work.tool.readOfficial');
-      return null;
+      const key = d.tool ? TOOL_STEP_KEYS[d.tool] : undefined;
+      return key ? t(key) : null;
     }
     switch (step.id) {
       case 'prompt':

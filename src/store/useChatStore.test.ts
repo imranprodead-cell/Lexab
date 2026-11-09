@@ -143,6 +143,21 @@ describe('chat store — live streaming', () => {
     expect(mockSend).toHaveBeenCalledWith('s_live', 'hi', undefined, expect.anything(), expect.any(Function), undefined, undefined, expect.any(Function));
   });
 
+  // Источники готового ответа (09.11): Sources показывал нормы первого поиска,
+  // пока страницу не перезагрузят, — источники сервера терялись.
+  it('takes the server sources (refs) of the finished reply, not only its text', async () => {
+    const mockSend = chatsApi.sendMessage as ReturnType<typeof vi.fn>;
+    const refs = [{ label: 'ПКМ № 683 от 31.08.2017', doc: 'О совершенствовании порядка…', url: 'https://lex.uz/ru/docs/3334128' }];
+    mockSend.mockResolvedValue({ id: 'srv_r', role: 'assistant', kind: 'text', text: 'ПКМ № 683', refs });
+
+    useChatStore.getState().sendMessage('Каким постановлением?');
+    await new Promise((r) => setTimeout(r, 120));
+
+    const assistant = useChatStore.getState().messages.find((m) => m.role === 'assistant');
+    expect(assistant?.id).toBe('srv_r');
+    expect(assistant?.refs).toEqual(refs);
+  });
+
   // «Работаю…» (2026-10-25): шаги с сервера копятся на заглушке ответа,
   // первое слово модели закрывает работу.
   it('collects server work steps on the reply and closes them on the first token', async () => {

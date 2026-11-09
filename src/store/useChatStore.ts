@@ -94,6 +94,16 @@ export function endWork(work: ChatWork | undefined, at = Date.now()): ChatWork |
   return { ...work, endedAt: at, steps: work.steps.map((s) => (s.status === 'active' ? { ...s, status: 'done' } : s)) };
 }
 
+/**
+ * Готовый ответ сервера → поля сообщения: id сохранённой строки, итоговый текст
+ * и источники (вкладка Sources). Раньше брался только текст — источники
+ * появлялись лишь после перезагрузки, а до неё Sources показывал нормы первого
+ * поиска, а не те, на которые ответ опирается (замечание владельца 09.11).
+ */
+function finalFields(reply: ChatMessage): Pick<ChatMessage, 'id' | 'text' | 'streaming' | 'refs'> {
+  return { id: reply.id, text: reply.text ?? '', streaming: false, refs: reply.refs?.length ? reply.refs : undefined };
+}
+
 /** Тестовый режим (без сервера): тот же ход работы, что шлёт сервер, по таймеру. */
 function mockWorkSteps(text: string, files?: string[]): { steps: [number, ChatStep][]; total: number } {
   const country = useUIStore.getState().country;
@@ -761,7 +771,12 @@ export const useChatStore = create<ChatState>((set, get) => {
     if (USE_MOCK) {
       const { steps, total } = mockWorkSteps(trimmed, attached?.map((f) => f.name));
       for (const [at, step] of steps) setTimeout(() => applyStep(assistantId, step), at);
-      setTimeout(() => streamIn(assistantId, mockReply(trimmed)), total);
+      // Источники ответа — как у сервера: нормы демо-поиска.
+      const refs = steps.map(([, st]) => st).find((st) => st.id === 'search' && st.status === 'done')?.data?.refs;
+      setTimeout(() => {
+        if (refs?.length) set((s) => ({ messages: s.messages.map((m) => (m.id === assistantId ? { ...m, refs } : m)) }));
+        streamIn(assistantId, mockReply(trimmed));
+      }, total);
       return;
     }
 
@@ -819,7 +834,7 @@ export const useChatStore = create<ChatState>((set, get) => {
           // persisted row) and drop in the authoritative final text.
           set((s) => ({
             messages: s.messages.map((m) =>
-              m.id === assistantId ? { ...m, id: reply.id, text: reply.text ?? '', streaming: false, work: endWork(m.work) } : m,
+              m.id === assistantId ? { ...m, ...finalFields(reply), work: endWork(m.work) } : m,
             ),
           }));
         } else if (get().serverSessionId === sessionId) {
@@ -830,14 +845,14 @@ export const useChatStore = create<ChatState>((set, get) => {
             if (s.messages.some((m) => m.id === assistantId)) {
               return {
                 messages: s.messages.map((m) =>
-                  m.id === assistantId ? { ...m, id: reply.id, text: reply.text ?? '', streaming: false, work: endWork(m.work) } : m,
+                  m.id === assistantId ? { ...m, ...finalFields(reply), work: endWork(m.work) } : m,
                 ),
               };
             }
             return {
               messages: [
                 ...s.messages,
-                { id: reply.id, role: 'assistant' as const, kind: 'text' as const, text: reply.text ?? '', streaming: false },
+                { role: 'assistant' as const, kind: 'text' as const, ...finalFields(reply) },
               ],
             };
           });
