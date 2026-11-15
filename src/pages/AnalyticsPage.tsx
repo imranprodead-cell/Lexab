@@ -323,7 +323,7 @@ export function AnalyticsPage() {
         </div>
 
         {/* 5. Деньги под риском — только когда в договорах есть суммы. */}
-        {s.valueAtRisk.currencies.length ? (
+        {s.valueAtRisk?.currencies.length ? (
           <div className={an.panel}>
             <div className={an.panelHead}>
               <h2 className={an.panelTitle}>{t('an.var')}</h2>
