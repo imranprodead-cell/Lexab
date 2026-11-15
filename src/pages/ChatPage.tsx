@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type DragEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState, type DragEvent } from 'react';
 import type { ContractSide } from '@/lib/contractSide';
 import { useNavigate, useParams } from 'react-router-dom';
 import { motion } from 'motion/react';
@@ -41,6 +41,7 @@ import { isAttachFile, isDocFile, MAX_DOC_BYTES, maxAttachments } from '@/lib/do
 import { isSlidesCommand, parseDeck } from '@/lib/deck';
 import { extractArtifacts, type Artifact } from '@/lib/artifacts';
 import { answersMessage, displayText, extractQuestions, isApproveCommand, isPlanCommand, looksLikePlan, type ClarifyQuestion } from '@/lib/questions';
+import { dismissCard, isCardDismissed, type CardKind } from '@/lib/dismissedCards';
 import { COMMANDS } from '@/data/seed';
 import { plansLabel } from '@/lib/planFeatures';
 import { MAX_PHOTO_BYTES, MAX_PHOTOS, uploadsApi, type UploadedFile } from '@/api/uploads.api';
@@ -748,8 +749,14 @@ export function ChatPage() {
   // ── Карточки над полем ввода ─────────────────────────────────────────────
   // Только для последнего ответа ИИ: уточняющие вопросы (если он их задал),
   // иначе — «Продолжить с этим планом?» после ответа на /plan.
-  const [dismissedAsk, setDismissedAsk] = useState<string | null>(null);
-  const [dismissedPlan, setDismissedPlan] = useState<string | null>(null);
+  // Закрытые карточки помнятся в браузере (lib/dismissedCards.ts), а не в
+  // состоянии страницы: «Новый чат» и старый чат — разные маршруты, страница
+  // создаётся заново, и закрытая карточка возвращалась при каждом заходе.
+  const [, rerenderDismissed] = useReducer((n: number) => n + 1, 0);
+  const dismiss = (kind: CardKind, replyId: string) => {
+    dismissCard(kind, replyId);
+    rerenderDismissed();
+  };
   const lastText = textMessages[textMessages.length - 1];
   const lastReply =
     lastText?.role === 'assistant' &&
@@ -763,14 +770,21 @@ export function ChatPage() {
   const prevUser = textMessages[textMessages.length - 2];
   const lastFromPlan = Boolean(lastReply && prevUser?.role === 'user' && isPlanCommand(prevUser.text));
   const askQuestions =
-    lastReply && lastParts && lastParts.questions.length > 0 && dismissedAsk !== lastReply.id ? lastParts.questions : null;
+    lastReply && lastParts && lastParts.questions.length > 0 && !isCardDismissed('ask', lastReply.id)
+      ? lastParts.questions
+      : null;
   const showPlanCard = Boolean(
-    !askQuestions && lastReply && lastFromPlan && lastParts && looksLikePlan(lastParts.body) && dismissedPlan !== lastReply.id,
+    !askQuestions &&
+      lastReply &&
+      lastFromPlan &&
+      lastParts &&
+      looksLikePlan(lastParts.body) &&
+      !isCardDismissed('plan', lastReply.id),
   );
 
   const onQuestionsDone = (answered: { question: string; answer: string }[]) => {
     if (!lastReply) return;
-    setDismissedAsk(lastReply.id);
+    dismiss('ask', lastReply.id);
     if (!answered.length) return; // всё пропущено — просто убираем карточку
     const text = answersMessage(t('clarify.answersHeader'), answered);
     // Вопросы к плану: ответы уходят в режиме плана — ИИ пересоберёт план.
@@ -778,12 +792,12 @@ export function ChatPage() {
   };
   const onApprovePlan = () => {
     if (!lastReply) return;
-    setDismissedPlan(lastReply.id);
+    dismiss('plan', lastReply.id);
     sendMessage(`/approve ${t('plan.approve.okMessage')}`);
   };
   const onChangePlan = (changes: string) => {
     if (!lastReply) return;
-    setDismissedPlan(lastReply.id);
+    dismiss('plan', lastReply.id);
     sendMessage(`/plan ${t('plan.approve.changesPrefix')} ${changes}`);
   };
 
@@ -988,7 +1002,7 @@ export function ChatPage() {
                 key={lastReply.id}
                 onApprove={onApprovePlan}
                 onChanges={onChangePlan}
-                onDismiss={() => setDismissedPlan(lastReply.id)}
+                onDismiss={() => dismiss('plan', lastReply.id)}
               />
             </div>
           ) : (

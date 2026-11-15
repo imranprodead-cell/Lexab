@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation, useNavigate, type NavigateFunction } from 'react-router-dom';
 import { I18nProvider } from '@/i18n/I18nProvider';
 
 vi.mock('@/api', () => ({
@@ -48,6 +48,7 @@ import { analysisApi as analysisFileApi } from '@/api/analysis.api';
 import { useUIStore } from '@/store/useUIStore';
 import { useChatStore } from '@/store/useChatStore';
 import { ChatPage } from './ChatPage';
+import { resetDismissedCardsCache } from '@/lib/dismissedCards';
 
 const mockMessages = chatsApi.messages as ReturnType<typeof vi.fn>;
 const mockGetAnalysis = analysisApi.get as ReturnType<typeof vi.fn>;
@@ -365,3 +366,102 @@ describe('ChatPage — attaching files to the composer', () => {
   });
 });
 
+
+// Замечание владельца 14.11: закрыл крестиком уточняющие вопросы → открыл
+// новый чат → вернулся в прежний — карточка снова на месте, и так каждый раз.
+// «Новый чат» и старый — разные маршруты, страница создаётся заново.
+describe('ChatPage — closed clarifying questions stay closed', () => {
+  const ASK_CHAT = [
+    { id: 'u1', role: 'user', kind: 'text', text: 'Переведи договор на узбекский' },
+    {
+      id: 'a1',
+      role: 'assistant',
+      kind: 'text',
+      text: 'Готов перевести.\n\n```questions\n? Что переводим?\n- Загружу файл договора\n- Вставлю текст в чат\n```',
+    },
+  ];
+  let root: Root;
+  let host: HTMLDivElement;
+  let navigate: NavigateFunction = () => undefined;
+  function Nav() {
+    navigate = useNavigate();
+    return null;
+  }
+  // Как в AppShell: страница под key={pathname} — смена адреса создаёт её заново.
+  function Pages() {
+    return (
+      <Routes key={useLocation().pathname}>
+        <Route path="/chat" element={<ChatPage />} />
+        <Route path="/chat/:sessionId" element={<ChatPage />} />
+      </Routes>
+    );
+  }
+  // Сама карточка (после закрытия вопрос остаётся в тексте ответа списком).
+  const card = () => Boolean(document.querySelector('[role="group"][aria-label="Что переводим?"]'));
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    resetDismissedCardsCache();
+    useChatStore.setState({
+      phase: 'idle', messages: [], analysis: null, activeStep: -1, error: null,
+      serverSessionId: null, sessionLoading: false,
+    });
+    document.body.innerHTML = '';
+    host = document.createElement('div');
+    document.body.appendChild(host);
+    root = createRoot(host);
+    mockMessages.mockImplementation(async (id: string) => (id === 's1' ? ASK_CHAT : []));
+  });
+
+  it('after the × the card does not come back when returning from a new chat', async () => {
+    await act(async () => {
+      root.render(
+        <I18nProvider>
+          <MemoryRouter initialEntries={['/chat/s1']}>
+            <Nav />
+            <Pages />
+          </MemoryRouter>
+        </I18nProvider>,
+      );
+    });
+    await flush();
+    await flush();
+    expect(card()).toBe(true);
+
+    const close = document.querySelector<HTMLButtonElement>('button[aria-label="Skip questions"], button[aria-label="Пропустить вопросы"]');
+    expect(close).not.toBeNull();
+    await act(async () => close!.click());
+    await flush();
+    expect(card()).toBe(false);
+    expect(chatsApi.sendMessage).not.toHaveBeenCalled(); // крестик ничего не отправляет
+
+    await act(async () => navigate('/chat')); // «Новый чат»
+    await flush();
+    await act(async () => navigate('/chat/s1')); // обратно в прежний
+    await flush();
+    await flush();
+    expect(useChatStore.getState().messages.map((m) => m.id)).toContain('a1');
+    expect(card()).toBe(false);
+
+    // Перезагрузка вкладки: пометка из localStorage, а не из памяти.
+    resetDismissedCardsCache();
+    act(() => root.unmount());
+    root = createRoot(host);
+    await act(async () => {
+      root.render(
+        <I18nProvider>
+          <MemoryRouter initialEntries={['/chat/s1']}>
+            <Routes>
+              <Route path="/chat/:sessionId" element={<ChatPage />} />
+            </Routes>
+          </MemoryRouter>
+        </I18nProvider>,
+      );
+    });
+    await flush();
+    await flush();
+    expect(useChatStore.getState().messages.map((m) => m.id)).toContain('a1');
+    expect(card()).toBe(false);
+  });
+});

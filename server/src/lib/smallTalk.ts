@@ -27,14 +27,87 @@ const WORDS = new Set(
   ].map((w) => w.toLowerCase()),
 );
 
+/** Слова реплики: строчные, «ё» → «е», узбекские апострофы (ʻ ʼ ’ ‘ `) → «'». */
+function wordsOf(t: string): string[] {
+  return t
+    .replace(/ё/g, 'е')
+    .replace(/[ʻʼ’‘`]/g, "'")
+    .split(/[^\p{L}'-]+/u)
+    .map((w) => w.replace(/^[-']+|[-']+$/g, ''))
+    .filter(Boolean);
+}
+
+const isGreetingWord = (w: string): boolean => WORDS.has(w) || WORDS.has(w.replace(/е/g, 'ё'));
+
 export function isSmallTalk(text: string): boolean {
   const t = text.trim().toLowerCase();
   if (!t || t.length > 40 || /\d/.test(t)) return false;
-  const words = t
-    .replace(/ё/g, 'е')
-    .split(/[^\p{L}ʻʼ'’-]+/u)
-    .map((w) => w.replace(/^[-'’ʻʼ]+|[-'’ʻʼ]+$/g, ''))
-    .filter(Boolean);
+  const words = wordsOf(t);
   if (!words.length || words.length > 5) return false;
-  return words.every((w) => WORDS.has(w) || WORDS.has(w.replace(/е/g, 'ё')));
+  return words.every(isGreetingWord);
+}
+
+/**
+ * Вопросы о самом ассистенте: «Расскажи о своих возможностях», «Что ты
+ * умеешь?», «Кто ты?», «Чем можешь помочь?», «Nima qila olasan?», «What can
+ * you do?». Норм для них нет, а поиск по словам «возможности», «умеешь»
+ * находил случайные статьи и показывал «Ищу нормы в базе законов» (замечание
+ * владельца 14.11).
+ *
+ * Правило такое же строгое, как у приветствий: реплика короткая, без цифр,
+ * ВСЕ её слова — из словаря приветствий и вопросов об ассистенте, и хотя бы
+ * одно слово — именно об ассистенте (умеешь, возможности, кто, о себе…).
+ * «Что ты можешь сказать о договоре аренды?» — уже вопрос по делу: слов
+ * «сказать», «договоре», «аренды» в словаре нет. Слов о себе пользователя
+ * («я», «могу», «men», «I») в словаре тоже нет: «Что я могу сделать?» — это
+ * вопрос о его деле, он ищет как раньше.
+ */
+const ABOUT = new Set(
+  [
+    // русский
+    'расскажи', 'расскажите', 'рассказать', 'скажи', 'скажите', 'покажи', 'о', 'об', 'обо', 'про', 'себе', 'себя',
+    'свои', 'своих', 'своем', 'своей', 'твои', 'твоих', 'твоем', 'ваши', 'ваших', 'вашем', 'что', 'чем', 'кто', 'ты', 'вы',
+    'такой', 'такая', 'такое', 'можешь', 'можете', 'можно', 'умеешь', 'умеете', 'умеет', 'может', 'мог', 'могли', 'бы',
+    'ли', 'делать', 'сделать', 'помочь', 'помоги', 'помогите', 'помощь', 'помогаешь', 'помогаете', 'мне', 'нам', 'тобой',
+    'вами', 'пользоваться', 'работаешь', 'работаете', 'возможность', 'возможности', 'возможностях', 'возможностями',
+    'функция', 'функции', 'функциях', 'функциями', 'функционал', 'функционале', 'умения', 'умениях', 'навыки', 'навыках',
+    'бот', 'ассистент', 'помощник', 'lexab', 'лексаб', 'а', 'и', 'еще', 'пожалуйста', 'коротко', 'кратко', 'вкратце',
+    'подробно', 'подробнее', 'вообще', 'это', 'этот', 'эта', 'сервис', 'какие', 'какой', 'какая', 'есть', 'чего', 'тут',
+    'здесь',
+    // узбекский (латиница и кириллица)
+    'nima', 'nimalar', 'nimani', 'nimalarni', 'qila', 'qilasan', 'qilasiz', 'qilolasan', 'qilolasiz', 'olasan', 'olasiz',
+    'bilasan', 'bilasiz', 'sen', 'siz', 'kim', 'kimsan', 'kimsiz', "o'zing", "o'zingiz", 'haqida', 'gapirib', 'gapir', 'ber',
+    'bering', 'aytib', 'ayt', 'imkoniyatlar', 'imkoniyatlaring', 'imkoniyatlaringiz', 'imkoniyatlaringni',
+    'imkoniyatlaringizni', 'imkoniyatlari', 'funksiyalar', 'funksiyalaring', 'funksiyalaringiz', 'yordam', 'bera', 'menga',
+    'bizga', 'ham', 'yana', 'iltimos', 'yordamchi', 'sening', 'sizning', 'sizda', 'senda', 'bor', 'qisqacha', 'batafsil',
+    'нима', 'нималар', 'нимани', 'қила', 'қиласан', 'қиласиз', 'оласан', 'оласиз', 'биласан', 'биласиз', 'сен', 'сиз', 'ким',
+    'кимсан', 'кимсиз', 'ўзинг', 'ўзингиз', 'ҳақида', 'гапириб', 'бер', 'беринг', 'айтиб', 'имкониятлар', 'имкониятларинг',
+    'имкониятларингиз', 'ёрдам', 'бера', 'менга', 'қандай', 'илтимос',
+    // английский
+    'what', 'can', 'could', 'you', 'do', 'who', 'are', 'tell', 'me', 'about', 'yourself', 'your', 'features', 'capabilities',
+    'abilities', 'skills', 'functions', 'help', 'how', 'to', 'use', 'does', 'this', 'bot', 'assistant', 'able', 'with',
+    'please', 'so', 'and', 'else', 'kind', 'of', 'things', 'us', 'a', 'an', 'the',
+    // казахский, немецкий
+    'не', 'істей', 'аласың', 'аласыз', 'сіз', 'кімсің', 'кімсіз', 'мүмкіндіктер', 'мүмкіндіктеріңіз', 'туралы', 'айтып',
+    'беріңіз', 'көмек', 'was', 'kannst', 'du', 'können', 'sie', 'wer', 'bist', 'erzähl', 'erzähle', 'über', 'dich', 'ihre',
+    'deine', 'funktionen', 'fähigkeiten', 'hilfe', 'helfen', 'mir',
+  ].map((w) => wordsOf(w.toLowerCase())[0] ?? w),
+);
+
+/** Слово именно об ассистенте — хотя бы одно такое обязательно. */
+const ABOUT_ANCHOR =
+  /^(возможност|функци|умее|умения|навык|можешь$|можете$|кто$|себе$|себя$|тобой$|вами$|бот$|ассистент|помощник|помо[гщч]|lexab$|лексаб$|imkoniyat|funksiya|qil|olas|bilas|kim|o'zing|yordam|қил|олас|билас|ким|ўзинг|имконият|ердам|yourself$|capabilit|abilit|feature|function|skill|who$|assistant$|help$|can$|could$|аласың$|аласыз$|кім|мүмкіндік|көмек$|kannst$|können$|wer$|dich$|funktion|fähigkeit|hilfe$|helfen$)/;
+
+export function isAboutAssistant(text: string): boolean {
+  const t = text.trim().toLowerCase();
+  if (!t || t.length > 80 || /\d/.test(t)) return false;
+  const words = wordsOf(t);
+  if (!words.length || words.length > 10) return false;
+  return words.every((w) => ABOUT.has(w) || isGreetingWord(w)) && words.some((w) => ABOUT.has(w) && ABOUT_ANCHOR.test(w));
+}
+
+/** Поиск по базе законов перед ответом не нужен: приветствие, «спасибо»,
+ *  вопрос об ассистенте. Сомнение решается поиском — правила строгие. */
+export function skipsLawSearch(text: string): boolean {
+  return isSmallTalk(text) || isAboutAssistant(text);
 }
