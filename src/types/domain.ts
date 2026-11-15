@@ -158,11 +158,13 @@ export type ChatToolName =
   | 'compare_versions'
   | 'calculate'
   | 'search_official'
-  | 'read_official';
+  | 'read_official'
+  | 'task_guide';
 
 export interface ChatStep {
-  /** tool-N — вызов инструмента агентом (N — номер вызова в этом ответе). */
-  id: 'prompt' | 'contract' | 'files' | 'memory' | 'search' | 'mode' | 'answer' | `tool-${number}`;
+  /** tool-N — вызов инструмента агентом (N — номер вызова в этом ответе);
+   *  more — агент получил добавочные шаги поиска («Ищу дальше»). */
+  id: 'prompt' | 'contract' | 'files' | 'memory' | 'search' | 'mode' | 'answer' | 'more' | `tool-${number}`;
   status: 'active' | 'done';
   data?: {
     tool?: ChatToolName;
@@ -178,6 +180,8 @@ export interface ChatStep {
     refs?: { label: string; doc: string; url?: string }[];
     failed?: boolean;
     mode?: string;
+    /** tool-N (task_guide): какая памятка задачи открыта (lease, supply, …). */
+    task?: string;
   };
 }
 

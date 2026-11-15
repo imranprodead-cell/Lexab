@@ -630,6 +630,8 @@ const uz: Record<string, string> = {
   "work.tool.calculate": "Hisoblayapman",
   "work.tool.searchOfficial": "Rasmiy lex.uz saytidan qidiryapman",
   "work.tool.readOfficial": "Rasmiy saytni o'qiyapman",
+  "work.tool.taskGuide": "Vazifa bo'yicha eslatmani tekshiryapman",
+  "work.more": "Qidiruvni davom ettiryapman",
   "analysis.ask.side": "Ushbu shartnomada qaysi tomonni vakillik qilasiz?",
   "analysis.ask.neutral": "Neytral — ikkala tomon uchun xatarlar",
   "side.buyer": "Xaridor",

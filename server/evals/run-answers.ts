@@ -8,6 +8,9 @@
  *   must_not_cite — нормы, ссылка на которые — ошибка (ГК вместо ТК и т.п.);
  *                   засчитывается только явная ссылка с названным актом;
  *   facts         — регулярные выражения: цифры, сроки, проценты из закона.
+ *   guide         — (необязательно) какую памятку задачи агент должен открыть
+ *                   (lib/specialists.ts). В «зачёт» НЕ входит: это справка —
+ *                   guideCalled / guideRight в итоге. SPECIALISTS=off — без памяток.
  *
  *   npm run eval:answers -- --plan=Free [--golden=uz-answers.jsonl] [--limit N]
  *                           [--rewrites-cache=FILE]
@@ -21,7 +24,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getDb, migrate } from '../src/db.ts';
 import { generateChatReply, usesChatAgent } from '../src/llm.ts';
-import { CHAT_AGENT_INSTRUCTIONS, citesProvision, createChatToolRunner } from '../src/lib/chatTools.ts';
+import { citesProvision, createChatToolRunner } from '../src/lib/chatTools.ts';
 import { formatLegalContext } from '../src/rag/context.ts';
 import { retrieveLegalContext } from '../src/rag/retrieve.ts';
 
@@ -31,6 +34,8 @@ interface AnswerRow {
   must_not_cite: string[];
   facts: string[];
   notes?: string;
+  /** Памятка задачи, которую агент должен открыть (id из SPECIALIST_IDS). */
+  guide?: string;
 }
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -42,16 +47,11 @@ async function main(): Promise<void> {
   const limit = Number(arg('limit') ?? Infinity);
   const cachePath = arg('rewrites-cache') ?? null;
   const regradeFrom = arg('regrade') ?? null;
-  const saved = new Map<string, string>(
-    regradeFrom
-      ? (
-          JSON.parse(readFileSync(regradeFrom, 'utf8')).results as {
-            question: string;
-            reply: string;
-          }[]
-        ).map((r) => [r.question, r.reply])
-      : [],
-  );
+  const savedRows = regradeFrom
+    ? (JSON.parse(readFileSync(regradeFrom, 'utf8')).results as { question: string; reply: string; tools?: string[]; guides?: string[] }[])
+    : [];
+  const saved = new Map<string, string>(savedRows.map((r) => [r.question, r.reply]));
+  const savedTrace = new Map(savedRows.map((r) => [r.question, r]));
   const cache: Record<string, string[]> = cachePath && existsSync(cachePath) ? JSON.parse(readFileSync(cachePath, 'utf8')) : {};
   const rows = readFileSync(path.join(HERE, 'golden', goldenFile), 'utf8')
     .split('\n')
@@ -89,16 +89,22 @@ async function main(): Promise<void> {
     factsOk = 0,
     factsAll = 0,
     wrong = 0,
-    failed = 0;
+    failed = 0,
+    guideAsked = 0,
+    guideCalled = 0,
+    guideRight = 0;
   for (const [i, row] of rows.entries()) {
     const t0 = Date.now();
     let reply = '';
     let error: string | undefined;
     const tools: string[] = [];
+    const guides: string[] = [];
     try {
       if (regradeFrom) {
         if (!saved.has(row.question)) throw new Error('нет ответа в сохранённом отчёте');
         reply = saved.get(row.question) as string;
+        tools.push(...(savedTrace.get(row.question)?.tools ?? []));
+        guides.push(...(savedTrace.get(row.question)?.guides ?? []));
       } else {
         const hits = await retrieveLegalContext(db, {
           query: row.question,
@@ -121,12 +127,13 @@ async function main(): Promise<void> {
           onStep: (st) => {
             const d = st.data;
             if (st.status === 'done' && d?.tool) tools.push([d.tool, d.citation, d.queries?.join(' | ')].filter(Boolean).join(': '));
+            if (st.status === 'done' && d?.tool === 'task_guide' && d.task) guides.push(d.task);
           },
         });
         reply = await generateChatReply([], row.question, undefined, undefined, 'Uzbekistan', plan, null, formatLegalContext(hits, 'UZ') || null, null, {
           tools: runner.tools,
           run: runner.run,
-          instructions: CHAT_AGENT_INSTRUCTIONS,
+          instructions: runner.instructions,
         });
       }
     } catch (err) {
@@ -143,6 +150,9 @@ async function main(): Promise<void> {
     factsOk += facts.filter(Boolean).length;
     factsAll += facts.length;
     wrong += wrongCites.length;
+    if (row.guide) guideAsked++;
+    if (guides.length) guideCalled++;
+    if (row.guide && guides.includes(row.guide)) guideRight++;
     results.push({
       question: row.question,
       ok,
@@ -151,6 +161,8 @@ async function main(): Promise<void> {
       wrongCites,
       error,
       tools,
+      guide: row.guide,
+      guides,
       seconds: Math.round((Date.now() - t0) / 100) / 10,
       reply,
     });
@@ -167,6 +179,11 @@ async function main(): Promise<void> {
     facts: +(factsOk / Math.max(1, factsAll)).toFixed(3),
     wrongCitations: wrong,
     errors: failed,
+    // Памятки задач: справка, в «зачёт» не входит. guideRight — доля вопросов с
+    // полем guide, где агент открыл именно её; guideCalled — где открыл любую.
+    specialists: process.env.SPECIALISTS === 'off' ? 'off' : 'on',
+    guideCalled: +(guideCalled / rows.length).toFixed(3),
+    ...(guideAsked ? { guideRight: +(guideRight / guideAsked).toFixed(3) } : {}),
   };
   console.log('\n=== ANSWERS ===', JSON.stringify(summary));
   const dir = path.join(HERE, 'reports');

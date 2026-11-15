@@ -21,7 +21,7 @@ import { newId } from '../lib/ids.ts';
 import { openSSE, wantsSSE, type SseChannel } from '../lib/sse.ts';
 import { asObject, requireString } from '../lib/validate.ts';
 import { canTranscribeScans, generateChatReply, generateHistorySummary, usesChatAgent, type ChatAgent, type ChatTurn } from '../llm.ts';
-import { CHAT_AGENT_INSTRUCTIONS, citedProvisionNumbers, citesProvision, createChatToolRunner, refNumber, type ChatDocument } from '../lib/chatTools.ts';
+import { citedProvisionNumbers, citesProvision, createChatToolRunner, refNumber, type ChatDocument } from '../lib/chatTools.ts';
 import { isSmallTalk } from '../lib/smallTalk.ts';
 import { autoTitleChat } from '../lib/chatTitle.ts';
 import { appendEditBlocks, appendReminderBlocks, loadEditTarget, type EditProposal, type EditTarget, type ReminderProposal } from '../lib/chatActions.ts';
@@ -725,7 +725,13 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
               onOfficialSource: (host) => officialHosts.add(host),
               onOfficialActs: (acts, kind) => (kind === 'read' ? officialRead : officialFound).push(...acts),
             });
-            return { tools: runner.tools, run: runner.run, instructions: CHAT_AGENT_INSTRUCTIONS };
+            return {
+              tools: runner.tools,
+              run: runner.run,
+              instructions: runner.instructions,
+              // Обычных шагов не хватило, поиск продвигается — агент ищет дальше.
+              onExtend: () => step({ id: 'more', status: 'done' }),
+            };
           })()
         : undefined;
       agentRan = Boolean(agent);

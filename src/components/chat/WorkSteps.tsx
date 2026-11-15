@@ -76,6 +76,8 @@ export function WorkSteps({ work, working }: { work?: ChatWork; working: boolean
         return t(`work.mode.${d.mode === 'slides' || d.mode === 'approve' ? d.mode : 'plan'}`);
       case 'answer':
         return working ? `${t('work.thinking')} · ${t('work.seconds', { n: seconds })}` : t('work.thinking');
+      case 'more':
+        return t('work.more');
       case 'search':
         return searchTitle(d.jurisdiction);
       default:
@@ -177,6 +179,8 @@ export function WorkSteps({ work, working }: { work?: ChatWork; working: boolean
     // Официальные сайты (lex.uz и госорганы): запрос поиска / прочитанная страница.
     if (d.tool === 'search_official') return d.queries?.length ? chips(d.queries, 'search') : null;
     if (d.tool === 'read_official') return d.citation ? chips([d.citation], 'doc') : null;
+    // Памятка задачи («специалист» агента): какая именно — «Аренда», «Поставка»…
+    if (d.tool === 'task_guide') return d.citation ? chips([d.citation], 'doc') : null;
     if (d.tool === 'calculate' && d.expression) {
       return <div className={styles.workDesc}>{d.result ? `${d.expression} = ${d.result}` : d.expression}</div>;
     }

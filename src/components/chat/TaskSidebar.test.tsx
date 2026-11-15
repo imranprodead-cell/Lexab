@@ -78,6 +78,17 @@ describe('TaskSidebar', () => {
     ]);
   });
 
+  it('Progress: добавочные шаги агента видны как «Ищу дальше», на своём месте', () => {
+    const more: ChatStep[] = [
+      ...steps,
+      { id: 'more', status: 'done' },
+      { id: 'tool-4', status: 'done', data: { tool: 'read_official', citation: 'О повышении размеров заработной платы' } },
+    ];
+    const el = render([question, { id: 'a1', role: 'assistant', kind: 'text', text: 'Ответ', work: { startedAt: 1, endedAt: 2, steps: more } }]);
+    const titles = [...el.querySelectorAll('li')].map((li) => li.textContent?.trim()).filter(Boolean);
+    expect(titles.slice(-4)).toEqual(['Открываю статью целиком', 'Ищу дальше', 'Читаю официальный сайт', 'Обдумываю ответ']);
+  });
+
   it('Sources готового ответа — источники сервера (акт с lex.uz со ссылкой), без норм первого поиска', () => {
     const el = render([
       question,

@@ -170,6 +170,8 @@ export function TaskSidebar({ messages, sessionKey, onOpenArtifact, analysis, on
         return t('side.searchLaw');
       case 'mode':
         return t(`work.mode.${s.data?.mode === 'slides' || s.data?.mode === 'approve' ? s.data.mode : 'plan'}`);
+      case 'more':
+        return t('work.more');
       default: {
         // Шаги агента — своими словами («Ищу на официальном сайте lex.uz»,
         // «Открываю статью целиком»…), как в ходе работы под ответом.

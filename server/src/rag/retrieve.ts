@@ -413,6 +413,10 @@ const cyrWord = (abbr: string): RegExp =>
 interface RuAlias {
   re: RegExp;
   pattern: string; // title ILIKE pattern
+  /** Сокращение (ГК, ООО, ЗоЗПП…). В официальных названиях актов УЗ сокращений
+   *  нет (проверено по базе 14.11.2026), поэтому сокращение ВНУТРИ кавычек
+   *  значит, что там краткое имя, а не название: «Закона «Об ООО»». */
+  abbr?: true;
 }
 
 /** Порядок важен: первый сработавший алиас выигрывает; специфичное — выше
@@ -426,28 +430,29 @@ const RU_ALIASES: Record<string, RuAlias[]> = {
     // иначе «ст. 45 Гражданского процессуального кодекса» уехала бы в ГК.
     // ОСАГО СТРОГО выше /Гражданск/ (в названии закона — «гражданской
     // ответственности»), /страхов/ и /транспорт/ (2026-10-31).
-    { re: /обязательн\S*\s+страховани\S*\s+гражданск|(?<![А-Яа-яЁёA-Za-z])ОСАГО(?![А-Яа-яЁёA-Za-z])/i, pattern: '%Об обязательном страховании гражданской ответственности%' },
+    { re: /обязательн\S*\s+страховани\S*\s+гражданск/i, pattern: '%Об обязательном страховании гражданской ответственности%' },
+    { re: /(?<![А-Яа-яЁёA-Za-z])ОСАГО(?![А-Яа-яЁёA-Za-z])/i, pattern: '%Об обязательном страховании гражданской ответственности%', abbr: true },
     { re: /Гражданск\S*\s+процессуальн/i, pattern: '%Гражданский процессуальный кодекс%' },
-    { re: cyrWord('ГПК'), pattern: '%Гражданский процессуальный кодекс%' },
+    { re: cyrWord('ГПК'), pattern: '%Гражданский процессуальный кодекс%', abbr: true },
     { re: /Гражданск/i, pattern: 'Гражданский кодекс%' },
-    { re: cyrWord('ГК'), pattern: 'Гражданский кодекс%' },
+    { re: cyrWord('ГК'), pattern: 'Гражданский кодекс%', abbr: true },
     { re: /Трудов/i, pattern: '%Трудовой кодекс%' },
-    { re: cyrWord('ТК'), pattern: '%Трудовой кодекс%' },
+    { re: cyrWord('ТК'), pattern: '%Трудовой кодекс%', abbr: true },
     { re: /(?:Экономическ|Хозяйственн)\S*\s+процессуальн/i, pattern: '%Экономический процессуальный кодекс%' },
-    { re: cyrWord('ЭПК'), pattern: '%Экономический процессуальный кодекс%' },
+    { re: cyrWord('ЭПК'), pattern: '%Экономический процессуальный кодекс%', abbr: true },
     // «Закон о залоговом реестре» СТРОГО выше общего /залог/ (2026-10-31).
     { re: /залогов\S*\s+реестр/i, pattern: '%О залоговом реестре%' },
     { re: /ипотек/i, pattern: '%Об ипотеке%' },
     { re: /залог/i, pattern: '%О залоге%' },
     { re: /обществ\S*\s+с\s+ограниченной/i, pattern: '%с ограниченной ответственностью%' },
-    { re: cyrWord('ООО'), pattern: '%с ограниченной ответственностью%' },
+    { re: cyrWord('ООО'), pattern: '%с ограниченной ответственностью%', abbr: true },
     { re: /акционерн/i, pattern: '%Об акционерных обществах%' },
-    { re: cyrWord('АО'), pattern: '%Об акционерных обществах%' },
+    { re: cyrWord('АО'), pattern: '%Об акционерных обществах%', abbr: true },
     { re: /аренд/i, pattern: '%Об аренде%' },
     { re: /потребител/i, pattern: '%О защите прав потребителей%' },
-    { re: /ЗоЗПП/i, pattern: '%О защите прав потребителей%' },
+    { re: /ЗоЗПП/i, pattern: '%О защите прав потребителей%', abbr: true },
     { re: /электронн\S*\s+цифров\S*\s+подпис/i, pattern: '%Об электронной цифровой подписи%' },
-    { re: cyrWord('ЭЦП'), pattern: '%Об электронной цифровой подписи%' },
+    { re: cyrWord('ЭЦП'), pattern: '%Об электронной цифровой подписи%', abbr: true },
     { re: /договорно-правов/i, pattern: '%О договорно-правовой базе%' },
     // ── Волна 3 (2026-07-28): договорное ядро — таможня, страхование, ИС,
     //    реклама, техрегламент, транспорт, персданные, э-коммерция. Ключевые
@@ -493,14 +498,14 @@ const RU_ALIASES: Record<string, RuAlias[]> = {
     { re: /оценочн/i, pattern: '%Об оценочной деятельности%' },
     { re: /бирж/i, pattern: '%О биржах и биржевой деятельности%' },
     { re: /специальн\S*\s+экономическ\S*\s+зон/i, pattern: '%О специальных экономических зонах%' },
-    { re: cyrWord('СЭЗ'), pattern: '%О специальных экономических зонах%' },
+    { re: cyrWord('СЭЗ'), pattern: '%О специальных экономических зонах%', abbr: true },
     { re: /экспортн\S*\s+контрол/i, pattern: '%Об экспортном контроле%' },
     { re: /защит\S*\s+частн\S*\s+собственност/i, pattern: '%О защите частной собственности%' },
     { re: /административн\S*\s+процедур/i, pattern: '%Об административных процедурах%' },
     { re: /медиаци/i, pattern: '%О медиации%' },
     // Узбекские (латиница) формы: Fuqarolik kodeksi (FK), Mehnat kodeksi.
     { re: /fuqarolik\s+kodeks/i, pattern: 'Гражданский кодекс%' },
-    { re: /(?<![A-Za-zА-Яа-я])FK(?:ning)?(?![A-Za-zА-Яа-я])/, pattern: 'Гражданский кодекс%' },
+    { re: /(?<![A-Za-zА-Яа-я])FK(?:ning)?(?![A-Za-zА-Яа-я])/, pattern: 'Гражданский кодекс%', abbr: true },
     { re: /mehnat\s+kodeks/i, pattern: '%Трудовой кодекс%' },
     // Узбекская КИРИЛЛИЦА: на узбекоязычном договоре модель цитирует
     // «Фуқаролик Кодексининг 260-моддаси» (живой кейс). «процессуал» —
@@ -523,17 +528,17 @@ const RU_ALIASES: Record<string, RuAlias[]> = {
     // Налоговый и Земельный кодексы в корпусе с волны 2, но алиасов не было —
     // «ст. 24 Земельного кодекса» не резолвилась.
     { re: /налогов\S*\s+кодекс/i, pattern: 'Налоговый кодекс%' },
-    { re: cyrWord('НК'), pattern: 'Налоговый кодекс%' },
+    { re: cyrWord('НК'), pattern: 'Налоговый кодекс%', abbr: true },
     { re: /земельн\S*\s+кодекс/i, pattern: 'Земельный кодекс%' },
-    { re: cyrWord('ЗК'), pattern: 'Земельный кодекс%' },
+    { re: cyrWord('ЗК'), pattern: 'Земельный кодекс%', abbr: true },
     { re: /административн\S*\s+ответственност/i, pattern: '%об административной ответственности%' },
-    { re: cyrWord('КоАО'), pattern: '%об административной ответственности%' },
-    { re: cyrWord('КоАП'), pattern: '%об административной ответственности%' },
+    { re: cyrWord('КоАО'), pattern: '%об административной ответственности%', abbr: true },
+    { re: cyrWord('КоАП'), pattern: '%об административной ответственности%', abbr: true },
     { re: /административн\S*\s+судопроизводств/i, pattern: '%об административном судопроизводстве%' },
-    { re: cyrWord('КоАС'), pattern: '%об административном судопроизводстве%' },
+    { re: cyrWord('КоАС'), pattern: '%об административном судопроизводстве%', abbr: true },
     { re: /семейн\S*\s+предпринимательств/i, pattern: '%О семейном предпринимательстве%' },
     { re: /семейн\S*\s+кодекс/i, pattern: 'Семейный кодекс%' },
-    { re: cyrWord('СК'), pattern: 'Семейный кодекс%' },
+    { re: cyrWord('СК'), pattern: 'Семейный кодекс%', abbr: true },
     { re: /оила\s+кодекс/i, pattern: 'Семейный кодекс%' },
     { re: /центральн\S*\s+банк/i, pattern: '%О Центральном банке%' },
     { re: /легализаци\S*\s+доход|отмывани\S*\s+(?:доход|денег)/i, pattern: '%О противодействии легализации доходов%' },
@@ -586,12 +591,35 @@ const RU_ALIASES: Record<string, RuAlias[]> = {
 export interface RuCitation {
   number: string;
   titlePattern: string;
+  /** Запасной шаблон (только УЗ): в кавычках краткое имя с сокращением —
+   *  «Закона «Об ООО»». По titlePattern («%Об ООО%») акт не найдётся — тогда
+   *  берётся этот («%с ограниченной ответственностью%»). Есть только когда нужен. */
+  fallbackPattern?: string;
+}
+
+/** Похоже ли содержимое кавычек на название акта: «О …» / «Об …», «Гражданский
+ *  кодекс», «Кодекс об …», «Конституция», узб. «Гаров тўғрисида». Иначе в
+ *  кавычках — слова из нормы или договора: «ст. 337 ТК («Неполученные доходы …
+ *  не подлежат»)». Раньше любые кавычки считались названием акта, и такая
+ *  ссылка не распознавалась, хотя акт назван прямо перед ними (2026-11-14). */
+function looksLikeActName(quoted: string): boolean {
+  return (
+    /^(?:О|Об|Обо)\s/u.test(quoted) ||
+    /^(?:\p{Lu}\S*\s+)?(?:[Кк]одекс|[Kk]odeks)/u.test(quoted) ||
+    /^(?:Конституци|Konstitutsiya)/u.test(quoted) ||
+    /(?:т[ўу][ғг]рисида|to['ʻʼ‘’`]?g['ʻʼ‘’`]?risida)$/iu.test(quoted)
+  );
 }
 
 /** Разбор русской цитаты: «ст. 260 ГК», «статья 130 Трудового кодекса»,
  *  «ст. 36 Закона "Об ипотеке"». Кавычки — высший приоритет; ни один алиас
  *  не совпал → null (fail-closed). Чистая функция — покрыта юнит-тестами
- *  (server/test/citations.test.ts). */
+ *  (server/test/citations.test.ts).
+ *  УЗ (2026-11-14): кавычки — название акта, только если похожи на него
+ *  (looksLikeActName); многоточие в конце отбрасывается («О договорно-правовой
+ *  базе…»), «ё» совпадает и с «е» (в шаблоне «_»: «О бухгалтерском учёте» —
+ *  в базе «учете»); сокращение в кавычках даёт fallbackPattern; акт ищется
+ *  сначала до следующей ссылки (pickUzAct). KZ — по-старому. */
 export function parseRuCitation(citation: string, jurisdiction: string): RuCitation | null {
   // Вставные статьи: «ст. 383¹ ГК» → «383-1» — так они хранятся в базе.
   citation = citation.replace(/(\d)([⁰¹²³⁴⁵⁶⁷⁸⁹]+)/g, (_, d: string, sup: string) => `${d}-${[...sup].map((c) => '⁰¹²³⁴⁵⁶⁷⁸⁹'.indexOf(c)).join('')}`);
@@ -602,10 +630,47 @@ export function parseRuCitation(citation: string, jurisdiction: string): RuCitat
     citation.match(/(\d+(?:[.-]\d+)*)\s*-\s*(?:бап|бабы|баптың|modda(?:si)?|модда(?:си(?:да)?)?)/i);
   if (!st) return null;
   const number = st[1];
-  const quoted = citation.match(/«([^»]{4,80})»|"([^"]{4,80})"/);
-  if (quoted) return { number, titlePattern: `%${(quoted[1] || quoted[2]).trim()}%` };
-  for (const alias of RU_ALIASES[jurisdiction] ?? []) {
-    if (alias.re.test(citation)) return { number, titlePattern: alias.pattern };
+  const aliases = RU_ALIASES[jurisdiction] ?? [];
+  if (jurisdiction !== 'UZ') {
+    const quoted = citation.match(QUOTED);
+    if (quoted) return { number, titlePattern: `%${(quoted[1] || quoted[2]).trim()}%` };
+    for (const alias of aliases) {
+      if (alias.re.test(citation)) return { number, titlePattern: alias.pattern };
+    }
+    return null;
+  }
+  // УЗ: сначала акт, названный между номером и следующей ссылкой («ст. 15 КоАС
+  // и п. 11 ст. 11 ГК» — статья 15 из КоАС, а не из ГК, хотя ГК выше в списке
+  // алиасов). Там пусто — весь текст, как раньше («ст. 333 и ст. 326 ГК»).
+  const after = (st.index ?? 0) + st[0].length;
+  const next = citation.slice(after).search(NEXT_REF);
+  if (next >= 0) {
+    const near = pickUzAct(citation.slice(0, after + next), number, aliases);
+    if (near) return near;
+  }
+  return pickUzAct(citation, number, aliases);
+}
+
+const QUOTED = /«([^»]{4,80})»|"([^"]{4,80})"/;
+/** Начало следующей ссылки на норму: «ст. 11», «п. 4», «ч. 2», «статьи 5». */
+const NEXT_REF = /(?<![А-Яа-яЁёA-Za-z])(?:ст\.|ст(?=\s)|стать[а-яё]*|пп?\.|пункт[а-яё]*|ч\.|част[ьиюя])\s*\d/iu;
+
+/** Акт в тексте ссылки (УЗ). Первое по порядку содержимое кавычек, похожее на
+ *  название, — это акт; остальное в кавычках (слова из нормы/договора)
+ *  убирается, чтобы алиасы не зацепились за акт, упомянутый внутри такой
+ *  цитаты. Нет названия в кавычках — первый подошедший алиас (порядок списка). */
+function pickUzAct(text: string, number: string, aliases: RuAlias[]): RuCitation | null {
+  for (let quoted = text.match(QUOTED), guard = 0; quoted && guard < 10; quoted = text.match(QUOTED), guard++) {
+    const name = (quoted[1] || quoted[2]).trim().replace(/\s*(?:…|\.{3})$/u, '');
+    if (looksLikeActName(name)) {
+      const titlePattern = `%${name.replace(/[ёЁ]/gu, '_')}%`;
+      const short = aliases.find((a) => a.abbr && a.re.test(name));
+      return short ? { number, titlePattern, fallbackPattern: short.pattern } : { number, titlePattern };
+    }
+    text = text.replace(quoted[0], ' ');
+  }
+  for (const alias of aliases) {
+    if (alias.re.test(text)) return { number, titlePattern: alias.pattern };
   }
   return null;
 }
@@ -671,6 +736,8 @@ export async function resolveCitationText(
   citation = citation.slice(0, 2000);
   let titlePattern: string | null = null;
   let number: string | null = null;
+  // «Закона «Об ООО»» — по названию из кавычек не найдётся; тогда по сокращению.
+  let fallbackPattern: string | null = null;
 
   if (jurisdiction === 'UK') {
     const act = citation.match(/([A-Z][A-Za-z()'’,\s]*?Act\s+\d{4})/);
@@ -760,6 +827,7 @@ export async function resolveCitationText(
     }
     titlePattern = parsed.titlePattern;
     number = parsed.number;
+    fallbackPattern = parsed.fallbackPattern ?? null;
   }
 
   // Deterministic pick when a title pattern matches more than one act (real at
@@ -772,19 +840,22 @@ export async function resolveCitationText(
   // указов часто содержат имя закона как подстроку («О мерах по реализации
   // Закона "О персональных данных"»), и «ст. 5 Закона …» иначе могла бы
   // зарезолвиться в «п. 5» указа. Декретные цитаты идут по doc_number выше.
-  const unit = await db.query<{ id: string }>(
-    `SELECT u.id
-     FROM legal_units u
-     JOIN legal_documents d ON d.id = u.document_id AND d.jurisdiction = $2 AND d.title ILIKE $1
-     WHERE u.unit_type = 'section' AND u.number = $4
-       AND d.doc_type NOT IN ('decree', 'resolution', 'plenum')
-       AND (u.valid_from IS NULL OR u.valid_from <= $3::date)
-       AND (u.valid_to   IS NULL OR u.valid_to   >= $3::date)
-     ORDER BY (lower(d.title) = lower(btrim($1, '%'))) DESC, length(d.title) ASC, d.id ASC
-     LIMIT 1`,
-    [titlePattern, jurisdiction, asOfDate, number],
-  );
-  return unit.rows[0]?.id ?? null;
+  const byTitle = async (pattern: string): Promise<string | null> => {
+    const unit = await db.query<{ id: string }>(
+      `SELECT u.id
+       FROM legal_units u
+       JOIN legal_documents d ON d.id = u.document_id AND d.jurisdiction = $2 AND d.title ILIKE $1
+       WHERE u.unit_type = 'section' AND u.number = $4
+         AND d.doc_type NOT IN ('decree', 'resolution', 'plenum')
+         AND (u.valid_from IS NULL OR u.valid_from <= $3::date)
+         AND (u.valid_to   IS NULL OR u.valid_to   >= $3::date)
+       ORDER BY (lower(d.title) = lower(btrim($1, '%'))) DESC, length(d.title) ASC, d.id ASC
+       LIMIT 1`,
+      [pattern, jurisdiction, asOfDate, number],
+    );
+    return unit.rows[0]?.id ?? null;
+  };
+  return (await byTitle(titlePattern)) ?? (fallbackPattern ? await byTitle(fallbackPattern) : null);
 }
 
 /** Map the product's free-text jurisdiction (country selector) to a corpus code. */

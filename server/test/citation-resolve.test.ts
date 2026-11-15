@@ -203,6 +203,25 @@ describe('resolveCitationText — постановления Пленума по
   });
 });
 
+describe('resolveCitationText — краткое имя акта в кавычках (2026-11-14)', () => {
+  let ooo50: string;
+  let ao50: string;
+  before(async () => {
+    ooo50 = await seedAct('ld_uz_test_ooo', 'ЗРУ-1137-сон 21.04.2026. Об обществах с ограниченной ответственностью', '50');
+    ao50 = await seedAct('ld_uz_test_ao', 'ЗРУ-370-сон 06.05.2014. Об акционерных обществах и защите прав акционеров', '50');
+  });
+
+  it('«Об ООО» в кавычках находит закон об ООО, «Об АО» — закон об АО', async () => {
+    assert.equal(await resolveCitationText(db, 'ст. 50 Закона «Об ООО»', 'UZ'), ooo50);
+    assert.equal(await resolveCitationText(db, 'ст. 50 Закона «Об АО»', 'UZ'), ao50);
+  });
+
+  it('полное название в кавычках — как раньше; чужое название не подменяется сокращением', async () => {
+    assert.equal(await resolveCitationText(db, 'ст. 50 Закона «Об обществах с ограниченной ответственностью»', 'UZ'), ooo50);
+    assert.equal(await resolveCitationText(db, 'ст. 50 Закона «Об обществах с ограниченной и дополнительной ответственностью»', 'UZ'), null);
+  });
+});
+
 after(async () => {
   await db.close();
   try {

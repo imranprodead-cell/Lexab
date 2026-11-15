@@ -26,6 +26,7 @@ const DOCS = [
   { id: 'tk', title: 'Трудовой кодекс Республики Узбекистан', docType: 'code' },
   { id: 'dpb', title: '670-I-сон 29.08.1998. О договорно-правовой базе деятельности хозяйствующих субъектов', docType: 'act' },
   { id: 'pl', title: 'Постановление Пленума ВХС № 163', docType: 'plenum' },
+  { id: 'ooo', title: 'ЗРУ-1137-сон 21.04.2026. Об обществах с ограниченной ответственностью', docType: 'act' },
 ];
 const UNITS = [
   ...['263', '326', '327', '333', '356'].map((n) => ({ id: `gk1_st-${n}`, documentId: 'gk1', number: n })),
@@ -34,6 +35,7 @@ const UNITS = [
   { id: 'tk_st-333', documentId: 'tk', number: '333' },
   ...['24', '25', '26', '27', '28'].map((n) => ({ id: `dpb_st-${n}`, documentId: 'dpb', number: n })),
   { id: 'dpb_st-383-1', documentId: 'dpb', number: '383-1' },
+  { id: 'ooo_st-50', documentId: 'ooo', number: '50' },
 ];
 const resolver = new LinkResolver(DOCS, UNITS);
 
@@ -90,6 +92,13 @@ describe('резолвер связей', () => {
     assert.equal(resolver.external('333', 'ТК', 'UZ'), 'tk_st-333');
     assert.equal(resolver.external('999', 'ГК', 'UZ'), null, 'статьи нет в базе — связи нет');
     assert.equal(resolver.external('26', 'Закона', 'UZ'), null, 'безымянный «Закон» не угадываем');
+  });
+
+  it('кавычки: краткое имя «Об ООО» — по сокращению, «…» в конце не мешает (14.11)', () => {
+    assert.equal(resolver.external('50', 'Закона «Об ООО»', 'UZ'), 'ooo_st-50');
+    assert.equal(resolver.external('50', 'Закона «Об обществах с ограниченной ответственностью»', 'UZ'), 'ooo_st-50');
+    assert.equal(resolver.external('25', 'Закона «О договорно-правовой базе…»', 'UZ'), 'dpb_st-25');
+    assert.equal(resolver.external('50', 'Закона «Об акционерных обществах»', 'UZ'), null, 'другой акт — не подменяем');
   });
 
   it('«настоящего Кодекса» из части второй ГК находит статью части первой', () => {

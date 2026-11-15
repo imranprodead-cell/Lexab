@@ -27,6 +27,7 @@ import { planFor, planHasFeature } from './limits.ts';
 import { loadActivePlaybook, resolvePlaybookOwner } from './playbook.ts';
 import { canEdit, resolveDocumentAccess } from './teamAccess.ts';
 import { diffClauses, formatChanges } from './textDiff.ts';
+import { SPECIALIST_IDS, SPECIALISTS, renderGuide, specialistById, specialistsOn } from './specialists.ts';
 
 const JURISDICTIONS: JurisdictionCode[] = ['UK', 'UZ', 'KZ', 'DE', 'US', 'CA', 'AE'];
 
@@ -82,6 +83,11 @@ export interface ToolCall {
 export interface ToolOutcome {
   content: string;
   isError?: boolean;
+  /** Что принёс вызов — id норм, адреса страниц, документы. По ним цикл агента
+   *  решает, продвигается ли поиск (добавочные шаги — agentSteps в llm.ts):
+   *  пустой список — ничего не нашлось; поля нет — инструмент не поисковый,
+   *  удавшийся вызов считается продвижением. */
+  keys?: string[];
 }
 
 const JURISDICTION_PROP = {
@@ -310,6 +316,24 @@ export const CHAT_TOOLS: Anthropic.Beta.BetaTool[] = [
   },
 ];
 
+/**
+ * Где лежат «простые» цифры Узбекистана (замечание владельца 2026-11-09:
+ * «сколько сумов 1 БРВ?» — агент исчерпал шаги, не найдя указ). Поиск lex.uz
+ * полнотекстовый и сначала новые: по слову «базовая расчетная величина» он
+ * выдаёт акты, где БРВ лишь упоминается, а нужного указа среди них нет.
+ * Поэтому подсказка называет, КАКОЙ акт или страницу открыть, — без цифр
+ * (цифры меняются; текст норм — только из инструментов, правило 1).
+ * Каждый пункт проверен 09.11.2026: УП-115 от 23.06.2026 п. 3 (БРВ, МРОТ,
+ * базовая величина пенсии); главная cbu.uz (основная ставка, курсы); JSON
+ * курсов на дату; НК ст. 258/337/381 и ЗРУ-600 «О государственной пошлине»
+ * (с таблицей ставок в конце) — в нашей базе; КоАО — в базе.
+ */
+const UZ_WHERE_TO_LOOK = `- WHERE UZBEK FIGURES LIVE — go straight there; a lex.uz search by the term itself returns acts that merely mention it, newest first, and wastes your steps:
+  • Base calculation value (БРВ; bazaviy hisoblash miqdori, BHM), minimum wage (МРОТ; mehnatga haq to'lashning eng kam miqdori) and the base pension amount are set by the yearly presidential decree «О повышении размеров заработной платы, пенсий, стипендий и пособий». Call search_official with exactly that title, read_official the newest decree with a query such as «базовую расчетную величину», and give the amount with the date it applies from; before that date the previous decree's amount applies.
+  • Administrative fines are set in multiples of БРВ: take the multiple from the Code of Administrative Responsibility (search_law), the current БРВ from that decree, and multiply with calculate.
+  • The Central Bank's main rate («основная ставка», often called the refinancing rate) and today's official exchange rates: read_official https://cbu.uz/ru/ with the query «основная ставка курсы валют» (without a query you get only the site menu) — the main page shows both with their dates. An exchange rate on a past date: read_official https://cbu.uz/ru/arkhiv-kursov-valyut/json/USD/YYYY-MM-DD/ (EUR, RUB and other codes work the same way).
+  • Tax rates (VAT, profit tax, personal income tax and others) are in the Tax Code, and state duty rates in the Law «О государственной пошлине» (ЗРУ-600, rate table at its end) — both are in the verified database: use search_law, not the internet.`;
+
 /** Инструкция агенту — часть системного промпта (стабильная, кэшируется). */
 export const CHAT_AGENT_INSTRUCTIONS = `TOOLS. You have tools for Lexab's verified statute database and the user's documents: search_law, get_provision, verify_citation, read_contract, search_documents, calculate; and, when the database lacks an act, official sites: search_official, read_official.
 - Plan before you call: name the legal questions the answer turns on, check which of them the legal context above already covers, and search only for the rest — one focused query per question. Do not search for background the user did not ask about.
@@ -318,6 +342,7 @@ export const CHAT_AGENT_INSTRUCTIONS = `TOOLS. You have tools for Lexab's verifi
 - Use search_law and get_provision to check specifics that may differ from your training — what the law allows, requires, forbids or charges, and its deadlines — even when you feel confident. Statute text comes only from these tools or the legal context: never quote a law from memory.
 - Before you finish, run verify_citation — all in one step — on the articles, sections, decree or Plenum points you cite that no tool and no legal context returned, and fix or drop a citation that comes back NOT_FOUND or NOT_SUPPORTED.
 - When the verified database has no act that answers the point (often Cabinet of Ministers resolutions, Central Bank or ministry acts, very new laws), look on the official sites: search_official (lex.uz), then read_official. In the answer, name the act with its number and date, give its lex.uz link, and say plainly that this text comes from the official site and is not from Lexab's verified database. Do not rely on an act the search marks as NOT in force; if lex.uz warns that the page holds an old version or a text in another language, say so.
+${UZ_WHERE_TO_LOOK}
 - Use read_contract to find and quote the user's clauses exactly, and to read parts of long files that the context cuts off.
 - Use search_documents for the user's earlier documents and the team's shared ones: past contracts with this counterparty, how they usually word a clause, earlier reviews. Name the document you rely on; never present a past document's terms as the current contract's.
 - Do every computation that appears in your answer (penalties, interest, totals, deadlines, days between dates) with calculate.
@@ -328,6 +353,29 @@ export const CHAT_AGENT_INSTRUCTIONS = `TOOLS. You have tools for Lexab's verifi
 - To compare two versions of a contract, call compare_versions and explain what each difference means for the user; never add or drop differences it did not return.
 - For a protocol of disagreements, call get_review_edits and write the whole protocol as ONE fenced document: its heading (protocol of disagreements to contract № … of …, the parties), then a markdown table with the columns № | Clause | Contract wording | Our wording | Reason (column names in the user's language; <br> for a line break inside a cell), then signature lines for both parties. The user downloads it as a Word file with a real table.
 - The user sees each tool step in a progress panel, so do not narrate tool calls in text: call the tools you need, then write one complete answer. Do not use tools for greetings or for questions the context above already answers.`;
+
+/**
+ * Памятки задач — «специалисты» агента (lib/specialists.ts, решение владельца
+ * 2026-11-14). Отдельно от CHAT_TOOLS: инструмент и строка инструкции есть
+ * только в чатах по праву Узбекистана (specialistsOn) — карта привязана к
+ * нормам корпуса УЗ. Памятка — карта норм, а не текст закона.
+ */
+export const TASK_GUIDE_TOOL: Anthropic.Beta.BetaTool = {
+  name: 'task_guide',
+  description:
+    'Get the task guide for a common practical task under Uzbek law: what the answer depends on, a map of the provisions in the verified database that govern each sub-question (with unit ids for get_provision), and a checklist of points that are easy to miss. It is a map, not the law: it holds no rules or figures. Call it FIRST, before searching, when the user needs practical help with one of these tasks:\n' +
+    SPECIALISTS.map((s) => `• ${s.id} — ${s.when}`).join('\n') +
+    '\nNot for a greeting, a question about one known article, a definition or a single figure, or a task outside this list.',
+  eager_input_streaming: true,
+  input_schema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: { task: { type: 'string', enum: [...SPECIALIST_IDS], description: 'The task that best fits the question.' } },
+    required: ['task'],
+  },
+};
+
+export const TASK_GUIDE_INSTRUCTIONS = `- TASK GUIDES (Uzbek law). When the user needs practical help with a lease, a supply or sale of goods, employment or dismissal, collecting a debt or penalty (claim letter, court), works or services, or a limited liability company, call task_guide FIRST: it returns what the answer depends on, a map of the governing provisions with their ids, and a checklist. Then open the provisions the question turns on with get_provision — all in one step — and answer from their text. The guide is a map, not law: never cite or mention it, and never state a rule, figure or deadline you have not read in a provision or the legal context. A question that spans two tasks may take two guides in one step. Skip the guide for a greeting, a question about one known article, a definition or a single figure, a task outside these kinds, and a follow-up on a task whose guide you already have.`;
 
 /* ── мелкие проверки входа ─────────────────────────────────────────────── */
 
@@ -643,9 +691,36 @@ function passages(doc: ChatDocument): Passage[] {
 /* ── какие нормы ответ действительно цитирует (для вкладки Sources) ─────── */
 
 /** Номер нормы из подписи: «ст.261» → 261, «§ 312g» → 312g, «п.5» → 5, «Article 125» → 125. */
+const SUPERSCRIPT: Record<string, string> = { '⁰': '0', '¹': '1', '²': '2', '³': '3', '⁴': '4', '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9' };
+
+/** «175⁴» → «175-4»: так lex.uz пишет статьи с индексом, в базе они «175-4». */
+function normalizeSuperscripts(text: string): string {
+  return text.replace(/(\d)([⁰¹²³⁴⁵⁶⁷⁸⁹]+)/gu, (_m, d: string, sup: string) => `${d}-${[...sup].map((c) => SUPERSCRIPT[c]).join('')}`);
+}
+
+/**
+ * Номера из перечня после слова-указателя: «260, 261 и 263» → 260, 261, 263.
+ * «175-4» (без пробелов, второе число не больше первого) — одна статья с
+ * индексом (КоАО ст. 175-4, ГК ст. 1-1), а не статьи 175 и 4: раньше номер
+ * распадался, и проверка ссылок не узнавала такие статьи (вопрос о штрафе,
+ * 09.11). «10-15» — может быть диапазоном: и «10-15», и 10, 15.
+ */
+function provisionNumbers(list: string): string[] {
+  const out: string[] = [];
+  for (const m of normalizeSuperscripts(list).toLowerCase().matchAll(/(\d+[a-zа-я]?)(?:-(\d+[a-zа-я]?))?/gu)) {
+    if (!m[2]) {
+      out.push(m[1]);
+      continue;
+    }
+    out.push(`${m[1]}-${m[2]}`);
+    if (parseInt(m[2], 10) > parseInt(m[1], 10)) out.push(m[1], m[2]);
+  }
+  return out;
+}
+
 export function refNumber(label: string): string | null {
-  const all = label.toLowerCase().match(/\d+[a-zа-я]?/gu);
-  return all ? all[all.length - 1] : null;
+  const all = provisionNumbers(label);
+  return all.length ? all[all.length - 1] : null;
 }
 
 /**
@@ -657,17 +732,19 @@ export function citedProvisionNumbers(text: string): Set<string> {
   const out = new Set<string>();
   const re =
     /(?<!\p{L})(?:ст\.|ст(?=\s)|стать[а-яё]*|§§?|ss?\.|sections?|art\.|articles?|п\.|пункт[а-яё]*|modda[a-z]*)\s*(\d+[a-zа-я]?(?:\s*(?:,|и|and|va|–|-)\s*\d+[a-zа-я]?)*)/giu;
-  for (const m of text.toLowerCase().matchAll(re)) {
-    for (const n of m[1].match(/\d+[a-zа-я]?/gu) ?? []) out.add(n);
+  for (const m of normalizeSuperscripts(text).toLowerCase().matchAll(re)) {
+    for (const n of provisionNumbers(m[1])) out.add(n);
   }
   return out;
 }
 
 /** Шаблон ILIKE («%О залоге%», «Гражданский кодекс%») → совпадает ли строка. */
 function likeMatches(pattern: string, value: string): boolean {
+  // Как ILIKE в базе: «%» — любые символы, «_» — один любой (им в шаблоне
+  // стоит «ё» из кавычек: «учёте» совпадает с «учете»).
   const body = pattern
     .split('%')
-    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/_/g, '.'))
     .join('.*');
   return new RegExp(`^${body}$`, 'isu').test(value);
 }
@@ -690,7 +767,7 @@ function actAgrees(window: string, actTitle: string, jurisdiction: string, isPoi
     if (dec) return new RegExp(`(?<![А-ЯA-Z])${dec.docNumber}(?!\\d)`, 'u').test(actTitle) ? 'match' : 'mismatch';
   }
   const ru = parseRuCitation(window, jurisdiction);
-  if (ru) return likeMatches(ru.titlePattern, actTitle) ? 'match' : 'mismatch';
+  if (ru) return likeMatches(ru.titlePattern, actTitle) || (ru.fallbackPattern !== undefined && likeMatches(ru.fallbackPattern, actTitle)) ? 'match' : 'mismatch';
   return 'unknown';
 }
 
@@ -706,11 +783,12 @@ export function citesProvision(text: string, number: string, actTitle: string, j
     /(?<!\p{L})(ст\.|ст(?=\s)|стать[а-яё]*|§§?|ss?\.|sections?|art\.|articles?|п\.|пункт[а-яё]*|modda[a-z]*)\s*(\d+[a-zа-я]?(?:\s*(?:,|и|and|va|–|-)\s*\d+[a-zа-я]?)*)/giu;
   const want = number.toLowerCase();
   let unknown = false;
-  for (const m of text.matchAll(re)) {
-    const nums: string[] = m[2].toLowerCase().match(/\d+[a-zа-я]?/gu) ?? [];
+  const norm = normalizeSuperscripts(text);
+  for (const m of norm.matchAll(re)) {
+    const nums = provisionNumbers(m[2]);
     if (!nums.includes(want)) continue;
     const end = (m.index ?? 0) + m[0].length;
-    const tail = text.slice(end, end + 90).split('\n')[0];
+    const tail = norm.slice(end, end + 90).split('\n')[0];
     const verdict = actAgrees(`${m[1]} ${number}${tail}`, actTitle, jurisdiction, /^п/iu.test(m[1]));
     if (verdict === 'match') return true;
     if (verdict === 'unknown') unknown = true;
@@ -728,8 +806,16 @@ const clipText = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}
  * Исполнитель инструментов на один ответ. Нумерует шаги tool-1, tool-2, …
  * Никогда не бросает: любая ошибка возвращается модели текстом с isError.
  */
-export function createChatToolRunner(ctx: ChatToolContext): { tools: Anthropic.Beta.BetaTool[]; run: (call: ToolCall) => Promise<ToolOutcome> } {
+export function createChatToolRunner(ctx: ChatToolContext): {
+  tools: Anthropic.Beta.BetaTool[];
+  run: (call: ToolCall) => Promise<ToolOutcome>;
+  /** Инструкция агенту под этот набор инструментов (с памятками — только УЗ). */
+  instructions: string;
+} {
   let n = 0;
+  // Памятки задач («специалисты») — только чаты по праву Узбекистана.
+  const guides = specialistsOn(ctx.jurisdiction);
+  const tools = guides ? [...CHAT_TOOLS, TASK_GUIDE_TOOL] : CHAT_TOOLS;
   // Документы пользователя грузятся (и расшифровываются) один раз на ответ.
   let memory: Promise<MemoryDoc[]> | null = null;
   // Предложенные в этом ответе правки: без дублей и не больше пяти.
@@ -774,12 +860,13 @@ export function createChatToolRunner(ctx: ChatToolContext): { tools: Anthropic.B
           const refs = await ctx.toRefs(hits.map((h) => ({ unitId: h.unitId, breadcrumb: h.breadcrumb })));
           ctx.onRefs?.(refs, 'found');
           step('done', { jurisdiction, queries: [query], found: hits.length, refs: refs.slice(0, 4) });
-          if (!hits.length) return { content: `NO_RESULTS in the ${jurisdiction} database for «${query}». Try other wording or another act.` };
+          if (!hits.length) return { content: `NO_RESULTS in the ${jurisdiction} database for «${query}». Try other wording or another act.`, keys: [] };
           return {
             content: clipResult(
               hits.map((h) => contextLine(h, 1200)).join('\n---\n') +
                 '\n\nOpen a provision with get_provision before quoting its details.',
             ),
+            keys: hits.map((h) => h.unitId),
           };
         }
 
@@ -795,6 +882,7 @@ export function createChatToolRunner(ctx: ChatToolContext): { tools: Anthropic.B
             step('done', { citation: citation ?? unitIdIn, found: 0 });
             return {
               content: `NOT_FOUND: no provision «${citation ?? unitIdIn}» in force in the Lexab database. Do not cite it; search for the right one with search_law.`,
+              keys: [],
             };
           }
           const refs = await ctx.toRefs([{ unitId: unit.id, breadcrumb: unit.breadcrumb }]);
@@ -815,6 +903,7 @@ export function createChatToolRunner(ctx: ChatToolContext): { tools: Anthropic.B
             step('done', { citation, verdict: 'not_found' });
             return {
               content: `NOT_FOUND: «${citation}» does not resolve to a provision in force in the Lexab database (wrong number, wrong act, or the act is not in the database). Find the right provision with search_law, or do not cite it.`,
+              keys: [],
             };
           }
           const verdict = await judgeProvision(unit.text, unit.breadcrumb, { title: claim, citation });
@@ -838,7 +927,7 @@ export function createChatToolRunner(ctx: ChatToolContext): { tools: Anthropic.B
           const from = optInt(o, 'from_char', 0, 50_000_000);
           if (!ctx.documents.length) {
             step('done', {});
-            return { content: 'NO_DOCUMENTS: no contract or file is attached to this conversation.' };
+            return { content: 'NO_DOCUMENTS: no contract or file is attached to this conversation.', keys: [] };
           }
           const docs = docName ? ctx.documents.filter((d) => d.name.toLowerCase().includes(docName.toLowerCase())) : ctx.documents;
           const names = ctx.documents.map((d) => `«${d.name}» (${d.text.length} chars)`).join(', ');
@@ -950,6 +1039,7 @@ export function createChatToolRunner(ctx: ChatToolContext): { tools: Anthropic.B
               content: docs.length
                 ? `NO_MATCH among the user's ${docs.length} documents for «${query}». Try other words (a counterparty name, a clause topic).`
                 : 'NO_DOCUMENTS: the user has no saved documents yet.',
+              keys: [],
             };
           }
           const hitLinks = await Promise.all(hits.map((h) => related(h.doc.id)));
@@ -1016,7 +1106,7 @@ export function createChatToolRunner(ctx: ChatToolContext): { tools: Anthropic.B
           step('active', {});
           const text = await loadActivePlaybook(ctx.db, ownerId, ctx.jurisdiction);
           step('done', { found: text ? 1 : 0 });
-          if (!text) return { content: 'NO_PLAYBOOK: the team has no active playbook for this jurisdiction. Say so; the user can set one up in Playbooks.' };
+          if (!text) return { content: 'NO_PLAYBOOK: the team has no active playbook for this jurisdiction. Say so; the user can set one up in Playbooks.', keys: [] };
           const topic = optString(o, 'topic', 200);
           if (topic) {
             const stems = stemsOf(topic);
@@ -1102,13 +1192,14 @@ export function createChatToolRunner(ctx: ChatToolContext): { tools: Anthropic.B
             if (id) lexActs.set(id, officialActRef(h));
           }
           ctx.onOfficialActs?.(hits.filter((h) => h.inForce).map(officialActRef), 'found');
-          if (!hits.length) return { content: `NO_RESULTS on lex.uz for «${query}». Try the act's likely title words.` };
+          if (!hits.length) return { content: `NO_RESULTS on lex.uz for «${query}». Try the act's likely title words.`, keys: [] };
           return {
             content: clipResult(
               `lex.uz search — OFFICIAL SITE, not Lexab's verified database:\n` +
                 hits.map((h, i) => `${i + 1}. ${h.act || 'act'} — «${h.title}» — ${h.inForce ? 'in force' : 'NOT in force'} — ${h.url}`).join('\n') +
                 '\n\nRead one with read_official (pass a query for long acts).',
             ),
+            keys: hits.map((h) => h.url),
           };
         }
 
@@ -1174,8 +1265,24 @@ export function createChatToolRunner(ctx: ChatToolContext): { tools: Anthropic.B
           };
         }
 
+        case 'task_guide': {
+          // Нет памяток в этом чате — инструмента «нет» (как неизвестного).
+          if (!guides) return { content: `Unknown tool «${call.name}». Available: ${tools.map((t) => t.name).join(', ')}.`, isError: true };
+          const task = reqString(o, 'task', 40);
+          const spec = specialistById(task);
+          if (!spec) throw new InputError(`task must be one of ${SPECIALIST_IDS.join(', ')}`);
+          step('active', { citation: spec.title, task: spec.id });
+          const guide = await renderGuide(ctx.db, spec);
+          // Нормы карты — «найденные»: в Sources пойдут только те, на которые
+          // ответ сошлётся (номер + акт), со ссылкой на официальный сайт.
+          if (guide.units.length) ctx.onRefs?.(await ctx.toRefs(guide.units), 'found');
+          step('done', { citation: spec.title, task: spec.id, found: guide.units.length });
+          // Без clipResult: памятка короче MAX_GUIDE_CHARS (specialists-check).
+          return { content: guide.text };
+        }
+
         default:
-          return { content: `Unknown tool «${call.name}». Available: ${CHAT_TOOLS.map((t) => t.name).join(', ')}.`, isError: true };
+          return { content: `Unknown tool «${call.name}». Available: ${tools.map((t) => t.name).join(', ')}.`, isError: true };
       }
     } catch (err) {
       const message = err instanceof InputError ? err.message : 'the tool failed — try again or answer without it';
@@ -1185,5 +1292,5 @@ export function createChatToolRunner(ctx: ChatToolContext): { tools: Anthropic.B
     }
   };
 
-  return { tools: CHAT_TOOLS, run };
+  return { tools, run, instructions: guides ? `${CHAT_AGENT_INSTRUCTIONS}\n${TASK_GUIDE_INSTRUCTIONS}` : CHAT_AGENT_INSTRUCTIONS };
 }

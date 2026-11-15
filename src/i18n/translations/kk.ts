@@ -630,6 +630,8 @@ const kk: Record<string, string> = {
   "work.tool.calculate": "Есептеп жатырмын",
   "work.tool.searchOfficial": "Ресми lex.uz сайтынан іздеп жатырмын",
   "work.tool.readOfficial": "Ресми сайтты оқып жатырмын",
+  "work.tool.taskGuide": "Тапсырма бойынша жадынаманы тексеріп жатырмын",
+  "work.more": "Іздеуді жалғастырып жатырмын",
   "analysis.ask.side": "Бұл шартта қай тараптың атынан әрекет етесіз?",
   "analysis.ask.neutral": "Бейтарап — екі тараптың тәуекелдері",
   "side.buyer": "Сатып алушы",

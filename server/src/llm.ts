@@ -911,16 +911,134 @@ export interface ChatAgent {
   instructions: string;
   /** Выполнить вызов. Не бросает: ошибка приходит текстом с isError. */
   run: (call: ToolCall) => Promise<ToolOutcome>;
+  /** Агент получил добавочные шаги (см. agentSteps) — показать это в ходе работы. */
+  onExtend?: () => void;
 }
 
-/** Раундов инструментов на один ответ: потом модель отвечает тем, что собрала. */
+/** Раундов инструментов на один ответ — обычный предел: потом модель отвечает
+ *  тем, что собрала. Его хватает почти всем вопросам. */
 const AGENT_MAX_ROUNDS = 6;
+/** Добавочные раунды сверх обычных — только пока поиск продвигается (решение
+ *  владельца 14.11: «лучше человек подождёт, чем получит неправильный ответ»).
+ *  Итого не больше 10. */
+const AGENT_EXTRA_ROUNDS = 4;
+/** Добавку не даём, если от начала ответа прошло больше: ответ не должен зависнуть. */
+const AGENT_EXTRA_WINDOW_MS = 120_000;
+/** Столько раундов подряд без нового — агент ходит по кругу, добавки нет. */
+const AGENT_STALE_ROUNDS = 2;
+/** Тот же вызов второй раз не выполняется: результат был бы тем же. */
+const REPEAT_NOTE =
+  'REPEAT: you already made this exact call in this answer — its result is above and would be the same. Use that result; if it did not help, change the wording, open another act or look in another place.';
+/** Шаги кончились. Это НАШ предел на ответ, а не ограничение сайта или базы:
+ *  прежний текст («The tool limit … is reached») модель пересказывала как
+ *  «лимит обращений к официальному порталу исчерпан» (вопрос о БРВ, 09.11). */
+const TOOL_LIMIT_NOTE =
+  'No more tool calls in this answer. Write the final answer now from what you have. Do not mention tool, step or request limits, and do not blame any website or database: say plainly which point you could not confirm and where the user can check it (the act, or its link).';
 /** Вызовов в одном раунде (лишние получают отказ «повтори на следующем шаге»). */
 const AGENT_MAX_PARALLEL = 4;
 /** Потолок одного шага агента: размышления перед вызовами входят в него же.
  *  16 000, а не 8 000: двуязычный договор (RU + UZ) вдвое длиннее обычного.
  *  Платится только реально написанное, это не квота. */
 const AGENT_MAX_TOKENS = 16_000;
+
+/** Один и тот же вызов: тот же инструмент с теми же аргументами (регистр,
+ *  лишние пробелы и порядок полей не в счёт). */
+function callKey(name: string, input: unknown): string {
+  const norm = (v: unknown): unknown => {
+    if (typeof v === 'string') return v.trim().replace(/\s+/g, ' ').toLowerCase();
+    if (Array.isArray(v)) return v.map(norm);
+    if (v && typeof v === 'object') {
+      return Object.fromEntries(
+        Object.entries(v)
+          .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+          .map(([k, x]) => [k, norm(x)]),
+      );
+    }
+    return v;
+  };
+  return `${name} ${JSON.stringify(norm(input))}`;
+}
+
+/**
+ * Счёт шагов агента на один ответ — общий для Claude и DeepSeek.
+ *  • Обычный предел — 6 раундов инструментов.
+ *  • Добавка до 4 раундов, если агент продвигается: за два последних раунда
+ *    хотя бы один вызов принёс новое (не ошибку, не повтор, не «ничего не
+ *    найдено», а у поисков — хотя бы одну норму или страницу, которых ещё не
+ *    было). Позже 2 минут от начала ответа добавка не даётся.
+ *  • Тот же вызов второй раз не выполняется (REPEAT_NOTE): хождение по кругу
+ *    не тратит ни время, ни шаги сайта. После ошибки (сеть, сайт) повтор разрешён.
+ * Каждое упирание в предел и каждая добавка пишутся в лог — по ним видно, как
+ * часто это случается. Экспортирован для тестов.
+ */
+export function agentSteps(agent: ChatAgent, now: () => number = Date.now) {
+  const startedAt = now();
+  /** По ключу вызова: удался ли уже такой вызов в этом ответе. */
+  const succeeded = new Map<string, Promise<boolean>>();
+  const seen = new Set<string>();
+  let rounds = 0;
+  let stale = 0;
+  let fresh = false;
+  let extended = false;
+  let refused = false;
+  return {
+    /** Модель просит инструменты. 'run' — выполнять; 'refuse' — шаги кончились,
+     *  вернуть ей TOOL_LIMIT_NOTE; 'stop' — она не остановилась и после этого. */
+    begin(): 'run' | 'refuse' | 'stop' {
+      if (refused) return 'stop';
+      if (rounds > 0) stale = fresh ? 0 : stale + 1;
+      fresh = false;
+      rounds++;
+      if (rounds <= AGENT_MAX_ROUNDS) return 'run';
+      const why =
+        rounds > AGENT_MAX_ROUNDS + AGENT_EXTRA_ROUNDS
+          ? 'hard cap'
+          : stale >= AGENT_STALE_ROUNDS
+            ? 'no new results'
+            : now() - startedAt > AGENT_EXTRA_WINDOW_MS
+              ? 'time'
+              : null;
+      if (why) {
+        refused = true;
+        console.log(`[llm] agent steps: limit reached after ${rounds - 1} rounds (${why}), ${Math.round((now() - startedAt) / 1000)} s`);
+        return 'refuse';
+      }
+      if (!extended) {
+        extended = true;
+        console.log(`[llm] agent steps: extended past ${AGENT_MAX_ROUNDS} rounds, ${Math.round((now() - startedAt) / 1000)} s`);
+        agent.onExtend?.();
+      }
+      return 'run';
+    },
+    /** Выполнить вызов; точный повтор уже удавшегося вызова не выполняется. */
+    async run(call: ToolCall): Promise<ToolOutcome> {
+      const key = callKey(call.name, call.input);
+      // Запись ставится сразу, до ожидания: близнец из того же раунда встаёт в
+      // очередь за этим вызовом, а не выполняется рядом с ним.
+      const earlier = succeeded.get(key) ?? Promise.resolve(false);
+      const running = earlier.then((ok) => (ok ? null : agent.run(call)));
+      succeeded.set(
+        key,
+        running.then(
+          (out) => out === null || !out.isError,
+          () => false,
+        ),
+      );
+      const out = await running;
+      if (!out) return { content: REPEAT_NOTE, isError: true };
+      if (!out.isError) {
+        if (!out.keys) fresh = true;
+        for (const k of out.keys ?? []) {
+          if (!seen.has(k)) {
+            seen.add(k);
+            fresh = true;
+          }
+        }
+      }
+      return out;
+    },
+  };
+}
 
 /** Ответ упёрся в потолок длины — честная приписка вместо молча обрезанного документа. */
 export const TRUNCATED_NOTE =
@@ -952,7 +1070,7 @@ export async function runAgentLoop(opts: {
   const messages = [...opts.messages];
   const parts: string[] = [];
   let sentText = false;
-  let rounds = 0;
+  const steps = agentSteps(agent);
   let badInput = 0;
   for (;;) {
     const stream = opts.start([...messages]);
@@ -989,22 +1107,21 @@ export async function runAgentLoop(opts: {
       }
       return parts.join('\n\n');
     }
-    rounds++;
-    if (rounds > AGENT_MAX_ROUNDS + 1) {
-      // Модель не остановилась и после «лимит исчерпан» — отдаём, что есть.
+    const turn = steps.begin();
+    if (turn === 'stop') {
+      // Модель не остановилась и после «шаги кончились» — отдаём, что есть.
       if (parts.length) return parts.join('\n\n');
       throw new Error('chat agent did not finish within the tool limit');
     }
     messages.push({ role: 'assistant', content: message.content });
-    const over = rounds > AGENT_MAX_ROUNDS;
     const results = await Promise.all(
       calls.map(async (c, i): Promise<Anthropic.Beta.BetaToolResultBlockParam> => {
-        if (over) {
+        if (turn === 'refuse') {
           return {
             type: 'tool_result',
             tool_use_id: c.id,
             is_error: true,
-            content: 'The tool limit for this answer is reached. Write the final answer now from what you have, and say what you could not check.',
+            content: TOOL_LIMIT_NOTE,
           };
         }
         if (i >= AGENT_MAX_PARALLEL) {
@@ -1015,7 +1132,7 @@ export async function runAgentLoop(opts: {
             content: `At most ${AGENT_MAX_PARALLEL} tool calls run at once — repeat this call in your next step if you still need it.`,
           };
         }
-        const out = await agent.run({ id: c.id, name: c.name, input: c.input });
+        const out = await steps.run({ id: c.id, name: c.name, input: c.input });
         return { type: 'tool_result', tool_use_id: c.id, content: out.content, ...(out.isError ? { is_error: true } : {}) };
       }),
     );
@@ -1060,8 +1177,8 @@ function toDeepseekTools(tools: Anthropic.Beta.BetaTool[]) {
 }
 
 /**
- * Цикл агента на DeepSeek — те же правила, что у runAgentLoop: ≤ 6 раундов,
- * ≤ 4 вызова за раз, история только дописывается. Особенность DeepSeek: при
+ * Цикл агента на DeepSeek — те же правила, что у runAgentLoop: тот же счёт
+ * шагов (agentSteps), ≤ 4 вызова за раз, история только дописывается. Особенность DeepSeek: при
  * инструментах ответ модели обязан вернуться в историю ВМЕСТЕ с её
  * размышлениями (reasoning_content), иначе API отвечает 400. Экспортирован для тестов.
  */
@@ -1076,6 +1193,7 @@ export async function runDeepseekAgentLoop(opts: {
   const messages = [...opts.messages];
   const parts: string[] = [];
   let sentText = false;
+  const steps = agentSteps(agent);
   let rounds = 0;
   for (;;) {
     const stream = await opts.create([...messages]);
@@ -1118,15 +1236,15 @@ export async function runDeepseekAgentLoop(opts: {
       return parts.join('\n\n');
     }
     rounds++;
-    if (rounds > AGENT_MAX_ROUNDS + 1) {
+    const turn = steps.begin();
+    if (turn === 'stop') {
       if (parts.length) return parts.join('\n\n');
       throw new Error('chat agent did not finish within the tool limit');
     }
     messages.push({ role: 'assistant', content, reasoning_content: reasoning, tool_calls: toolCalls });
-    const over = rounds > AGENT_MAX_ROUNDS;
     const results = await Promise.all(
       toolCalls.map(async (c, i): Promise<string> => {
-        if (over) return 'ERROR: The tool limit for this answer is reached. Write the final answer now from what you have, and say what you could not check.';
+        if (turn === 'refuse') return `ERROR: ${TOOL_LIMIT_NOTE}`;
         if (i >= AGENT_MAX_PARALLEL) {
           return `ERROR: At most ${AGENT_MAX_PARALLEL} tool calls run at once — repeat this call in your next step if you still need it.`;
         }
@@ -1136,7 +1254,7 @@ export async function runDeepseekAgentLoop(opts: {
         } catch {
           return `ERROR: ${JSON.stringify({ INVALID_JSON: c.function.arguments.slice(0, 2000) })} — send valid JSON arguments.`;
         }
-        const out = await agent.run({ id: c.id, name: c.function.name, input });
+        const out = await steps.run({ id: c.id, name: c.function.name, input });
         return out.content;
       }),
     );

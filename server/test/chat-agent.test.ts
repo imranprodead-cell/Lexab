@@ -20,7 +20,7 @@ process.env.SEED_DEMO_DATA = 'false';
 
 const { getDb, migrate } = await import('../src/db.ts');
 const { addPeriod, citedProvisionNumbers, citesProvision, createChatToolRunner, evaluateExpression, parseDate, refNumber, CHAT_TOOLS, CHAT_AGENT_INSTRUCTIONS, UI_LABELS } = await import('../src/lib/chatTools.ts');
-const { runAgentLoop, runDeepseekAgentLoop, TRUNCATED_NOTE } = await import('../src/llm.ts');
+const { agentSteps, runAgentLoop, runDeepseekAgentLoop, TRUNCATED_NOTE } = await import('../src/llm.ts');
 const { repairFindingCitations } = await import('../src/lib/citationRepair.ts');
 const { encText, encJsonForJsonb, decJsonFromJsonb } = await import('../src/lib/docCrypto.ts');
 const { addEditToAnalysis, addReminderToDocument, appendEditBlocks, appendReminderBlocks, loadEditTarget } = await import('../src/lib/chatActions.ts');
@@ -130,6 +130,26 @@ describe('law tools', () => {
     assert.equal(r.refs.length, 0, 'непроверенная ссылка в Sources не идёт');
   });
 
+  it('tells the step counter what a search brought: provisions found, nothing found, or not a search', async () => {
+    const r = runner();
+    // Поиск идёт по чанкам — на время теста у статьи 356 появляется свой.
+    await db.query(
+      `INSERT INTO chunks (id, unit_id, document_id, jurisdiction, language, breadcrumb, body, source_url, retrieved_at, sha256_checksum)
+       VALUES ('ch_agent_356', 'lu_uz_agent_st-356', 'ld_agent_gk', 'UZ', 'ru', 'Статья 356', 'Статья 356. Цена. Исполнение договора оплачивается по цене, установленной соглашением сторон.', 'https://lex.uz/docs/111181', now(), 'ch_agent_356')`,
+    );
+    const found = await r.run({ id: 'a', name: 'search_law', input: { query: 'цена договора по соглашению сторон' } });
+    await db.query(`DELETE FROM chunks WHERE id = 'ch_agent_356'`);
+    assert.deepEqual(found.keys, ['lu_uz_agent_st-356'], 'поиск называет найденные нормы');
+    const nothing = await r.run({ id: 'b', name: 'search_law', input: { query: 'zzzqqq' } });
+    assert.deepEqual(nothing.keys, [], 'ничего не найдено — пустой список');
+    const missing = await r.run({ id: 'c', name: 'get_provision', input: { citation: 'ст. 9999 ГК' } });
+    assert.deepEqual(missing.keys, []);
+    const opened = await r.run({ id: 'd', name: 'get_provision', input: { unit_id: 'lu_uz_agent_st-356' } });
+    assert.equal(opened.keys, undefined, 'открытая норма — продвижение без списка');
+    const noDocs = await r.run({ id: 'e', name: 'read_contract', input: { query: 'цена' } });
+    assert.deepEqual(noDocs.keys, []);
+  });
+
   it('input checks come back as errors the model can fix', async () => {
     const r = runner();
     const noQuery = await r.run({ id: 'a', name: 'search_law', input: {} });
@@ -182,12 +202,12 @@ const toolUse = (id: string, name: string, input: unknown) => ({ type: 'tool_use
 const text = (t: string) => ({ type: 'text', text: t, citations: null }) as unknown as BetaMessage['content'][number];
 
 /** Подставная модель: на каждый шаг — следующий заготовленный ответ; текст «стримится». */
-function fakeModel(script: BetaMessage[]) {
+function fakeModel(script: BetaMessage[] | ((step: number) => BetaMessage)) {
   const seen: BetaMessageParam[][] = [];
   let i = 0;
   const start = (messages: BetaMessageParam[]) => {
     seen.push(messages);
-    const m = script[Math.min(i++, script.length - 1)];
+    const m = typeof script === 'function' ? script(i++) : script[Math.min(i++, script.length - 1)];
     let cb: ((d: string) => void) | null = null;
     return {
       on: (_e: 'text', f: (d: string) => void) => {
@@ -228,22 +248,112 @@ describe('runAgentLoop', () => {
     assert.equal(tokens.join(''), 'Итого 4 и 9.');
   });
 
-  it('caps rounds: after the limit the tools get "write the answer now" and the loop ends', async () => {
-    const loop = msg([text('Промежуточно.'), toolUse('u', 'search_law', { query: 'x' })], 'tool_use');
-    const model = fakeModel([loop]);
+  /** Результаты инструментов, которые модель увидела перед шагом n (с нуля). */
+  const resultsBefore = (model: ReturnType<typeof fakeModel>, n: number) => {
+    const m = model.seen[n];
+    return m[m.length - 1].content as { tool_use_id: string; is_error?: boolean; content: string }[];
+  };
+  /** Модель, которая не останавливается: каждый шаг — новый запрос. */
+  const searching = (step: number) => msg([text('Промежуточно.'), toolUse(`u${step}`, 'search_law', { query: `запрос ${step}` })], 'tool_use');
+
+  it('the same call is not run twice: the model is told to use the result or search differently', async () => {
+    const loop = msg([text('Промежуточно.'), toolUse('u', 'search_law', { query: 'Базовая  расчётная величина' })], 'tool_use');
+    const again = msg([toolUse('u', 'search_law', { query: ' базовая расчётная величина ' })], 'tool_use');
+    const model = fakeModel([loop, again]);
+    let runs = 0;
+    let extended = 0;
+    const answer = await runAgentLoop({
+      start: model.start,
+      messages: [{ role: 'user', content: 'q' }],
+      agent: { tools: [], instructions: '', run: async () => (runs++, { content: 'r' }), onExtend: () => extended++ },
+    });
+    assert.equal(runs, 1, 'тот же запрос (регистр и пробелы не в счёт) выполнен один раз');
+    const second = resultsBefore(model, 2)[0];
+    assert.equal(second.is_error, true);
+    assert.match(second.content, /^REPEAT: you already made this exact call/);
+    assert.equal(extended, 0, 'хождение по кругу добавочных шагов не получает');
+    assert.equal(model.calls(), 8, '6 раундов, отказ, и цикл кончился');
+    assert.match(resultsBefore(model, 7)[0].content, /^No more tool calls in this answer/);
+    assert.match(answer, /Промежуточно/);
+  });
+
+  it('extra steps while the search moves on: 8 rounds run, the user sees «searching further» once', async () => {
+    const model = fakeModel((step) => (step < 8 ? searching(step) : msg([text('Нашёл: 440 000 сумов.')], 'end_turn')));
+    let runs = 0;
+    let extended = 0;
+    const answer = await runAgentLoop({
+      start: model.start,
+      messages: [{ role: 'user', content: 'q' }],
+      agent: { tools: [], instructions: '', run: async (c) => (runs++, { content: 'r', keys: [`норма ${c.id}`] }), onExtend: () => extended++ },
+    });
+    assert.equal(runs, 8, 'все 8 раундов выполнены');
+    assert.equal(extended, 1);
+    for (let n = 1; n <= 8; n++) assert.equal(resultsBefore(model, n)[0].content, 'r', `шаг ${n}: без отказа`);
+    assert.match(answer, /440 000/);
+  });
+
+  it('hard cap: never more than 10 rounds, then "write the answer now"', async () => {
+    const model = fakeModel(searching);
     let runs = 0;
     const answer = await runAgentLoop({
       start: model.start,
       messages: [{ role: 'user', content: 'q' }],
       agent: { tools: [], instructions: '', run: async () => (runs++, { content: 'r' }) },
     });
-    assert.equal(runs, 6, 'инструменты выполняются не больше 6 раундов');
-    assert.ok(model.calls() <= 8, 'цикл не бесконечный');
+    assert.equal(runs, 10, '6 обычных + 4 добавочных');
+    assert.equal(model.calls(), 12, 'отказ и конец');
+    assert.match(resultsBefore(model, 11)[0].content, /^No more tool calls in this answer/);
     assert.match(answer, /Промежуточно/);
   });
 
+  it('no extra steps when the last two rounds brought nothing new', async () => {
+    const run = async (outcome: (n: number) => { content: string; isError?: boolean; keys?: string[] }) => {
+      const model = fakeModel(searching);
+      let runs = 0;
+      await runAgentLoop({ start: model.start, messages: [{ role: 'user', content: 'q' }], agent: { tools: [], instructions: '', run: async () => outcome(++runs) } });
+      return runs;
+    };
+    assert.equal(await run(() => ({ content: 'те же нормы', keys: ['ст. 1', 'ст. 2'] })), 6, 'другие слова — те же результаты');
+    assert.equal(await run(() => ({ content: 'NO_RESULTS', keys: [] })), 6, 'ничего не найдено');
+    assert.equal(await run(() => ({ content: 'ERROR: сайт не ответил', isError: true })), 6, 'ошибки');
+    // Один пустой шаг не в счёт: добавка даётся, второй подряд — уже нет.
+    assert.equal(await run((n) => ({ content: 'r', keys: n <= 5 ? [`ст. ${n}`] : [] })), 7);
+    assert.equal(await run((n) => ({ content: 'r', keys: n === 6 || n === 8 ? [] : [`ст. ${n}`] })), 10);
+  });
+
+  it('a failed call may be repeated; two identical calls in one round run once', async () => {
+    const same = () => toolUse('u', 'read_official', { url: 'https://lex.uz/docs/1' });
+    const model = fakeModel([msg([same()], 'tool_use'), msg([same(), same()], 'tool_use'), msg([text('ok')], 'end_turn')]);
+    let runs = 0;
+    await runAgentLoop({
+      start: model.start,
+      messages: [{ role: 'user', content: 'q' }],
+      agent: { tools: [], instructions: '', run: async () => (++runs === 1 ? { content: 'ERROR: сайт не ответил', isError: true } : { content: 'текст' }) },
+    });
+    assert.equal(runs, 2, 'после ошибки повтор выполнен; близнец в том же раунде — нет');
+    assert.deepEqual(resultsBefore(model, 2).map((r) => r.content.slice(0, 6)), ['текст', 'REPEAT']);
+  });
+
+  it('no extra steps after two minutes', () => {
+    let clock = 0;
+    const steps = agentSteps({ tools: [], instructions: '', run: async () => ({ content: 'r' }) }, () => clock);
+    const round = async (n: number) => {
+      const turn = steps.begin();
+      if (turn === 'run') await steps.run({ id: `c${n}`, name: 'search_law', input: { query: `q${n}` } });
+      return turn;
+    };
+    return (async () => {
+      for (let n = 1; n <= 6; n++) assert.equal(await round(n), 'run');
+      clock = 119_000;
+      assert.equal(await round(7), 'run', 'поиск продвигается и время есть');
+      clock = 121_000;
+      assert.equal(await round(8), 'refuse', 'две минуты прошли');
+      assert.equal(await round(9), 'stop');
+    })();
+  });
+
   it('runs at most 4 calls at once; refusal throws', async () => {
-    const many = msg([1, 2, 3, 4, 5].map((n) => toolUse(`u${n}`, 'calculate', {})), 'tool_use');
+    const many = msg([1, 2, 3, 4, 5].map((n) => toolUse(`u${n}`, 'calculate', { operation: 'evaluate', expression: `${n}+1` })), 'tool_use');
     const model = fakeModel([many, msg([text('ok')], 'end_turn')]);
     let runs = 0;
     await runAgentLoop({ start: model.start, messages: [{ role: 'user', content: 'q' }], agent: { tools: [], instructions: '', run: async () => (runs++, { content: 'r' }) } });
@@ -341,8 +451,37 @@ describe('runDeepseekAgentLoop', () => {
       }),
       /did not finish within the tool limit/,
     );
-    assert.equal(runs, 6, 'инструменты — не больше 6 раундов');
-    assert.ok(forever.calls() <= 8);
+    assert.equal(runs, 1, 'тот же вызов выполнен один раз, дальше — REPEAT');
+    assert.match((forever.seen[2][forever.seen[2].length - 1] as { content: string }).content, /^REPEAT:/);
+    assert.equal(forever.calls(), 8, '6 раундов, отказ, конец — без добавочных шагов');
+    // Предел шагов — наш, а не сайта: модель не должна писать «лимит портала исчерпан» (09.11).
+    const lastCall = forever.seen[forever.seen.length - 1];
+    const limitMsg = (lastCall[lastCall.length - 1] as { content: string }).content;
+    assert.match(limitMsg, /do not blame any website or database/);
+    assert.match(limitMsg, /which point you could not confirm and where the user can check it/);
+  });
+
+  it('extra steps while the search moves on, never more than 10 rounds', async () => {
+    let n = 0;
+    const create = async () => {
+      const step = n++;
+      return (async function* () {
+        yield delta({ tool_calls: [{ index: 0, id: `c${step}`, type: 'function', function: { name: 'search_official', arguments: JSON.stringify({ query: `запрос ${step}` }) } }] }, 'tool_calls');
+      })();
+    };
+    let runs = 0;
+    let extended = 0;
+    await assert.rejects(
+      runDeepseekAgentLoop({
+        create,
+        messages: [{ role: 'user', content: 'q' }],
+        agent: { tools: [], instructions: '', run: async (c) => (runs++, { content: 'r', keys: [`https://lex.uz/docs/${c.id}`] }), onExtend: () => extended++ },
+      }),
+      /did not finish within the tool limit/,
+    );
+    assert.equal(runs, 10, '6 обычных + 4 добавочных');
+    assert.equal(extended, 1);
+    assert.equal(n, 12);
   });
 });
 
@@ -752,6 +891,19 @@ describe('Sources: the reply must cite THIS provision — same number AND same a
     assert.equal(citesProvision(t, '10', CB, 'UZ'), false);
   });
 
+  it('quoted short names and quoted article text still match the act (fix 2026-11-14)', () => {
+    const OOO = 'ЗРУ-1137-сон 21.04.2026. Об обществах с ограниченной ответственностью';
+    const AO = 'ЗРУ-370-сон 06.05.2014. Об акционерных обществах и защите прав акционеров (в новой редакции)';
+    const BU = 'ЗРУ-404-сон 13.04.2016. О бухгалтерском учете (в новой редакции)';
+    assert.equal(citesProvision('Крупная сделка — ст. 50 Закона «Об ООО».', '50', OOO, 'UZ'), true);
+    assert.equal(citesProvision('Крупная сделка — ст. 50 Закона «Об ООО».', '50', AO, 'UZ'), false);
+    assert.equal(citesProvision('См. ст. 25 Закона «О договорно-правовой базе…»', '25', LAW670, 'UZ'), true);
+    assert.equal(citesProvision('ст. 10 Закона «О бухгалтерском учёте»', '10', BU, 'UZ'), true);
+    const t = 'ст. 337 ТК («Неполученные доходы (упущенная выгода) взысканию с работника не подлежат»)';
+    assert.equal(citesProvision(t, '337', TK, 'UZ'), true);
+    assert.equal(citesProvision(t, '337', GK, 'UZ'), false);
+  });
+
   it('Plenum and decree points match by court/number and decree number', () => {
     const p = 'п. 4 постановления Пленума ВХС № 163 — нижний предел снижения';
     assert.equal(citesProvision(p, '4', PL163, 'UZ'), true);
@@ -774,5 +926,33 @@ describe('Sources: the reply must cite THIS provision — same number AND same a
     const reminder = CHAT_TOOLS.find((t) => t.name === 'propose_reminder');
     for (const l of Object.values(UI_LABELS.addReminder)) assert.ok(String(reminder?.description).includes(l), l);
     assert.ok(!/«Add reminder» button|an Accept button|presses Accept/.test(JSON.stringify(CHAT_TOOLS) + CHAT_AGENT_INSTRUCTIONS));
+  });
+});
+
+// Где лежат «простые» цифры Узбекистана (вопрос «сколько сумов 1 БРВ?», 09.11):
+// подсказка называет акт и страницы, но не сами цифры — они меняются.
+describe('agent hints: where Uzbek figures live', () => {
+  it('names the yearly wage decree, Central Bank pages and acts in the base — no hard-coded amounts', () => {
+    assert.ok(CHAT_AGENT_INSTRUCTIONS.includes('«О повышении размеров заработной платы, пенсий, стипендий и пособий»'));
+    assert.ok(CHAT_AGENT_INSTRUCTIONS.includes('read_official https://cbu.uz/ru/ with the query «основная ставка курсы валют»'));
+    assert.ok(CHAT_AGENT_INSTRUCTIONS.includes('https://cbu.uz/ru/arkhiv-kursov-valyut/json/USD/YYYY-MM-DD/'));
+    assert.ok(CHAT_AGENT_INSTRUCTIONS.includes('ЗРУ-600'));
+    assert.ok(!/440\s?000|1\s?360\s?000|\b14\s?%|11\s?99\d/.test(CHAT_AGENT_INSTRUCTIONS), 'цифры не зашиты');
+  });
+});
+
+// Статьи с индексом (КоАО ст. 175-4, «175⁴» на lex.uz): номер не распадается на
+// «175» и «4» — иначе проверка ссылок не узнавала такую статью (09.11).
+describe('provision numbers with an index (175-4, 175⁴)', () => {
+  it('reads 175-4 as one article, keeps ranges, understands superscripts', () => {
+    const one = citedProvisionNumbers('штраф по ст. 175-4 КоАО');
+    assert.ok(one.has('175-4') && !one.has('4') && !one.has('175'));
+    assert.ok(citedProvisionNumbers('ст. 175⁴ КоАО').has('175-4'));
+    const range = citedProvisionNumbers('статьи 10-15 ГК');
+    assert.ok(range.has('10') && range.has('15'));
+    assert.equal(refNumber('ст.175-4'), '175-4');
+    assert.equal(refNumber('Статья 333'), '333');
+    assert.ok(citesProvision('Штраф — по ст. 175-4 Кодекса об административной ответственности.', '175-4', 'Кодекс Республики Узбекистан об административной ответственности', 'UZ'));
+    assert.ok(!citesProvision('Штраф — по ст. 175-4 Кодекса об административной ответственности.', '4', 'Кодекс Республики Узбекистан об административной ответственности', 'UZ'));
   });
 });

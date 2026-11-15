@@ -107,7 +107,8 @@ export type ChatToolName =
   | 'compare_versions'
   | 'calculate'
   | 'search_official'
-  | 'read_official';
+  | 'read_official'
+  | 'task_guide';
 
 /**
  * Шаг работы над ответом чата (SSE-событие `step`): клиент показывает их
@@ -115,8 +116,9 @@ export type ChatToolName =
  * делает, — подписи шагов клиент берёт из своих переводов по id.
  */
 export interface ChatStep {
-  /** tool-N — вызов инструмента агентом (N — номер вызова в этом ответе). */
-  id: 'prompt' | 'contract' | 'files' | 'memory' | 'search' | 'mode' | 'answer' | `tool-${number}`;
+  /** tool-N — вызов инструмента агентом (N — номер вызова в этом ответе);
+   *  more — агент получил добавочные шаги поиска («Ищу дальше»). */
+  id: 'prompt' | 'contract' | 'files' | 'memory' | 'search' | 'mode' | 'answer' | 'more' | `tool-${number}`;
   status: 'active' | 'done';
   data?: {
     /** tool-N: какой инструмент агента вызван. */
@@ -140,6 +142,8 @@ export interface ChatStep {
     failed?: boolean;
     /** mode: plan | slides | approve. */
     mode?: string;
+    /** tool-N (task_guide): какая памятка задачи открыта (lease, supply, …). */
+    task?: string;
   };
 }
 

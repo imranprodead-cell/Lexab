@@ -630,6 +630,8 @@ const ar: Record<string, string> = {
   "work.tool.calculate": "أحسب",
   "work.tool.searchOfficial": "أبحث في الموقع الرسمي lex.uz",
   "work.tool.readOfficial": "أقرأ الموقع الرسمي",
+  "work.tool.taskGuide": "أراجع قائمة التحقق الخاصة بالمهمة",
+  "work.more": "أواصل البحث",
   "analysis.ask.side": "أي طرف تمثل في هذا العقد؟",
   "analysis.ask.neutral": "محايد — مخاطر الطرفين",
   "side.buyer": "المشتري",

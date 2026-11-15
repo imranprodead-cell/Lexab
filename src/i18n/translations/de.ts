@@ -630,6 +630,8 @@ const de: Record<string, string> = {
   "work.tool.calculate": "Berechne",
   "work.tool.searchOfficial": "Suche auf der offiziellen Seite lex.uz",
   "work.tool.readOfficial": "Lese die offizielle Seite",
+  "work.tool.taskGuide": "Prüfe die Checkliste zur Aufgabe",
+  "work.more": "Suche weiter",
   "analysis.ask.side": "Welche Partei vertreten Sie in diesem Vertrag?",
   "analysis.ask.neutral": "Neutral — Risiken für beide Seiten",
   "side.buyer": "Käufer",

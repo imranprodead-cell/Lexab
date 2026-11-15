@@ -1176,6 +1176,8 @@ export const MESSAGES: Dict = {
   'work.tool.calculate': { ru: 'Считаю', en: 'Calculating' },
   'work.tool.searchOfficial': { ru: 'Ищу на официальном сайте lex.uz', en: 'Searching the official site lex.uz' },
   'work.tool.readOfficial': { ru: 'Читаю официальный сайт', en: 'Reading the official site' },
+  'work.tool.taskGuide': { ru: 'Сверяюсь с памяткой по задаче', en: 'Checking the task checklist' },
+  'work.more': { ru: 'Ищу дальше', en: 'Searching further' },
   'analysis.ask.side': { ru: 'Чью сторону вы представляете в этом договоре?', en: 'Which party do you represent in this contract?' },
   'analysis.ask.neutral': { ru: 'Нейтрально — риски обеих сторон', en: 'Neutral — risks for both parties' },
   'side.buyer': { ru: 'Покупатель', en: 'Buyer' },

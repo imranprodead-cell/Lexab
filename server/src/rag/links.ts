@@ -184,17 +184,22 @@ export class LinkResolver {
   external(number: string, tail: string, jurisdiction: string): string | null {
     const parsed = parseRuCitation(`ст. ${number} ${tail}`, jurisdiction);
     if (!parsed) return null;
-    const re = likeToRegExp(parsed.titlePattern);
-    const exact = parsed.titlePattern.replace(/^%|%$/g, '').toLowerCase();
+    // Как в resolveCitationText: по названию из кавычек не нашлось — по сокращению.
+    return this.byPattern(parsed.titlePattern, parsed.number) ?? (parsed.fallbackPattern ? this.byPattern(parsed.fallbackPattern, parsed.number) : null);
+  }
+
+  private byPattern(pattern: string, number: string): string | null {
+    const re = likeToRegExp(pattern);
+    const exact = pattern.replace(/^%|%$/g, '').toLowerCase();
     const candidates = this.docs
-      .filter((d) => !['decree', 'resolution', 'plenum'].includes(d.docType) && re.test(d.title) && this.unitIn(d.id, parsed.number))
+      .filter((d) => !['decree', 'resolution', 'plenum'].includes(d.docType) && re.test(d.title) && this.unitIn(d.id, number))
       .sort(
         (a, b) =>
           Number(b.title.toLowerCase() === exact) - Number(a.title.toLowerCase() === exact) ||
           a.title.length - b.title.length ||
           (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
       );
-    return candidates[0] ? this.unitIn(candidates[0].id, parsed.number) : null;
+    return candidates[0] ? this.unitIn(candidates[0].id, number) : null;
   }
 }
 

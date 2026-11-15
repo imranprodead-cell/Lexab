@@ -21,7 +21,7 @@ process.env.SEED_DEMO_DATA = 'false';
 
 const { getDb, migrate } = await import('../src/db.ts');
 const { generateChatReply, usesChatAgent } = await import('../src/llm.ts');
-const { CHAT_AGENT_INSTRUCTIONS, createChatToolRunner } = await import('../src/lib/chatTools.ts');
+const { createChatToolRunner } = await import('../src/lib/chatTools.ts');
 const { encJsonForJsonb, encText } = await import('../src/lib/docCrypto.ts');
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -86,7 +86,7 @@ async function main(): Promise<void> {
       reply = await generateChatReply([], row.question, undefined, undefined, 'Uzbekistan', plan, null, null, null, {
         tools: runner.tools,
         run: runner.run,
-        instructions: CHAT_AGENT_INSTRUCTIONS,
+        instructions: runner.instructions,
       });
     } catch (err) {
       error = (err as Error).message;

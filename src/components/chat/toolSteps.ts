@@ -19,6 +19,7 @@ export const TOOL_STEP_KEYS: Record<string, string> = {
   calculate: 'work.tool.calculate',
   search_official: 'work.tool.searchOfficial',
   read_official: 'work.tool.readOfficial',
+  task_guide: 'work.tool.taskGuide',
 };
 
 /** «Обдумываю ответ» — всегда последним: шаги агента (tool-N) приходят после него. */
