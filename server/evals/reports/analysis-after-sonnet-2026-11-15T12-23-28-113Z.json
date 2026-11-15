@@ -1,0 +1,137 @@
+{
+ "summary": {
+  "label": "after-sonnet",
+  "plan": "Pro",
+  "model": "claude-sonnet-5-5",
+  "judge": "deepseek-flash",
+  "contracts": 2,
+  "findings": 7,
+  "citationPrecision": 1,
+  "unverifiedShare": 0,
+  "topicCoverage": 1,
+  "topicAgreeWithKeywords": 0.857,
+  "contradictionsPlanted": 4,
+  "contradictionsFound": 4,
+  "contradictionRecall": 1,
+  "conflictsReported": 4,
+  "conflictsNotPlanted": 0,
+  "conflictsNotVerbatim": 0,
+  "fallbackUsed": false,
+  "conflictsDroppedNotVerbatim": 0,
+  "deepseekSpentUsd": 0
+ },
+ "rows": [
+  {
+   "id": "supply",
+   "ms": 45830,
+   "findings": [
+    {
+     "severity": "High",
+     "title": "Цена Договора: 150 000 000 цифрами (п. 2.1) и «сто миллионов» прописью (п. 2.1)",
+     "citation": "",
+     "verified": false,
+     "topic": "payment",
+     "keywordTopic": "other",
+     "conflict": true
+    },
+    {
+     "severity": "Medium",
+     "title": "Срок оплаты: 30 календарных дней с даты поставки (п. 4.2) и 60 банковских дней с даты подписания накладной (п. 8.3)",
+     "citation": "",
+     "verified": false,
+     "topic": "payment",
+     "keywordTopic": "payment",
+     "conflict": true
+    },
+    {
+     "severity": "Medium",
+     "title": "Пеня 1% в день без предельного размера превышает порог ст. 25 Закона (0,5% и не более 50%)",
+     "citation": "ст. 25 Закона «О договорно-правовой базе деятельности хозяйствующих субъектов»",
+     "verified": true,
+     "topic": "penalty",
+     "keywordTopic": "penalty",
+     "conflict": false
+    },
+    {
+     "severity": "Medium",
+     "title": "Односторонний отказ от Договора только у Покупателя (п. 9.2) при уведомлении за 10 дней",
+     "citation": "ст. 382 ГК",
+     "verified": true,
+     "topic": "termination",
+     "keywordTopic": "termination",
+     "conflict": false
+    },
+    {
+     "severity": "Low",
+     "title": "Не определены периоды и порядок поставки партий (п. 3.1) и порядок приёмки (п. 3.2)",
+     "citation": "ст. 440 ГК",
+     "verified": true,
+     "topic": "acceptance",
+     "keywordTopic": "acceptance",
+     "conflict": false
+    }
+   ],
+   "conflicts": [
+    {
+     "title": "Цена Договора: 150 000 000 цифрами (п. 2.1) и «сто миллионов» прописью (п. 2.1)",
+     "a": "150 000 000",
+     "b": "сто миллионов",
+     "verbatim": true,
+     "planted": 0
+    },
+    {
+     "title": "Срок оплаты: 30 календарных дней с даты поставки (п. 4.2) и 60 банковских дней с даты подписания накладной (п. 8.3)",
+     "a": "30 (тридцати) календарных дней с даты поставки",
+     "b": "60 (шестидесяти) банковских дней с даты подписания товарной накладной",
+     "verbatim": true,
+     "planted": 1
+    }
+   ],
+   "plantedFound": 2,
+   "planted": 2
+  },
+  {
+   "id": "works",
+   "ms": 26307,
+   "findings": [
+    {
+     "severity": "Medium",
+     "title": "Две разные неустойки за просрочку Работ: 0,1% от стоимости невыполненных Работ (п. 6.2) и 0,5% от общей стоимости Договора (п. 9.4)",
+     "citation": "",
+     "verified": false,
+     "topic": "penalty",
+     "keywordTopic": "penalty",
+     "conflict": true
+    },
+    {
+     "severity": "Medium",
+     "title": "Противоречивая подсудность: экономический суд г. Ташкента (п. 10.1) и арбитраж TIAC (п. 10.3)",
+     "citation": "",
+     "verified": false,
+     "topic": "disputes",
+     "keywordTopic": "disputes",
+     "conflict": true
+    }
+   ],
+   "conflicts": [
+    {
+     "title": "Две разные неустойки за просрочку Работ: 0,1% от стоимости невыполненных Работ (п. 6.2) и 0,5% от общей стоимости Договора (п. 9.4)",
+     "a": "пеню в размере 0,1% от стоимости невыполненных Работ за каждый день просрочки",
+     "b": "неустойку в размере 0,5% от общей стоимости Договора за каждый день просрочки",
+     "verbatim": true,
+     "planted": 0
+    },
+    {
+     "title": "Противоречивая подсудность: экономический суд г. Ташкента (п. 10.1) и арбитраж TIAC (п. 10.3)",
+     "a": "Споры разрешаются в экономическом суде г. Ташкента.",
+     "b": "Все споры по настоящему Договору подлежат окончательному рассмотрению в Ташкентском международном арбитражном центре (TIAC).",
+     "verbatim": true,
+     "planted": 1
+    }
+   ],
+   "plantedFound": 2,
+   "planted": 2
+  }
+ ],
+ "warnings": []
+}

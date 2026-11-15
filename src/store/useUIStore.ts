@@ -24,6 +24,10 @@ export interface Toast {
   /** Optional action button ("Undo") rendered on the right of the toast. */
   actionLabel?: string;
   onAction?: () => void;
+  /** Время жизни, мс — полоска внизу тоста показывает, сколько осталось. */
+  duration: number;
+  /** Тост уходит (плавно), через миг будет удалён из стека. */
+  leaving?: boolean;
 }
 
 interface ToastOptions {
@@ -225,8 +229,9 @@ export const useUIStore = create<UIState>((set, get) => ({
 
   pushToast: (message, tone = 'default', options = {}) => {
     const id = `t_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-    const { actionLabel, onAction, duration = 3200 } = options;
-    set((s) => ({ toasts: [...s.toasts, { id, message, tone, actionLabel, onAction }] }));
+    // Ошибку нужно успеть прочитать (там причина и что делать) — она живёт дольше.
+    const { actionLabel, onAction, duration = tone === 'error' ? 5000 : 3200 } = options;
+    set((s) => ({ toasts: [...s.toasts, { id, message, tone, actionLabel, onAction, duration }] }));
     toastTimers.set(id, {
       timeout: setTimeout(() => get().dismissToast(id), duration),
       expiresAt: Date.now() + duration,
@@ -234,11 +239,14 @@ export const useUIStore = create<UIState>((set, get) => ({
     });
   },
 
+  // Сначала помечаем «уходит» (плавное исчезновение в ToastHost), затем удаляем.
   dismissToast: (id) => {
     const timer = toastTimers.get(id);
     if (timer?.timeout) clearTimeout(timer.timeout);
     toastTimers.delete(id);
-    set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
+    if (!get().toasts.some((t) => t.id === id && !t.leaving)) return;
+    set((s) => ({ toasts: s.toasts.map((t) => (t.id === id ? { ...t, leaving: true } : t)) }));
+    setTimeout(() => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })), 180);
   },
 
   // Hover pauses the countdown; leaving resumes it from where it stopped

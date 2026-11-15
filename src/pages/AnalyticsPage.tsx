@@ -1,245 +1,101 @@
-import { useEffect, useState } from 'react';
+import { useState, type CSSProperties } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
-import { Icon, type IconName } from '@/components/icons/Icon';
-import { CountUp } from '@/components/ui/CountUp';
-import { ErrorState, SkeletonRows } from '@/components/ui/States';
-import { useAsync } from '@/hooks/useAsync';
-import { useReveal } from '@/hooks/useReveal';
-import { usePageTitle } from '@/hooks/usePageTitle';
-import { Reveal } from './Reveal';
+import { Button } from '@/components/ui/Button';
+import { EmptyState, ErrorState, SkeletonRows } from '@/components/ui/States';
+import an from '@/components/ux/analytics.module.css';
 import { analyticsApi } from '@/api';
-import { useI18n } from '@/i18n/I18nProvider';
+import { useAsync } from '@/hooks/useAsync';
+import { usePageTitle } from '@/hooks/usePageTitle';
 import { localeFor } from '@/i18n/dates';
-import type { AnalyticsSummary, RiskLevel, Severity } from '@/types/domain';
+import { useI18n } from '@/i18n/I18nProvider';
+import { useUxT } from '@/i18n/uxMessages';
+import type { AnalyticsSummary, RiskLevel } from '@/types/domain';
 import styles from './pages.module.css';
 
-const STAT_META: { key: keyof StatMap; labelKey: string; icon: IconName; unitKey?: string }[] = [
-  { key: 'contractsReviewed', labelKey: 'an.contractsReviewed', icon: 'docs' },
-  { key: 'avgRiskScore', labelKey: 'an.avgRisk', icon: 'shield', unitKey: '/ 100' },
-  { key: 'highRiskFindings', labelKey: 'an.highRisk', icon: 'alert' },
-  { key: 'hoursSaved', labelKey: 'an.hoursSaved', icon: 'clock', unitKey: 'an.hours' },
-];
+/*
+ * Analytics (ui-test 2026-11-15) — по образцу Harvey: не «оценки» (сэкономленные
+ * часы, средний риск, кольцо серьёзности, свежесть базы законов), а
+ * 1) как фирма пользуется Lexab за 30 дней и по неделям,
+ * 2) что требует работы юриста (решения по находкам, сроки отказа, риск),
+ * 3) где чаще всего риски (темы находок, контрагенты).
+ * Цвет данных — один синий (без фиолетового); риск — статусный цвет + подпись.
+ */
 
-interface StatMap {
-  contractsReviewed: number;
-  avgRiskScore: number;
-  highRiskFindings: number;
-  hoursSaved: number;
+const RISK_COLOR: Record<RiskLevel, string> = { High: 'var(--sev-high)', Elevated: 'var(--sev-med)', Low: 'var(--sev-low)' };
+
+/** Верх оси: 1, 2, 5 × 10^k — подписи круглые, столбцы не упираются в край. */
+function niceMax(v: number): number {
+  if (v <= 4) return 4;
+  const p = 10 ** Math.floor(Math.log10(v));
+  for (const m of [1, 2, 5, 10]) if (v <= m * p) return m * p;
+  return 10 * p;
 }
 
-const SEVERITY_COLOR: Record<Severity, string> = {
-  High: 'var(--sev-high)',
-  Medium: 'var(--sev-med)',
-  Low: 'var(--sev-low)',
-};
-
-const RISK_COLOR: Record<RiskLevel, string> = {
-  High: 'var(--sev-high)',
-  Elevated: 'var(--sev-med)',
-  Low: 'var(--sev-low)',
-};
-
-/** Round the axis maximum up to a "nice" number (5, 10, 20, 50, 100 …). */
-function niceCeil(n: number): number {
-  if (n <= 5) return 5;
-  const pow = 10 ** Math.floor(Math.log10(n));
-  for (const m of [1, 2, 5, 10]) {
-    if (n <= m * pow) return m * pow;
-  }
-  return 10 * pow;
+function Delta({ now, prev }: { now: number; prev: number }) {
+  const u = useUxT();
+  const d = now - prev;
+  if (d === 0) return <span>{u('an2.deltaSame')}</span>;
+  return <span>{u(d > 0 ? 'an2.deltaUp' : 'an2.deltaDown', { n: Math.abs(d) })}</span>;
 }
 
-/** "2026-07" → localized short month label ("июл" / "Jul"). */
-function monthLabel(key: string, lang: string): string {
-  const [y, m] = key.split('-').map(Number);
-  return new Date(Date.UTC(y, (m ?? 1) - 1, 1)).toLocaleDateString(localeFor(lang), {
-    month: 'short',
-    timeZone: 'UTC',
-  });
-}
-
-/** Grouped monthly bars: reviews (accent) + findings (muted), animated growth. */
-function MonthlyChart({ data }: { data: AnalyticsSummary['monthly'] }) {
-  const { t, lang } = useI18n();
-  const max = niceCeil(Math.max(1, ...data.flatMap((m) => [m.reviews, m.findings])));
-  // Integer tick VALUES, each line positioned by its true value — so a bar of
-  // exactly "3" always meets the "3" gridline (max 5 or 10 isn't divisible by 4).
-  const ticks = [...new Set([4, 3, 2, 1, 0].map((i) => Math.round((max * i) / 4)))];
-
+function WeeklyChart({ weeks }: { weeks: NonNullable<AnalyticsSummary['weekly']> }) {
+  const u = useUxT();
+  const { lang } = useI18n();
+  const [series, setSeries] = useState<'reviews' | 'questions'>('reviews');
+  const fmt = (iso: string) => new Date(`${iso}T12:00:00`).toLocaleDateString(localeFor(lang), { day: 'numeric', month: 'short' });
+  const values = weeks.map((w) => w[series]);
+  const max = niceMax(Math.max(...values, 0));
+  const label = u(series === 'reviews' ? 'an2.tabReviews' : 'an2.tabQuestions');
+  const ticks = [max, max / 2, 0];
   return (
-    <div className={styles.panel} ref={useReveal(0.1)}>
-      <div className={styles.chartHead}>
-        <h2 className={styles.panelTitle}>{t('an.monthly')}</h2>
-        <div className={styles.chartLegend}>
-          <span className={styles.chartLegendItem}>
-            <i className={styles.chartDot} style={{ background: 'var(--chart-accent)' }} />
-            {t('an.series.reviews')}
-          </span>
-          <span className={styles.chartLegendItem}>
-            <i className={styles.chartDot} style={{ background: 'var(--chart-muted)' }} />
-            {t('an.series.findings')}
-          </span>
+    <div className={an.panel}>
+      <div className={an.panelHead}>
+        <div>
+          <h2 className={an.panelTitle}>{u('an2.activity')}</h2>
+          <span className={an.panelSub}>{u('an2.weeks')}</span>
+        </div>
+        <div className={an.seg} role="group" aria-label={u('an2.activity')}>
+          <button type="button" aria-pressed={series === 'reviews'} onClick={() => setSeries('reviews')}>
+            {u('an2.tabReviews')}
+          </button>
+          <button type="button" aria-pressed={series === 'questions'} onClick={() => setSeries('questions')}>
+            {u('an2.tabQuestions')}
+          </button>
         </div>
       </div>
-
-      {/* On narrow screens the 12 months scroll sideways instead of squashing. */}
-      <div className={styles.chartScroll}>
-        <div className={styles.chartArea}>
-          {/* Dashed gridlines with values on both sides, like a classic report chart. */}
-          {ticks.map((v) => (
-            <div key={v} className={styles.chartTick} style={{ top: `${((max - v) / max) * 100}%` }}>
-              <span className={styles.chartTickLabel}>{v}</span>
-              <span className={styles.chartTickLine} data-zero={v === 0 || undefined} />
-              <span className={styles.chartTickLabel}>{v}</span>
-            </div>
-          ))}
-          <div className={styles.chartCols}>
-            {data.map((m, i) => (
-              <div key={m.month} className={styles.chartCol}>
-                <div className={styles.chartBars}>
-                  <div
-                    className={styles.chartBar}
-                    style={{
-                      height: `${(m.reviews / max) * 100}%`,
-                      background: 'var(--chart-accent)',
-                      animationDelay: `${i * 45}ms`,
-                    }}
-                  >
-                    <span className={styles.chartBarValue}>{m.reviews}</span>
-                  </div>
-                  <div
-                    className={styles.chartBar}
-                    style={{
-                      height: `${(m.findings / max) * 100}%`,
-                      background: 'var(--chart-muted)',
-                      animationDelay: `${i * 45 + 22}ms`,
-                    }}
-                  >
-                    <span className={styles.chartBarValue}>{m.findings}</span>
-                  </div>
+      <div>
+        <div className={an.chart}>
+          <div className={an.yAxis} aria-hidden="true">
+            {ticks.map((v) => (
+              <span key={v} className={an.yTick} style={{ top: `${((max - v) / max) * 100}%` }}>
+                {Number.isInteger(v) ? v : v.toFixed(1)}
+              </span>
+            ))}
+          </div>
+          <div className={an.plot}>
+            {ticks.slice(0, 2).map((v) => (
+              <span key={v} className={an.grid} style={{ top: `${((max - v) / max) * 100}%` }} aria-hidden="true" />
+            ))}
+            {weeks.map((w, i) => {
+              const v = w[series];
+              const edge = i < 2 ? an.tipLeft : i > weeks.length - 3 ? an.tipRight : '';
+              const tip = `${fmt(w.start)} – ${fmt(w.end)}: ${label.toLowerCase()} ${v}`;
+              return (
+                <div key={w.start} className={an.col} tabIndex={0} aria-label={tip}>
+                  <span className={`${an.tip} ${edge}`}>{tip}</span>
+                  <span className={`${an.bar} ${v === 0 ? an.barZero : ''}`} style={{ height: v === 0 ? 2 : `${(v / max) * 100}%` }} />
                 </div>
-                <span className={styles.chartMonth}>{monthLabel(m.month, lang)}</span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
-      </div>
-    </div>
-  );
-}
-
-/** Round shares to integers that are GUARANTEED to sum to 100 (largest
- *  remainder): 1/1/1 must read 34/33/33, never 33+33+33 = 99. */
-function percentShares(counts: number[]): number[] {
-  const total = counts.reduce((s, n) => s + n, 0);
-  if (total === 0) return counts.map(() => 0);
-  const exact = counts.map((n) => (n / total) * 100);
-  const floors = exact.map(Math.floor);
-  let left = 100 - floors.reduce((s, n) => s + n, 0);
-  const order = exact
-    .map((v, i) => ({ i, frac: v - Math.floor(v) }))
-    .sort((a, b) => b.frac - a.frac);
-  for (const { i } of order) {
-    if (left <= 0) break;
-    floors[i] += 1;
-    left -= 1;
-  }
-  return floors;
-}
-
-/** Donut of findings by severity: green = Low, yellow = Medium, red = High. */
-function SeverityDonut({ data }: { data: AnalyticsSummary['findingsBySeverity'] }) {
-  const { t } = useI18n();
-  const total = data.reduce((s, f) => s + f.count, 0);
-  const R = 62;
-  const C = 2 * Math.PI * R;
-  // Draw-in animation: segments start at zero length and grow to target.
-  const [drawn, setDrawn] = useState(false);
-  useEffect(() => {
-    const id = requestAnimationFrame(() => setDrawn(true));
-    return () => cancelAnimationFrame(id);
-  }, []);
-
-  let acc = 0;
-  const segments = data
-    .filter((f) => f.count > 0)
-    .map((f) => {
-      const frac = f.count / total;
-      const seg = { ...f, frac, start: acc };
-      acc += frac;
-      return seg;
-    });
-
-  return (
-    <div className={styles.panel} ref={useReveal(0.1)}>
-      <h2 className={styles.panelTitle}>{t('an.bySeverity')}</h2>
-      <div className={styles.donutWrap}>
-        <svg viewBox="0 0 160 160" className={styles.donutSvg} role="img" aria-label={t('an.bySeverity')}>
-          <g transform="rotate(-90 80 80)">
-            <circle cx="80" cy="80" r={R} fill="none" stroke="var(--hover-2)" strokeWidth="21" />
-            {segments.map((s) => (
-              <circle
-                key={s.severity}
-                cx="80"
-                cy="80"
-                r={R}
-                fill="none"
-                stroke={SEVERITY_COLOR[s.severity as Severity]}
-                strokeWidth="21"
-                className={styles.donutSeg}
-                strokeDasharray={drawn ? `${s.frac * C} ${C}` : `0 ${C}`}
-                strokeDashoffset={-s.start * C}
-              />
-            ))}
-          </g>
-        </svg>
-        <div className={styles.donutCenter}>
-          <div className={styles.donutTotal}>
-            <CountUp to={total} />
-          </div>
-          <div className={styles.donutTotalLabel}>{t('an.donutTotal')}</div>
+        <div className={an.xAxis} aria-hidden="true">
+          <span />
+          {weeks.map((w, i) => (
+            <span key={w.start}>{i % 3 === 2 || i === weeks.length - 1 ? fmt(w.start) : ''}</span>
+          ))}
         </div>
-      </div>
-      <div className={styles.donutLegend}>
-        {(() => {
-          const pcts = percentShares(data.map((f) => f.count));
-          return data.map((f, i) => (
-            <div key={f.severity} className={styles.legendRow}>
-              <span className={styles.legendLeft}>
-                <i className={styles.chartDot} style={{ background: SEVERITY_COLOR[f.severity as Severity] }} />
-                {t(`sev.${f.severity}`)}
-              </span>
-              <span className={styles.legendValue}>
-                <b>{pcts[i]}%</b>
-                <span className={styles.legendCount}>({f.count})</span>
-              </span>
-            </div>
-          ));
-        })()}
-      </div>
-    </div>
-  );
-}
-
-/** A labelled row with a thin share bar — used by the risk-centre breakdowns. */
-function ShareRow({ label, value, share, highCount, highLabel }: {
-  label: string;
-  value: number;
-  share: number; // 0..1 of the largest row
-  highCount: number;
-  highLabel: string;
-}) {
-  return (
-    <div className={styles.shareRow}>
-      <div className={styles.shareTop}>
-        <span className={styles.shareLabel} title={label}>{label}</span>
-        <span className={styles.shareValue}>
-          {highCount > 0 ? <span className={styles.shareHigh}>{highLabel}</span> : null}
-          {value}
-        </span>
-      </div>
-      <div className={styles.shareTrack}>
-        <div className={styles.shareFill} style={{ width: `${Math.max(4, share * 100)}%` }} />
       </div>
     </div>
   );
@@ -247,273 +103,300 @@ function ShareRow({ label, value, share, highCount, highLabel }: {
 
 export function AnalyticsPage() {
   const { t, lang } = useI18n();
+  const u = useUxT();
+  const navigate = useNavigate();
+  usePageTitle(t('an.title'));
   const { data, loading, error, reload } = useAsync((signal) => analyticsApi.summary(signal), []);
-  usePageTitle(t('nav.analytics'));
+  const num = (n: number) => n.toLocaleString(localeFor(lang));
+  const date = (iso: string) => new Date(`${iso}T12:00:00`).toLocaleDateString(localeFor(lang), { day: 'numeric', month: 'long' });
+  const daysTo = (iso: string) => Math.max(0, Math.round((Date.parse(`${iso}T00:00:00Z`) - Date.UTC(new Date().getFullYear(), new Date().getMonth(), new Date().getDate())) / 86_400_000));
 
-  const dateFmt = (iso: string | null) =>
-    iso ? new Date(iso).toLocaleDateString(localeFor(lang), { day: 'numeric', month: 'short', year: 'numeric' }) : '—';
+  const body = () => {
+    if (loading) return <SkeletonRows rows={4} height={110} />;
+    if (error || !data) return <ErrorState message={error ?? t('common.error')} onRetry={reload} />;
+    const s = data;
+    const pulse = s.pulse ?? { reviews30d: 0, reviewsPrev30d: 0, questions30d: 0, questionsPrev30d: 0 };
+    const nothing = s.contractsReviewed === 0 && pulse.questions30d === 0 && pulse.questionsPrev30d === 0;
+    if (nothing) {
+      return (
+        <EmptyState
+          icon="analytics"
+          title={u('an2.emptyTitle')}
+          body={u('an2.empty')}
+          action={
+            <Button variant="primary" icon="upload" onClick={() => navigate('/chat')}>
+              {u('sm.upload')}
+            </Button>
+          }
+        />
+      );
+    }
+    const cited = s.compliance.verified + s.compliance.unverified;
+    const verifiedPct = cited ? Math.round((s.compliance.verified / cited) * 100) : null;
+    const decisions = s.decisions;
+    const topics = s.topics?.items ?? [];
+    const topicMax = Math.max(1, ...topics.map((x) => x.total));
+    const parties = s.riskCenter.byCounterparty;
+    const partyMax = Math.max(1, ...parties.map((x) => x.total));
 
-  const citTotal = data ? data.compliance.verified + data.compliance.unverified : 0;
-  // floor, not round: "100% verified" must never appear while unverified > 0.
-  const citPct = data && citTotal > 0 ? Math.floor((data.compliance.verified / citTotal) * 100) : null;
+    return (
+      <div className={an.an}>
+        {/* 1. Пульс за 30 дней — как Harvey: использование, а не «сэкономленные часы». */}
+        <div className={an.kpis}>
+          <div className={an.kpi}>
+            <span className={an.kpiLabel}>{u('an2.reviews')}</span>
+            <span className={an.kpiValue}>{num(pulse.reviews30d)}</span>
+            <span className={an.kpiSub}>
+              <Delta now={pulse.reviews30d} prev={pulse.reviewsPrev30d} />
+            </span>
+          </div>
+          <div className={an.kpi}>
+            <span className={an.kpiLabel}>{u('an2.questions')}</span>
+            <span className={an.kpiValue}>{num(pulse.questions30d)}</span>
+            <span className={an.kpiSub}>
+              <Delta now={pulse.questions30d} prev={pulse.questionsPrev30d} />
+            </span>
+          </div>
+          <div className={an.kpi}>
+            <span className={an.kpiLabel}>{u('an2.waiting')}</span>
+            <span className={an.kpiValue}>{decisions ? num(decisions.waiting) : '—'}</span>
+            <span className={an.kpiSub}>
+              {decisions?.top[0] ? (
+                <button type="button" className={an.kpiLink} onClick={() => navigate(`/documents/${decisions.top[0].documentId}`)}>
+                  {u('an2.openFirst')}
+                </button>
+              ) : (
+                <span>{u('an2.waitingSub')}</span>
+              )}
+            </span>
+          </div>
+          <div className={an.kpi}>
+            <span className={an.kpiLabel}>{u('an2.verified')}</span>
+            <span className={an.kpiValue}>
+              {verifiedPct === null ? '—' : verifiedPct}
+              {verifiedPct === null ? null : <small>%</small>}
+            </span>
+            {verifiedPct !== null ? (
+              <>
+                <div className={an.meter} aria-hidden="true">
+                  <span style={{ width: `${verifiedPct}%` }} />
+                </div>
+                <span className={an.kpiSub}>{u('an2.verifiedSub', { n: num(cited) })}</span>
+              </>
+            ) : null}
+          </div>
+        </div>
+
+        {/* 2. Активность по неделям: один ряд и одна ось, переключатель вместо второй серии. */}
+        {s.weekly?.length ? <WeeklyChart weeks={s.weekly} /> : null}
+
+        {/* 3. Что требует внимания + самые рискованные договоры. */}
+        <div className={an.two}>
+          <div className={an.panel}>
+            <h2 className={an.panelTitle}>{u('an2.attention')}</h2>
+            <h3 className={an.subhead}>{u('an2.attentionWaiting')}</h3>
+            {decisions?.top.length ? (
+              <div className={an.list}>
+                {decisions.top.map((d) => (
+                  <button key={d.analysisId} type="button" className={`${an.row} ${an.rowBtn}`} onClick={() => navigate(`/documents/${d.documentId}`)}>
+                    <span className={an.name} title={d.name}>
+                      {d.name}
+                    </span>
+                    <span className={an.right}>{u('an2.waitingRow', { n: d.waiting, total: d.total })}</span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className={an.empty}>{u('an2.noneWaiting')}</p>
+            )}
+            <h3 className={an.subhead}>{u('an2.renewals')}</h3>
+            {s.renewals === null ? (
+              <p className={an.empty}>{u('an2.renewalsLocked')}</p>
+            ) : s.renewals?.top.length ? (
+              <div className={an.list}>
+                {s.renewals.top.map((r) => {
+                  const d = daysTo(r.last);
+                  return (
+                    <button key={r.documentId} type="button" className={`${an.row} ${an.rowBtn}`} onClick={() => navigate('/contracts')}>
+                      <span style={{ minWidth: 0 }}>
+                        <span className={an.name} title={r.name} style={{ display: 'block' }}>
+                          {r.name}
+                        </span>
+                        <span className={an.sub}>
+                          {date(r.last)}
+                          {r.counterparty && r.counterparty !== '—' ? `, ${r.counterparty}` : ''}
+                        </span>
+                      </span>
+                      <span className={an.chip} style={{ '--chip': d <= 7 ? 'color-mix(in srgb, var(--sev-high) 80%, var(--text))' : 'color-mix(in srgb, var(--sev-med) 62%, var(--text))' } as CSSProperties}>
+                        {u('rn.inDays', { n: d })}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className={an.empty}>{u('an2.noneRenewals')}</p>
+            )}
+          </div>
+
+          <div className={an.panel}>
+            <h2 className={an.panelTitle}>{u('an2.topRisk')}</h2>
+            {s.riskCenter.topContracts.length ? (
+              <div className={an.list}>
+                {s.riskCenter.topContracts.map((c) => (
+                  <button key={c.id} type="button" className={`${an.row} ${an.rowBtn}`} onClick={() => navigate(`/documents/${c.id}`)}>
+                    <span style={{ minWidth: 0 }}>
+                      <span className={an.name} title={c.name} style={{ display: 'block' }}>
+                        {c.name}
+                      </span>
+                      {c.counterparty && c.counterparty !== '—' ? <span className={an.sub}>{c.counterparty}</span> : null}
+                    </span>
+                    <span className={an.riskCell}>
+                      <span className={`${an.riskMeter} ${an.hideNarrow}`} style={{ '--risk': RISK_COLOR[c.riskLevel] } as CSSProperties} aria-hidden="true">
+                        <span style={{ width: `${c.riskScore}%` }} />
+                      </span>
+                      <span className={an.right}>
+                        {t(`risk.${c.riskLevel}`)}, {c.riskScore}
+                      </span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className={an.empty}>{t('an.noData')}</p>
+            )}
+          </div>
+        </div>
+
+        {/* 4. Где чаще всего риски: темы находок и контрагенты (ранжированные полосы, один цвет). */}
+        <div className={an.two}>
+          <div className={an.panel}>
+            <div className={an.panelHead}>
+              <h2 className={an.panelTitle}>{u('an2.byTopic')}</h2>
+              <span className={an.panelSub}>{u('an2.byTopicSub')}</span>
+            </div>
+            {topics.length ? (
+              <div>
+                {topics.map((x) => (
+                  <div key={x.topic} className={an.rank}>
+                    <span className={an.rankLabel}>{u(`bm.topic.${x.topic}`)}</span>
+                    <span className={an.rankTrack} aria-hidden="true">
+                      <span className={an.rankFill} style={{ width: `${(x.total / topicMax) * 100}%`, display: 'block' }} />
+                    </span>
+                    <span className={an.rankValue}>
+                      <b>{x.total}</b>{x.high ? `, ${u('an2.topicHigh', { n: x.high })}` : ''}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className={an.empty}>{t('an.noData')}</p>
+            )}
+            {s.topics?.unlabeled ? <p className={an.empty}>{u('an2.topicUnlabeled', { n: s.topics.unlabeled })}</p> : null}
+          </div>
+
+          <div className={an.panel}>
+            <div className={an.panelHead}>
+              <h2 className={an.panelTitle}>{u('an2.byCounterparty')}</h2>
+              <span className={an.panelSub}>{u('an2.byCounterpartySub')}</span>
+            </div>
+            {parties.length ? (
+              <div>
+                {parties.map((x) => (
+                  <div key={x.counterparty} className={an.rank}>
+                    <span className={an.rankLabel} title={x.counterparty}>
+                      {x.counterparty}
+                    </span>
+                    <span className={an.rankTrack} aria-hidden="true">
+                      <span className={an.rankFill} style={{ width: `${(x.total / partyMax) * 100}%`, display: 'block' }} />
+                    </span>
+                    <span className={an.rankValue}>
+                      <b>{x.total}</b>{x.high ? `, ${u('an2.topicHigh', { n: x.high })}` : ''}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className={an.empty}>{t('an.noData')}</p>
+            )}
+          </div>
+        </div>
+
+        {/* 5. Деньги под риском — только когда в договорах есть суммы. */}
+        {s.valueAtRisk.currencies.length ? (
+          <div className={an.panel}>
+            <div className={an.panelHead}>
+              <h2 className={an.panelTitle}>{t('an.var')}</h2>
+              <span className={an.panelSub}>{t('an.varSub')}</span>
+            </div>
+            <table className={an.table}>
+              <thead>
+                <tr>
+                  <th>{u('an2.currency')}</th>
+                  <th>{t('an.varHigh')}</th>
+                  <th className={an.hideNarrow}>{t('an.varElevated')}</th>
+                  <th className={an.hideNarrow}>{t('an.varLow')}</th>
+                  <th>{t('an.varTotal')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {s.valueAtRisk.currencies.map((c) => (
+                  <tr key={c.currency}>
+                    <td>{c.currency === '—' ? t('an.varNoCurrency') : c.currency}</td>
+                    <td>{num(c.high)}</td>
+                    <td className={an.hideNarrow}>{num(c.elevated)}</td>
+                    <td className={an.hideNarrow}>{num(c.low)}</td>
+                    <td>{num(c.total)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+
+        {/* 6. Команда — только владельцу команды (как и раньше). */}
+        {s.team?.length ? (
+          <div className={an.panel}>
+            <div className={an.panelHead}>
+              <h2 className={an.panelTitle}>{t('an.team')}</h2>
+              <span className={an.panelSub}>{t('an.teamSub')}</span>
+            </div>
+            <table className={an.table}>
+              <thead>
+                <tr>
+                  <th>{t('an.teamMember')}</th>
+                  <th>{t('an.teamReviews30')}</th>
+                  <th className={an.hideNarrow}>{t('an.teamTotal')}</th>
+                  <th className={an.hideNarrow}>{t('an.teamLastActive')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {s.team.map((m) => (
+                  <tr key={m.id}>
+                    <td>{m.name}</td>
+                    <td>{m.reviews30d}</td>
+                    <td className={an.hideNarrow}>{m.reviewsTotal}</td>
+                    <td className={an.hideNarrow}>{m.lastActive ? new Date(m.lastActive).toLocaleDateString(localeFor(lang)) : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+      </div>
+    );
+  };
 
   return (
     <div className={styles.page}>
       <TopBar title={t('an.title')} hideCountry />
       <div className={`${styles.body} scroll`}>
         <div className={styles.container}>
-          <div className={styles.pageHead} ref={useReveal()}>
+          <div className={styles.pageHead}>
             <h1 className={styles.pageTitle}>{t('an.title')}</h1>
-            <p className={styles.pageSub}>{t('an.sub')}</p>
+            <p className={styles.pageSub}>{u('an2.sub')}</p>
           </div>
-
-          {loading ? (
-            <SkeletonRows rows={4} height={96} />
-          ) : error ? (
-            <ErrorState message={error} onRetry={reload} />
-          ) : data ? (
-            <>
-              <div className={styles.statGrid}>
-                {STAT_META.map((m, i) => (
-                  <Reveal key={m.key} delay={i * 0.06} className={styles.stat}>
-                    <div className={styles.statLabel}>
-                      <Icon name={m.icon} size={15} color="var(--accent)" />
-                      {t(m.labelKey)}
-                    </div>
-                    <div className={styles.statValue}>
-                      <CountUp to={data[m.key]} decimals={Number.isInteger(data[m.key]) ? 0 : 1} />
-                      {m.unitKey ? (
-                        <span className={styles.statUnit}>{m.unitKey === '/ 100' ? '/ 100' : t(m.unitKey)}</span>
-                      ) : null}
-                    </div>
-                  </Reveal>
-                ))}
-              </div>
-
-              <MonthlyChart data={data.monthly} />
-
-              <div className={styles.panels}>
-                <SeverityDonut data={data.findingsBySeverity} />
-
-                {/* ── Risk centre: highest-risk contracts ── */}
-                <div className={styles.panel}>
-                  <h2 className={styles.panelTitle}>{t('an.topContracts')}</h2>
-                  {data.riskCenter.topContracts.length === 0 ? (
-                    <p className={styles.panelEmpty}>{t('an.noData')}</p>
-                  ) : (
-                    data.riskCenter.topContracts.map((c) => (
-                      <div key={c.id} className={styles.riskDocRow}>
-                        <span className={styles.riskDocDot} style={{ background: RISK_COLOR[c.riskLevel] }} />
-                        <span className={styles.riskDocName} title={c.name}>
-                          {c.name}
-                          {c.counterparty !== '—' ? <em>{c.counterparty}</em> : null}
-                        </span>
-                        <span className={styles.riskDocScore}>
-                          {c.riskScore}
-                          <span className={styles.statUnit}>/ 100</span>
-                        </span>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-
-              <div className={styles.sectionHead}>
-                <h2 className={styles.sectionTitle}>{t('an.riskCenter')}</h2>
-                <p className={styles.sectionSub}>{t('an.riskCenterSub')}</p>
-              </div>
-              <div className={styles.panels}>
-                <div className={styles.panel}>
-                  <h2 className={styles.panelTitle}>{t('an.byJurisdiction')}</h2>
-                  {data.riskCenter.byJurisdiction.length === 0 ? (
-                    <p className={styles.panelEmpty}>{t('an.noData')}</p>
-                  ) : (
-                    data.riskCenter.byJurisdiction.map((r) => {
-                      const maxTotal = Math.max(...data.riskCenter.byJurisdiction.map((x) => x.total));
-                      return (
-                        <ShareRow
-                          key={r.jurisdiction}
-                          label={r.jurisdiction}
-                          value={r.total}
-                          share={r.total / maxTotal}
-                          highCount={r.high}
-                          highLabel={t('an.highCount', { n: r.high })}
-                        />
-                      );
-                    })
-                  )}
-                </div>
-                <div className={styles.panel}>
-                  <h2 className={styles.panelTitle}>{t('an.byCounterparty')}</h2>
-                  {data.riskCenter.byCounterparty.length === 0 ? (
-                    <p className={styles.panelEmpty}>{t('an.noData')}</p>
-                  ) : (
-                    data.riskCenter.byCounterparty.map((r) => {
-                      const maxTotal = Math.max(...data.riskCenter.byCounterparty.map((x) => x.total));
-                      return (
-                        <ShareRow
-                          key={r.counterparty}
-                          label={r.counterparty}
-                          value={r.total}
-                          share={r.total / maxTotal}
-                          highCount={r.high}
-                          highLabel={t('an.highCount', { n: r.high })}
-                        />
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-
-              {/* «Деньги под риском»: стоимость договоров (CLM) по уровням риска. */}
-              {data.valueAtRisk && data.valueAtRisk.currencies.length > 0 ? (
-                <>
-                  <div className={styles.sectionHead}>
-                    <h2 className={styles.sectionTitle}>{t('an.var')}</h2>
-                    <p className={styles.sectionSub}>{t('an.varSub')}</p>
-                  </div>
-                  <div className={styles.panels}>
-                    {data.valueAtRisk.currencies.map((c) => {
-                      const fmt = (n: number) =>
-                        `${new Intl.NumberFormat(localeFor(lang), { notation: n >= 1_000_000 ? 'compact' : 'standard', maximumFractionDigits: 1 }).format(n)} ${c.currency === '—' ? '' : c.currency}`.trim();
-                      return (
-                        <div key={c.currency} className={styles.panel}>
-                          <h2 className={styles.panelTitle}>{c.currency === '—' ? t('an.varNoCurrency') : c.currency}</h2>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14 }}>
-                              <span style={{ color: 'var(--danger)', fontWeight: 600 }}>{t('an.varHigh')}</span>
-                              <strong>{fmt(c.high)}</strong>
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14 }}>
-                              <span style={{ color: 'var(--sev-med)' }}>{t('an.varElevated')}</span>
-                              <span>{fmt(c.elevated)}</span>
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14 }}>
-                              <span style={{ color: 'var(--sev-low)' }}>{t('an.varLow')}</span>
-                              <span>{fmt(c.low)}</span>
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
-                              <span style={{ color: 'var(--mut)' }}>{t('an.varTotal')}</span>
-                              <strong>{fmt(c.total)}</strong>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                    {data.valueAtRisk.highRiskExpiringSoon > 0 ? (
-                      <div className={styles.panel}>
-                        <h2 className={styles.panelTitle}>{t('an.varExpiring')}</h2>
-                        <div style={{ fontSize: 34, fontWeight: 700, color: 'var(--danger)', marginTop: 8 }}>
-                          {data.valueAtRisk.highRiskExpiringSoon}
-                        </div>
-                        <p className={styles.sectionSub} style={{ marginTop: 4 }}>{t('an.varExpiringSub')}</p>
-                      </div>
-                    ) : null}
-                  </div>
-                </>
-              ) : null}
-
-              <div className={styles.sectionHead}>
-                <h2 className={styles.sectionTitle}>{t('an.compliance')}</h2>
-                <p className={styles.sectionSub}>{t('an.complianceSub')}</p>
-              </div>
-              <div className={styles.panels}>
-                <div className={styles.panel}>
-                  <h2 className={styles.panelTitle}>{t('an.citations')}</h2>
-                  {citPct === null ? (
-                    <p className={styles.panelEmpty}>{t('an.noData')}</p>
-                  ) : (
-                    <>
-                      <div className={styles.citHeadline}>
-                        <span className={styles.citPct}>{citPct}%</span>
-                        <span className={styles.citPctLabel}>{t('an.citationsVerifiedShare')}</span>
-                      </div>
-                      <div className={styles.shareTrack}>
-                        <div
-                          className={styles.shareFill}
-                          style={{ width: `${citPct}%`, background: 'var(--sev-low)' }}
-                        />
-                      </div>
-                      <div className={styles.citRows}>
-                        <div className={styles.legendRow}>
-                          <span className={styles.legendLeft}>
-                            <i className={styles.chartDot} style={{ background: 'var(--sev-low)' }} />
-                            {t('an.citationsVerified')}
-                          </span>
-                          <span className={styles.legendValue}>{data.compliance.verified}</span>
-                        </div>
-                        <div className={styles.legendRow}>
-                          <span className={styles.legendLeft}>
-                            <i className={styles.chartDot} style={{ background: 'var(--sev-med)' }} />
-                            {t('an.citationsUnverified')}
-                          </span>
-                          <span className={styles.legendValue}>{data.compliance.unverified}</span>
-                        </div>
-                      </div>
-                    </>
-                  )}
-                </div>
-                <div className={styles.panel}>
-                  <h2 className={styles.panelTitle}>{t('an.corpus')}</h2>
-                  {data.compliance.corpus.length === 0 ? (
-                    <p className={styles.panelEmpty}>{t('an.noData')}</p>
-                  ) : (
-                    <>
-                      {data.compliance.corpus.map((c) => (
-                        <div key={c.jurisdiction} className={styles.legendRow}>
-                          <span className={styles.legendLeft}>
-                            <span className={styles.corpusJur}>{c.jurisdiction}</span>
-                            {t('an.corpusDocs', { n: c.documents })}
-                          </span>
-                          <span className={`${styles.legendValue} ${styles.metaText}`}>{dateFmt(c.updatedAt)}</span>
-                        </div>
-                      ))}
-                      <p className={styles.corpusNote}>{t('an.corpusNote')}</p>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              {data.team ? (
-                <>
-                  <div className={styles.sectionHead}>
-                    <h2 className={styles.sectionTitle}>{t('an.team')}</h2>
-                    <p className={styles.sectionSub}>{t('an.teamSub')}</p>
-                  </div>
-                  <div className={styles.panel}>
-                    <div className={styles.teamGridHead}>
-                      <span>{t('an.teamMember')}</span>
-                      <span>{t('an.teamReviews30')}</span>
-                      <span className={styles.hideSm}>{t('an.teamTotal')}</span>
-                      <span className={styles.hideSm}>{t('an.teamLastActive')}</span>
-                    </div>
-                    {data.team.map((m) => {
-                      const maxRecent = Math.max(1, ...data.team!.map((x) => x.reviews30d));
-                      return (
-                        <div key={m.id} className={styles.teamGridRow}>
-                          <span className={styles.teamName}>
-                            {m.name}
-                            <em>{t(`team.role.${m.role}`)}</em>
-                          </span>
-                          <span className={styles.teamLoad}>
-                            <span className={styles.shareTrack}>
-                              <span
-                                className={styles.shareFill}
-                                style={{ width: `${Math.max(3, (m.reviews30d / maxRecent) * 100)}%` }}
-                              />
-                            </span>
-                            {m.reviews30d}
-                          </span>
-                          <span className={styles.hideSm}>{m.reviewsTotal}</span>
-                          <span className={`${styles.hideSm} ${styles.metaText}`}>{dateFmt(m.lastActive)}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </>
-              ) : null}
-            </>
-          ) : null}
+          {body()}
         </div>
       </div>
     </div>

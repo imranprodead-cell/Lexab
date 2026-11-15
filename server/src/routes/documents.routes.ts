@@ -12,6 +12,7 @@ import { deleteFile } from '../storage.ts';
 import { finalContractText, loadSourceText, unappliedNote } from '../lib/fullText.ts';
 import { badRequest, HttpError, notFound } from '../lib/errors.ts';
 import { decJsonFromJsonb, decText, encryptionEnabled } from '../lib/docCrypto.ts';
+import { previewFromBlocks, previewFromText, redlineIdsIn, type DocPreview } from '../lib/docPreview.ts';
 import { assertFeature } from '../lib/limits.ts';
 import { canEdit, resolveDocumentAccess } from '../lib/teamAccess.ts';
 import { attachmentDisposition, formatSize, looksRussian, toIso } from '../lib/format.ts';
@@ -151,6 +152,9 @@ async function searchDocumentContent(db: Db, userId: string, needle: string, log
   }
   return [...matched];
 }
+
+/** Сколько превью за один запрос: страница Documents — 9 карточек, недавние — 3. */
+const PREVIEW_MAX_IDS = 24;
 
 export function documentRoutes(app: FastifyInstance, db: Db): void {
   app.get('/documents', { preHandler: [app.authenticate] }, async (req, reply): Promise<ContractDocument[]> => {
@@ -382,6 +386,63 @@ export function documentRoutes(app: FastifyInstance, db: Db): void {
     }
     await audit(db, req, { type: 'document.deleted', target: { type: 'document', id, label: doc.name } });
     reply.code(204);
+  });
+
+  // Превью для карточек «Недавние файлы» и Vault → Documents (ui-test
+  // 2026-11-15): заголовок и первые абзацы, ≤ 600 знаков на документ.
+  // GET /documents/previews?ids=a,b,c — только свои и доступные по команде;
+  // чужие и удалённые id молча пропускаются (как будто превью нет).
+  app.get('/documents/previews', { preHandler: [app.authenticate] }, async (req): Promise<Record<string, DocPreview>> => {
+    const raw = String((req.query as { ids?: unknown }).ids ?? '');
+    const ids = [...new Set(raw.split(',').map((s) => s.trim()).filter((s) => s && s.length <= 64))].slice(0, PREVIEW_MAX_IDS);
+    if (!ids.length) return {};
+    const me = req.currentUser.id;
+    const docs = await db.query<{ id: string; user_id: string; name: string }>(
+      `SELECT id, user_id, name FROM documents
+       WHERE id = ANY($1::text[]) AND deleted_at IS NULL
+         AND (user_id = $2 OR (team_shared AND user_id IN (
+               SELECT owner_user_id FROM team_members WHERE member_user_id = $2 AND status = 'active')))`,
+      [ids, me],
+    );
+    if (!docs.rows.length) return {};
+    const docIds = docs.rows.map((d) => d.id);
+    const out: Record<string, DocPreview> = {};
+
+    // 1) Последний разбор: блоки документа (ключ — владелец разбора).
+    const analyses = await db.query<{ id: string; user_id: string; document_id: string; document_blocks: unknown }>(
+      `SELECT DISTINCT ON (document_id) id, user_id, document_id, document_blocks
+       FROM analyses WHERE document_id = ANY($1::text[])
+       ORDER BY document_id, created_at DESC`,
+      [docIds],
+    );
+    for (const a of analyses.rows) {
+      const blocks = (await decJsonFromJsonb(db, a.user_id, a.document_blocks).catch(() => null)) as DocBlock[] | null;
+      if (!Array.isArray(blocks) || !blocks.length) continue;
+      const wanted = redlineIdsIn(blocks);
+      const delTextById = new Map<string, string>();
+      if (wanted.length) {
+        const rl = await db.query<{ id: string; del_text: string }>(
+          'SELECT id, del_text FROM redlines WHERE analysis_id = $1 AND id = ANY($2::text[])',
+          [a.id, wanted],
+        );
+        for (const r of rl.rows) delTextById.set(r.id, (await decText(db, a.user_id, r.del_text).catch(() => null)) ?? '');
+      }
+      const p = previewFromBlocks(blocks, delTextById);
+      if (p.text || p.title) out[a.document_id] = p;
+    }
+
+    // 2) Разбора нет — распознанный текст последней загрузки с тем же именем.
+    for (const d of docs.rows.filter((x) => !out[x.id])) {
+      const up = await db.query<{ extracted_text: string | null }>(
+        'SELECT extracted_text FROM uploads WHERE user_id = $1 AND file_name = $2 ORDER BY created_at DESC LIMIT 1',
+        [d.user_id, d.name],
+      );
+      const text = await decText(db, d.user_id, up.rows[0]?.extracted_text).catch(() => null);
+      if (!text) continue;
+      const p = previewFromText(text);
+      if (p.text || p.title) out[d.id] = p;
+    }
+    return out;
   });
 
   app.get('/documents/:id/versions', { preHandler: [app.authenticate] }, async (req): Promise<DocumentVersion[]> => {

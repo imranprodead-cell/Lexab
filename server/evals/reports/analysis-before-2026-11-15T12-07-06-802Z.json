@@ -1,0 +1,304 @@
+{
+ "summary": {
+  "label": "before",
+  "plan": "Free",
+  "model": "deepseek-flash",
+  "judge": "deepseek-flash",
+  "contracts": 5,
+  "findings": 26,
+  "citationPrecision": 0.654,
+  "unverifiedShare": 0.115,
+  "topicCoverage": 0,
+  "topicAgreeWithKeywords": null,
+  "contradictionsPlanted": 6,
+  "contradictionsFound": 0,
+  "contradictionRecall": 0,
+  "conflictsReported": 0,
+  "conflictsNotPlanted": 0,
+  "conflictsNotVerbatim": 0,
+  "fallbackUsed": false,
+  "deepseekSpentUsd": 0
+ },
+ "rows": [
+  {
+   "id": "supply",
+   "ms": 13069,
+   "findings": [
+    {
+     "severity": "High",
+     "title": "Пеня 1% в день не ограничена и явно несоразмерна последствиям нарушения",
+     "citation": "ст. 260 ГК Республики Узбекистан",
+     "verified": false,
+     "topic": null,
+     "keywordTopic": "penalty",
+     "conflict": false
+    },
+    {
+     "severity": "High",
+     "title": "Противоречие сроков оплаты: 30 календарных дней (п. 4.2) против 60 банковских дней (п. 8.3)",
+     "citation": "ст. 233 ГК Республики Узбекистан",
+     "verified": false,
+     "topic": null,
+     "keywordTopic": "payment",
+     "conflict": false
+    },
+    {
+     "severity": "Medium",
+     "title": "Возмещение убытков в полном объёме сверх пени — двойная ответственность",
+     "citation": "ст. 14 ГК Республики Узбекистан",
+     "verified": false,
+     "topic": null,
+     "keywordTopic": "penalty",
+     "conflict": false
+    },
+    {
+     "severity": "Medium",
+     "title": "Односторонний немотивированный отказ Покупателя с уведомлением за 10 дней",
+     "citation": "ст. 382 ГК Республики Узбекистан",
+     "verified": false,
+     "topic": null,
+     "keywordTopic": "termination",
+     "conflict": false
+    },
+    {
+     "severity": "Medium",
+     "title": "Приёмка по количеству и качеству не урегулирована — отсутствуют сроки и порядок предъявления претензий",
+     "citation": "ст. 455 ГК Республики Узбекистан",
+     "verified": false,
+     "topic": null,
+     "keywordTopic": "acceptance",
+     "conflict": false
+    },
+    {
+     "severity": "Low",
+     "title": "Сумма прописью не соответствует цифровому значению (150 000 000 против «сто миллионов»)",
+     "citation": "ст. 82 ГК Республики Узбекистан",
+     "verified": false,
+     "topic": null,
+     "keywordTopic": "other",
+     "conflict": false
+    }
+   ],
+   "conflicts": [],
+   "plantedFound": 0,
+   "planted": 2
+  },
+  {
+   "id": "lease",
+   "ms": 15106,
+   "findings": [
+    {
+     "severity": "High",
+     "title": "Противоречие в сроке аренды: п. 2.1 (до 31.12.2026) и п. 9.1 (до 31.01.2027)",
+     "citation": "ст. 13 Закона «Об аренде»; п. 6 постановления Пленума ВХС № 234 от 01.12.2011",
+     "verified": true,
+     "topic": null,
+     "keywordTopic": "other",
+     "conflict": false
+    },
+    {
+     "severity": "High",
+     "title": "Противоречие в сроке внесения арендной платы: п. 3.2 и п. 3.5",
+     "citation": "п. 9 постановления Пленума ВХС № 234 от 01.12.2011",
+     "verified": true,
+     "topic": null,
+     "keywordTopic": "other",
+     "conflict": false
+    },
+    {
+     "severity": "High",
+     "title": "Неограниченное право арендодателя на немотивированный односторонний отказ с удержанием обеспечительного платежа",
+     "citation": "ст. 13 Закона «Об аренде»",
+     "verified": true,
+     "topic": null,
+     "keywordTopic": "termination",
+     "conflict": false
+    },
+    {
+     "severity": "Low",
+     "title": "Чрезмерно высокая пеня 0,5% в день (182,5% годовых)",
+     "citation": "п. 9 постановления Пленума ВХС № 234 от 01.12.2011",
+     "verified": false,
+     "topic": null,
+     "keywordTopic": "penalty",
+     "conflict": false
+    }
+   ],
+   "conflicts": [],
+   "plantedFound": 0,
+   "planted": 2
+  },
+  {
+   "id": "services",
+   "ms": 19288,
+   "findings": [
+    {
+     "severity": "High",
+     "title": "Ограничение ответственности Исполнителя размером месячной оплаты, в том числе за умышленное нарушение, противоречит ст. 706 ГК",
+     "citation": "ст. 706 ГК Республики Узбекистан",
+     "verified": true,
+     "topic": null,
+     "keywordTopic": "penalty",
+     "conflict": false
+    },
+    {
+     "severity": "High",
+     "title": "Полное освобождение Исполнителя от ответственности за порчу имущества Заказчика",
+     "citation": "ст. 706 ГК Республики Узбекистан",
+     "verified": true,
+     "topic": null,
+     "keywordTopic": "penalty",
+     "conflict": false
+    },
+    {
+     "severity": "Low",
+     "title": "Право Исполнителя приостановить оказание услуг без уведомления Заказчика при отсутствии оснований",
+     "citation": "ст. 705 ГК Республики Узбекистан",
+     "verified": false,
+     "topic": null,
+     "keywordTopic": "other",
+     "conflict": false
+    },
+    {
+     "severity": "Medium",
+     "title": "Отсутствие условий о качестве, графике (сроках) и порядке сдачи-приёмки услуг",
+     "citation": "ст. 19 Закона «О защите прав потребителей»",
+     "verified": true,
+     "topic": null,
+     "keywordTopic": "acceptance",
+     "conflict": false
+    },
+    {
+     "severity": "Medium",
+     "title": "Отсутствие порядка расторжения договора и уведомления сторон",
+     "citation": "ст. 707 ГК Республики Узбекистан",
+     "verified": true,
+     "topic": null,
+     "keywordTopic": "termination",
+     "conflict": false
+    }
+   ],
+   "conflicts": [],
+   "plantedFound": 0,
+   "planted": 0
+  },
+  {
+   "id": "works",
+   "ms": 19721,
+   "findings": [
+    {
+     "severity": "Low",
+     "title": "Взаимно исключающие оговорки о разрешении споров: суд и арбитраж одновременно",
+     "citation": "ст. 379 ГК; ст. 25 Закона «О судах»",
+     "verified": false,
+     "topic": null,
+     "keywordTopic": "disputes",
+     "conflict": false
+    },
+    {
+     "severity": "High",
+     "title": "Двойная неустойка за одно нарушение: 0,1% (п. 6.2) и 0,5% (п. 9.4) от разных баз",
+     "citation": "ст. 326 ГК; п. 18 постановления Пленума ВХС № 306 от 23.12.2016",
+     "verified": true,
+     "topic": null,
+     "keywordTopic": "penalty",
+     "conflict": false
+    },
+    {
+     "severity": "Medium",
+     "title": "Заниженный гарантийный срок 3 месяца на результат ремонтных работ",
+     "citation": "ст. 649 ГК; ст. 648 ГК",
+     "verified": true,
+     "topic": null,
+     "keywordTopic": "acceptance",
+     "conflict": false
+    },
+    {
+     "severity": "Medium",
+     "title": "Пеня за просрочку начисляется на «стоимость невыполненных Работ» — база неопределённа",
+     "citation": "ст. 635 ГК",
+     "verified": true,
+     "topic": null,
+     "keywordTopic": "penalty",
+     "conflict": false
+    },
+    {
+     "severity": "Medium",
+     "title": "Аванс 50% без обеспечения и без права Заказчика на удержание",
+     "citation": "ст. 638 ГК",
+     "verified": true,
+     "topic": null,
+     "keywordTopic": "payment",
+     "conflict": false
+    },
+    {
+     "severity": "Low",
+     "title": "Отсутствует условие о качестве работ и порядке приёмки",
+     "citation": "ст. 631 ГК; ст. 642 ГК",
+     "verified": true,
+     "topic": null,
+     "keywordTopic": "acceptance",
+     "conflict": false
+    }
+   ],
+   "conflicts": [],
+   "plantedFound": 0,
+   "planted": 2
+  },
+  {
+   "id": "nda",
+   "ms": 19175,
+   "findings": [
+    {
+     "severity": "High",
+     "title": "Не определён перечень и порядок обозначения конфиденциальных сведений",
+     "citation": "ст. 13 Закона «О коммерческой тайне»",
+     "verified": true,
+     "topic": null,
+     "keywordTopic": "other",
+     "conflict": false
+    },
+    {
+     "severity": "High",
+     "title": "Одностороннее освобождение Раскрывающей стороны от любых обязательств, включая встречную конфиденциальность",
+     "citation": "ст. 14 Закона «О коммерческой тайне»",
+     "verified": true,
+     "topic": null,
+     "keywordTopic": "termination",
+     "conflict": false
+    },
+    {
+     "severity": "High",
+     "title": "Явно завышенный штраф за каждый случай разглашения без ограничения ответственности",
+     "citation": "ст. 325 ГК Республики Узбекистан",
+     "verified": true,
+     "topic": null,
+     "keywordTopic": "penalty",
+     "conflict": false
+    },
+    {
+     "severity": "Medium",
+     "title": "Отсутствие исключений из режима конфиденциальности (общедоступные сведения, требования закона)",
+     "citation": "ст. 3 Закона «О коммерческой тайне»",
+     "verified": true,
+     "topic": null,
+     "keywordTopic": "other",
+     "conflict": false
+    },
+    {
+     "severity": "Medium",
+     "title": "Неопределённая подсудность: экономический суд г. Ташкента без указания инстанции и порядка",
+     "citation": "ст. 34 Экономического процессуального кодекса Республики Узбекистан",
+     "verified": true,
+     "topic": null,
+     "keywordTopic": "disputes",
+     "conflict": false
+    }
+   ],
+   "conflicts": [],
+   "plantedFound": 0,
+   "planted": 0
+  }
+ ],
+ "warnings": []
+}

@@ -6,9 +6,15 @@ import { Icon, type IconName } from '@/components/icons/Icon';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { CountUp } from '@/components/ui/CountUp';
-import { EmptyState, ErrorState, SkeletonRows } from '@/components/ui/States';
+import { ErrorState, SkeletonRows } from '@/components/ui/States';
 import { ExpiryChip } from '@/components/contracts/ExpiryChip';
 import { ObligationList } from '@/components/contracts/ObligationList';
+import { DeadlinePanel, RenewalCell } from '@/components/ux/Deadline';
+import { activeMark, useCalendarDownload } from '@/components/ux/uxHooks';
+import { SampleContracts } from '@/components/ux/Samples';
+import ux from '@/components/ux/ux.module.css';
+import { useUxT } from '@/i18n/uxMessages';
+import { hasCalendarDate, needsAction, renewalInfo, useRenewalMarks } from '@/lib/renewal';
 import { contractsApi } from '@/api';
 import { ApiError } from '@/api/util';
 import { useAsync } from '@/hooks/useAsync';
@@ -20,10 +26,11 @@ import type { ContractRow } from '@/types/domain';
 import { Reveal } from './Reveal';
 import styles from './pages.module.css';
 
-type Filter = 'all' | 'd30' | 'd60' | 'd90' | 'auto' | 'obligations';
+type Filter = 'all' | 'act' | 'd30' | 'd60' | 'd90' | 'auto' | 'obligations';
 
 const FILTERS: { id: Filter; key: string }[] = [
   { id: 'all', key: 'contracts.fAll' },
+  { id: 'act', key: 'rn.filterAct' },
   { id: 'd30', key: 'contracts.f30' },
   { id: 'd60', key: 'contracts.f60' },
   { id: 'd90', key: 'contracts.f90' },
@@ -71,6 +78,25 @@ export function ContractsPage() {
 
   const rows = useMemo(() => (data && !data.locked ? data.rows : []), [data]);
 
+  // ui-test 15.11: «последний день отказа» = окончание − срок уведомления.
+  const u = useUxT();
+  const { map: marks, set: setMark } = useRenewalMarks(rows);
+  const downloadCalendar = useCalendarDownload();
+  const mustAct = (c: ContractRow) => {
+    const info = renewalInfo(c.terms);
+    return needsAction(info) && !activeMark(info, marks[c.documentId]);
+  };
+  const actCount = rows.filter(mustAct).length;
+  // Есть ли вообще сроки продления / даты для календаря — иначе не обещаем
+  // «отказ не нужен» и не показываем кнопку, которая ничего не скачает.
+  const hasRenewalTerms = rows.some((c) => renewalInfo(c.terms).kind === 'notice');
+  const hasDates = rows.some((c) => hasCalendarDate(c.terms));
+  const sortKey = (c: ContractRow): string => {
+    const info = renewalInfo(c.terms);
+    if (info.kind === 'notice') return info.daysToLast < 0 ? `2${info.end}` : `1${info.last}`;
+    return info.kind === 'unknown' ? '9' : `2${info.end}`;
+  };
+
   const stats = useMemo(
     () => ({
       exp30: rows.filter((c) => c.terms.daysToExpiry !== null && c.terms.daysToExpiry <= 30).length,
@@ -81,19 +107,20 @@ export function ContractsPage() {
     [rows],
   );
 
-  const filtered = useMemo(
-    () =>
-      rows.filter((c) => {
-        const d = c.terms.daysToExpiry;
-        if (filter === 'd30') return d !== null && d <= 30;
-        if (filter === 'd60') return d !== null && d <= 60;
-        if (filter === 'd90') return d !== null && d <= 90;
-        if (filter === 'auto') return c.terms.autoRenew === true;
-        if (filter === 'obligations') return c.obligations.length > 0;
-        return true;
-      }),
-    [rows, filter],
-  );
+  // Без useMemo: фильтр «Действовать» зависит и от отметок (marks), а строк — десятки.
+  const filtered = rows
+    .filter((c) => {
+      const d = c.terms.daysToExpiry;
+      if (filter === 'act') return mustAct(c);
+      if (filter === 'd30') return d !== null && d <= 30;
+      if (filter === 'd60') return d !== null && d <= 60;
+      if (filter === 'd90') return d !== null && d <= 90;
+      if (filter === 'auto') return c.terms.autoRenew === true;
+      if (filter === 'obligations') return c.obligations.length > 0;
+      return true;
+    })
+    // Ближайший последний день отказа — первым (как в календаре продлений).
+    .sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
 
   const statCards: { key: keyof typeof stats; icon: IconName; labelKey: string }[] = [
     { key: 'exp30', icon: 'clock', labelKey: 'contracts.exp30' },
@@ -105,10 +132,17 @@ export function ContractsPage() {
   const obligationsLabel = (c: ContractRow): string =>
     c.obligations.length === 0 ? '—' : `${c.obligations.filter((o) => o.done).length}/${c.obligations.length}`;
 
+  // Раскрывается любая строка: там «последний день отказа», календарь и отметки.
   const toggleExpand = (c: ContractRow) => {
-    if (c.obligations.length === 0) return;
     setExpanded((cur) => (cur === c.documentId ? null : c.documentId));
   };
+
+  const expandedBody = (c: ContractRow) => (
+    <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <DeadlinePanel row={c} mark={marks[c.documentId]} onMark={(m) => setMark(c.documentId, m)} />
+      {c.obligations.length > 0 ? <ObligationList documentId={c.documentId} obligations={c.obligations} /> : null}
+    </div>
+  );
 
   const openDocument = (e: MouseEvent, id: string) => {
     e.stopPropagation();
@@ -140,31 +174,32 @@ export function ContractsPage() {
           {loading ? (
             <SkeletonRows rows={4} height={96} />
           ) : locked ? (
-            <EmptyState
-              icon="calendar"
-              title={t('contracts.upsellTitle')}
-              body={t('contracts.upsellBody')}
-              action={
-                <Button variant="primary" icon="sparkle" onClick={() => navigate('/plans')}>
-                  {t('contracts.upsellCta')}
-                </Button>
-              }
-            />
+            // ui-test 15.11: вместо текста «на тарифе Pro» — образец, который можно потрогать.
+            <SampleContracts locked />
           ) : error ? (
             <ErrorState message={error} onRetry={reload} />
           ) : rows.length === 0 ? (
-            <EmptyState
-              icon="calendar"
-              title={t('contracts.empty')}
-              body={t('contracts.emptyBody')}
-              action={
-                <Button variant="primary" icon="upload" onClick={() => navigate('/chat')}>
-                  {t('contracts.emptyCta')}
-                </Button>
-              }
-            />
+            <SampleContracts locked={false} />
           ) : (
             <>
+              <div className={ux.summary}>
+                <span className={ux.summaryText}>
+                  {actCount ? (
+                    <>
+                      {u('rn.summary', { n: '' }).replace(/\s*$/, ' ')}
+                      <b>{actCount}</b>
+                    </>
+                  ) : (
+                    u(hasRenewalTerms ? 'rn.summaryNone' : 'rn.summaryNoData')
+                  )}
+                </span>
+                {hasDates ? (
+                  <Button variant="secondary" size="sm" icon="calendar" onClick={() => downloadCalendar(rows, 'lexab-contract-dates')}>
+                    {u('rn.allIcs')}
+                  </Button>
+                ) : null}
+              </div>
+
               <div className={styles.statGrid}>
                 {statCards.map((m, i) => (
                   <Reveal key={m.key} delay={i * 0.06} className={styles.stat}>
@@ -187,7 +222,7 @@ export function ContractsPage() {
                     className={`${styles.segBtn} ${filter === f.id ? styles.segBtnActive : ''}`}
                     onClick={() => setFilter(f.id)}
                   >
-                    {t(f.key)}
+                    {f.id === 'act' ? `${u(f.key)} ${actCount}` : t(f.key)}
                   </button>
                 ))}
               </div>
@@ -208,19 +243,21 @@ export function ContractsPage() {
                           </div>
                           <div className={styles.docCellSub}>{c.counterparty}</div>
                         </div>
-                        {c.obligations.length > 0 ? (
-                          <Icon
-                            name="chevron"
-                            size={16}
-                            className={styles.metaText}
-                            style={{
-                              transform: expanded === c.documentId ? 'rotate(-90deg)' : 'rotate(90deg)',
-                              transition: 'transform 0.15s ease',
-                            }}
-                          />
-                        ) : null}
+                        <Icon
+                          name="chevron"
+                          size={16}
+                          className={styles.metaText}
+                          style={{
+                            transform: expanded === c.documentId ? 'rotate(-90deg)' : 'rotate(90deg)',
+                            transition: 'transform 0.15s ease',
+                          }}
+                        />
                       </div>
                       <div className={styles.rowCardBadges}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                          <span className={styles.metaText}>{u('rn.col')}:</span>
+                          <RenewalCell row={c} mark={marks[c.documentId]} />
+                        </span>
                         {c.terms.expiryDate ? (
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                             <span className={styles.metaText}>{formatDate(c.terms.expiryDate)}</span>
@@ -236,11 +273,7 @@ export function ContractsPage() {
                           {t('contracts.col.obligations')}: {obligationsLabel(c)}
                         </span>
                       </div>
-                      {expanded === c.documentId ? (
-                        <div onClick={(e) => e.stopPropagation()}>
-                          <ObligationList documentId={c.documentId} obligations={c.obligations} />
-                        </div>
-                      ) : null}
+                      {expanded === c.documentId ? expandedBody(c) : null}
                     </div>
                   ))}
                 </div>
@@ -250,10 +283,11 @@ export function ContractsPage() {
                     <thead>
                       <tr>
                         <th className={styles.th}>{t('contracts.col.contract')}</th>
+                        <th className={styles.th}>{u('rn.col')}</th>
                         <th className={styles.th}>{t('contracts.col.expiry')}</th>
                         <th className={styles.th}>{t('contracts.col.auto')}</th>
-                        <th className={`${styles.th} ${styles.hideSm}`}>{t('contracts.col.value')}</th>
-                        <th className={`${styles.th} ${styles.hideSm}`}>{t('contracts.col.law')}</th>
+                        <th className={`${styles.th} ${styles.hideSm} ${ux.hideMd}`}>{t('contracts.col.value')}</th>
+                        <th className={`${styles.th} ${styles.hideSm} ${ux.hideMd}`}>{t('contracts.col.law')}</th>
                         <th className={styles.th}>{t('contracts.col.obligations')}</th>
                         <th className={styles.th} aria-hidden="true" />
                       </tr>
@@ -267,13 +301,18 @@ export function ContractsPage() {
                                 <div className={styles.docCellIcon}>
                                   <Icon name="docs" size={16} />
                                 </div>
-                                <div style={{ minWidth: 0 }}>
+                                {/* Имя файла без пробелов (Design_Services_Agreement.docx) не
+                                    переносилось и растягивало таблицу шире рамки. */}
+                                <div className={ux.nameBox}>
                                   <div className={styles.docCellName} onClick={(e) => openDocument(e, c.documentId)}>
                                     {c.name}
                                   </div>
                                   <div className={styles.docCellSub}>{c.counterparty}</div>
                                 </div>
                               </div>
+                            </td>
+                            <td className={styles.td}>
+                              <RenewalCell row={c} mark={marks[c.documentId]} />
                             </td>
                             <td className={styles.td}>
                               {c.terms.expiryDate ? (
@@ -286,37 +325,35 @@ export function ContractsPage() {
                               )}
                             </td>
                             <td className={styles.td}>{autoRenewCell(c)}</td>
-                            <td className={`${styles.td} ${styles.hideSm}`}>{valueCell(c)}</td>
-                            <td className={`${styles.td} ${styles.hideSm}`}>{c.terms.governingLaw ?? '—'}</td>
+                            <td className={`${styles.td} ${styles.hideSm} ${ux.hideMd}`}>{valueCell(c)}</td>
+                            <td className={`${styles.td} ${styles.hideSm} ${ux.hideMd}`}>{c.terms.governingLaw ?? '—'}</td>
                             <td className={styles.td}>{obligationsLabel(c)}</td>
                             <td className={styles.td}>
-                              {c.obligations.length > 0 ? (
-                                <button
-                                  type="button"
-                                  className={styles.pageBtn}
-                                  aria-label={t('contracts.showObligations')}
-                                  aria-expanded={expanded === c.documentId}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    toggleExpand(c);
+                              <button
+                                type="button"
+                                className={styles.pageBtn}
+                                aria-label={t('contracts.showObligations')}
+                                aria-expanded={expanded === c.documentId}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleExpand(c);
+                                }}
+                              >
+                                <Icon
+                                  name="chevron"
+                                  size={14}
+                                  style={{
+                                    transform: expanded === c.documentId ? 'rotate(-90deg)' : 'rotate(90deg)',
+                                    transition: 'transform 0.15s ease',
                                   }}
-                                >
-                                  <Icon
-                                    name="chevron"
-                                    size={14}
-                                    style={{
-                                      transform: expanded === c.documentId ? 'rotate(-90deg)' : 'rotate(90deg)',
-                                      transition: 'transform 0.15s ease',
-                                    }}
-                                  />
-                                </button>
-                              ) : null}
+                                />
+                              </button>
                             </td>
                           </tr>
                           {expanded === c.documentId ? (
                             <tr>
-                              <td className={styles.td} colSpan={7}>
-                                <ObligationList documentId={c.documentId} obligations={c.obligations} />
+                              <td className={styles.td} colSpan={8}>
+                                {expandedBody(c)}
                               </td>
                             </tr>
                           ) : null}

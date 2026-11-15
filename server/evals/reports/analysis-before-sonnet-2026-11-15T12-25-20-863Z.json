@@ -1,0 +1,116 @@
+{
+ "summary": {
+  "label": "before-sonnet",
+  "plan": "Pro",
+  "model": "claude-sonnet-5-5",
+  "judge": "deepseek-flash",
+  "contracts": 2,
+  "findings": 8,
+  "citationPrecision": 1,
+  "unverifiedShare": 0,
+  "topicCoverage": 0,
+  "topicAgreeWithKeywords": null,
+  "contradictionsPlanted": 4,
+  "contradictionsFound": 0,
+  "contradictionRecall": 0,
+  "conflictsReported": 0,
+  "conflictsNotPlanted": 0,
+  "conflictsNotVerbatim": 0,
+  "fallbackUsed": false,
+  "conflictsDroppedNotVerbatim": 0,
+  "deepseekSpentUsd": 0
+ },
+ "rows": [
+  {
+   "id": "supply",
+   "ms": 53947,
+   "findings": [
+    {
+     "severity": "Medium",
+     "title": "Противоречие сроков оплаты (п. 4.2 и п. 8.3)",
+     "citation": "ст. 449 ГК",
+     "verified": true,
+     "topic": null,
+     "keywordTopic": "payment",
+     "conflict": false
+    },
+    {
+     "severity": "Medium",
+     "title": "Несовпадение цены договора в цифрах и прописью",
+     "citation": "ст. 364 ГК",
+     "verified": true,
+     "topic": null,
+     "keywordTopic": "other",
+     "conflict": false
+    },
+    {
+     "severity": "Medium",
+     "title": "Пеня 1% в день без предельного размера, превышающая законную ставку; ответственность только Поставщика",
+     "citation": "ст. 25 Закона «О договорно-правовой базе деятельности хозяйствующих субъектов»",
+     "verified": true,
+     "topic": null,
+     "keywordTopic": "penalty",
+     "conflict": false
+    },
+    {
+     "severity": "Medium",
+     "title": "Односторонний отказ только для Покупателя без оснований, с уведомлением за 10 дней",
+     "citation": "ст. 455 ГК",
+     "verified": true,
+     "topic": null,
+     "keywordTopic": "termination",
+     "conflict": false
+    },
+    {
+     "severity": "Low",
+     "title": "Не определены график поставки партий и порядок приёмки",
+     "citation": "ст. 440 ГК",
+     "verified": true,
+     "topic": null,
+     "keywordTopic": "acceptance",
+     "conflict": false
+    }
+   ],
+   "conflicts": [],
+   "plantedFound": 0,
+   "planted": 2
+  },
+  {
+   "id": "works",
+   "ms": 44318,
+   "findings": [
+    {
+     "severity": "High",
+     "title": "Противоречивые и дублирующие неустойки за просрочку (п. 6.2 и п. 9.4), без предельного размера",
+     "citation": "ст. 25 Закона «О договорно-правовой базе деятельности хозяйствующих субъектов»",
+     "verified": true,
+     "topic": null,
+     "keywordTopic": "penalty",
+     "conflict": false
+    },
+    {
+     "severity": "Medium",
+     "title": "Нет освобождения подрядчика от ответственности за просрочку, вызванную действиями заказчика",
+     "citation": "п. 18 постановления Пленума ВХС № 306 от 23.12.2016",
+     "verified": true,
+     "topic": null,
+     "keywordTopic": "penalty",
+     "conflict": false
+    },
+    {
+     "severity": "High",
+     "title": "Противоречивая оговорка о разрешении споров: экономический суд и арбитраж TIAC",
+     "citation": "ст. 7 Закона «О международном коммерческом арбитраже»",
+     "verified": true,
+     "topic": null,
+     "keywordTopic": "disputes",
+     "conflict": false
+    }
+   ],
+   "conflicts": [],
+   "plantedFound": 0,
+   "planted": 2
+  }
+ ],
+ "warnings": []
+}

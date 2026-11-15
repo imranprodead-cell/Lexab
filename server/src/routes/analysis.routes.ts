@@ -35,7 +35,7 @@ import { audit } from '../lib/audit.ts';
 import { scanUpload } from '../lib/scan.ts';
 import { decJsonFromJsonb, decText, decTextStrict, encJsonForJsonb, encText } from '../lib/docCrypto.ts';
 import { deleteFile, readFileBytes, saveFile } from '../storage.ts';
-import type { AnalysisResult, DocBlock, Redline } from '../types.ts';
+import type { AnalysisResult, DocBlock, Finding, Redline } from '../types.ts';
 
 const ANALYSIS_STEPS = [
   'Parsing document structure',
@@ -73,10 +73,18 @@ export async function loadAnalysis(db: Db, userId: string, id: string): Promise<
   // reading a shared document decrypts with the owner's key, not their own).
   const ownerId = row.user_id;
 
-  const findings = await db.query<{ id: string; severity: 'High' | 'Medium' | 'Low'; title: string; citation: string; unit_id: string | null; redline_id: string | null; unverified: boolean; playbook_deviation: boolean }>(
-    'SELECT id, severity, title, citation, unit_id, redline_id, unverified, playbook_deviation FROM findings WHERE analysis_id = $1 ORDER BY ord',
+  const findings = await db.query<{ id: string; severity: 'High' | 'Medium' | 'Low'; title: string; citation: string; unit_id: string | null; redline_id: string | null; unverified: boolean; playbook_deviation: boolean; topic: Finding['topic']; conflict_a_enc: string | null; conflict_b_enc: string | null }>(
+    'SELECT id, severity, title, citation, unit_id, redline_id, unverified, playbook_deviation, topic, conflict_a_enc, conflict_b_enc FROM findings WHERE analysis_id = $1 ORDER BY ord',
     [id],
   );
+  // Цитаты противоречия — текст договора, зашифрованы ключом владельца.
+  const conflicts = new Map<string, { a: string; b: string }>();
+  for (const f of findings.rows) {
+    if (!f.conflict_a_enc || !f.conflict_b_enc) continue;
+    const a = await decText(db, ownerId, f.conflict_a_enc);
+    const b = await decText(db, ownerId, f.conflict_b_enc);
+    if (a && b) conflicts.set(f.id, { a, b });
+  }
   const redlines = await db.query<Redline & { del_text: string; ins_text: string }>(
     'SELECT id, del_text, ins_text, severity, status FROM redlines WHERE analysis_id = $1 ORDER BY ord',
     [id],
@@ -120,6 +128,8 @@ export async function loadAnalysis(db: Db, userId: string, id: string): Promise<
       redlineId: f.redline_id,
       unverified: f.unverified,
       playbookDeviation: f.playbook_deviation,
+      topic: f.topic ?? null,
+      conflict: conflicts.get(f.id) ?? null,
     })),
     redlines: decRedlines,
     document: blocks,
@@ -497,6 +507,12 @@ export async function persistAnalysis(
       insText: await encText(db, userId, r.insText),
     })),
   );
+  // Цитаты противоречий — тоже текст договора: шифруются тем же ключом.
+  const encConflicts = await Promise.all(
+    gen.findings.map(async (f) =>
+      f.conflict ? { a: await encText(db, userId, f.conflict.a), b: await encText(db, userId, f.conflict.b) } : null,
+    ),
+  );
 
   // CLM (Этап 2): условия договора. Шифрование и чтение прежних обязательств —
   // ДО транзакции (encText/decText ходят в БД за ключом; вложенный запрос
@@ -621,8 +637,23 @@ export async function persistAnalysis(
     for (let i = 0; i < gen.findings.length; i++) {
       const f = gen.findings[i];
       await tx.query(
-        'INSERT INTO findings (analysis_id, id, ord, severity, title, citation, unit_id, redline_id, unverified, playbook_deviation) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)',
-        [analysisId, `f${i + 1}`, i, f.severity, f.title, f.citation, f.unitId ?? null, f.redlineId ?? null, f.unverified ?? false, f.playbookDeviation ?? false],
+        `INSERT INTO findings (analysis_id, id, ord, severity, title, citation, unit_id, redline_id, unverified, playbook_deviation, topic, conflict_a_enc, conflict_b_enc)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+        [
+          analysisId,
+          `f${i + 1}`,
+          i,
+          f.severity,
+          f.title,
+          f.citation,
+          f.unitId ?? null,
+          f.redlineId ?? null,
+          f.unverified ?? false,
+          f.playbookDeviation ?? false,
+          f.topic ?? null,
+          encConflicts[i]?.a ?? null,
+          encConflicts[i]?.b ?? null,
+        ],
       );
     }
     for (let i = 0; i < encRedlines.length; i++) {
@@ -824,7 +855,7 @@ async function validateGen(
   }
   // Юрисдикция с базой законов, чью проверку не удалось выполнить, не должна
   // выглядеть «проверенной» — каждую цитату помечаем неподтверждённой.
-  if (retrievalFailed) return { gen: { ...gen, findings: gen.findings.map((f) => ({ ...f, unverified: true })) } };
+  if (retrievalFailed) return { gen: { ...gen, findings: gen.findings.map((f) => (f.conflict && !f.citation?.trim() ? f : { ...f, unverified: true })) } };
   return { gen };
 }
 

@@ -1,0 +1,332 @@
+{
+ "summary": {
+  "label": "after2",
+  "plan": "Free",
+  "model": "deepseek-flash",
+  "judge": "deepseek-flash",
+  "contracts": 5,
+  "findings": 24,
+  "citationPrecision": 0.895,
+  "unverifiedShare": 0.083,
+  "topicCoverage": 1,
+  "topicAgreeWithKeywords": 0.708,
+  "contradictionsPlanted": 6,
+  "contradictionsFound": 6,
+  "contradictionRecall": 1,
+  "conflictsReported": 6,
+  "conflictsNotPlanted": 0,
+  "conflictsNotVerbatim": 0,
+  "fallbackUsed": false,
+  "conflictsDroppedNotVerbatim": 0,
+  "deepseekSpentUsd": 0
+ },
+ "rows": [
+  {
+   "id": "supply",
+   "ms": 17548,
+   "findings": [
+    {
+     "severity": "High",
+     "title": "Срок оплаты: 30 календарных дней (п. 4.2) и 60 банковских дней (п. 8.3)",
+     "citation": "",
+     "verified": false,
+     "topic": "payment",
+     "keywordTopic": "payment",
+     "conflict": true
+    },
+    {
+     "severity": "Low",
+     "title": "Пеня 1% в день за просрочку поставки явно несоразмерна и не ограничена общей суммой",
+     "citation": "ст. 327 ГК",
+     "verified": false,
+     "topic": "penalty",
+     "keywordTopic": "penalty",
+     "conflict": false
+    },
+    {
+     "severity": "High",
+     "title": "Односторонний немотивированный отказ Покупателя с уведомлением за 10 дней без компенсации Поставщику",
+     "citation": "ст. 438 ГК",
+     "verified": true,
+     "topic": "termination",
+     "keywordTopic": "termination",
+     "conflict": false
+    },
+    {
+     "severity": "Medium",
+     "title": "Предмет не определён: отсутствует Спецификация с количеством и ассортиментом (существенное условие договора поставки)",
+     "citation": "ст. 10 Закона «О договорно-правовой базе деятельности хозяйствующих субъектов»",
+     "verified": true,
+     "topic": "other",
+     "keywordTopic": "other",
+     "conflict": false
+    },
+    {
+     "severity": "Medium",
+     "title": "Не установлены периоды (сроки) поставки отдельных партий при поставке партиями в течение года",
+     "citation": "ст. 440 ГК",
+     "verified": true,
+     "topic": "acceptance",
+     "keywordTopic": "other",
+     "conflict": false
+    },
+    {
+     "severity": "Medium",
+     "title": "Сумма договора: 150 000 000 цифрами и «сто миллионов» прописью",
+     "citation": "",
+     "verified": false,
+     "topic": "payment",
+     "keywordTopic": "other",
+     "conflict": true
+    }
+   ],
+   "conflicts": [
+    {
+     "title": "Срок оплаты: 30 календарных дней (п. 4.2) и 60 банковских дней (п. 8.3)",
+     "a": "в течение 30 (тридцати) календарных дней с даты поставки",
+     "b": "не позднее 60 (шестидесяти) банковских дней с даты подписания товарной накладной",
+     "verbatim": true,
+     "planted": 1
+    },
+    {
+     "title": "Сумма договора: 150 000 000 цифрами и «сто миллионов» прописью",
+     "a": "150 000 000",
+     "b": "сто миллионов",
+     "verbatim": true,
+     "planted": 0
+    }
+   ],
+   "plantedFound": 2,
+   "planted": 2
+  },
+  {
+   "id": "lease",
+   "ms": 13825,
+   "findings": [
+    {
+     "severity": "High",
+     "title": "Противоречие срока оплаты: не позднее 5-го числа текущего месяца (п. 3.2) и до 15-го числа месяца, следующего за расчётным (п. 3.5)",
+     "citation": "",
+     "verified": false,
+     "topic": "payment",
+     "keywordTopic": "payment",
+     "conflict": true
+    },
+    {
+     "severity": "High",
+     "title": "Противоречие срока аренды: по 31 декабря 2026 года (п. 2.1) и по 31 января 2027 года (п. 9.1)",
+     "citation": "п. 6 постановления Пленума ВХС № 234 от 01.12.2011",
+     "verified": true,
+     "topic": "termination",
+     "keywordTopic": "other",
+     "conflict": true
+    },
+    {
+     "severity": "Low",
+     "title": "Пеня 0,5% в день (182,5% годовых) явно несоразмерна и подлежит снижению",
+     "citation": "ст. 327 ГК Республики Узбекистан",
+     "verified": false,
+     "topic": "penalty",
+     "keywordTopic": "penalty",
+     "conflict": false
+    },
+    {
+     "severity": "High",
+     "title": "Право арендодателя немотивированно отказаться от договора с удержанием обеспечительного платежа",
+     "citation": "ст. 13 Закона Республики Узбекистан «Об аренде»",
+     "verified": true,
+     "topic": "termination",
+     "keywordTopic": "termination",
+     "conflict": false
+    },
+    {
+     "severity": "Low",
+     "title": "В договоре отсутствует согласованное условие об обеспечительном платеже, на который ссылается п. 6.1",
+     "citation": "ст. 5 Закона Республики Узбекистан «Об аренде»",
+     "verified": true,
+     "topic": "other",
+     "keywordTopic": "payment",
+     "conflict": false
+    }
+   ],
+   "conflicts": [
+    {
+     "title": "Противоречие срока оплаты: не позднее 5-го числа текущего месяца (п. 3.2) и до 15-го числа месяца, следующего за расчётным (п. 3.5)",
+     "a": "не позднее 5 (пятого) числа текущего месяца",
+     "b": "до 15 (пятнадцатого) числа месяца, следующего за расчётным",
+     "verbatim": true,
+     "planted": 1
+    },
+    {
+     "title": "Противоречие срока аренды: по 31 декабря 2026 года (п. 2.1) и по 31 января 2027 года (п. 9.1)",
+     "a": "по 31 декабря 2026 года",
+     "b": "по 31 января 2027 года",
+     "verbatim": true,
+     "planted": 0
+    }
+   ],
+   "plantedFound": 2,
+   "planted": 2
+  },
+  {
+   "id": "services",
+   "ms": 13856,
+   "findings": [
+    {
+     "severity": "High",
+     "title": "Полное освобождение Исполнителя от ответственности за порчу имущества Заказчика",
+     "citation": "ст. 333 ГК",
+     "verified": true,
+     "topic": "penalty",
+     "keywordTopic": "penalty",
+     "conflict": false
+    },
+    {
+     "severity": "High",
+     "title": "Ограничение ответственности Исполнителя суммой месячной оплаты, в том числе за умышленное нарушение",
+     "citation": "ст. 706 ГК",
+     "verified": true,
+     "topic": "penalty",
+     "keywordTopic": "penalty",
+     "conflict": false
+    },
+    {
+     "severity": "High",
+     "title": "Право Исполнителя приостановить услуги без уведомления Заказчика",
+     "citation": "ст. 705 ГК",
+     "verified": true,
+     "topic": "termination",
+     "keywordTopic": "other",
+     "conflict": false
+    },
+    {
+     "severity": "Medium",
+     "title": "Отсутствие условий о качестве, объёме и порядке приёмки услуг",
+     "citation": "ст. 19 Закона «О защите прав потребителей»",
+     "verified": true,
+     "topic": "acceptance",
+     "keywordTopic": "acceptance",
+     "conflict": false
+    },
+    {
+     "severity": "Medium",
+     "title": "100% предоплата за каждый месяц без механизма возврата и привязки к фактически оказанным услугам",
+     "citation": "ст. 705 ГК",
+     "verified": true,
+     "topic": "payment",
+     "keywordTopic": "payment",
+     "conflict": false
+    }
+   ],
+   "conflicts": [],
+   "plantedFound": 0,
+   "planted": 0
+  },
+  {
+   "id": "works",
+   "ms": 12231,
+   "findings": [
+    {
+     "severity": "High",
+     "title": "Двойная неустойка за одно нарушение: 0,1% (п. 6.2) и 0,5% (п. 9.4)",
+     "citation": "",
+     "verified": false,
+     "topic": "penalty",
+     "keywordTopic": "penalty",
+     "conflict": true
+    },
+    {
+     "severity": "High",
+     "title": "Взаимоисключающие оговорки о спорах: экономический суд (п. 10.1) и арбитраж TIAC (п. 10.3)",
+     "citation": "",
+     "verified": false,
+     "topic": "disputes",
+     "keywordTopic": "disputes",
+     "conflict": true
+    },
+    {
+     "severity": "Medium",
+     "title": "Не установлены порядок и срок приёмки работ (только упоминание «акта» в п. 2.2)",
+     "citation": "ст. 646 ГК",
+     "verified": true,
+     "topic": "acceptance",
+     "keywordTopic": "acceptance",
+     "conflict": false
+    },
+    {
+     "severity": "Medium",
+     "title": "Гарантийный срок 3 месяца необоснованно сокращает защиту заказчика",
+     "citation": "ст. 651 ГК",
+     "verified": true,
+     "topic": "acceptance",
+     "keywordTopic": "acceptance",
+     "conflict": false
+    }
+   ],
+   "conflicts": [
+    {
+     "title": "Двойная неустойка за одно нарушение: 0,1% (п. 6.2) и 0,5% (п. 9.4)",
+     "a": "пеню в размере 0,1% от стоимости невыполненных Работ за каждый день просрочки",
+     "b": "неустойку в размере 0,5% от общей стоимости Договора за каждый день просрочки",
+     "verbatim": true,
+     "planted": 0
+    },
+    {
+     "title": "Взаимоисключающие оговорки о спорах: экономический суд (п. 10.1) и арбитраж TIAC (п. 10.3)",
+     "a": "Споры разрешаются в экономическом суде г. Ташкента.",
+     "b": "Все споры по настоящему Договору подлежат окончательному рассмотрению в Ташкентском международном арбитражном центре (TIAC).",
+     "verbatim": true,
+     "planted": 1
+    }
+   ],
+   "plantedFound": 2,
+   "planted": 2
+  },
+  {
+   "id": "nda",
+   "ms": 17526,
+   "findings": [
+    {
+     "severity": "High",
+     "title": "Односторонний отказ раскрывающей стороны от любых обязательств (п. 4)",
+     "citation": "ст. 14 Закона «О коммерческой тайне»",
+     "verified": true,
+     "topic": "other",
+     "keywordTopic": "termination",
+     "conflict": false
+    },
+    {
+     "severity": "High",
+     "title": "Штраф 100 000 000 сум за каждый случай разглашения независимо от убытков (п. 3)",
+     "citation": "ст. 14 Закона «О коммерческой тайне»",
+     "verified": true,
+     "topic": "penalty",
+     "keywordTopic": "penalty",
+     "conflict": false
+    },
+    {
+     "severity": "Medium",
+     "title": "Отсутствие определения конфиденциальной информации и перечня исключений (п. 1)",
+     "citation": "ст. 3 Закона «О коммерческой тайне»",
+     "verified": true,
+     "topic": "other",
+     "keywordTopic": "other",
+     "conflict": false
+    },
+    {
+     "severity": "Medium",
+     "title": "Срок неразглашения 10 лет после прекращения Соглашения без ограничения по сведениям, утратившим конфиденциальность (п. 2)",
+     "citation": "ст. 14 Закона «О коммерческой тайне»",
+     "verified": true,
+     "topic": "termination",
+     "keywordTopic": "other",
+     "conflict": false
+    }
+   ],
+   "conflicts": [],
+   "plantedFound": 0,
+   "planted": 0
+  }
+ ],
+ "warnings": []
+}

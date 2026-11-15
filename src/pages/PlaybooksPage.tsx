@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { CountrySelector } from '@/components/layout/CountrySelector';
 import { TopBar } from '@/components/layout/TopBar';
 import { VaultHeader } from '@/components/vault/VaultHeader';
@@ -8,7 +7,8 @@ import { Badge } from '@/components/ui/Badge';
 import { Button, IconButton } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { TextField } from '@/components/ui/TextField';
-import { EmptyState, ErrorState, SkeletonRows } from '@/components/ui/States';
+import { ErrorState, SkeletonRows } from '@/components/ui/States';
+import { SamplePlaybooks } from '@/components/ux/SampleVault';
 import { playbooksApi } from '@/api';
 import { ApiError } from '@/api/util';
 import { useAsync } from '@/hooks/useAsync';
@@ -43,7 +43,6 @@ const emptyForm: EditorForm = { name: '', jurisdiction: ALL, active: true, rules
  */
 export function PlaybooksPage() {
   const { t } = useI18n();
-  const navigate = useNavigate();
   const pushToast = useUIStore((s) => s.pushToast);
   usePageTitle(t('playbooks.title'));
 
@@ -187,29 +186,12 @@ export function PlaybooksPage() {
           {loading ? (
             <SkeletonRows rows={3} height={110} />
           ) : locked ? (
-            <EmptyState
-              icon="shield"
-              title={t('playbooks.upsellTitle')}
-              body={t('playbooks.upsellBody')}
-              action={
-                <Button variant="primary" icon="sparkle" onClick={() => navigate('/plans')}>
-                  {t('playbooks.upsellCta')}
-                </Button>
-              }
-            />
+            // ui-test 15.11: образец вместо текста «на тарифе Pro».
+            <SamplePlaybooks locked onCreate={openCreate} />
           ) : error ? (
             <ErrorState message={error} onRetry={reload} />
           ) : (data ?? []).length === 0 ? (
-            <EmptyState
-              icon="shield"
-              title={t('playbooks.empty')}
-              body={t('playbooks.emptyBody')}
-              action={
-                <Button variant="primary" icon="plus" onClick={openCreate}>
-                  {t('playbooks.new')}
-                </Button>
-              }
-            />
+            <SamplePlaybooks locked={false} onCreate={openCreate} />
           ) : (
             <div className={styles.grid}>
               {(data ?? []).map((pb, i) => (

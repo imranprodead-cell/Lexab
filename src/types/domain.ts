@@ -34,6 +34,10 @@ export interface Finding {
   unverified?: boolean;
   /** True when this clause deviates from an active team playbook position. */
   playbookDeviation?: boolean;
+  /** Тема пункта — колонка «Таблицы проверок» (ставит разбор; у старых разборов нет). */
+  topic?: 'penalty' | 'termination' | 'disputes' | 'payment' | 'acceptance' | 'other' | null;
+  /** Противоречие внутри договора: две ДОСЛОВНЫЕ цитаты (сервер проверил по тексту). */
+  conflict?: { a: string; b: string } | null;
 }
 
 /** A tracked change the AI proposes inside the document. */
@@ -236,6 +240,13 @@ export interface Project {
   docsCount: number;
 }
 
+/** Начало текста документа для карточки-превью (ui-test 2026-11-15). */
+export interface DocPreview {
+  title?: string;
+  /** Первые абзацы через \n, не длиннее 600 знаков. */
+  text: string;
+}
+
 /** Документ из чата, который человек сохранил (Vault → Documents). */
 export interface SavedDoc {
   id: string;
@@ -293,6 +304,8 @@ export interface ContractRow {
   mine: boolean;
   terms: ContractTermsInfo;
   obligations: ContractObligation[];
+  /** «Отказ отправлен» / «Продлеваем» по последнему дню отказа — кто и когда. */
+  renewalMark?: { kind: 'sent' | 'keep'; who: string; at: string; last: string } | null;
 }
 
 /** One file inside a batch review job. Populated as the queue processes it. */
@@ -409,6 +422,16 @@ export interface AnalyticsSummary {
   team:
     | { id: string; name: string; role: string; reviews30d: number; reviewsTotal: number; lastActive: string | null }[]
     | null;
+  /* ── Новая вкладка (ui-test 2026-11-15). Необязательные: старый сервер их не шлёт. ── */
+  pulse?: { reviews30d: number; reviewsPrev30d: number; questions30d: number; questionsPrev30d: number };
+  weekly?: { start: string; end: string; reviews: number; questions: number }[];
+  decisions?: {
+    waiting: number;
+    decided30d: number;
+    top: { documentId: string; analysisId: string; name: string; waiting: number; total: number }[];
+  };
+  topics?: { items: { topic: string; total: number; high: number }[]; unlabeled: number };
+  renewals?: { count: number; top: { documentId: string; name: string; counterparty: string; last: string }[] } | null;
 }
 
 /** Authenticated user profile (drives the rail footer + settings form). */

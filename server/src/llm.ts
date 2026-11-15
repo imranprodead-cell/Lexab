@@ -27,6 +27,7 @@ import {
 import type { RetrievedChunk } from './rag/types.ts';
 import { formatLegalContext } from './rag/context.ts';
 import { sideInstruction, type ContractSide } from './lib/contractSide.ts';
+import { parseConflict, parseTopic, verifyConflicts } from './lib/conflicts.ts';
 import type { DocBlock, Finding, Redline, Severity } from './types.ts';
 import { modeInstructions, modeMaxTokens, type ChatMode } from './lib/chatModes.ts';
 import type { ToolCall, ToolOutcome } from './lib/chatTools.ts';
@@ -380,11 +381,15 @@ const ANALYSIS_SCHEMA = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['severity', 'title', 'citation', 'unitId', 'redlineId'],
+        required: ['severity', 'title', 'citation', 'unitId', 'redlineId', 'topic'],
         properties: {
           severity: { type: 'string', enum: SEVERITY },
           title: { type: 'string', description: "Short title of the legal issue, in the contract's language." },
-          citation: { type: 'string', description: 'Statute or case-law citation in the official format of the governing jurisdiction.' },
+          citation: {
+            type: 'string',
+            description:
+              'Statute or case-law citation in the official format of the governing jurisdiction, or "" for an internal contradiction that no specific provision governs.',
+          },
           unitId: {
             type: 'string',
             description:
@@ -399,6 +404,23 @@ const ANALYSIS_SCHEMA = {
             type: 'boolean',
             description:
               'True ONLY when this finding flags a clause that deviates from a PLAYBOOK position supplied in the prompt. Omit or false for ordinary statutory-risk findings.',
+          },
+          topic: {
+            type: 'string',
+            enum: ['penalty', 'termination', 'disputes', 'payment', 'acceptance', 'other'],
+            description:
+              'Subject of the clause at issue: penalty = penalties, liquidated damages, liability, damages, indemnities; termination = termination, unilateral withdrawal, term and renewal; disputes = dispute resolution, jurisdiction, arbitration, governing law; payment = price, payment terms, prepayment, invoicing; acceptance = delivery acceptance, quality, warranty, defects; other = anything else.',
+          },
+          conflict: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['a', 'b'],
+            description:
+              'ONLY for an internal contradiction between two passages of THIS contract (the same matter stated two different ways). a and b are the two conflicting passages copied VERBATIM from the contract text — short exact fragments, never paraphrased. Omit for every other finding.',
+            properties: {
+              a: { type: 'string', description: 'First conflicting passage, copied verbatim from the contract.' },
+              b: { type: 'string', description: 'Second conflicting passage, copied verbatim from the contract.' },
+            },
           },
         },
       },
@@ -494,6 +516,8 @@ Reproduce ONLY the clauses that contain redlines in the document array: a headin
 When a finding is fixed by one of your redlines, set that finding's redlineId to the redline's id (r1, r2, …) so the user can click the finding and jump to the clause; use "" when a finding has no redline. Never invent ids.
 Keep it tight: 0–6 findings, 0–5 redlines, and one heading+paragraph pair per redline. If the contract is genuinely clean and market-standard, say so honestly — do NOT invent issues to fill a quota.
 PLAYBOOK: if a PLAYBOOK block is supplied, additionally check the contract against each of the client's standard positions. A clause that breaks a position is a finding with playbookDeviation=true (name the position in the title) — this is separate from the tightness limit above and may add findings. Never flag a position the contract already meets.
+TOPIC: give every finding a topic (penalty, termination, disputes, payment, acceptance or other) by the subject of the clause at issue.
+INTERNAL CONTRADICTIONS: also check whether the contract contradicts ITSELF — the same matter stated two different ways: an amount in figures vs in words, two different payment or notice deadlines, two different rates or penalties for the same breach, two different end dates, two different courts or arbitration bodies for the same disputes. Report each real contradiction as its own finding with conflict {a, b}: a and b are the two conflicting passages copied VERBATIM from the contract (exact characters, short fragments that show the difference — never paraphrase, never merge text from different places; for an amount in figures vs in words, a = the figures exactly as written, b = the words exactly as written). Title it by what conflicts, naming both clause numbers when they exist (e.g. «Срок оплаты: 30 календарных дней (п. 4.2) и 60 банковских дней (п. 8.3)»). Cite a statute only when one genuinely governs how such a conflict is resolved; otherwise citation "" and unitId "". An empty citation is allowed ONLY for a finding that carries conflict — every other finding must cite the provision that governs it, exactly as before. Contradiction findings are separate from the tightness limit (at most 3). Never report a contradiction you cannot quote exactly from both places, and never call two clauses that merely complement each other a contradiction.
 TERMS: also fill the terms object with contract-management metadata (dates, auto-renewal, value, governing law, key obligations). Extract ONLY what the contract explicitly states — a wrong date in a legal deadline calendar is worse than an empty one. Use null / [] when not stated; dates in ISO YYYY-MM-DD.`;
 
 /** User-prompt text for the analysis request — shared by both providers. */
@@ -570,7 +594,7 @@ export async function generateAnalysis(input: AnalysisInput): Promise<GeneratedA
         });
         const parsed = extractJsonObject(raw) as GeneratedAnalysis;
         assertAnalysisShape(parsed); // malformed JSON → throw → retry on Anthropic
-        return normalizeGenerated(parsed);
+        return withVerifiedConflicts(normalizeGenerated(parsed), text);
       }
 
       // ── Anthropic path: native PDF blocks (scans read visually).
@@ -599,7 +623,7 @@ export async function generateAnalysis(input: AnalysisInput): Promise<GeneratedA
 
       const out = textOf(message);
       if (!out) throw new Error('no text block in response');
-      return normalizeGenerated(JSON.parse(out));
+      return withVerifiedConflicts(normalizeGenerated(JSON.parse(out)), text);
     });
   } catch (err) {
     // Deliberate user-facing errors (scanned PDF) surface as-is — even the dev
@@ -756,6 +780,16 @@ function assertAnalysisShape(raw: GeneratedAnalysis): void {
   if (!Array.isArray(raw.document)) bad('document');
 }
 
+/** Противоречие остаётся только с цитатами, которые ДОСЛОВНО есть в договоре
+ *  (lib/conflicts.ts); скан без текста — проверить нечем, пометка снимается. */
+function withVerifiedConflicts(gen: GeneratedAnalysis, text: string | null): GeneratedAnalysis {
+  const findings = verifyConflicts(gen.findings, text);
+  const dropped = gen.findings.filter((f, i) => f.conflict && !findings[i].conflict).length;
+  // Только число — текст договора в журнал не пишется (он конфиденциален).
+  if (dropped) console.warn(`[llm] analysis: ${dropped} contradiction quote pair(s) not found verbatim in the contract — mark dropped`);
+  return { ...gen, findings };
+}
+
 /** Clamp and cross-check the model output before it becomes an API response. */
 function normalizeGenerated(raw: GeneratedAnalysis): GeneratedAnalysis {
   const riskScore = Math.max(0, Math.min(100, Math.round(raw.riskScore)));
@@ -797,7 +831,7 @@ function normalizeGenerated(raw: GeneratedAnalysis): GeneratedAnalysis {
     riskScore,
     riskLevel,
     clausesReviewed: Math.max(1, Math.round(raw.clausesReviewed)),
-    findings: raw.findings.slice(0, 8).map((f) => {
+    findings: raw.findings.slice(0, 10).map((f) => {
       // Only keep a redlineId that points at a redline we actually kept — the
       // model (esp. DeepSeek, prompt-only JSON) may emit a bogus or dropped id;
       // an unknown id becomes null so the finding is simply not clickable.
@@ -809,6 +843,8 @@ function normalizeGenerated(raw: GeneratedAnalysis): GeneratedAnalysis {
         unitId: f.unitId?.trim() || null,
         redlineId: rid && redlineIds.has(rid) ? rid : null,
         playbookDeviation: Boolean(f.playbookDeviation),
+        topic: parseTopic(f.topic),
+        conflict: parseConflict(f.conflict),
       };
     }),
     redlines,

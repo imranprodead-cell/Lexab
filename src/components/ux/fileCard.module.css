@@ -1,0 +1,320 @@
+/* Карточка файла по образцу галереи Claude (ui-test 2026-11-15).
+   Цвет фона — по типу файла; фиолетового нет (решение владельца). */
+.card {
+  --stage: #1d3b6a;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--panel);
+  transition:
+    border-color var(--dur-fast) var(--ease),
+    box-shadow var(--dur-fast) var(--ease);
+}
+.card[data-kind='word'] {
+  --stage: #1d3b6a;
+}
+.card[data-kind='pdf'] {
+  --stage: #6b2b2b;
+}
+.card[data-kind='sheet'] {
+  --stage: #1c4b33;
+}
+.card[data-kind='slides'] {
+  --stage: #76401c;
+}
+.card[data-kind='text'] {
+  --stage: #3a3835;
+}
+.card:hover {
+  border-color: color-mix(in srgb, var(--dim) 38%, var(--border));
+  box-shadow: 0 6px 18px -10px rgba(0, 0, 0, 0.28);
+}
+
+/* ---------- цветной фон и лист ---------- */
+.stage {
+  position: relative;
+  height: 128px;
+  overflow: hidden;
+  border-radius: 11px;
+  background:
+    radial-gradient(120% 80% at 50% 0%, color-mix(in srgb, var(--stage) 80%, #fff) 0%, transparent 70%),
+    linear-gradient(180deg, color-mix(in srgb, var(--stage) 88%, #000) 0%, var(--stage) 100%);
+}
+.card[data-variant='gallery'] .stage {
+  height: 172px;
+}
+/* Второй лист за первым — чуть повёрнут, как стопка. */
+.sheetBack,
+.paper {
+  position: absolute;
+  top: 20px;
+  left: 11%;
+  right: 11%;
+  height: calc(100% + 20px);
+  border-radius: 8px;
+}
+.sheetBack {
+  background: rgba(255, 255, 255, 0.16);
+  transform: translate(5px, -4px) rotate(2.6deg);
+  transform-origin: 30% 100%;
+  transition: transform var(--dur-slow, 0.3s) var(--ease);
+}
+.paper {
+  padding: 16px 18px 0;
+  overflow: hidden;
+  background: #fff;
+  color: #2a2926;
+  box-shadow: 0 8px 22px -8px rgba(0, 0, 0, 0.45);
+  transition: transform var(--dur-slow, 0.3s) var(--ease);
+  /* текст тает к нижнему краю, как у листа, уходящего за край */
+  -webkit-mask-image: linear-gradient(180deg, #000 45%, transparent 92%);
+  mask-image: linear-gradient(180deg, #000 45%, transparent 92%);
+}
+.card[data-variant='gallery'] .sheetBack,
+.card[data-variant='gallery'] .paper {
+  top: 26px;
+  left: 12%;
+  right: 12%;
+}
+.card[data-variant='gallery'] .paper {
+  padding: 20px 22px 0;
+}
+.card:hover .paper {
+  transform: translateY(-4px);
+}
+.card:hover .sheetBack {
+  transform: translate(7px, -6px) rotate(3.4deg);
+}
+.paperTitle {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-family: var(--font-serif);
+  font-size: 13px;
+  line-height: 1.25;
+  color: #1c1b19;
+  overflow-wrap: anywhere;
+}
+.card[data-variant='gallery'] .paperTitle {
+  font-size: 16px;
+}
+.paperMeta {
+  margin-top: 5px;
+  overflow: hidden;
+  font-size: 8.5px;
+  color: #8a8781;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.card[data-variant='gallery'] .paperMeta {
+  font-size: 10px;
+}
+.paperText {
+  margin-top: 9px;
+  font-size: 8.5px;
+  line-height: 1.5;
+  color: #4a4844;
+}
+.card[data-variant='gallery'] .paperText {
+  font-size: 10px;
+}
+.paperText p {
+  margin: 0 0 4px;
+  overflow-wrap: anywhere;
+}
+.ghost {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+}
+.ghost span {
+  display: block;
+  height: 5px;
+  border-radius: 3px;
+  background: #e8e5e0;
+}
+.ghost[data-loading='true'] span {
+  animation: fcPulse 1.2s ease-in-out infinite alternate;
+}
+
+/* ---------- подпись ---------- */
+.foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  padding: 11px 8px 6px;
+}
+.card[data-variant='gallery'] .foot {
+  padding: 12px 8px 7px;
+}
+.tile {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid color-mix(in srgb, var(--stage) 20%, var(--border));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--stage) 9%, var(--panel));
+}
+.footText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.name {
+  overflow: hidden;
+  font-size: 14.5px;
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.card[data-variant='gallery'] .name {
+  font-size: 15px;
+  font-weight: 600;
+}
+.subRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.sub {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  color: var(--mut);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.aside {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+/* Вся карточка — одна кнопка «открыть»; действия лежат поверх неё. */
+.cover {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+.cover:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.actions {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 2;
+  display: flex;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+.card:hover .actions,
+.card:focus-within .actions {
+  opacity: 1;
+}
+@media (hover: none) {
+  .actions {
+    opacity: 1;
+  }
+}
+.card .actions button {
+  width: 32px;
+  height: 32px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 9px;
+  background: rgba(22, 21, 20, 0.78);
+  color: #fff;
+  backdrop-filter: blur(6px);
+}
+.card .actions button:hover {
+  background: rgba(22, 21, 20, 0.92);
+  color: #fff;
+}
+
+/* ---------- заглушка ---------- */
+.skeleton .stage {
+  background: var(--panel-2);
+  animation: fcPulse 1.2s ease-in-out infinite alternate;
+}
+.skelLine {
+  display: block;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--panel-2);
+}
+
+/* ---------- тёмная тема: лист тёмный, как у Claude ---------- */
+:global(html.dark) .card {
+  background: var(--panel);
+}
+:global(html.dark) .paper {
+  background: #232221;
+  color: #e6e3de;
+  box-shadow: 0 8px 22px -8px rgba(0, 0, 0, 0.7);
+}
+:global(html.dark) .paperTitle {
+  color: #f3f1ed;
+}
+:global(html.dark) .paperMeta {
+  color: #9b978f;
+}
+:global(html.dark) .paperText {
+  color: #c9c5be;
+}
+:global(html.dark) .sheetBack {
+  background: rgba(255, 255, 255, 0.1);
+}
+:global(html.dark) .ghost span {
+  background: #34322f;
+}
+:global(html.dark) .tile {
+  border-color: color-mix(in srgb, var(--stage) 45%, var(--border));
+  background: color-mix(in srgb, var(--stage) 35%, var(--panel));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .paper,
+  .sheetBack {
+    transition: none;
+  }
+  .card:hover .paper {
+    transform: none;
+  }
+  .card:hover .sheetBack {
+    transform: translate(5px, -4px) rotate(2.6deg);
+  }
+  .ghost[data-loading='true'] span,
+  .skeleton .stage {
+    animation: none;
+  }
+}
+
+@keyframes fcPulse {
+  from {
+    opacity: 0.55;
+  }
+  to {
+    opacity: 1;
+  }
+}

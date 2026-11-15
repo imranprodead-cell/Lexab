@@ -70,7 +70,8 @@ export function CitationLine({
 }) {
   return (
     <span className={styles.citeRow}>
-      <CitationChip citation={finding.citation} />
+      {/* Противоречие внутри договора может быть без нормы — пустую плашку не рисуем. */}
+      {finding.citation?.trim() ? <CitationChip citation={finding.citation} /> : null}
       <VerifiedBadge finding={finding} pending={pending} />
       <PlaybookDeviationBadge finding={finding} />
       {finding.unitId && !finding.unverified ? <LawTextToggle unitId={finding.unitId} /> : null}

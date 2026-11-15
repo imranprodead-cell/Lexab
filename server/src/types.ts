@@ -22,6 +22,10 @@ export interface Finding {
   /** True when this finding flags a deviation from the team's playbook (a
    *  standard-position breach) rather than a pure statutory risk. */
   playbookDeviation?: boolean;
+  /** Тема пункта (колонка «Таблицы проверок»): ставит разбор (lib/conflicts.ts TOPICS). */
+  topic?: 'penalty' | 'termination' | 'disputes' | 'payment' | 'acceptance' | 'other' | null;
+  /** Противоречие внутри договора: две ДОСЛОВНЫЕ цитаты (проверены по тексту). */
+  conflict?: { a: string; b: string } | null;
 }
 
 export interface Redline {
@@ -246,6 +250,21 @@ export interface AnalyticsSummary {
   team:
     | { id: string; name: string; role: string; reviews30d: number; reviewsTotal: number; lastActive: string | null }[]
     | null;
+  /* ── Новая вкладка (ui-test 2026-11-15, по образцу Harvey: использование и «что требует внимания») ── */
+  /** 30 дней против прошлых 30: разборы и вопросы ассистенту. */
+  pulse: { reviews30d: number; reviewsPrev30d: number; questions30d: number; questionsPrev30d: number };
+  /** 12 недель (скользящие 7-дневные окна), старшая первая. */
+  weekly: { start: string; end: string; reviews: number; questions: number }[];
+  /** Находки последних разборов (за 30 дней) без окончательного решения. */
+  decisions: {
+    waiting: number;
+    decided30d: number;
+    top: { documentId: string; analysisId: string; name: string; waiting: number; total: number }[];
+  };
+  /** Темы находок по последнему разбору каждого договора; unlabeled — старые без темы. */
+  topics: { items: { topic: string; total: number; high: number }[]; unlabeled: number };
+  /** Сроки отказа от продления в ближайшие 30 дней (null — тариф без «Контрактов»). */
+  renewals: { count: number; top: { documentId: string; name: string; counterparty: string; last: string }[] } | null;
 }
 
 export interface UserProfile {

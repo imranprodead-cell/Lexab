@@ -1,0 +1,436 @@
+/* Вкладка «Analytics» (ui-test 2026-11-15): по образцу Harvey — использование
+   и «что требует внимания». Один акцент данных — синий (без фиолетового),
+   проверен валидатором dataviz: #2f63c9 на светлом, #5b8ef0 на тёмном.
+   Статусные цвета (риск) — только вместе с подписью. */
+.an {
+  --an-accent: #2f63c9;
+  --an-accent-soft: color-mix(in srgb, var(--an-accent) 14%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+:global(html.dark) .an {
+  --an-accent: #5b8ef0;
+}
+
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--panel);
+}
+.kpiLabel {
+  font-size: 13px;
+  color: var(--dim);
+}
+.kpiValue {
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.kpiValue small {
+  margin-left: 2px;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--dim);
+}
+.kpiSub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: 12.5px;
+  color: var(--dim);
+}
+.kpiLink {
+  padding: 0;
+  text-align: left;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: color-mix(in srgb, var(--text) 35%, transparent);
+  cursor: pointer;
+}
+.meter {
+  height: 4px;
+  border-radius: 99px;
+  background: var(--panel-2);
+  overflow: hidden;
+}
+.meter span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--an-accent);
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--panel);
+}
+.panelHead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 16px;
+}
+.panelTitle {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.panelSub {
+  font-size: 12.5px;
+  color: var(--dim);
+}
+.two {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 12px;
+}
+
+/* ---------- недельный график: один ряд, одна ось ---------- */
+.seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel-2);
+}
+.seg button {
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dim);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.seg button[aria-pressed='true'] {
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+.chart {
+  position: relative;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 8px;
+  height: 200px;
+  padding-top: 8px;
+}
+.yAxis {
+  position: relative;
+}
+.yTick {
+  position: absolute;
+  right: 0;
+  transform: translateY(-50%);
+  font-size: 11px;
+  color: var(--mut);
+  font-variant-numeric: tabular-nums;
+}
+.plot {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  align-items: end;
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
+}
+.grid {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 0;
+  border-top: 1px dashed color-mix(in srgb, var(--border) 80%, transparent);
+  pointer-events: none;
+}
+.col {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  height: 100%;
+  outline: none;
+  cursor: default;
+}
+.col:hover .bar,
+.col:focus-visible .bar {
+  background: color-mix(in srgb, var(--an-accent) 82%, var(--text));
+}
+.col:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--an-accent-soft);
+  border-radius: 6px;
+}
+.bar {
+  width: min(28px, 70%);
+  min-height: 2px;
+  border-radius: 4px 4px 0 0;
+  background: var(--an-accent);
+  transition: height var(--dur-slow) var(--ease);
+}
+.barZero {
+  background: var(--border);
+}
+.tip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  z-index: 2;
+  padding: 6px 9px;
+  border-radius: 8px;
+  background: var(--text);
+  color: var(--bg);
+  font-size: 12px;
+  white-space: nowrap;
+  transform: translateX(-50%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+.col:hover .tip,
+.col:focus-visible .tip {
+  opacity: 1;
+}
+/* У краёв подсказка прижимается к столбцу, чтобы не вылезать за карточку. */
+.tipLeft {
+  left: 0;
+  transform: none;
+}
+.tipRight {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+.xAxis {
+  display: grid;
+  grid-template-columns: 28px repeat(12, minmax(0, 1fr));
+  gap: 0 2px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--mut);
+}
+.xAxis span {
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* ---------- списки ---------- */
+.list {
+  display: flex;
+  flex-direction: column;
+}
+.row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+  font-size: 14px;
+}
+.row:first-child {
+  border-top: 0;
+}
+.rowBtn {
+  width: 100%;
+  border-left: 0;
+  border-right: 0;
+  border-bottom: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.rowBtn:hover .name {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.name {
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sub {
+  display: block;
+  overflow: hidden;
+  font-size: 12.5px;
+  color: var(--dim);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.right {
+  font-size: 13px;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.empty {
+  margin: 0;
+  font-size: 13.5px;
+  color: var(--dim);
+}
+.subhead {
+  margin: 4px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* ранжированные полосы: одна ось, один цвет */
+/* Колонки фиксированы: полосы всех строк начинаются с одной линии (одна ось). */
+.rank {
+  display: grid;
+  grid-template-columns: 170px minmax(0, 1fr) 150px;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 0;
+  font-size: 13.5px;
+}
+.rankLabel {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.3;
+}
+.rankTrack {
+  height: 8px;
+  border-radius: 99px;
+  background: var(--panel-2);
+  overflow: hidden;
+}
+.rankFill {
+  height: 100%;
+  border-radius: 4px;
+  background: var(--an-accent);
+}
+.rankValue {
+  font-size: 12.5px;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+.rankValue b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* риск договора: статус + подпись */
+.riskCell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.riskMeter {
+  width: 64px;
+  height: 6px;
+  border-radius: 99px;
+  background: var(--panel-2);
+  overflow: hidden;
+}
+.riskMeter span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--risk, var(--mut));
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--chip, var(--dim));
+  background: color-mix(in srgb, var(--chip, var(--dim)) 13%, transparent);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+.table th {
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--dim);
+  text-align: left;
+}
+.table td {
+  padding: 9px 6px;
+  border-bottom: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+.table tr:last-child td {
+  border-bottom: 0;
+}
+
+@media (max-width: 980px) {
+  .kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .two {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@media (max-width: 1180px) {
+  .rank {
+    grid-template-columns: 130px minmax(0, 1fr) 128px;
+  }
+}
+@media (max-width: 520px) {
+  /* На телефоне — две цифры в ряд, а не четыре экрана подряд. */
+  .kpi {
+    padding: 12px 14px;
+  }
+  .kpiValue {
+    font-size: 26px;
+  }
+  .kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .rank {
+    grid-template-columns: minmax(90px, 1fr) minmax(0, 1fr);
+  }
+  .rankValue {
+    grid-column: 1 / -1;
+    text-align: left;
+  }
+  .hideNarrow {
+    display: none;
+  }
+}

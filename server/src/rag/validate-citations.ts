@@ -130,15 +130,23 @@ export async function validateFindings(
 
   return Promise.all(
     findings.map(async (f) => {
+      // Противоречие внутри договора доказано не нормой, а двумя дословными
+      // цитатами (проверены в llm.ts по тексту договора). Без ссылки — так и
+      // есть; ссылка, которую не удалось подтвердить, просто убирается:
+      // понижать проверенное по тексту противоречие из-за неё нельзя.
+      if (f.conflict && !f.citation?.trim()) return { ...f, unitId: null, unverified: false };
       // Second-pass rescue: a finding without a unitId may still carry a
       // resolvable textual citation ("…Act 1998, s.8", «ст. 260 ГК»).
       const unitId = f.unitId?.trim() || (await resolveCitationText(db, f.citation, jurisdiction, asOfDate));
-      const demote = (): Omit<Finding, 'id'> => ({
-        ...f,
-        unitId,
-        unverified: true,
-        severity: 'Low',
-      });
+      const demote = (): Omit<Finding, 'id'> =>
+        f.conflict
+          ? { ...f, citation: '', unitId: null, unverified: false }
+          : {
+              ...f,
+              unitId,
+              unverified: true,
+              severity: 'Low',
+            };
 
       if (!unitId) return demote();
       const unit = await db.query<{ text: string; breadcrumb: string }>(

@@ -20,6 +20,7 @@ import { canEdit, resolveDocumentAccess } from '../lib/teamAccess.ts';
 import { addReminderToDocument } from '../lib/chatActions.ts';
 import { asObject } from '../lib/validate.ts';
 import { biBody, biLine, biSubject, escapeMailHtml, mailLayout, sendMail } from '../mail.ts';
+import { loadRenewalMarks, type RenewalMarkWire } from './decisions.routes.ts';
 
 interface ContractTermsWire {
   effectiveDate: string | null;
@@ -51,6 +52,8 @@ interface ContractWire {
   mine: boolean;
   terms: ContractTermsWire;
   obligations: ObligationWire[];
+  /** «Отказ отправлен» / «Продлеваем» — кто и когда (ui-test 2026-11-15). */
+  renewalMark?: RenewalMarkWire | null;
 }
 
 interface TermsRow {
@@ -149,9 +152,10 @@ export function contractRoutes(app: FastifyInstance, db: Db): void {
       list.push(o);
       byDoc.set(o.document_id, list);
     }
+    const marks = await loadRenewalMarks(db, ids);
     const out: ContractWire[] = [];
     for (const row of rows.rows) {
-      out.push(await toWire(db, row, req.currentUser.id, byDoc.get(row.document_id) ?? []));
+      out.push({ ...(await toWire(db, row, req.currentUser.id, byDoc.get(row.document_id) ?? [])), renewalMark: marks.get(row.document_id) ?? null });
     }
     return out;
   });

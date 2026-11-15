@@ -35,18 +35,21 @@ export function fallbackAnalysis(fileName: string, jurisdiction?: string | null)
         title: 'Termination notice below statutory minimum',
         citation: 'Employment Rights Act 1996, s.86',
         redlineId: 'r1',
+        topic: 'termination',
       },
       {
         severity: 'Medium',
         title: 'Restraint of trade likely too broad to enforce',
         citation: 'Tillman v Egon Zehnder [2019] UKSC 32',
         redlineId: 'r2',
+        topic: 'other',
       },
       {
         severity: 'Medium',
         title: 'Holiday entitlement clause not compliant',
         citation: 'Working Time Regulations 1998, reg.13',
         redlineId: 'r3',
+        topic: 'other',
       },
     ],
     redlines: [

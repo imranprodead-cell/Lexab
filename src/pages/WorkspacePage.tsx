@@ -16,6 +16,7 @@ import { EditorToolbar } from '@/components/workspace/EditorToolbar';
 import { FloatingToolbar } from '@/components/workspace/FloatingToolbar';
 import { SendForSignatureModal } from '@/components/workspace/SendForSignatureModal';
 import { VersionHistoryModal } from '@/components/workspace/VersionHistoryModal';
+import { WorkspaceDecisionChip, WorkspaceDecisionProgress } from '@/components/ux/WorkspaceDecisions';
 import { analysisApi, documentsApi, savedDocsApi, versionsApi } from '@/api';
 import { shareApi } from '@/api/growth.api';
 import { Modal } from '@/components/ui/Modal';
@@ -410,6 +411,7 @@ export function WorkspacePage() {
               <p className={styles.reviewIntroText}>
                 {isDraft ? t('ws.draftIntro') : t('ws.intro', { n: analysis.redlines.length })}
               </p>
+              {!isDraft ? <WorkspaceDecisionProgress analysisId={analysis.id} findingIds={analysis.findings.map((f) => f.id)} /> : null}
               <div className={styles.findingCards}>
                 {analysis.findings.map((f) => {
                   // A finding with a matching redline is clickable → jump to the clause.
@@ -440,6 +442,11 @@ export function WorkspacePage() {
                       <div style={{ minWidth: 0, flex: 1 }}>
                         <div className={styles.findingCardTitle}>{f.title}</div>
                         <CitationLine finding={f} pending={analysis?.repairPending} />
+                        {!isDraft ? (
+                          <div style={{ marginTop: 6 }}>
+                            <WorkspaceDecisionChip analysisId={analysis.id} findingId={f.id} />
+                          </div>
+                        ) : null}
                       </div>
                       {/* «Обсудить в чате»: вопрос по находке ложится в плашку
                           (НЕ отправляется сам — пользователь правит и шлёт). */}

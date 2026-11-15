@@ -538,39 +538,161 @@
 /* Toasts ------------------------------------------------------------------ */
 .toastStack {
   position: fixed;
-  bottom: 24px;
-  right: 24px;
+  right: max(24px, env(safe-area-inset-right, 0px));
+  bottom: max(24px, env(safe-area-inset-bottom, 0px));
   z-index: 300;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  align-items: flex-end;
+  gap: 8px;
   pointer-events: none;
 }
-/* Тост — стекло эталона; цвета точек success/error задаёт компонент (токены). */
+/* Тост — графитовая плашка (ui-test 2026-11-15, вместо белого стекла с точкой):
+   тёмная в обеих темах, значок тона в кружке, крестик-кнопка и полоска
+   оставшегося времени. Цвета — свои токены тоста, чтобы читаться на любом фоне. */
 .toast {
+  --toast-bg: #1f1e1c;
+  --toast-fg: #f6f5f2;
+  --toast-dim: rgba(246, 245, 242, 0.6);
+  --toast-line: rgba(255, 255, 255, 0.08);
+  --toast-hover: rgba(255, 255, 255, 0.1);
+  --toast-icon: rgba(246, 245, 242, 0.85);
+  position: relative;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
-  min-width: 240px;
-  max-width: 360px;
-  padding: 12px 14px;
-  border-radius: var(--r-lg);
-  background: var(--glass-bg-solid);
-  border: 1px solid var(--glass-edge);
-  border-top-color: var(--glass-edge-top);
+  width: min(380px, calc(100vw - 32px));
+  padding: 11px 8px 12px 12px;
+  border-radius: 14px;
+  background: var(--toast-bg);
+  border: 1px solid var(--toast-line);
   box-shadow:
-    inset 0 1px 0 var(--glass-highlight),
-    var(--shadow-pop);
+    0 1px 2px rgba(0, 0, 0, 0.12),
+    0 18px 40px -18px rgba(0, 0, 0, 0.45);
   font-size: 14px;
-  color: var(--text);
+  line-height: 1.45;
+  color: var(--toast-fg);
   pointer-events: auto;
-  animation: lxfade var(--dur-mid) var(--ease) both;
+  overflow: hidden;
+  animation: toastIn var(--dur-mid) var(--ease) both;
 }
-.toastDot {
-  width: 8px;
-  height: 8px;
+:global(html.dark) .toast {
+  --toast-bg: #2a2826;
+  --toast-line: rgba(255, 255, 255, 0.12);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.4),
+    0 18px 40px -18px rgba(0, 0, 0, 0.8);
+}
+.toast[data-tone='success'] {
+  --toast-icon: oklch(0.8 0.14 150);
+}
+.toast[data-tone='error'] {
+  --toast-icon: oklch(0.74 0.16 25);
+}
+.toastLeaving {
+  animation: toastOut 180ms ease-in both;
+}
+.toastIcon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
-  flex-shrink: 0;
+  color: var(--toast-icon);
+  background: color-mix(in srgb, var(--toast-icon) 20%, transparent);
+}
+.toastMsg {
+  flex: 1;
+  min-width: 0;
+  padding-top: 1px;
+  overflow-wrap: anywhere;
+}
+.toastClose {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-top: -1px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--toast-dim);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.toastClose:hover {
+  background: var(--toast-hover);
+  color: var(--toast-fg);
+}
+.toastClose:focus-visible,
+.toastAction:focus-visible {
+  outline: 2px solid var(--toast-fg);
+  outline-offset: 1px;
+}
+/* Полоска оставшегося времени; наведение мыши ставит её на паузу
+   (вместе с таймером в useUIStore.holdToast). */
+.toastBar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: color-mix(in srgb, var(--toast-icon) 65%, transparent);
+  transform-origin: left;
+  animation-name: toastLife;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+.toast:hover .toastBar {
+  animation-play-state: paused;
+}
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes toastOut {
+  to {
+    opacity: 0;
+    transform: translateX(14px);
+  }
+}
+@keyframes toastLife {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+@media (max-width: 640px) {
+  .toastStack {
+    left: max(16px, env(safe-area-inset-left, 0px));
+    right: max(16px, env(safe-area-inset-right, 0px));
+    bottom: max(16px, env(safe-area-inset-bottom, 0px));
+    align-items: stretch;
+  }
+  .toast {
+    width: auto;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .toast,
+  .toastLeaving {
+    animation: none;
+  }
+  .toastBar {
+    display: none;
+  }
 }
 
 /* Date picker (deadlines) --------------------------------------------------- */
@@ -889,33 +1011,34 @@
   }
 }
 
-/* Toast action button ("Undo") on the right edge of a toast — a quiet grey
-   pill, not an accent CTA (it undoes, it doesn't promote). */
+/* Toast action button ("Отменить") — тихая светлая кнопка на графите,
+   не акцентный призыв (она отменяет, а не продаёт). */
 .toastAction {
   flex: none;
+  align-self: center;
   font-family: inherit;
   font-size: 13px;
   font-weight: 600;
-  padding: 5px 12px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--hover-2);
-  color: var(--text);
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--toast-hover, rgba(255, 255, 255, 0.1));
+  color: var(--toast-fg, #f6f5f2);
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition: background 0.15s ease;
 }
 
 .toastAction:hover {
-  background: var(--hover-3);
+  background: rgba(255, 255, 255, 0.18);
 }
 
 /* ── Живое стекло для всплывающих поверхностей (фолбэк — glass-bg-solid) ────
    Единый матовый белый рецепт (--glass-pop-bg 0.86 + blur 30/saturate 1.5):
    читается как БЕЛЫЙ, не серый. Это АВТОРИТЕТНЫЙ блок для .modal/.selectMenuList
    (идёт последним в файле) — держим значения тут, чтобы не разъезжались. */
+/* Тост здесь больше не стеклянный: с 2026-11-15 он графитовый (см. .toast). */
 @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .modal,
-  .toast,
   .calendar,
   .selectMenuList {
     background: var(--glass-pop-bg);

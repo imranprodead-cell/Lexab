@@ -36,6 +36,7 @@ import { ssoRoutes } from './routes/sso.routes.ts';
 import { savedDocRoutes } from './routes/saved-docs.routes.ts';
 import { playbookRoutes } from './routes/playbooks.routes.ts';
 import { contractRoutes } from './routes/contracts.routes.ts';
+import { decisionRoutes } from './routes/decisions.routes.ts';
 import { batchRoutes } from './routes/batch.routes.ts';
 import { workflowRoutes } from './routes/workflows.routes.ts';
 import { securityRoutes } from './routes/security.routes.ts';
@@ -248,6 +249,7 @@ export async function buildApp(db: Db): Promise<FastifyInstance> {
       savedDocRoutes(api, db);
       playbookRoutes(api, db);
       contractRoutes(api, db);
+      decisionRoutes(api, db);
       batchRoutes(api, db);
       workflowRoutes(api, db);
       signatureRoutes(api, db);

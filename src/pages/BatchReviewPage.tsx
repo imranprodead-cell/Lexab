@@ -7,8 +7,13 @@ import { Icon } from '@/components/icons/Icon';
 import { Badge } from '@/components/ui/Badge';
 import { Button, IconButton } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
-import { EmptyState, ErrorState, SkeletonRows } from '@/components/ui/States';
-import { batchApi } from '@/api';
+import { ErrorState, SkeletonRows } from '@/components/ui/States';
+import { BatchMatrix, type MatrixRow } from '@/components/ux/BatchMatrix';
+import { SampleBatch } from '@/components/ux/Samples';
+import ux from '@/components/ux/ux.module.css';
+import { useUxT } from '@/i18n/uxMessages';
+import { analysisApi, batchApi } from '@/api';
+import type { AnalysisResult } from '@/types/domain';
 import { uploadsApi } from '@/api/uploads.api';
 import { ApiError } from '@/api/util';
 import { COUNTRIES } from '@/data/countries';
@@ -106,6 +111,34 @@ export function BatchReviewPage() {
       clearInterval(iv);
     };
   }, [jobId, jobStatus]);
+
+  // ui-test 15.11: «Таблица проверок» — разборы готовых файлов подгружаются по
+  // одному запросу на файл; повторно не качаются (кэш в состоянии страницы).
+  const u = useUxT();
+  const [jobView, setJobView] = useState<'matrix' | 'list'>('matrix');
+  const [analyses, setAnalyses] = useState<Record<string, AnalysisResult | 'loading' | 'error'>>({});
+  useEffect(() => {
+    if (jobView !== 'matrix') return;
+    const need = (job?.items ?? []).filter((it) => it.status === 'done' && it.analysisId && !(it.analysisId in analyses));
+    if (!need.length) return;
+    setAnalyses((prev) => ({ ...prev, ...Object.fromEntries(need.map((it) => [it.analysisId as string, 'loading' as const])) }));
+    for (const it of need) {
+      const id = it.analysisId as string;
+      analysisApi
+        .get(id)
+        .then((a) => setAnalyses((prev) => ({ ...prev, [id]: a })))
+        .catch(() => setAnalyses((prev) => ({ ...prev, [id]: 'error' })));
+    }
+  }, [job, jobView, analyses]);
+
+  const matrixRows = (j: BatchJob): MatrixRow[] =>
+    (j.items ?? []).map((it) => {
+      const a = it.analysisId ? analyses[it.analysisId] : undefined;
+      if (it.status !== 'done' || !it.analysisId) return { key: it.id, name: it.fileName, documentId: it.documentId, state: it.status === 'error' ? 'error' : 'pending' };
+      if (!a || a === 'loading') return { key: it.id, name: it.fileName, documentId: it.documentId, state: 'loading' };
+      if (a === 'error') return { key: it.id, name: it.fileName, documentId: it.documentId, state: 'error' };
+      return { key: it.id, name: it.fileName, documentId: it.documentId, state: 'ready', analysis: a };
+    });
 
   const formatSize = (bytes: number): string =>
     bytes >= 1_048_576 ? `${(bytes / 1_048_576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
@@ -282,6 +315,18 @@ export function BatchReviewPage() {
         </span>
       </div>
 
+      <div className={ux.viewSwitch} role="group" style={{ marginBottom: 14 }}>
+        <button type="button" aria-pressed={jobView === 'matrix'} onClick={() => setJobView('matrix')}>
+          {u('bm.matrix')}
+        </button>
+        <button type="button" aria-pressed={jobView === 'list'} onClick={() => setJobView('list')}>
+          {u('bm.list')}
+        </button>
+      </div>
+
+      {jobView === 'matrix' ? (
+        <BatchMatrix rows={matrixRows(j)} onOpen={(r) => r.documentId && navigate(`/documents/${r.documentId}`)} />
+      ) : (
       <div className={styles.tableCard}>
         <table className={styles.table}>
           <thead>
@@ -339,6 +384,7 @@ export function BatchReviewPage() {
           </tbody>
         </table>
       </div>
+      )}
     </>
   );
 
@@ -505,16 +551,8 @@ export function BatchReviewPage() {
           {loading ? (
             <SkeletonRows rows={4} height={80} />
           ) : locked ? (
-            <EmptyState
-              icon="inbox"
-              title={t('batch.upsellTitle')}
-              body={t('batch.upsellBody')}
-              action={
-                <Button variant="primary" icon="sparkle" onClick={() => navigate('/plans')}>
-                  {t('batch.upsellCta')}
-                </Button>
-              }
-            />
+            // ui-test 15.11: образец таблицы проверок вместо текста «на тарифе Pro».
+            <SampleBatch />
           ) : error ? (
             <ErrorState message={error} onRetry={refreshHistory} />
           ) : job ? (

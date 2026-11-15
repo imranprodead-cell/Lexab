@@ -2,11 +2,15 @@ import { useMemo, useState, type CSSProperties } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { Icon } from '@/components/icons/Icon';
 import { Button } from '@/components/ui/Button';
-import { LawTextBox } from '@/components/ui/VerifiedBadge';
+import { DecisionBar, DecisionChip } from '@/components/ux/DecisionBar';
+import { LawQuote } from '@/components/ux/LawQuote';
+import ux from '@/components/ux/ux.module.css';
 import { useDismissable } from '@/hooks/useAsync';
 import { useStreamingText } from '@/hooks/useStreamingText';
 import { useI18n } from '@/i18n/I18nProvider';
+import { useUxT } from '@/i18n/uxMessages';
 import { analysisSources, citationKey, focusSource } from '@/lib/analysisSources';
+import { isFinalDecision, useFindingDecisions } from '@/lib/findingDecisions';
 import { EASE } from '@/lib/motion';
 import { useChatStore } from '@/store/useChatStore';
 import { isRedlineSlot, type AnalysisResult, type DocBlock, type Finding, type Redline, type Severity } from '@/types/domain';
@@ -151,24 +155,25 @@ export function SummaryCard({ analysis, onOpenWorkspace, onOpenFinding, onAsk, o
       return next;
     });
 
-  // Номер нормы открывает её в правой колонке; если колонки на экране нет
-  // (узкое окно, открыт документ) — текст нормы раскрывается под находкой.
-  const [inlineLaw, setInlineLaw] = useState<Set<string>>(() => new Set());
-  const onSource = (f: Finding, n: number) => {
-    if (focusSource(n)) return;
-    setInlineLaw((prev) => {
-      const next = new Set(prev);
-      if (next.has(f.id)) next.delete(f.id);
-      else next.add(f.id);
-      return next;
-    });
-  };
+  // ui-test 15.11: решения по находкам (имя и дата) + фильтр «ждут / решено».
+  const u = useUxT();
+  const { map: decisions, set: setDecision, error: decisionsError } = useFindingDecisions(analysis.id);
+  const [filter, setFilter] = useState<'all' | 'wait' | 'done'>('all');
+  const total = analysis.findings.length;
+  const waiting = analysis.findings.filter((f) => !isFinalDecision(decisions[f.id])).length;
+  const passes = (f: Finding) => filter === 'all' || (filter === 'wait' ? !isFinalDecision(decisions[f.id]) : isFinalDecision(decisions[f.id]));
+  // Номер находки не меняется от фильтра: «3.» остаётся третьей находкой.
+  const numOf = new Map([...main, ...toCheck].map((f, i) => [f.id, i + 1]));
+  const shownMain = main.filter(passes);
+  const shownCheck = toCheck.filter(passes);
 
-  const renderFinding = (f: Finding, num: number) => {
+  const renderFinding = (f: Finding) => {
+    const num = numOf.get(f.id) ?? 0;
     const redline = f.redlineId ? redlines.get(f.redlineId) : undefined;
     const clause = f.redlineId ? clauses.get(f.redlineId) : undefined;
     const n = f.citation ? numberOf.get(citationKey(f.citation)) : undefined;
     const lawUnit = f.unitId && !f.unverified ? f.unitId : null;
+    const sevVar = f.unverified ? 'var(--mut)' : SEV_VAR[f.severity];
     return (
       <li key={f.id} className={styles.memoItem}>
         <span className={styles.memoNum}>{num}.</span>
@@ -192,11 +197,51 @@ export function SummaryCard({ analysis, onOpenWorkspace, onOpenFinding, onAsk, o
                 {t('playbooks.deviationBadge')}
               </span>
             ) : null}
+            {f.conflict ? (
+              <span className={styles.memoTag}>
+                <Icon name="alert" size={12} />
+                {u('fd.conflict')}
+              </span>
+            ) : null}
+            <span style={{ marginLeft: 'auto' }}>
+              <DecisionChip decision={decisions[f.id]} />
+            </span>
           </div>
           <h4 className={styles.memoTitle} dir="auto">
             {f.title}
           </h4>
-          {f.citation?.trim() ? (
+          {/* Противоречие внутри договора: два места, дословно из текста
+              (сервер проверил, что обе цитаты есть в договоре). */}
+          {f.conflict ? (
+            <div className={ux.block} style={{ gap: 8 }}>
+              <span className={ux.lbl} style={{ margin: 0 }}>{u('fd.conflictA')}</span>
+              <blockquote className={ux.quote} style={{ '--sev': sevVar } as CSSProperties} dir="auto">
+                {f.conflict.a}
+              </blockquote>
+              <span className={ux.lbl} style={{ margin: 0 }}>{u('fd.conflictB')}</span>
+              <blockquote className={ux.quote} style={{ '--sev': sevVar } as CSSProperties} dir="auto">
+                {f.conflict.b}
+              </blockquote>
+              <span className={`${ux.muted} ${ux.small}`}>{u('fd.conflictNote')}</span>
+            </div>
+          ) : null}
+          {/* «В договоре»: слова пункта, к которому относится находка (текст,
+              который правка заменяет), — рядом с нормой, без перехода в документ. */}
+          {!f.conflict && redline?.delText.trim() ? (
+            <div className={ux.block}>
+              <span className={ux.lbl}>{u('fd.inContract')}</span>
+              <blockquote className={ux.quote} style={{ '--sev': sevVar } as CSSProperties} dir="auto">
+                {redline.delText.trim()}
+              </blockquote>
+            </div>
+          ) : null}
+          {/* «В законе»: сам текст статьи из базы — бейдж «Проверено» становится доказательством. */}
+          {lawUnit ? (
+            <div className={ux.block}>
+              <span className={ux.lbl}>{u('fd.inLaw')}</span>
+              <LawQuote unitId={lawUnit} sourceNumber={n} onSource={n ? () => void focusSource(n) : undefined} />
+            </div>
+          ) : f.citation?.trim() ? (
             <div className={styles.memoCite}>
               <span dir="auto">
                 {t('memo.basis')}: {f.citation}
@@ -205,18 +250,13 @@ export function SummaryCard({ analysis, onOpenWorkspace, onOpenFinding, onAsk, o
                 <button
                   type="button"
                   className={styles.memoChip}
-                  onClick={() => onSource(f, n)}
+                  onClick={() => void focusSource(n)}
                   aria-label={t('memo.toSource', { n })}
                   title={t('memo.toSource', { n })}
                 >
                   {n}
                 </button>
               ) : null}
-            </div>
-          ) : null}
-          {lawUnit && inlineLaw.has(f.id) ? (
-            <div className={styles.memoLaw}>
-              <LawTextBox unitId={lawUnit} />
             </div>
           ) : null}
           {f.unverified ? <p className={styles.memoNote}>{t(checking ? 'memo.checkingNote' : 'memo.checkNote')}</p> : null}
@@ -253,6 +293,7 @@ export function SummaryCard({ analysis, onOpenWorkspace, onOpenFinding, onAsk, o
               </AnimatePresence>
             </>
           ) : null}
+          <DecisionBar decision={decisions[f.id]} canEdit={canEdit} onDecide={(d) => setDecision(f.id, d)} />
         </div>
       </li>
     );
@@ -299,21 +340,48 @@ export function SummaryCard({ analysis, onOpenWorkspace, onOpenFinding, onAsk, o
         </div>
       </div>
 
-      {main.length ? (
+      {/* Сколько находок ещё ждут решения человека — как «7 need a reviewer». */}
+      {total ? (
+        <div className={ux.progress}>
+          <span className={ux.progressText}>{waiting ? u('dec.progress', { n: waiting, total }) : u('dec.allDone', { total })}</span>
+          <div className={ux.filters} role="group">
+            {(
+              [
+                ['all', 'dec.filterAll', total],
+                ['wait', 'dec.filterWait', waiting],
+                ['done', 'dec.filterDone', total - waiting],
+              ] as const
+            ).map(([id, key, count]) => (
+              <button key={id} type="button" className={ux.fbtn} aria-pressed={filter === id} onClick={() => setFilter(id)}>
+                {u(key)}
+                <span className={ux.n}>{count}</span>
+              </button>
+            ))}
+          </div>
+          <div className={`${ux.bar} ${waiting ? '' : ux.barDone}`}>
+            <span style={{ width: `${Math.round(((total - waiting) / total) * 100)}%` }} />
+          </div>
+          <p className={ux.localNote}>{u(decisionsError ? 'dec.loadFailed' : 'dec.teamNote')}</p>
+        </div>
+      ) : null}
+
+      {shownMain.length ? (
         <section className={styles.memoSection}>
           <h3 className={styles.memoH}>{t('memo.fixTitle')}</h3>
-          <ol className={styles.memoList}>{main.map((f, i) => renderFinding(f, i + 1))}</ol>
+          <ol className={styles.memoList}>{shownMain.map((f) => renderFinding(f))}</ol>
         </section>
       ) : analysis.findings.length === 0 ? (
         <p className={styles.memoNote}>{t('memo.noFindings')}</p>
       ) : null}
 
-      {toCheck.length ? (
+      {shownCheck.length ? (
         <section className={styles.memoSection}>
           <h3 className={styles.memoH}>{t(checking ? 'memo.checkingTitle' : 'memo.checkTitle')}</h3>
-          <ol className={styles.memoList}>{toCheck.map((f, i) => renderFinding(f, main.length + i + 1))}</ol>
+          <ol className={styles.memoList}>{shownCheck.map((f) => renderFinding(f))}</ol>
         </section>
       ) : null}
+
+      {total && !shownMain.length && !shownCheck.length ? <p className={styles.memoNote}>{u('dec.emptyFilter')}</p> : null}
 
       <div className={styles.memoActions}>
         <Button variant="primary" icon="layout" onClick={onOpenWorkspace}>

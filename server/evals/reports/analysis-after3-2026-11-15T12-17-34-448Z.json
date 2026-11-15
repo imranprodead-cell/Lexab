@@ -1,0 +1,344 @@
+{
+ "summary": {
+  "label": "after3",
+  "plan": "Free",
+  "model": "deepseek-flash",
+  "judge": "deepseek-flash",
+  "contracts": 5,
+  "findings": 25,
+  "citationPrecision": 0.8,
+  "unverifiedShare": 0.16,
+  "topicCoverage": 1,
+  "topicAgreeWithKeywords": 0.64,
+  "contradictionsPlanted": 6,
+  "contradictionsFound": 6,
+  "contradictionRecall": 1,
+  "conflictsReported": 6,
+  "conflictsNotPlanted": 0,
+  "conflictsNotVerbatim": 0,
+  "fallbackUsed": false,
+  "conflictsDroppedNotVerbatim": 0,
+  "deepseekSpentUsd": 0.02
+ },
+ "rows": [
+  {
+   "id": "supply",
+   "ms": 16038,
+   "findings": [
+    {
+     "severity": "High",
+     "title": "Противоречие суммы договора: цифрами и прописью (п. 2.1)",
+     "citation": "",
+     "verified": false,
+     "topic": "payment",
+     "keywordTopic": "other",
+     "conflict": true
+    },
+    {
+     "severity": "High",
+     "title": "Противоречие срока оплаты: 30 календарных дней (п. 4.2) и 60 банковских дней (п. 8.3)",
+     "citation": "",
+     "verified": false,
+     "topic": "payment",
+     "keywordTopic": "payment",
+     "conflict": true
+    },
+    {
+     "severity": "High",
+     "title": "Пеня 1% в день превышает установленный законом предел 0,5% и не ограничена 50% стоимости",
+     "citation": "ст.25 Закона «О договорно-правовой базе деятельности хозяйствующих субъектов»",
+     "verified": true,
+     "topic": "penalty",
+     "keywordTopic": "penalty",
+     "conflict": false
+    },
+    {
+     "severity": "Low",
+     "title": "Покупатель вправе немотивированно отказаться от договора с уведомлением за 10 дней",
+     "citation": "ст.25 Закона «О договорно-правовой базе деятельности хозяйствующих субъектов»",
+     "verified": false,
+     "topic": "termination",
+     "keywordTopic": "termination",
+     "conflict": false
+    },
+    {
+     "severity": "Medium",
+     "title": "Отсутствует Спецификация (количество, ассортимент, качество) — существенное условие по ст.10",
+     "citation": "ст.10 Закона «О договорно-правовой базе деятельности хозяйствующих субъектов»",
+     "verified": true,
+     "topic": "acceptance",
+     "keywordTopic": "acceptance",
+     "conflict": false
+    },
+    {
+     "severity": "Low",
+     "title": "Определение подсудности в экономическом суде по месту нахождения Покупателя — неопределённость",
+     "citation": "ст.25 Закона «О договорно-правовой базе деятельности хозяйствующих субъектов»",
+     "verified": false,
+     "topic": "disputes",
+     "keywordTopic": "disputes",
+     "conflict": false
+    }
+   ],
+   "conflicts": [
+    {
+     "title": "Противоречие суммы договора: цифрами и прописью (п. 2.1)",
+     "a": "150 000 000 (сто миллионов) сум",
+     "b": "150 000 000",
+     "verbatim": true,
+     "planted": 0
+    },
+    {
+     "title": "Противоречие срока оплаты: 30 календарных дней (п. 4.2) и 60 банковских дней (п. 8.3)",
+     "a": "в течение 30 (тридцати) календарных дней с даты поставки",
+     "b": "не позднее 60 (шестидесяти) банковских дней с даты подписания товарной накладной",
+     "verbatim": true,
+     "planted": 1
+    }
+   ],
+   "plantedFound": 2,
+   "planted": 2
+  },
+  {
+   "id": "lease",
+   "ms": 13511,
+   "findings": [
+    {
+     "severity": "High",
+     "title": "Срок внесения арендной платы: 5-е число (п. 3.2) и 15-е число следующего месяца (п. 3.5)",
+     "citation": "",
+     "verified": false,
+     "topic": "payment",
+     "keywordTopic": "other",
+     "conflict": true
+    },
+    {
+     "severity": "High",
+     "title": "Срок аренды: до 31 декабря 2026 года (п. 2.1) и до 31 января 2027 года (п. 9.1)",
+     "citation": "",
+     "verified": false,
+     "topic": "termination",
+     "keywordTopic": "other",
+     "conflict": true
+    },
+    {
+     "severity": "High",
+     "title": "Чрезмерная пеня 0,5% в день (182,5% годовых)",
+     "citation": "ст. 333 ГК",
+     "verified": true,
+     "topic": "penalty",
+     "keywordTopic": "penalty",
+     "conflict": false
+    },
+    {
+     "severity": "Low",
+     "title": "Односторонний отказ арендодателя от договора без возврата обеспечительного платежа",
+     "citation": "ст. 546 ГК",
+     "verified": false,
+     "topic": "termination",
+     "keywordTopic": "termination",
+     "conflict": false
+    },
+    {
+     "severity": "Medium",
+     "title": "Отсутствие согласованного размера арендной платы за единицу площади при аренде нежилого помещения",
+     "citation": "ст. 577 ГК",
+     "verified": true,
+     "topic": "payment",
+     "keywordTopic": "other",
+     "conflict": false
+    }
+   ],
+   "conflicts": [
+    {
+     "title": "Срок внесения арендной платы: 5-е число (п. 3.2) и 15-е число следующего месяца (п. 3.5)",
+     "a": "не позднее 5 (пятого) числа текущего месяца",
+     "b": "до 15 (пятнадцатого) числа месяца, следующего за расчётным",
+     "verbatim": true,
+     "planted": 1
+    },
+    {
+     "title": "Срок аренды: до 31 декабря 2026 года (п. 2.1) и до 31 января 2027 года (п. 9.1)",
+     "a": "с 1 марта 2026 года по 31 декабря 2026 года",
+     "b": "с 1 марта 2026 года по 31 января 2027 года",
+     "verbatim": true,
+     "planted": 0
+    }
+   ],
+   "plantedFound": 2,
+   "planted": 2
+  },
+  {
+   "id": "services",
+   "ms": 26373,
+   "findings": [
+    {
+     "severity": "High",
+     "title": "Ограничение ответственности Исполнителя суммой месячной оплаты, включая умысел",
+     "citation": "ст. 333 ГК РУз; ст. 706 ГК РУз",
+     "verified": true,
+     "topic": "penalty",
+     "keywordTopic": "penalty",
+     "conflict": false
+    },
+    {
+     "severity": "High",
+     "title": "Полный отказ от ответственности за порчу имущества Заказчика",
+     "citation": "ст. 333 ГК РУз; ст. 706 ГК РУз",
+     "verified": true,
+     "topic": "penalty",
+     "keywordTopic": "penalty",
+     "conflict": false
+    },
+    {
+     "severity": "High",
+     "title": "Право Исполнителя приостановить услуги без уведомления Заказчика",
+     "citation": "ст. 19 Закона «О защите прав потребителей»",
+     "verified": true,
+     "topic": "termination",
+     "keywordTopic": "other",
+     "conflict": false
+    },
+    {
+     "severity": "Medium",
+     "title": "Отсутствие порядка расторжения и компенсации при досрочном прекращении договора",
+     "citation": "ст. 707 ГК РУз",
+     "verified": true,
+     "topic": "termination",
+     "keywordTopic": "termination",
+     "conflict": false
+    },
+    {
+     "severity": "Medium",
+     "title": "Нет неустойки за просрочку предоплаты и оказания услуг; ответственность не определена",
+     "citation": "ст. 25 Закона «О договорно-правовой базе деятельности хозяйствующих субъектов»",
+     "verified": true,
+     "topic": "payment",
+     "keywordTopic": "penalty",
+     "conflict": false
+    }
+   ],
+   "conflicts": [],
+   "plantedFound": 0,
+   "planted": 0
+  },
+  {
+   "id": "works",
+   "ms": 24776,
+   "findings": [
+    {
+     "severity": "High",
+     "title": "Противоречие в размере неустойки за просрочку: 0,1% (п. 6.2) и 0,5% (п. 9.4)",
+     "citation": "ст. 635 ГК",
+     "verified": true,
+     "topic": "penalty",
+     "keywordTopic": "penalty",
+     "conflict": true
+    },
+    {
+     "severity": "High",
+     "title": "Противоречие в подсудности: экономический суд г. Ташкента (п. 10.1) и TIAC (п. 10.3)",
+     "citation": "",
+     "verified": false,
+     "topic": "disputes",
+     "keywordTopic": "disputes",
+     "conflict": true
+    },
+    {
+     "severity": "Medium",
+     "title": "Срок выполнения работ и условия ответственности Подрядчика за просрочку требуют согласования с промежуточными сроками и последствиями конечного срока",
+     "citation": "ст. 635 ГК",
+     "verified": true,
+     "topic": "termination",
+     "keywordTopic": "penalty",
+     "conflict": false
+    },
+    {
+     "severity": "Medium",
+     "title": "Заказчик вправе отказаться от договора при явной невозможности окончания работ к сроку, но в договоре не закреплено право Заказчика на отказ при недостатках и просрочке",
+     "citation": "ст. 642 ГК",
+     "verified": true,
+     "topic": "termination",
+     "keywordTopic": "termination",
+     "conflict": false
+    },
+    {
+     "severity": "Low",
+     "title": "Гарантийный срок 3 месяца может быть недостаточным для строительных работ по капитальному ремонту",
+     "citation": "ст. 648 ГК",
+     "verified": true,
+     "topic": "acceptance",
+     "keywordTopic": "acceptance",
+     "conflict": false
+    }
+   ],
+   "conflicts": [
+    {
+     "title": "Противоречие в размере неустойки за просрочку: 0,1% (п. 6.2) и 0,5% (п. 9.4)",
+     "a": "пеню в размере 0,1% от стоимости невыполненных Работ за каждый день просрочки",
+     "b": "неустойку в размере 0,5% от общей стоимости Договора за каждый день просрочки",
+     "verbatim": true,
+     "planted": 0
+    },
+    {
+     "title": "Противоречие в подсудности: экономический суд г. Ташкента (п. 10.1) и TIAC (п. 10.3)",
+     "a": "Споры разрешаются в экономическом суде г. Ташкента.",
+     "b": "подлежат окончательному рассмотрению в Ташкентском международном арбитражном центре (TIAC)",
+     "verbatim": true,
+     "planted": 1
+    }
+   ],
+   "plantedFound": 2,
+   "planted": 2
+  },
+  {
+   "id": "nda",
+   "ms": 15227,
+   "findings": [
+    {
+     "severity": "High",
+     "title": "Штраф 100 000 000 сум за каждый случай разглашения независимо от убытков — несоразмерная неустойка",
+     "citation": "ст. 325 ГК Республики Узбекистан",
+     "verified": true,
+     "topic": "penalty",
+     "keywordTopic": "penalty",
+     "conflict": false
+    },
+    {
+     "severity": "High",
+     "title": "Отсутствие определения конфиденциальной информации и перечня исключений",
+     "citation": "ст. 3 Закона Республики Узбекистан «О коммерческой тайне»",
+     "verified": true,
+     "topic": "other",
+     "keywordTopic": "other",
+     "conflict": false
+    },
+    {
+     "severity": "Medium",
+     "title": "Односторонняя асимметрия: раскрывающая сторона не несёт никаких обязательств",
+     "citation": "ст. 14 Закона Республики Узбекистан «О коммерческой тайне»",
+     "verified": true,
+     "topic": "other",
+     "keywordTopic": "termination",
+     "conflict": false
+    },
+    {
+     "severity": "Low",
+     "title": "Отсутствует положение о применимом праве и порядке направления уведомлений",
+     "citation": "ст. 1097 ГК Республики Узбекистан",
+     "verified": false,
+     "topic": "disputes",
+     "keywordTopic": "other",
+     "conflict": false
+    }
+   ],
+   "conflicts": [],
+   "plantedFound": 0,
+   "planted": 0
+  }
+ ],
+ "warnings": [
+  "[llm] deepseek-flash failed (Expected ',' or '}' after property value in JSON at position 720 (line 1 column 721)); retrying on claude-haiku-5-5",
+  "[llm] deepseek-flash failed (Expected property name or '}' in JSON at position 4966 (line 1 column 4967)); retrying on claude-haiku-5-5"
+ ]
+}

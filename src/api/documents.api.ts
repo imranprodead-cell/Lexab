@@ -1,5 +1,5 @@
 /** Documents API — the contracts table (search, filter, pagination-ready). */
-import type { ContractDocument } from '@/types/domain';
+import type { ContractDocument, DocPreview } from '@/types/domain';
 import { USE_MOCK, http, httpBlob } from './client';
 import { db } from './mock/db';
 import { ApiError, clone, delay } from './util';
@@ -82,6 +82,13 @@ export const documentsApi = {
     }
     const rows = await http<ContractDocument[]>(`/documents?pageSize=${limit}&page=1`, { signal });
     return rows.filter((d) => !d.sharedBy).slice(0, limit);
+  },
+
+  /** Превью для карточек (ui-test 2026-11-15): заголовок и первые абзацы
+   *  документа, ≤ 600 знаков; id без превью в ответе нет. */
+  async previews(ids: string[], signal?: AbortSignal): Promise<Record<string, DocPreview>> {
+    if (USE_MOCK || !ids.length) return {};
+    return http<Record<string, DocPreview>>(`/documents/previews?ids=${ids.map(encodeURIComponent).join(',')}`, { signal });
   },
 
   async get(id: string, signal?: AbortSignal): Promise<ContractDocument> {

@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { TopBar } from '@/components/layout/TopBar';
-import { FileIcon } from '@/components/chat/FileIcon';
 import { Icon } from '@/components/icons/Icon';
 import { RiskBadge, Badge } from '@/components/ui/Badge';
 import { VaultHeader } from '@/components/vault/VaultHeader';
@@ -9,6 +8,10 @@ import { Button, IconButton } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { SelectMenu } from '@/components/ui/SelectMenu';
 import { EmptyState, ErrorState, SkeletonRows } from '@/components/ui/States';
+import { SampleDocuments } from '@/components/ux/SampleVault';
+import { FileCard, FileCardSkeleton } from '@/components/ux/FileCard';
+import { previewFromMarkdown, useDocPreviews } from '@/lib/docPreviews';
+import { localeFor } from '@/i18n/dates';
 import { useAsync } from '@/hooks/useAsync';
 import { invalidateVaultCounts } from '@/hooks/useVaultCounts';
 import { usePageTitle } from '@/hooks/usePageTitle';
@@ -21,7 +24,8 @@ import styles from './pages.module.css';
 
 const STATUS_FILTERS = ['All', 'Draft', 'In review', 'Reviewed', 'Signed'];
 const RISK_FILTERS = ['All', 'Low', 'Elevated', 'High'];
-const PAGE_SIZE = 8;
+// 12 — ровно 3, 2 или 1 ряд карточек без «дырки» в последнем ряду.
+const PAGE_SIZE = 12;
 const RISK_ORDER: Record<string, number> = { Low: 0, Elevated: 1, High: 2 };
 
 type SortKey = 'name' | 'risk' | 'updatedAt';
@@ -48,20 +52,15 @@ function savedMatches(s: SavedDoc, q: { search: string; status: string; risk: st
   return !needle || s.title.toLowerCase().includes(needle) || s.content.toLowerCase().includes(needle);
 }
 
-/** Плитка-буква: первая буква контрагента (или названия), три оттенка по хешу. */
-function letterOf(d: ContractDocument): { letter: string; shade: number } {
-  const source = d.counterparty && d.counterparty !== '—' ? d.counterparty : d.name;
-  const letter = (source.match(/\p{L}|\p{N}/u)?.[0] ?? '#').toUpperCase();
-  let h = 0;
-  for (const ch of d.id) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
-  return { letter, shade: h % 3 };
-}
+/** «Сегодня» → «сегодня» после запятой. Только первая буква: в немецком
+ *  существительные внутри («vor 6 Tagen») остаются с заглавной. */
+const lowerFirst = (s: string) => s.charAt(0).toLocaleLowerCase() + s.slice(1);
 
 /** Vault → Documents: договоры и сохранённые из чата документы карточками
  *  (эталон владельца) — фильтр по статусу, поиск, риск, порядок и страницы. */
 export function DocumentsPage() {
   const navigate = useNavigate();
-  const { t } = useI18n();
+  const { t, lang } = useI18n();
   usePageTitle(t('nav.documents'));
   const [search, setSearch] = useState('');
   // Debounced value that actually drives the request — the input stays fully
@@ -155,10 +154,7 @@ export function DocumentsPage() {
         title={t('projects.toProject')}
         size="sm"
         iconSize={15}
-        onClick={(e) => {
-          e.stopPropagation();
-          setPickFor(d);
-        }}
+        onClick={() => setPickFor(d)}
       />
     );
 
@@ -183,6 +179,18 @@ export function DocumentsPage() {
   const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
   const clampedPage = Math.min(page, totalPages - 1);
   const pageRows = sorted.slice(clampedPage * PAGE_SIZE, clampedPage * PAGE_SIZE + PAGE_SIZE);
+  // Превью только для карточек текущей страницы — один запрос на страницу.
+  const previews = useDocPreviews(
+    pageRows.flatMap((c) => (c.kind === 'doc' ? [{ id: c.doc.id, updatedAt: c.doc.updatedAt }] : [])),
+  );
+  const savedPreviews = useMemo(
+    () => new Map((savedDocs.data ?? []).map((x) => [x.id, previewFromMarkdown(x.content)])),
+    [savedDocs.data],
+  );
+  const dateFmt = useMemo(
+    () => new Intl.DateTimeFormat(localeFor(lang), { day: 'numeric', month: 'short', year: 'numeric' }),
+    [lang],
+  );
 
   return (
     <div className={styles.page}>
@@ -247,95 +255,69 @@ export function DocumentsPage() {
           </div>
 
           {loading || savedDocs.loading ? (
-            <div className={styles.docGrid}>
-              {Array.from({ length: 4 }).map((_, i) => (
-                <div key={i} className={`${styles.docSkeletonCard} ${styles.skeleton}`} />
+            <div className={styles.docGallery}>
+              {Array.from({ length: 6 }).map((_, i) => (
+                <FileCardSkeleton key={i} variant="gallery" />
               ))}
             </div>
           ) : error ? (
             <ErrorState message={error} onRetry={reload} />
           ) : sorted.length === 0 ? (
-            <EmptyState icon="docs" title={t('docs.empty')} body={t('docs.emptyBody')} />
+            // ui-test 15.11: образец — только когда документов нет совсем; пустой
+            // результат поиска/фильтра остаётся прежним «ничего не найдено».
+            !search.trim() && status === 'All' && risk === 'All' ? (
+              <SampleDocuments />
+            ) : (
+              <EmptyState icon="docs" title={t('docs.empty')} body={t('docs.emptyBody')} />
+            )
           ) : (
             <>
-              <div className={styles.docGrid}>
+              <div className={styles.docGallery}>
                 {pageRows.map((card) => {
                   if (card.kind === 'saved') {
                     const sv = card.saved;
                     return (
-                      <div
+                      <FileCard
                         key={card.key}
-                        className={styles.docCard}
-                        role="link"
-                        tabIndex={0}
-                        onClick={() => openSaved(sv)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') openSaved(sv);
-                        }}
-                      >
-                        <div className={styles.docCardBody}>
-                          <div className={styles.docCardTop}>
-                            <span className={styles.docFileTile} aria-hidden="true">
-                              <FileIcon name="saved.docx" size={20} />
-                            </span>
-                            <Badge>{t('status.Draft')}</Badge>
-                          </div>
-                          <h3 className={styles.docCardTitle}>{sv.title}</h3>
-                          <div className={styles.docCardSub}>{t('docs.savedFromChat')}</div>
-                        </div>
-                        <div className={styles.docCardFoot}>
-                          <span>{timeAgo(sv.createdAt)}</span>
-                          <Badge>{t('docs.notReviewed')}</Badge>
-                          <span>
-                            <IconButton
-                              icon="trash"
-                              label={t('docs.deleteSaved')}
-                              title={t('docs.deleteSaved')}
-                              size="sm"
-                              iconSize={15}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setDeleteFor(sv);
-                              }}
-                            />
-                          </span>
-                        </div>
-                      </div>
+                        variant="gallery"
+                        kindOf="saved.docx"
+                        title={sv.title}
+                        paperTitle={sv.title}
+                        paperMeta={dateFmt.format(new Date(sv.createdAt))}
+                        preview={savedPreviews.get(sv.id) ?? null}
+                        sub={`${t('docs.savedFromChat')}, ${lowerFirst(timeAgo(sv.createdAt))}`}
+                        aside={<Badge>{t('docs.notReviewed')}</Badge>}
+                        onOpen={() => openSaved(sv)}
+                        actions={
+                          <IconButton
+                            icon="trash"
+                            label={t('docs.deleteSaved')}
+                            title={t('docs.deleteSaved')}
+                            size="sm"
+                            iconSize={15}
+                            onClick={() => setDeleteFor(sv)}
+                          />
+                        }
+                      />
                     );
                   }
                   const d = card.doc;
-                  const { letter, shade } = letterOf(d);
-                  const open = () => navigate(`/documents/${d.id}`);
+                  const team = d.sharedBy ? t('docs.fromTeam', { name: d.sharedBy }) : d.teamShared ? t('docs.teamBadge') : '';
+                  const party = d.counterparty && d.counterparty !== '—' ? d.counterparty : '';
                   return (
-                    <div
+                    <FileCard
                       key={card.key}
-                      className={styles.docCard}
-                      role="link"
-                      tabIndex={0}
-                      onClick={open}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') open();
-                      }}
-                    >
-                      <div className={styles.docCardBody}>
-                        <div className={styles.docCardTop}>
-                          <span className={styles.docLetter} data-shade={shade} aria-hidden="true">
-                            {letter}
-                          </span>
-                          <Badge>{t(`status.${d.status}`)}</Badge>
-                        </div>
-                        <h3 className={styles.docCardTitle}>{d.name}</h3>
-                        <div className={styles.docCardSub}>
-                          {d.sharedBy ? `${t('docs.fromTeam', { name: d.sharedBy })} · ` : d.teamShared ? `${t('docs.teamBadge')} · ` : ''}
-                          {d.counterparty && d.counterparty !== '—' ? t('docs.counterparty', { name: d.counterparty }) : d.jurisdiction}
-                        </div>
-                      </div>
-                      <div className={styles.docCardFoot}>
-                        <span>{timeAgo(d.updatedAt)}</span>
-                        <RiskBadge risk={d.risk} />
-                        <span>{toProjectBtn(d)}</span>
-                      </div>
-                    </div>
+                      variant="gallery"
+                      kindOf={d.name}
+                      title={d.name}
+                      paperTitle={d.name.replace(/\.[a-z0-9]{1,5}$/i, '')}
+                      paperMeta={party || dateFmt.format(new Date(d.updatedAt))}
+                      preview={previews.get(d.id)}
+                      sub={[team, t(`status.${d.status}`), lowerFirst(timeAgo(d.updatedAt))].filter(Boolean).join(', ')}
+                      aside={<RiskBadge risk={d.risk} />}
+                      onOpen={() => navigate(`/documents/${d.id}`)}
+                      actions={toProjectBtn(d)}
+                    />
                   );
                 })}
               </div>

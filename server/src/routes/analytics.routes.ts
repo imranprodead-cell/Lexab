@@ -8,6 +8,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { Db } from '../db.ts';
 import { decText } from '../lib/docCrypto.ts';
+import { planFor, planHasFeature } from '../lib/limits.ts';
 import type { AnalyticsSummary, RiskLevel } from '../types.ts';
 
 const WEEKS = 6;
@@ -27,6 +28,148 @@ function lastMonthKeys(n: number): string[] {
     keys.push(monthKey(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1))));
   }
   return keys;
+}
+
+const DAY_MS = 86_400_000;
+const isoDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+
+/**
+ * Вкладка «Analytics» по образцу Harvey (ui-test 2026-11-15): не «оценки»
+ * (сэкономленные часы, средний риск), а то, как фирма пользуется продуктом,
+ * и что требует работы юриста. Только данные владельца (как остальная сводка).
+ */
+async function analyticsExtras(
+  db: Db,
+  userId: string,
+): Promise<Pick<AnalyticsSummary, 'pulse' | 'weekly' | 'decisions' | 'topics' | 'renewals'>> {
+  const counts = await db.query<{ r30: string | number; rprev: string | number; q30: string | number; qprev: string | number }>(
+    `SELECT
+       (SELECT count(*) FROM review_events WHERE user_id = $1 AND created_at > now() - interval '30 days') AS r30,
+       (SELECT count(*) FROM review_events WHERE user_id = $1
+          AND created_at <= now() - interval '30 days' AND created_at > now() - interval '60 days') AS rprev,
+       (SELECT count(*) FROM chat_messages m JOIN chat_sessions s ON s.id = m.session_id
+         WHERE s.user_id = $1 AND m.role = 'user' AND m.kind = 'text' AND m.created_at > now() - interval '30 days') AS q30,
+       (SELECT count(*) FROM chat_messages m JOIN chat_sessions s ON s.id = m.session_id
+         WHERE s.user_id = $1 AND m.role = 'user' AND m.kind = 'text'
+           AND m.created_at <= now() - interval '30 days' AND m.created_at > now() - interval '60 days') AS qprev`,
+    [userId],
+  );
+  const c = counts.rows[0];
+
+  // 12 скользящих недель (как reviewsByWeek): индекс 0 — последние 7 дней.
+  const WEEKS12 = 12;
+  const now = Date.now();
+  const weekly = Array.from({ length: WEEKS12 }, (_, i) => {
+    const endMs = now - (WEEKS12 - 1 - i) * WEEK_MS;
+    return { start: isoDay(endMs - WEEK_MS + DAY_MS), end: isoDay(endMs), reviews: 0, questions: 0 };
+  });
+  const bucket = (at: Date | string): number => {
+    const idx = Math.floor((now - new Date(at as string).getTime()) / WEEK_MS);
+    return idx >= 0 && idx < WEEKS12 ? WEEKS12 - 1 - idx : -1;
+  };
+  const rev = await db.query<{ created_at: Date | string }>(
+    `SELECT created_at FROM review_events WHERE user_id = $1 AND created_at > now() - interval '84 days'`,
+    [userId],
+  );
+  for (const r of rev.rows) {
+    const b = bucket(r.created_at);
+    if (b >= 0) weekly[b].reviews += 1;
+  }
+  const qs = await db.query<{ created_at: Date | string }>(
+    `SELECT m.created_at FROM chat_messages m JOIN chat_sessions s ON s.id = m.session_id
+      WHERE s.user_id = $1 AND m.role = 'user' AND m.kind = 'text' AND m.created_at > now() - interval '84 days'`,
+    [userId],
+  );
+  for (const q of qs.rows) {
+    const b = bucket(q.created_at);
+    if (b >= 0) weekly[b].questions += 1;
+  }
+
+  // Ждут решения: последний разбор каждого договора, сделанный за 30 дней.
+  const waitingRows = await db.query<{ document_id: string; analysis_id: string; name: string; waiting: string | number; total: string | number }>(
+    `SELECT d.id AS document_id, a.id AS analysis_id, d.name,
+            count(f.id) FILTER (WHERE fd.kind IS NULL OR fd.kind = 'assigned') AS waiting,
+            count(f.id) AS total
+       FROM documents d
+       JOIN LATERAL (
+         SELECT id, created_at FROM analyses a WHERE a.document_id = d.id ORDER BY a.created_at DESC LIMIT 1
+       ) a ON true
+       JOIN findings f ON f.analysis_id = a.id
+       LEFT JOIN finding_decisions fd ON fd.analysis_id = f.analysis_id AND fd.finding_id = f.id
+      WHERE d.user_id = $1 AND d.deleted_at IS NULL AND a.created_at > now() - interval '30 days'
+      GROUP BY d.id, a.id, d.name, d.updated_at
+     HAVING count(f.id) FILTER (WHERE fd.kind IS NULL OR fd.kind = 'assigned') > 0
+      ORDER BY waiting DESC, d.updated_at DESC`,
+    [userId],
+  );
+  const decided = await db.query<{ n: string | number }>(
+    `SELECT count(*) AS n FROM finding_decisions fd JOIN analyses a ON a.id = fd.analysis_id
+      WHERE a.user_id = $1 AND fd.kind IN ('fixed', 'ok') AND fd.decided_at > now() - interval '30 days'`,
+    [userId],
+  );
+
+  // Темы: по последнему разбору каждого договора (весь портфель).
+  const topicRows = await db.query<{ topic: string | null; total: string | number; high: string | number }>(
+    `SELECT f.topic, count(*) AS total, count(*) FILTER (WHERE f.severity = 'High' AND NOT f.unverified) AS high
+       FROM documents d
+       JOIN LATERAL (SELECT id FROM analyses a WHERE a.document_id = d.id ORDER BY a.created_at DESC LIMIT 1) a ON true
+       JOIN findings f ON f.analysis_id = a.id
+      WHERE d.user_id = $1 AND d.deleted_at IS NULL
+      GROUP BY f.topic`,
+    [userId],
+  );
+
+  // Сроки отказа от продления (только тариф с «Контрактами»): окончание − срок
+  // уведомления попадает в ближайшие 30 дней и нет отметки по этой дате.
+  let renewals: AnalyticsSummary['renewals'] = null;
+  if (planHasFeature(await planFor(db, userId), 'clm')) {
+    const rows = await db.query<{ document_id: string; name: string; counterparty: string; last: string; mark_last: string | null }>(
+      `SELECT d.id AS document_id, d.name, d.counterparty,
+              to_char(ct.expiry_date - ct.renewal_notice_days, 'YYYY-MM-DD') AS last,
+              to_char(rm.last_day, 'YYYY-MM-DD') AS mark_last
+         FROM contract_terms ct
+         JOIN documents d ON d.id = ct.document_id AND d.deleted_at IS NULL
+         LEFT JOIN renewal_marks rm ON rm.document_id = d.id
+        WHERE d.user_id = $1 AND ct.auto_renew = true AND ct.renewal_notice_days IS NOT NULL AND ct.expiry_date IS NOT NULL
+          AND ct.expiry_date - ct.renewal_notice_days BETWEEN current_date AND current_date + 30
+        ORDER BY ct.expiry_date - ct.renewal_notice_days`,
+      [userId],
+    );
+    const open = rows.rows.filter((r) => r.mark_last !== r.last);
+    renewals = {
+      count: open.length,
+      top: open.slice(0, 5).map((r) => ({ documentId: r.document_id, name: r.name, counterparty: r.counterparty, last: r.last })),
+    };
+  }
+
+  return {
+    pulse: {
+      reviews30d: Number(c?.r30 ?? 0),
+      reviewsPrev30d: Number(c?.rprev ?? 0),
+      questions30d: Number(c?.q30 ?? 0),
+      questionsPrev30d: Number(c?.qprev ?? 0),
+    },
+    weekly,
+    decisions: {
+      waiting: waitingRows.rows.reduce((n, r) => n + Number(r.waiting), 0),
+      decided30d: Number(decided.rows[0]?.n ?? 0),
+      top: waitingRows.rows.slice(0, 5).map((r) => ({
+        documentId: r.document_id,
+        analysisId: r.analysis_id,
+        name: r.name,
+        waiting: Number(r.waiting),
+        total: Number(r.total),
+      })),
+    },
+    topics: {
+      items: topicRows.rows
+        .filter((r) => r.topic)
+        .map((r) => ({ topic: r.topic as string, total: Number(r.total), high: Number(r.high) }))
+        .sort((a, b) => b.total - a.total),
+      unlabeled: topicRows.rows.filter((r) => !r.topic).reduce((n, r) => n + Number(r.total), 0),
+    },
+    renewals,
+  };
 }
 
 export function analyticsRoutes(app: FastifyInstance, db: Db): void {
@@ -229,7 +372,11 @@ export function analyticsRoutes(app: FastifyInstance, db: Db): void {
       ];
     }
 
+    // ── Новая вкладка: пульс 30 дней, 12 недель, решения, темы, сроки отказа ──
+    const extra = await analyticsExtras(db, userId);
+
     return {
+      ...extra,
       contractsReviewed,
       avgRiskScore,
       highRiskFindings: Number(s.findings_high),

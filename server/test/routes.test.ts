@@ -878,6 +878,19 @@ describe('analytics summary (extended)', () => {
     assert.equal(s.monthly[11].month, key(0), 'last bucket labelled with the current month');
     assert.equal(s.monthly[0].month, key(11), 'first bucket labelled 11 months back');
 
+    // Новая вкладка (ui-test 2026-11-15): пульс 30 дней, 12 недель, решения, темы.
+    assert.equal(s.pulse.reviews30d, 1, 'the fresh review counts in the last 30 days');
+    assert.equal(s.pulse.reviewsPrev30d, 0);
+    assert.equal(s.weekly.length, 12, '12 rolling weeks');
+    assert.equal(s.weekly[11].reviews, 1, 'the last week holds the fresh review');
+    assert.ok(s.weekly[0].start < s.weekly[11].start, 'weeks go oldest → newest');
+    assert.equal(s.decisions.waiting, created.json().findings.length, 'every new finding awaits a decision');
+    assert.equal(s.decisions.top[0].documentId, created.json().documentId);
+    const topicTotal = s.topics.items.reduce((n: number, t: { total: number }) => n + t.total, 0);
+    assert.equal(topicTotal + s.topics.unlabeled, created.json().findings.length, 'every finding is counted once by topic');
+    assert.ok(s.topics.items.some((t: { topic: string }) => t.topic === 'termination'), 'topic from the analysis');
+    assert.equal(s.renewals, null, 'free plan: no contract deadlines on analytics');
+
     assert.ok(s.riskCenter.topContracts.length >= 1, 'top contracts include the analysed document');
     assert.equal(typeof s.riskCenter.topContracts[0].riskScore, 'number');
     assert.ok(s.riskCenter.topContracts[0].id, 'contracts carry a stable id (React keys)');
@@ -1852,6 +1865,120 @@ describe('clm (contract lifecycle)', () => {
     await checkContractDeadlines(db);
     const fired = await db.query<{ count: string | number }>("SELECT count(*) AS count FROM notifications WHERE user_id = $1 AND title = 'Срок договора истекает'", [pro.id]);
     assert.equal(Number(fired.rows[0].count), 1, 'the corrected near-future deadline now reminds');
+  });
+});
+
+describe('finding decisions + renewal marks (ui-test 2026-11-15)', () => {
+  it('decisions: set, read back with name, note encrypted at rest, foreign user locked out, cleared', async () => {
+    const pro = await makeProUser();
+    const an = await app.inject({
+      method: 'POST',
+      url: '/api/analysis',
+      headers: auth(pro.token),
+      payload: { fileName: 'supply.pdf', fileSize: '12 KB', jurisdiction: 'GB' },
+    });
+    assert.equal(an.statusCode, 201, an.body);
+    const analysis = JSON.parse(an.body) as { id: string; findings: { id: string }[] };
+    assert.ok(analysis.findings.length > 0, 'fallback analysis has findings');
+    const fid = analysis.findings[0].id;
+    const url = `/api/analysis/${analysis.id}/decisions`;
+
+    // Тема находки сохраняется; цитаты противоречия хранятся зашифрованными
+    // и при чтении расшифровываются ключом владельца.
+    const { encText } = await import('../src/lib/docCrypto.ts');
+    await db.query('UPDATE findings SET conflict_a_enc = $1, conflict_b_enc = $2 WHERE analysis_id = $3 AND id = $4', [
+      await encText(db, pro.id, '150 000 000'),
+      await encText(db, pro.id, 'сто миллионов'),
+      analysis.id,
+      fid,
+    ]);
+    const loaded = JSON.parse((await app.inject({ method: 'GET', url: `/api/analysis/${analysis.id}`, headers: auth(pro.token) })).body);
+    assert.equal(loaded.findings[0].topic, 'termination', 'topic from the analysis is persisted');
+    assert.deepEqual(loaded.findings[0].conflict, { a: '150 000 000', b: 'сто миллионов' });
+    assert.equal(loaded.findings[1].conflict, null);
+    const rawConflict = await db.query<{ conflict_b_enc: string }>('SELECT conflict_b_enc FROM findings WHERE analysis_id = $1 AND id = $2', [analysis.id, fid]);
+    assert.ok(!rawConflict.rows[0].conflict_b_enc.includes('миллион'), 'contract quotes are encrypted at rest');
+
+    const empty = await app.inject({ method: 'GET', url, headers: auth(pro.token) });
+    assert.equal(empty.statusCode, 200, empty.body);
+    assert.deepEqual(JSON.parse(empty.body), {});
+
+    // «Передано коллеге» без адресата — ошибка, неизвестная находка — 404.
+    const noTo = await app.inject({ method: 'PUT', url: `${url}/${fid}`, headers: auth(pro.token), payload: { kind: 'assigned' } });
+    assert.equal(noTo.statusCode, 400);
+    const ghost = await app.inject({ method: 'PUT', url: `${url}/no-such-finding`, headers: auth(pro.token), payload: { kind: 'ok' } });
+    assert.equal(ghost.statusCode, 404);
+
+    const put = await app.inject({
+      method: 'PUT',
+      url: `${url}/${fid}`,
+      headers: auth(pro.token),
+      payload: { kind: 'assigned', to: 'Азиз Рахимов', note: 'Секретный комментарий по пункту 7.2' },
+    });
+    assert.equal(put.statusCode, 200, put.body);
+    const saved = JSON.parse(put.body);
+    assert.equal(saved.kind, 'assigned');
+    assert.equal(saved.to, 'Азиз Рахимов');
+    assert.equal(saved.who, 'T', 'decision carries the decider name');
+    assert.ok(saved.at);
+
+    const raw = await db.query<{ note_enc: string }>('SELECT note_enc FROM finding_decisions WHERE analysis_id = $1', [analysis.id]);
+    assert.ok(!raw.rows[0].note_enc.includes('Секретный'), 'comment must be encrypted at rest');
+
+    const back = JSON.parse((await app.inject({ method: 'GET', url, headers: auth(pro.token) })).body);
+    assert.equal(back[fid].note, 'Секретный комментарий по пункту 7.2');
+    assert.equal(back[fid].to, 'Азиз Рахимов');
+
+    // Повтор — перезапись того же решения, не вторая строка.
+    const fixed = await app.inject({ method: 'PUT', url: `${url}/${fid}`, headers: auth(pro.token), payload: { kind: 'fixed' } });
+    assert.equal(fixed.statusCode, 200, fixed.body);
+    const after = JSON.parse((await app.inject({ method: 'GET', url, headers: auth(pro.token) })).body);
+    assert.equal(after[fid].kind, 'fixed');
+    assert.equal(after[fid].note, undefined, 'a new decision replaces the old comment');
+
+    const stranger = await makeProUser();
+    assert.equal((await app.inject({ method: 'GET', url, headers: auth(stranger.token) })).statusCode, 404);
+    assert.equal((await app.inject({ method: 'PUT', url: `${url}/${fid}`, headers: auth(stranger.token), payload: { kind: 'ok' } })).statusCode, 404);
+    assert.equal((await app.inject({ method: 'DELETE', url: `${url}/${fid}`, headers: auth(stranger.token) })).statusCode, 404);
+
+    const del = await app.inject({ method: 'DELETE', url: `${url}/${fid}`, headers: auth(pro.token) });
+    assert.equal(del.statusCode, 200, del.body);
+    assert.deepEqual(JSON.parse((await app.inject({ method: 'GET', url, headers: auth(pro.token) })).body), {});
+  });
+
+  it('renewal marks: gated Pro+, saved, listed in /contracts with name, foreign user locked out', async () => {
+    const pro = await makeProUser();
+    const an = await app.inject({
+      method: 'POST',
+      url: '/api/analysis',
+      headers: auth(pro.token),
+      payload: { fileName: 'lease.pdf', fileSize: '9 KB', jurisdiction: 'GB' },
+    });
+    assert.equal(an.statusCode, 201, an.body);
+    const documentId = JSON.parse(an.body).documentId as string;
+    const url = `/api/contracts/${documentId}/renewal-mark`;
+
+    const free = await makeUser();
+    assert.equal((await app.inject({ method: 'PUT', url, headers: auth(free.token), payload: { kind: 'sent', last: '2026-11-21' } })).statusCode, 402);
+
+    const bad = await app.inject({ method: 'PUT', url, headers: auth(pro.token), payload: { kind: 'sent', last: '21.11.2026' } });
+    assert.equal(bad.statusCode, 400);
+
+    const put = await app.inject({ method: 'PUT', url, headers: auth(pro.token), payload: { kind: 'sent', last: '2026-11-21' } });
+    assert.equal(put.statusCode, 200, put.body);
+    assert.equal(JSON.parse(put.body).who, 'T');
+
+    const rows = JSON.parse((await app.inject({ method: 'GET', url: '/api/contracts', headers: auth(pro.token) })).body);
+    const row = rows.find((r: { documentId: string }) => r.documentId === documentId);
+    assert.equal(row.renewalMark.kind, 'sent');
+    assert.equal(row.renewalMark.last, '2026-11-21');
+
+    const stranger = await makeProUser();
+    assert.equal((await app.inject({ method: 'PUT', url, headers: auth(stranger.token), payload: { kind: 'keep', last: '2026-11-21' } })).statusCode, 404);
+
+    assert.equal((await app.inject({ method: 'DELETE', url, headers: auth(pro.token) })).statusCode, 200);
+    const cleared = JSON.parse((await app.inject({ method: 'GET', url: '/api/contracts', headers: auth(pro.token) })).body);
+    assert.equal(cleared.find((r: { documentId: string }) => r.documentId === documentId).renewalMark, null);
   });
 });
 
@@ -3615,5 +3742,37 @@ describe('chat auto-title — once', () => {
     await db.query(`INSERT INTO chat_messages (id, session_id, role, kind, file_name, file_size) VALUES ($1, $2, 'user', 'file', 'Договор поставки.docx', '12 KB')`, [`m_t_${Date.now()}`, review]);
     await send(token, review, 'Какие тут риски?');
     assert.equal(await titleOf(token, review), 'Договор поставки');
+  });
+});
+
+describe('document previews for file cards (ui-test 2026-11-15)', () => {
+  it('own document gets title + first lines (≤ 600 chars); stranger gets nothing; junk ids ignored', async () => {
+    const pro = await makeProUser();
+    const an = await app.inject({
+      method: 'POST',
+      url: '/api/analysis',
+      headers: auth(pro.token),
+      payload: { fileName: 'preview.pdf', fileSize: '9 KB', jurisdiction: 'GB' },
+    });
+    assert.equal(an.statusCode, 201, an.body);
+    const documentId = JSON.parse(an.body).documentId as string;
+
+    const res = await app.inject({ method: 'GET', url: `/api/documents/previews?ids=${documentId},nope,${documentId}`, headers: auth(pro.token) });
+    assert.equal(res.statusCode, 200, res.body);
+    const body = JSON.parse(res.body) as Record<string, { title?: string; text: string }>;
+    assert.deepEqual(Object.keys(body), [documentId], 'only the real, own document is returned');
+    const p = body[documentId];
+    assert.ok(p.title || p.text, 'preview has content');
+    assert.ok(p.text.length <= 600, 'preview text is capped');
+
+    const stranger = await makeProUser();
+    const foreign = await app.inject({ method: 'GET', url: `/api/documents/previews?ids=${documentId}`, headers: auth(stranger.token) });
+    assert.equal(foreign.statusCode, 200);
+    assert.deepEqual(JSON.parse(foreign.body), {}, 'a stranger never sees the preview');
+
+    const none = await app.inject({ method: 'GET', url: '/api/documents/previews', headers: auth(pro.token) });
+    assert.deepEqual(JSON.parse(none.body), {});
+    const anon = await app.inject({ method: 'GET', url: `/api/documents/previews?ids=${documentId}` });
+    assert.equal(anon.statusCode, 401);
   });
 });

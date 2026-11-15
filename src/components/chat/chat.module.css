@@ -84,13 +84,81 @@
   width: 100%;
   text-align: start;
 }
-.recentTitle {
-  margin: 0 0 6px;
+.recentHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
   padding-inline: 4px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--dim);
+}
+.recentTitle {
+  margin: 0;
+  font-size: inherit;
+  font-weight: inherit;
+}
+/* «Недавние файлы ⌄» — кнопка свернуть/развернуть, как «Recent artifacts» у Claude. */
+.recentToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-inline-start: -8px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: color-mix(in srgb, var(--text) 82%, transparent);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
   letter-spacing: 0;
+  cursor: pointer;
+  transition: color var(--dur-fast) var(--ease);
+}
+.recentToggle:hover {
+  color: var(--text);
+}
+.recentToggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.recentChevron {
+  flex-shrink: 0;
+  color: var(--dim);
+  transition: transform 0.2s var(--ease);
+}
+.recentChevronOpen {
+  transform: rotate(90deg);
+}
+:global([dir='rtl']) .recentChevron:not(.recentChevronOpen) {
+  transform: rotate(180deg);
+}
+/* «Все файлы» — без подчёркивания; при наведении мягкая серая плашка. */
+.recentAll {
+  padding: 6px 12px;
+  border-radius: 10px;
+  color: var(--dim);
+  font-size: 14px;
+  text-decoration: none;
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.recentAll:hover {
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+  color: var(--text);
+  text-decoration: none;
+}
+.recentAll:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* Место по краям под тень карточек и ленту на телефоне: при сворачивании
+   блок обрезается по краю, а тени и лента не должны обрезаться. */
+.recentBody {
+  overflow: hidden;
+  margin: -6px -16px -12px;
+  padding: 6px 16px 12px;
 }
 .recentEmpty {
   margin: 0;
@@ -98,54 +166,34 @@
   font-size: 14px;
   color: var(--mut);
 }
-.recentList {
-  list-style: none;
+/* Карточки как «Recent artifacts» у Claude (ui-test 2026-11-15): три в ряд;
+   на телефоне — лента с прокруткой вбок, страница вбок не едет. */
+.recentCards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
   margin: 0;
   padding: 0;
+  list-style: none;
 }
-.recentList li + li {
-  border-top: 1px solid var(--border);
-}
-.recentRow {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  min-height: 46px;
-  padding: 10px 8px 10px 4px;
-  border: 0;
-  border-radius: var(--r-sm);
-  background: transparent;
-  color: var(--text);
-  font: inherit;
-  text-align: start;
-  cursor: pointer;
-  transition: background-color var(--dur-fast) var(--ease);
-}
-.recentRow:hover {
-  background: var(--hover);
-}
-.recentRow:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
-}
-.recentName {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 14.5px;
-  color: color-mix(in srgb, var(--text) 82%, transparent);
-}
-.recentRow:hover .recentName {
-  color: var(--text);
-}
-.recentTime {
-  flex-shrink: 0;
-  font-size: 13px;
-  color: var(--mut);
-  font-variant-numeric: tabular-nums;
+@media (max-width: 600px) {
+  .recentCards {
+    grid-auto-columns: 74%;
+    grid-auto-flow: column;
+    grid-template-columns: none;
+    margin-inline: -16px;
+    padding: 2px 16px 6px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scroll-padding-inline: 16px;
+    scrollbar-width: none;
+  }
+  .recentCards::-webkit-scrollbar {
+    display: none;
+  }
+  .recentCards > li {
+    scroll-snap-align: start;
+  }
 }
 /* Значок файла (FileIcon): оригинальные значки Microsoft, без перекраски. */
 .fileGlyph {

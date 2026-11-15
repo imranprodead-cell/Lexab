@@ -1,0 +1,289 @@
+{
+ "summary": {
+  "label": "before2",
+  "plan": "Free",
+  "model": "deepseek-flash",
+  "judge": "deepseek-flash",
+  "contracts": 5,
+  "findings": 24,
+  "citationPrecision": 0.609,
+  "unverifiedShare": 0.208,
+  "topicCoverage": 0,
+  "topicAgreeWithKeywords": null,
+  "contradictionsPlanted": 6,
+  "contradictionsFound": 0,
+  "contradictionRecall": 0,
+  "conflictsReported": 0,
+  "conflictsNotPlanted": 0,
+  "conflictsNotVerbatim": 0,
+  "fallbackUsed": false,
+  "conflictsDroppedNotVerbatim": 0,
+  "deepseekSpentUsd": 0
+ },
+ "rows": [
+  {
+   "id": "supply",
+   "ms": 12893,
+   "findings": [
+    {
+     "severity": "High",
+     "title": "Неограниченная пеня 1% в день без верхнего предела",
+     "citation": "ст. 325 ГК Республики Узбекистан",
+     "verified": false,
+     "topic": null,
+     "keywordTopic": "penalty",
+     "conflict": false
+    },
+    {
+     "severity": "High",
+     "title": "Противоречие сроков оплаты: п. 4.2 (30 дней) и п. 8.3 (60 банковских дней)",
+     "citation": "ст. 354 ГК Республики Узбекистан",
+     "verified": false,
+     "topic": null,
+     "keywordTopic": "payment",
+     "conflict": false
+    },
+    {
+     "severity": "High",
+     "title": "Одностороннее право Покупателя на расторжение без оснований и без компенсации",
+     "citation": "ст. 382 ГК Республики Узбекистан",
+     "verified": false,
+     "topic": null,
+     "keywordTopic": "termination",
+     "conflict": false
+    },
+    {
+     "severity": "Medium",
+     "title": "Несоответствие суммы цифрами и прописью в п. 2.1",
+     "citation": "ст. 91 ГК Республики Узбекистан",
+     "verified": false,
+     "topic": null,
+     "keywordTopic": "other",
+     "conflict": false
+    },
+    {
+     "severity": "Medium",
+     "title": "Подсудность по месту нахождения Покупателя",
+     "citation": "ст. 39 Экономического процессуального кодекса Республики Узбекистан",
+     "verified": false,
+     "topic": null,
+     "keywordTopic": "disputes",
+     "conflict": false
+    }
+   ],
+   "conflicts": [],
+   "plantedFound": 0,
+   "planted": 2
+  },
+  {
+   "id": "lease",
+   "ms": 16861,
+   "findings": [
+    {
+     "severity": "High",
+     "title": "Противоречие сроков аренды: п. 2.1 (до 31.12.2026) и п. 9.1 (до 31.01.2027)",
+     "citation": "ст. 5 Закона Республики Узбекистан «Об аренде» (427-XII)",
+     "verified": true,
+     "topic": null,
+     "keywordTopic": "other",
+     "conflict": false
+    },
+    {
+     "severity": "High",
+     "title": "Противоречие сроков внесения арендной платы: п. 3.2 (до 5-го числа текущего месяца) и п. 3.5 (до 15-го числа следующего)",
+     "citation": "ст. 5 Закона Республики Узбекистан «Об аренде» (427-XII)",
+     "verified": true,
+     "topic": null,
+     "keywordTopic": "other",
+     "conflict": false
+    },
+    {
+     "severity": "High",
+     "title": "Односторонний немотивированный отказ арендодателя от договора за 10 дней с удержанием обеспечительного платежа",
+     "citation": "ст. 13 Закона Республики Узбекистан «Об аренде» (427-XII)",
+     "verified": true,
+     "topic": null,
+     "keywordTopic": "termination",
+     "conflict": false
+    },
+    {
+     "severity": "Low",
+     "title": "Несоразмерная пеня 0,5% в день (182,5% годовых) за просрочку арендной платы",
+     "citation": "ст. 13 Закона Республики Узбекистан «Об аренде» (427-XII)",
+     "verified": false,
+     "topic": null,
+     "keywordTopic": "penalty",
+     "conflict": false
+    }
+   ],
+   "conflicts": [],
+   "plantedFound": 0,
+   "planted": 2
+  },
+  {
+   "id": "services",
+   "ms": 16179,
+   "findings": [
+    {
+     "severity": "High",
+     "title": "Ограничение ответственности Исполнителя суммой месячной оплаты, в том числе за умышленное нарушение",
+     "citation": "ст. 706 ГК Республики Узбекистан",
+     "verified": true,
+     "topic": null,
+     "keywordTopic": "penalty",
+     "conflict": false
+    },
+    {
+     "severity": "High",
+     "title": "Полное освобождение Исполнителя от ответственности за порчу имущества Заказчика",
+     "citation": "ст. 706 ГК Республики Узбекистан",
+     "verified": true,
+     "topic": null,
+     "keywordTopic": "penalty",
+     "conflict": false
+    },
+    {
+     "severity": "High",
+     "title": "Приостановка услуг без уведомления Заказчика нарушает право на отказ от договора и возмещение убытков",
+     "citation": "ст. 19 Закона Республики Узбекистан «О защите прав потребителей»",
+     "verified": true,
+     "topic": null,
+     "keywordTopic": "termination",
+     "conflict": false
+    },
+    {
+     "severity": "Medium",
+     "title": "Отсутствие права Заказчика на расторжение договора и порядка сдачи-приёмки услуг",
+     "citation": "ст. 707 ГК Республики Узбекистан",
+     "verified": true,
+     "topic": null,
+     "keywordTopic": "termination",
+     "conflict": false
+    },
+    {
+     "severity": "Medium",
+     "title": "100% предоплата за каждый месяц без обеспечения и без обязанности Исполнителя приступить к услугам",
+     "citation": "ст. 705 ГК Республики Узбекистан",
+     "verified": true,
+     "topic": null,
+     "keywordTopic": "payment",
+     "conflict": false
+    }
+   ],
+   "conflicts": [],
+   "plantedFound": 0,
+   "planted": 0
+  },
+  {
+   "id": "works",
+   "ms": 14309,
+   "findings": [
+    {
+     "severity": "High",
+     "title": "Двойная неустойка за одно нарушение и отсутствие её предела",
+     "citation": "ст. 635 ГК Республики Узбекистан",
+     "verified": true,
+     "topic": null,
+     "keywordTopic": "penalty",
+     "conflict": false
+    },
+    {
+     "severity": "Low",
+     "title": "Взаимоисключающая подсудность: экономический суд и арбитраж TIAC одновременно",
+     "citation": "ст. 18 Закона Республики Узбекистан «О нормативно-правовых актах»",
+     "verified": false,
+     "topic": null,
+     "keywordTopic": "disputes",
+     "conflict": false
+    },
+    {
+     "severity": "Medium",
+     "title": "Несоразмерно короткий гарантийный срок (3 месяца) для результата ремонта",
+     "citation": "ст. 648 ГК Республики Узбекистан",
+     "verified": true,
+     "topic": null,
+     "keywordTopic": "acceptance",
+     "conflict": false
+    },
+    {
+     "severity": "Low",
+     "title": "Не установлена ответственность Заказчика за просрочку оплаты",
+     "citation": "ст. 638 ГК Республики Узбекистан",
+     "verified": false,
+     "topic": null,
+     "keywordTopic": "penalty",
+     "conflict": false
+    },
+    {
+     "severity": "Low",
+     "title": "Не урегулирован порядок приёмки результата работ (акт, сроки, мотивированный отказ)",
+     "citation": "ст. 642 ГК Республики Узбекистан",
+     "verified": false,
+     "topic": null,
+     "keywordTopic": "acceptance",
+     "conflict": false
+    }
+   ],
+   "conflicts": [],
+   "plantedFound": 0,
+   "planted": 2
+  },
+  {
+   "id": "nda",
+   "ms": 24514,
+   "findings": [
+    {
+     "severity": "High",
+     "title": "Одностороннее освобождение Раскрывающей стороны от любых обязательств",
+     "citation": "ст. 24 Закона «О договорно-правовой базе деятельности хозяйствующих субъектов»",
+     "verified": true,
+     "topic": null,
+     "keywordTopic": "termination",
+     "conflict": false
+    },
+    {
+     "severity": "High",
+     "title": "Чрезмерный штраф (100 млн сум) за каждый случай разглашения без обязанности доказывать убытки",
+     "citation": "п. 2 постановления Пленума ВХС № 163 от 15.06.2007",
+     "verified": true,
+     "topic": null,
+     "keywordTopic": "penalty",
+     "conflict": false
+    },
+    {
+     "severity": "Medium",
+     "title": "Неопределённость предмета: отсутствует перечень конфиденциальных сведений и исключения",
+     "citation": "ст. 11 Закона «О коммерческой тайне»",
+     "verified": true,
+     "topic": null,
+     "keywordTopic": "other",
+     "conflict": false
+    },
+    {
+     "severity": "Medium",
+     "title": "Отсутствие взаимных обязательств и ответственности Раскрывающей стороны",
+     "citation": "ст. 24 Закона «О договорно-правовой базе деятельности хозяйствующих субъектов»",
+     "verified": true,
+     "topic": null,
+     "keywordTopic": "penalty",
+     "conflict": false
+    },
+    {
+     "severity": "Low",
+     "title": "Чрезмерный срок действия обязательства о неразглашении (10 лет)",
+     "citation": "",
+     "verified": false,
+     "topic": null,
+     "keywordTopic": "other",
+     "conflict": false
+    }
+   ],
+   "conflicts": [],
+   "plantedFound": 0,
+   "planted": 0
+  }
+ ],
+ "warnings": [
+  "[rag] dense search skipped: The operation was aborted due to timeout"
+ ]
+}
