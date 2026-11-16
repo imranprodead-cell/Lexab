@@ -1,0 +1,418 @@
+/* Наглядные блоки в ответе ИИ (2026-11-16): план, сроки, норма, график.
+   Один акцент — синий; графику с несколькими рядами — проверенная тройка
+   (синий, оранжевый, бирюзовый; validate_palette, светлая и тёмная). */
+.card {
+  --vis-accent: #2f63c9;
+  --vis-s1: #2f63c9;
+  --vis-s2: #c2621c;
+  --vis-s3: #00968c;
+  width: 100%;
+  max-width: 680px;
+  margin: 12px 0;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel);
+  color: var(--text);
+}
+:global(html.dark) .card {
+  --vis-accent: #5b8ef0;
+  --vis-s1: #5b8ef0;
+  --vis-s2: #d4773a;
+  --vis-s3: #14a093;
+}
+.head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--vis-accent) 12%, transparent);
+  color: var(--vis-accent);
+}
+.title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+}
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel);
+  color: var(--dim);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.btn:hover {
+  color: var(--text);
+  background: var(--hover);
+}
+.btn:focus-visible,
+.seg button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.btnText {
+  white-space: nowrap;
+}
+
+/* ---------- план действий ---------- */
+.steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.step {
+  position: relative;
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 0 10px;
+  padding-bottom: 14px;
+}
+.step:last-child {
+  padding-bottom: 0;
+}
+/* Тонкая линия между номерами — шаги читаются как одна последовательность. */
+.step:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  top: 24px;
+  bottom: 2px;
+  left: 12px;
+  width: 1px;
+  background: var(--border);
+}
+.num {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 22px;
+  color: var(--vis-accent);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.stepTitle {
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 22px;
+}
+.stepDetail {
+  margin-top: 2px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--dim);
+}
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--dim);
+}
+.metaItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.soon {
+  color: var(--text);
+  font-weight: 500;
+}
+.late {
+  color: var(--danger, #b42318);
+  font-weight: 500;
+}
+
+/* ---------- шкала сроков ---------- */
+.axis {
+  position: relative;
+  height: 34px;
+  margin: 2px 6px 14px;
+}
+.axisLine {
+  position: absolute;
+  top: 12px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--border);
+}
+.axisPast {
+  position: absolute;
+  top: 12px;
+  left: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--vis-accent) 45%, var(--border));
+}
+.axisMark {
+  position: absolute;
+  top: 7px;
+  width: 12px;
+  height: 12px;
+  margin-left: -6px;
+  border: 2px solid var(--panel);
+  border-radius: 3px;
+  background: var(--dim);
+}
+.axisMarkNext {
+  background: var(--vis-accent);
+}
+.axisMarkPast {
+  background: color-mix(in srgb, var(--dim) 45%, var(--panel));
+}
+.axisToday {
+  position: absolute;
+  top: 2px;
+  width: 2px;
+  height: 22px;
+  margin-left: -1px;
+  background: var(--text);
+}
+.axisTodayLabel {
+  position: absolute;
+  top: 22px;
+  transform: translateX(-50%);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.axisEdge {
+  position: absolute;
+  top: 22px;
+  font-size: 11px;
+  color: var(--mut);
+  white-space: nowrap;
+}
+.events {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.event {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 4px 12px;
+  padding: 8px 0;
+  border-top: 1px solid var(--border);
+  font-size: 14px;
+}
+.event:first-child {
+  border-top: 0;
+}
+.eventDate {
+  font-variant-numeric: tabular-nums;
+  color: var(--dim);
+  white-space: nowrap;
+}
+.eventLabel {
+  font-weight: 500;
+}
+.eventNote {
+  display: block;
+  margin-top: 2px;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--dim);
+}
+.eventRel {
+  font-size: 13px;
+  color: var(--dim);
+  white-space: nowrap;
+}
+.eventPast {
+  opacity: 0.62;
+}
+.eventNext .eventLabel,
+.eventNext .eventRel {
+  color: var(--vis-accent);
+}
+.todayRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+.todayRow::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--text);
+  opacity: 0.35;
+}
+
+/* ---------- норма закона ---------- */
+.kicker {
+  flex-shrink: 0;
+  font-size: 12.5px;
+  color: var(--mut);
+}
+.lawNote {
+  margin: 0 0 10px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--dim);
+}
+
+/* ---------- график ---------- */
+.seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel-2);
+}
+.seg button {
+  padding: 3px 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dim);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.seg button[aria-pressed='true'] {
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: -4px 0 8px;
+  font-size: 13px;
+  color: var(--dim);
+}
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.swatch {
+  width: 14px;
+  height: 3px;
+  border-radius: 2px;
+}
+.chartBox {
+  position: relative;
+  width: 100%;
+}
+.chartArea {
+  position: relative;
+}
+.chartBox svg {
+  display: block;
+  overflow: visible;
+}
+.gridLine {
+  stroke: var(--border);
+  stroke-dasharray: 3 4;
+}
+.baseLine {
+  stroke: var(--border);
+}
+.tick {
+  fill: var(--mut);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.bar {
+  fill: var(--vis-s1);
+}
+.barHot {
+  fill: color-mix(in srgb, var(--vis-s1) 80%, var(--text));
+}
+.cross {
+  stroke: var(--dim);
+  stroke-width: 1;
+}
+.dot {
+  stroke: var(--panel);
+  stroke-width: 2;
+}
+.tip {
+  position: absolute;
+  z-index: 2;
+  padding: 6px 9px;
+  border-radius: 8px;
+  background: var(--text);
+  color: var(--bg);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translate(-50%, calc(-100% - 8px));
+}
+.tipRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tipRow b {
+  font-weight: 600;
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+.table th,
+.table td {
+  padding: 7px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: start;
+}
+.table th {
+  font-weight: 500;
+  color: var(--dim);
+}
+.table td.numCell,
+.table th.numCell {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 600px) {
+  .card {
+    padding: 14px;
+  }
+  .event {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+  .eventDate {
+    grid-column: 1 / -1;
+  }
+  .btnText {
+    display: none;
+  }
+}

@@ -905,11 +905,7 @@ export const MESSAGES: Dict = {
   'cmd.plan': { ru: 'План действий по делу', en: 'Step-by-step action plan for your matter' },
   'cmd.slides': { ru: 'Презентация по делу (.pptx)', en: 'Presentation of your matter (.pptx)' },
   // Карточка презентации (/slides) в чате
-  'deck.label': { ru: 'Презентация', en: 'Presentation' },
   'deck.count': { ru: 'Слайдов: {n}', en: 'Slides: {n}' },
-  'deck.download': { ru: 'Скачать .pptx', en: 'Download .pptx' },
-  'deck.building': { ru: 'Собираю файл…', en: 'Building the file…' },
-  'deck.error': { ru: 'Не удалось собрать файл презентации', en: 'Could not build the presentation file' },
   'deck.madeWith': { ru: 'Подготовлено в Lexab', en: 'Prepared with Lexab' },
   // Уточняющие вопросы ИИ и одобрение плана (/plan)
   'clarify.other': { ru: 'Свой вариант…', en: 'Type something else…' },
@@ -930,7 +926,6 @@ export const MESSAGES: Dict = {
   // Боковая панель: документы, таблицы, презентации
   'artifact.document': { ru: 'Документ', en: 'Document' },
   'artifact.table': { ru: 'Таблица', en: 'Table' },
-  'artifact.open': { ru: 'Открыть', en: 'Open' },
   'artifact.editable': { ru: 'Документ · можно править', en: 'Document · editable' },
   'artifact.size': { ru: 'Строк: {rows} · Столбцов: {cols}', en: 'Rows: {rows} · Columns: {cols}' },
   'artifact.save': { ru: 'Сохранить', en: 'Save' },
@@ -951,7 +946,6 @@ export const MESSAGES: Dict = {
   'artifact.slideOf': { ru: 'Слайд {n} из {total}', en: 'Slide {n} of {total}' },
   'artifact.notes': { ru: 'Заметки докладчика', en: 'Speaker notes' },
   'artifact.cover': { ru: 'Титульный', en: 'Cover' },
-  'artifact.moreRows': { ru: 'Ещё строк: {n}', en: '{n} more rows' },
   'cmd.section': { ru: 'Команды', en: 'Commands' },
 
   // Compare

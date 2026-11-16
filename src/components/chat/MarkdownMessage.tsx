@@ -14,6 +14,8 @@ import {
   type Artifact,
 } from '@/lib/artifacts';
 import { DocArtifactCard, TableArtifactCard } from './ArtifactCards';
+import { VisualBlock } from './visuals/VisualBlock';
+import { isVisualFence } from '@/lib/visuals';
 import styles from './chat.module.css';
 
 interface MarkdownMessageProps {
@@ -65,18 +67,21 @@ export const MarkdownMessage = memo(function MarkdownMessage({ text, messageId, 
           a: ({ node: _node, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" />,
           img: (p) => (p.alt ? <span>{p.alt}</span> : null),
           pre: ({ node, children, ...props }): ReactNode => {
-            const src = withArtifacts ? source(node as Positioned) : null;
+            // Наглядные блоки ИИ (план, сроки, норма, график) — карточкой везде,
+            // где есть ответ ИИ; документы и таблицы — только в чате.
+            const src = source(node as Positioned);
             if (src) {
               const lines = src.raw.split('\n');
               const lang = /^\s*(?:```+|~~~+)\s*([\w-]*)/.exec(lines[0])?.[1] ?? '';
               const closed = lines.length > 1 && /^\s*(```+|~~~+)\s*$/.test(lines[lines.length - 1]);
               const content = lines.slice(1, closed ? -1 : undefined).join('\n');
-              if (isDocBlock(content, lang)) {
+              if (isVisualFence(lang)) return closed ? <VisualBlock lang={lang} raw={content} /> : null;
+              if (withArtifacts && isDocBlock(content, lang)) {
                 const title = docTitle(content, src.before, t('artifact.document'));
                 return (
                   <DocArtifactCard
                     title={title}
-                    content={content.trim()}
+                    writing={!closed}
                     onOpen={() =>
                       onOpenArtifact?.({ kind: 'doc', key: docKey(messageId as string, content), title, content: content.trim() })
                     }
@@ -94,8 +99,6 @@ export const MarkdownMessage = memo(function MarkdownMessage({ text, messageId, 
               return (
                 <TableArtifactCard
                   title={title}
-                  header={parsed.header}
-                  rows={parsed.rows}
                   onOpen={() =>
                     onOpenArtifact?.({ kind: 'table', key: tableKey(messageId as string, parsed), title, ...parsed })
                   }

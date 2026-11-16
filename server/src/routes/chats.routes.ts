@@ -25,6 +25,7 @@ import { citedProvisionNumbers, citesProvision, createChatToolRunner, refNumber,
 import { skipsLawSearch } from '../lib/smallTalk.ts';
 import { autoTitleChat } from '../lib/chatTitle.ts';
 import { appendEditBlocks, appendReminderBlocks, loadEditTarget, type EditProposal, type EditTarget, type ReminderProposal } from '../lib/chatActions.ts';
+import { placeVisuals, type Visual } from '../lib/chatVisuals.ts';
 import { jurisdictionCode, retrieveLegalContext } from '../rag/retrieve.ts';
 import { formatLegalContext } from '../rag/context.ts';
 import { lexDocId, mentionsOfficialAct, officialSourceNote, type OfficialActRef } from '../lib/officialWeb.ts';
@@ -636,6 +637,8 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
       // Правки, предложенные агентом, — карточками «Принять» в конце ответа.
       const proposals: EditProposal[] = [];
       const reminders: ReminderProposal[] = [];
+      // Наглядные блоки агента (план, сроки, норма, график) — на место меток.
+      const visuals: Visual[] = [];
       const finish = async (rawReply: string): Promise<ChatMessage> => {
         // Акты с официальных сайтов, на которые ответ опирается: открытые
         // агентом — всегда, найденные поиском — если ответ называет их номер или
@@ -655,7 +658,8 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
         // Сведения с официальных сайтов — пометка КОДОМ, а не только просьбой к
         // модели: «не из проверенной базы Lexab» на языке ответа.
         const note = officialHosts.size ? officialSourceNote(rawReply, officialHosts, official.map((r) => ({ label: r.label, url: r.url as string }))) : '';
-        const replyText = appendReminderBlocks(appendEditBlocks(note ? `${rawReply.trimEnd()}\n\n${note}` : rawReply, proposals), reminders);
+        const shown = placeVisuals(rawReply, visuals);
+        const replyText = appendReminderBlocks(appendEditBlocks(note ? `${shown.trimEnd()}\n\n${note}` : shown, proposals), reminders);
         if (agentRan) {
           const cited = citedProvisionNumbers(rawReply);
           const seenRefs = new Set<string>();
@@ -714,6 +718,8 @@ export function chatRoutes(app: FastifyInstance, db: Db): void {
               editTarget,
               onProposal: (p) => proposals.push(p),
               onReminder: (r) => reminders.push(r),
+              onVisual: (v) => visuals.push(v),
+              question: text,
               jurisdiction: corpus,
               documents: agentDocs,
               onStep: (s) => step(s),

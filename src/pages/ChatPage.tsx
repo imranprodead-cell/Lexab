@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState, type DragEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, type DragEvent } from 'react';
 import type { ContractSide } from '@/lib/contractSide';
 import { useNavigate, useParams } from 'react-router-dom';
 import { motion } from 'motion/react';
@@ -40,6 +40,7 @@ import { formatFileSize } from '@/lib/format';
 import { isAttachFile, isDocFile, MAX_DOC_BYTES, maxAttachments } from '@/lib/docFormats';
 import { isSlidesCommand, parseDeck } from '@/lib/deck';
 import { extractArtifacts, type Artifact } from '@/lib/artifacts';
+import { stripVisualMarkers, visualsToText } from '@/lib/visuals';
 import { answersMessage, displayText, extractQuestions, isApproveCommand, isPlanCommand, looksLikePlan, type ClarifyQuestion } from '@/lib/questions';
 import { dismissCard, isCardDismissed, type CardKind } from '@/lib/dismissedCards';
 import { COMMANDS } from '@/data/seed';
@@ -667,6 +668,12 @@ export function ChatPage() {
 
   // ── Боковая панель (документ / таблица / презентация) ─────────────────────
   const [panel, setPanelState] = useState<Artifact | null>(null);
+  // «Живая» панель, как в Claude: ответ ИИ ещё пишется, а панель уже открыта и
+  // показывает документ (таблицу, слайды) по ходу. liveFor — id пишущегося
+  // сообщения; paneKey — ключ панели, который остаётся прежним, когда ответ
+  // дописан и документ получил настоящий id: панель не мигает и не теряет место.
+  const [liveFor, setLiveFor] = useState<string | null>(null);
+  const [paneKey, setPaneKey] = useState<string | null>(null);
   // Открытие и закрытие панели меняет ширину чата: текст переносится иначе, и
   // всё, что было на экране, уезжало. Перед сменой запоминаем опору — карточку,
   // по которой нажали (или верхнее сообщение на экране), — и после перестройки
@@ -682,7 +689,7 @@ export function ChatPage() {
       const thRect = th.getBoundingClientRect();
       const thTop = thRect.top;
       const pressed = lastPointer.current?.isConnected
-        ? lastPointer.current.closest(`.${chat.artCard}, .${chat.deckCard}`)
+        ? lastPointer.current.closest(`.${chat.artCard}`)
         : null;
       lastPointer.current = null;
       // Закрытие: та карточка, из которой открывали, — если она ещё на экране.
@@ -703,6 +710,8 @@ export function ChatPage() {
       }
     }
     setPanelState(next);
+    setLiveFor(null);
+    setPaneKey(null);
   }, []);
   useLayoutEffect(() => {
     const anchor = scrollAnchor.current;
@@ -715,36 +724,102 @@ export function ChatPage() {
       th.scrollTop += anchor.el.getBoundingClientRect().top - th.getBoundingClientRect().top - anchor.top;
     }
   }, [panel]);
-  const openArtifact = useCallback((a: Artifact) => setPanel(a), [setPanel]);
+  /** Первый артефакт ответа ИИ: колода (ответ на /slides), документ или таблица. */
+  const artifactOf = useCallback(
+    (m: ChatMessage | undefined, prev: ChatMessage | undefined): Artifact | null => {
+      if (!m || m.role !== 'assistant' || !m.text) return null;
+      const deck = prev?.role === 'user' && isSlidesCommand(prev.text) ? parseDeck(m.text) : null;
+      if (deck) return { kind: 'deck', key: `${m.id}:deck`, title: deck.title, deck };
+      const [first] = extractArtifacts(extractQuestions(m.text).body, m.id, {
+        document: t('artifact.document'),
+        table: t('artifact.table'),
+      });
+      return first ?? null;
+    },
+    [t],
+  );
+  const texts = useMemo(() => messages.filter((m) => m.kind === 'text'), [messages]);
+  const streamingId = texts.find((m) => m.streaming && m.role === 'assistant')?.id ?? null;
+  const streamingIdRef = useRef<string | null>(null);
+  streamingIdRef.current = streamingId;
+  /** Ответы, для которых панель уже открывалась сама (повторно — нет). */
+  const autoOpened = useRef(new Set<string>());
+  /** Человек закрыл «живую» панель или открыл другое — до конца ответа не лезем. */
+  const liveDismissed = useRef(false);
+  const openLive = useCallback(
+    (id: string, snapshot: Artifact) => {
+      autoOpened.current.add(id);
+      setPanel(snapshot); // опора прокрутки — как при обычном открытии
+      setLiveFor(id);
+      setPaneKey(`live:${id}`);
+    },
+    [setPanel],
+  );
+  // Карточка нажата, пока ответ ещё пишется, — панель «живая», а не снимок
+  // недописанного текста.
+  const openArtifact = useCallback(
+    (a: Artifact) => {
+      const sid = streamingIdRef.current;
+      if (sid && a.key.startsWith(`${sid}:`)) {
+        liveDismissed.current = false;
+        openLive(sid, a);
+        return;
+      }
+      if (sid) liveDismissed.current = true;
+      setPanel(a);
+    },
+    [setPanel, openLive],
+  );
+  const closePanel = () => {
+    if (liveFor) liveDismissed.current = true;
+    setPanel(null);
+  };
+  // Что показывает «живая» панель: артефакт пишущегося сообщения прямо сейчас.
+  // В миг, когда ответ дописан, временный id уже сменился на настоящий, —
+  // до следующего шага показываем последнее известное содержимое.
+  const lastLive = useRef<Artifact | null>(null);
+  const liveArt = useMemo(() => {
+    if (!liveFor) return null;
+    const i = texts.findIndex((m) => m.id === liveFor);
+    const a = i >= 0 ? artifactOf(texts[i], texts[i - 1]) : null;
+    if (a) lastLive.current = { ...a, key: `live:${liveFor}` };
+    return lastLive.current;
+  }, [liveFor, texts, artifactOf]);
+  const shownPanel = liveFor ? (liveArt ?? panel) : panel;
   // Смена чата закрывает панель: артефакт принадлежит своей переписке.
   useEffect(() => {
     setPanelState(null);
+    setLiveFor(null);
+    setPaneKey(null);
   }, [sessionId, serverSessionId]);
-  // Автооткрытие, как в Claude: свежий ответ ИИ (только что дописан в этой
-  // вкладке) с презентацией, документом или большой таблицей. Старые чаты из
-  // истории панель сами не открывают — у них нет перехода «писал → дописал».
+  // Автооткрытие, как в Claude: как только в свежем ответе ИИ (в этой вкладке)
+  // появился документ, большая таблица или колода слайдов, панель открывается
+  // и дальше показывает их по ходу; раньше она ждала конца ответа, и готовый
+  // уже в чате документ не открывался. Старые чаты из истории панель сами не
+  // открывают — у них ничего не пишется.
   const wasStreaming = useRef(false);
   useEffect(() => {
     const streaming = messages.some((m) => m.streaming);
+    if (streaming && !wasStreaming.current) liveDismissed.current = false;
+    if (streamingId && !liveDismissed.current && liveFor !== streamingId && !autoOpened.current.has(streamingId)) {
+      const i = texts.findIndex((m) => m.id === streamingId);
+      const a = i >= 0 ? artifactOf(texts[i], texts[i - 1]) : null;
+      if (a) openLive(streamingId, a);
+    }
     if (wasStreaming.current && !streaming) {
-      const texts = messages.filter((m) => m.kind === 'text');
-      const last = texts[texts.length - 1];
-      const prev = texts[texts.length - 2];
-      if (last?.role === 'assistant' && last.text) {
-        const deck = prev?.role === 'user' && isSlidesCommand(prev.text) ? parseDeck(last.text) : null;
-        if (deck) {
-          setPanel({ kind: 'deck', key: `${last.id}:deck`, title: deck.title, deck });
-        } else {
-          const [first] = extractArtifacts(extractQuestions(last.text).body, last.id, {
-            document: t('artifact.document'),
-            table: t('artifact.table'),
-          });
-          if (first) setPanel(first);
-        }
+      const a = artifactOf(texts[texts.length - 1], texts[texts.length - 2]);
+      if (liveFor) {
+        // Ответ дописан: та же панель (тот же ключ), но документ уже с
+        // настоящим id — его можно править, сохранять и скачивать.
+        setLiveFor(null);
+        setPanelState(a);
+        if (!a) setPaneKey(null);
+      } else if (a && !liveDismissed.current) {
+        setPanel(a); // артефакт стал виден только в конце ответа
       }
     }
     wasStreaming.current = streaming;
-  }, [messages, t, setPanel]);
+  }, [messages, texts, streamingId, liveFor, artifactOf, openLive, setPanel]);
 
   // ── Карточки над полем ввода ─────────────────────────────────────────────
   // Только для последнего ответа ИИ: уточняющие вопросы (если он их задал),
@@ -804,17 +879,18 @@ export function ChatPage() {
   const renderText = (m: ChatMessage, prev?: ChatMessage) => {
     // Ответ на /slides с колодой — карточка с миниатюрами и «Скачать .pptx»;
     // если ИИ ответил обычным текстом (попросил описать дело) — как обычно.
+    // Карточка колоды есть и пока ИИ пишет (с двух готовых слайдов).
     const deck =
-      m.role === 'assistant' && !m.streaming && m.text && prev?.role === 'user' && isSlidesCommand(prev.text)
-        ? parseDeck(m.text)
-        : null;
+      m.role === 'assistant' && m.text && prev?.role === 'user' && isSlidesCommand(prev.text) ? parseDeck(m.text) : null;
     // Блок вопросов ИИ в тексте не показываем: у последнего ответа вопросы —
     // в карточке над полем ввода, у прежних — обычным списком.
+    // Метки [[lexab:N]] — места будущих карточек (план, сроки, норма, график):
+    // пока ответ пишется, их не видно; в готовом ответе на их месте карточки.
     const shown =
       m.role !== 'assistant' || !m.text
         ? (m.text ?? '')
         : m.streaming || (askQuestions && lastReply?.id === m.id)
-          ? extractQuestions(m.text).body
+          ? stripVisualMarkers(extractQuestions(m.text).body)
           : displayText(m.text);
     return m.role === 'user' && isApproveCommand(m.text) ? (
       <div key={m.id} className={chat.msgApproved} data-mid={m.id}>
@@ -841,6 +917,7 @@ export function ChatPage() {
           {deck ? (
             <DeckCard
               deck={deck}
+              streaming={m.streaming}
               onOpen={() => openArtifact({ kind: 'deck', key: `${m.id}:deck`, title: deck.title, deck })}
             />
           ) : (
@@ -853,7 +930,7 @@ export function ChatPage() {
           {/* Правки, предложенные агентом: «Принять» вносит их в документ. */}
           {!m.streaming && m.text ? <AgentActionCards text={m.text} /> : null}
           {!m.streaming && shown.trim() ? (
-            <MessageActions message={{ ...m, text: displayText(m.text ?? '') }} onFeedback={setFeedback} />
+            <MessageActions message={{ ...m, text: visualsToText(displayText(m.text ?? '')) }} onFeedback={setFeedback} />
           ) : null}
         </div>
       </div>
@@ -1103,7 +1180,7 @@ export function ChatPage() {
       ) : null}
     </div>
     {/* Progress / Context — в переписке; открытый документ занимает его место. */}
-    {!panel && !onWelcome && messages.length > 0 ? (
+    {!shownPanel && !onWelcome && messages.length > 0 ? (
       <TaskSidebar
         messages={messages}
         sessionKey={serverSessionId ?? (USE_MOCK ? 'local' : null)}
@@ -1112,7 +1189,9 @@ export function ChatPage() {
         onOpenWorkspace={openWorkspace}
       />
     ) : null}
-    {panel ? <ArtifactPanel artifact={panel} onClose={() => setPanel(null)} /> : null}
+    {shownPanel ? (
+      <ArtifactPanel artifact={shownPanel} live={Boolean(liveFor)} paneKey={paneKey ?? undefined} onClose={closePanel} />
+    ) : null}
     </div>
   );
 }

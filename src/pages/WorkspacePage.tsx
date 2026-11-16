@@ -9,6 +9,7 @@ import { SkeletonRows } from '@/components/ui/States';
 import { Spinner } from '@/components/ui/Spinner';
 import { ChatInput } from '@/components/chat/ChatInput';
 import { MarkdownMessage } from '@/components/chat/MarkdownMessage';
+import { stripVisualMarkers } from '@/lib/visuals';
 import { displayText, extractQuestions } from '@/lib/questions';
 import { AgentActionCards } from '@/components/chat/EditProposalCards';
 import { DocumentViewer, type ActiveBlock, type DocEditorHandle, type FullContractView } from '@/components/workspace/DocumentViewer';
@@ -486,7 +487,7 @@ export function WorkspacePage() {
                       <div key={m.id} className={styles.qaAssistant}>
                         {/* «…» внутри текста: после блочного markdown-рендера
                             отдельный текстовый узел падал бы на свою строку. */}
-                        <MarkdownMessage text={m.streaming ? `${extractQuestions(m.text ?? '').body}…` : displayText(m.text ?? '')} />
+                        <MarkdownMessage text={m.streaming ? `${stripVisualMarkers(extractQuestions(m.text ?? '').body)}…` : displayText(m.text ?? '')} />
                         {!m.streaming && m.text ? <AgentActionCards text={m.text} /> : null}
                       </div>
                     ),

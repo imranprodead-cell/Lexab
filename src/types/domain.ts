@@ -163,7 +163,11 @@ export type ChatToolName =
   | 'calculate'
   | 'search_official'
   | 'read_official'
-  | 'task_guide';
+  | 'task_guide'
+  | 'show_steps'
+  | 'show_timeline'
+  | 'show_law'
+  | 'show_chart';
 
 export interface ChatStep {
   /** tool-N — вызов инструмента агентом (N — номер вызова в этом ответе);

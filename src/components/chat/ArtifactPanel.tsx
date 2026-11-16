@@ -6,6 +6,7 @@ import { useDismissable } from '@/hooks/useAsync';
 import { invalidateVaultCounts } from '@/hooks/useVaultCounts';
 import { localeFor } from '@/i18n/dates';
 import { useI18n } from '@/i18n/I18nProvider';
+import { useUxT } from '@/i18n/uxMessages';
 import { savedSourceId, type Artifact, type DeckArtifact, type DocArtifact, type TableArtifact } from '@/lib/artifacts';
 import { deckFileName, type Deck } from '@/lib/deck';
 import { downloadBlob } from '@/lib/download';
@@ -81,6 +82,9 @@ function ExportMenu({ items }: { items: ExportItem[] }) {
   );
 }
 
+/** Тон заголовка панели → вид значка (как у карточек в чате). */
+const TONE_KIND: Record<string, 'doc' | 'sheet' | 'slides'> = { analyze: 'doc', plan: 'sheet', slides: 'slides' };
+
 function PanelHeader({
   icon,
   tone,
@@ -99,9 +103,10 @@ function PanelHeader({
   const { t } = useI18n();
   return (
     <div className={styles.panelHead}>
-      <div className={styles.slashIcon} data-tone={tone}>
-        <Icon name={icon} size={15} strokeWidth={1.8} />
-      </div>
+      {/* Значок типа — тех же цветов, что карточка в чате (синий / зелёный / оранжевый). */}
+      <span className={`${styles.artIcon} ${styles.artIconSm}`} data-kind={TONE_KIND[tone] ?? 'doc'} aria-hidden="true">
+        <Icon name={icon} size={16} strokeWidth={1.8} />
+      </span>
       <div className={styles.panelTitleWrap}>
         <div className={styles.panelTitle} title={title}>
           {title}
@@ -122,14 +127,27 @@ const copyText = async (text: string) => {
 
 // ── Документ ───────────────────────────────────────────────────────────────
 
-function DocPane({ art, onClose }: { art: DocArtifact; onClose: () => void }) {
+function DocPane({ art, live, onClose }: { art: DocArtifact; live?: boolean; onClose: () => void }) {
   const { t } = useI18n();
+  const u = useUxT();
+  const editorRef = useRef<HTMLTextAreaElement>(null);
   const pushToast = useUIStore((s) => s.pushToast);
   const [content, setContent] = useState(() => docEdits.get(art.key) ?? art.content);
   const [savedId, setSavedId] = useState<string | null>(null);
   const [savedContent, setSavedContent] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const touched = useRef(docEdits.has(art.key));
+
+  // Пока ИИ пишет, текст приходит по ходу: панель показывает его сразу и
+  // держит конец на виду (если человек не отлистал вверх). Своих правок
+  // в это время нет — поле только для чтения.
+  useEffect(() => {
+    if (touched.current) return;
+    const el = editorRef.current;
+    const nearEnd = el ? el.scrollHeight - el.scrollTop - el.clientHeight < 80 : false;
+    setContent(docEdits.get(art.key) ?? art.content);
+    if (live && el && nearEnd) requestAnimationFrame(() => (el.scrollTop = el.scrollHeight));
+  }, [art.content, art.key, live]);
 
   // Сохранённая версия (с любого устройства): ищем черновик, привязанный к
   // этому документу чата. Если пользователь уже правит — его текст не трогаем.
@@ -193,9 +211,10 @@ function DocPane({ art, onClose }: { art: DocArtifact; onClose: () => void }) {
         icon="doc"
         tone="analyze"
         title={art.title}
-        sub={dirty && savedId ? t('artifact.unsaved') : t('artifact.editable')}
+        sub={live ? u('art.writing') : dirty && savedId ? t('artifact.unsaved') : t('artifact.editable')}
         onClose={onClose}
         actions={
+          live ? null : (
           <>
             <button type="button" className={styles.panelBtn} onClick={() => void save()} disabled={!canSave}>
               {saving ? <Spinner size={14} /> : <Icon name="check" size={15} />}
@@ -203,12 +222,15 @@ function DocPane({ art, onClose }: { art: DocArtifact; onClose: () => void }) {
             </button>
             <ExportMenu items={items} />
           </>
+          )
         }
       />
       <div className={styles.docScroll}>
         <textarea
+          ref={editorRef}
           className={styles.docEditor}
           value={content}
+          readOnly={live}
           dir="auto"
           spellCheck
           aria-label={art.title}
@@ -231,7 +253,8 @@ function DocPane({ art, onClose }: { art: DocArtifact; onClose: () => void }) {
 
 // ── Таблица ────────────────────────────────────────────────────────────────
 
-function TablePane({ art, onClose }: { art: TableArtifact; onClose: () => void }) {
+function TablePane({ art, live, onClose }: { art: TableArtifact; live?: boolean; onClose: () => void }) {
+  const u = useUxT();
   const { t, lang } = useI18n();
   const pushToast = useUIStore((s) => s.pushToast);
   const [sel, setSel] = useState({ r: 0, c: 0 });
@@ -270,9 +293,9 @@ function TablePane({ art, onClose }: { art: TableArtifact; onClose: () => void }
         icon="table"
         tone="plan"
         title={art.title}
-        sub={t('artifact.size', { rows: art.rows.length, cols: art.header.length })}
+        sub={live ? u('art.writing') : t('artifact.size', { rows: art.rows.length, cols: art.header.length })}
         onClose={onClose}
-        actions={<ExportMenu items={items} />}
+        actions={live ? null : <ExportMenu items={items} />}
       />
       <div className={styles.sheetBar}>
         <span className={styles.sheetRef}>{`${colName(sel.c)}${sel.r + 1}`}</span>
@@ -363,8 +386,9 @@ function SlideContent({ deck, index, madeWith, date }: { deck: Deck; index: numb
   );
 }
 
-function DeckPane({ art, onClose }: { art: DeckArtifact; onClose: () => void }) {
+function DeckPane({ art, live, onClose }: { art: DeckArtifact; live?: boolean; onClose: () => void }) {
   const { t, lang } = useI18n();
+  const u = useUxT();
   const pushToast = useUIStore((s) => s.pushToast);
   const [index, setIndex] = useState(0);
   const total = art.deck.slides.length + 1;
@@ -403,9 +427,9 @@ function DeckPane({ art, onClose }: { art: DeckArtifact; onClose: () => void }) 
         icon="presentation"
         tone="slides"
         title={art.title}
-        sub={t('deck.count', { n: total })}
+        sub={live ? `${t('deck.count', { n: total })}, ${u('art.writing').toLocaleLowerCase()}` : t('deck.count', { n: total })}
         onClose={onClose}
-        actions={<ExportMenu items={items} />}
+        actions={live ? null : <ExportMenu items={items} />}
       />
       <div
         ref={rootRef}
@@ -450,7 +474,23 @@ function DeckPane({ art, onClose }: { art: DeckArtifact; onClose: () => void }) 
   );
 }
 
-export function ArtifactPanel({ artifact, onClose }: { artifact: Artifact; onClose: () => void }) {
+/**
+ * live — ответ ИИ ещё пишется: панель показывает созданное по ходу, без правок
+ * и скачивания. paneKey — ключ панели: остаётся тем же, когда «живой» документ
+ * дописан и получил настоящий ключ, — панель не мигает и не теряет прокрутку.
+ */
+export function ArtifactPanel({
+  artifact,
+  live,
+  paneKey,
+  onClose,
+}: {
+  artifact: Artifact;
+  live?: boolean;
+  paneKey?: string;
+  onClose: () => void;
+}) {
+  const key = paneKey ?? artifact.key;
   // Esc закрывает панель (если фокус не в поле редактора документа).
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
     if (e.key === 'Escape' && !(e.target instanceof HTMLTextAreaElement)) onClose();
@@ -458,11 +498,11 @@ export function ArtifactPanel({ artifact, onClose }: { artifact: Artifact; onClo
   return (
     <aside className={styles.artifactPanel} onKeyDown={onKeyDown} aria-label={artifact.title}>
       {artifact.kind === 'doc' ? (
-        <DocPane key={artifact.key} art={artifact} onClose={onClose} />
+        <DocPane key={key} art={artifact} live={live} onClose={onClose} />
       ) : artifact.kind === 'table' ? (
-        <TablePane key={artifact.key} art={artifact} onClose={onClose} />
+        <TablePane key={key} art={artifact} live={live} onClose={onClose} />
       ) : (
-        <DeckPane key={artifact.key} art={artifact} onClose={onClose} />
+        <DeckPane key={key} art={artifact} live={live} onClose={onClose} />
       )}
     </aside>
   );

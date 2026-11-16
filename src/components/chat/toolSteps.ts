@@ -1,4 +1,6 @@
 import type { ChatStep } from '@/types/domain';
+// Подписи наглядных блоков — в uxStrings (вне главного чанка): подключаем словарь.
+import '@/i18n/uxMessages';
 
 /**
  * Подписи шагов агента (tool-N) — общие для хода работы в ответе (WorkSteps)
@@ -20,6 +22,10 @@ export const TOOL_STEP_KEYS: Record<string, string> = {
   search_official: 'work.tool.searchOfficial',
   read_official: 'work.tool.readOfficial',
   task_guide: 'work.tool.taskGuide',
+  show_steps: 'ux.vis.workSteps',
+  show_timeline: 'ux.vis.workTimeline',
+  show_law: 'ux.vis.workLaw',
+  show_chart: 'ux.vis.workChart',
 };
 
 /** «Обдумываю ответ» — всегда последним: шаги агента (tool-N) приходят после него. */

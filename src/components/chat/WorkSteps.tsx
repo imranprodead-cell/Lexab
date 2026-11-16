@@ -181,6 +181,10 @@ export function WorkSteps({ work, working }: { work?: ChatWork; working: boolean
     if (d.tool === 'read_official') return d.citation ? chips([d.citation], 'doc') : null;
     // Памятка задачи («специалист» агента): какая именно — «Аренда», «Поставка»…
     if (d.tool === 'task_guide') return d.citation ? chips([d.citation], 'doc') : null;
+    // Наглядные блоки: заголовок плана, шкалы, графика или подпись нормы.
+    if ((d.tool === 'show_steps' || d.tool === 'show_timeline' || d.tool === 'show_law' || d.tool === 'show_chart') && d.citation) {
+      return chips([d.citation], 'doc');
+    }
     if (d.tool === 'calculate' && d.expression) {
       return <div className={styles.workDesc}>{d.result ? `${d.expression} = ${d.result}` : d.expression}</div>;
     }

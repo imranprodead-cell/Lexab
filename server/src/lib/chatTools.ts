@@ -24,6 +24,7 @@ import { buildDocGraph, relatedLines } from './docGraph.ts';
 import { excerpt, fetchOfficial, lexDocId, officialActRef, officialUrl, pageText, parseLexPage, searchLexUz, shortActName, type OfficialActRef } from './officialWeb.ts';
 import { checkProposal, reviewEditsText, reviewSourceText, type EditProposal, type EditTarget, type ReminderProposal } from './chatActions.ts';
 import { planFor, planHasFeature } from './limits.ts';
+import { MAX_VISUALS, normalizeChart, normalizeSteps, normalizeTimeline, numbersIn, unverifiedValues, VISUAL_TOOL_NAMES, visualMarker, VisualInputError, visualsOn, type Visual } from './chatVisuals.ts';
 import { loadActivePlaybook, resolvePlaybookOwner } from './playbook.ts';
 import { canEdit, resolveDocumentAccess } from './teamAccess.ts';
 import { diffClauses, formatChanges } from './textDiff.ts';
@@ -72,6 +73,10 @@ export interface ChatToolContext {
    *  read — агент открыл страницу (идут всегда); found — действующие акты из
    *  поиска lex.uz (идут, если ответ называет их номер или ссылку). */
   onOfficialActs?: (acts: OfficialActRef[], kind: 'read' | 'found') => void;
+  /** Вопрос пользователя — числа из него можно рисовать на графике. */
+  question?: string;
+  /** Наглядный блок (план, сроки, норма, график) → в ответ на место метки. */
+  onVisual?: (visual: Visual) => void;
 }
 
 export interface ToolCall {
@@ -288,6 +293,118 @@ export const CHAT_TOOLS: Anthropic.Beta.BetaTool[] = [
     },
   },
   {
+    name: 'show_steps',
+    description:
+      "Show the user an action plan as a card: numbered steps, each with what to do, by when, who acts and which documents are needed. Call it when your answer tells the user to do several things in order (3–10 steps) — recovering a debt, terminating a contract, registering a company, dismissing an employee. Compute exact dates with calculate first. Returns a marker like [[lexab:1]] — put it on its own line in your answer where the card belongs, and do not repeat the card's content in text.",
+    eager_input_streaming: true,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        title: { type: 'string', description: 'Short heading, e.g. «Как взыскать долг по договору поставки».' },
+        steps: {
+          type: 'array',
+          minItems: 2,
+          maxItems: 10,
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              title: { type: 'string', description: 'The action, short: «Направить претензию покупателю».' },
+              detail: { type: 'string', description: 'One or two sentences: how exactly, what to include.' },
+              when: { type: 'string', description: 'The deadline in words, e.g. «в течение 30 дней после претензии».' },
+              date: { type: 'string', description: 'The exact date, if known (from calculate): YYYY-MM-DD or DD.MM.YYYY.' },
+              who: { type: 'string', description: 'Who acts: «вы», «юрист», «суд»…' },
+              docs: { type: 'array', maxItems: 6, items: { type: 'string' }, description: 'Documents needed for this step.' },
+            },
+            required: ['title'],
+          },
+        },
+      },
+      required: ['steps'],
+    },
+  },
+  {
+    name: 'show_timeline',
+    description:
+      "Show key dates as a timeline card — in date order, with today marked and the days left to each. Call it when the answer turns on 3 or more dates or deadlines: signing, payment due, delay, claim and its response period, limitation period. Give each event either a `date`, or `after` (the number, from 1, of an EARLIER event in the list) plus years/months/days — the code computes the date in calendar days, so do not compute it yourself. Returns a marker like [[lexab:1]] — put it on its own line in your answer where the card belongs, and do not repeat the card's content in text.",
+    eager_input_streaming: true,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        title: { type: 'string', description: 'Short heading, e.g. «Сроки по договору поставки № 14».' },
+        events: {
+          type: 'array',
+          minItems: 2,
+          maxItems: 12,
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              label: { type: 'string', description: 'What happens: «Срок оплаты», «Последний день для иска».' },
+              date: { type: 'string', description: 'A known date: YYYY-MM-DD or DD.MM.YYYY.' },
+              after: { type: 'integer', minimum: 1, description: 'Instead of date: the number of an earlier event this one counts from.' },
+              years: { type: 'integer' },
+              months: { type: 'integer' },
+              days: { type: 'integer' },
+              note: { type: 'string', description: 'Optional short note: the basis (contract clause or article) or what to do.' },
+            },
+            required: ['label'],
+          },
+        },
+      },
+      required: ['events'],
+    },
+  },
+  {
+    name: 'show_law',
+    description:
+      "Show the exact official text of a provision as a card with its source link — instead of quoting the statute yourself. Call it for the one or two key provisions the answer rests on, not for every citation. Pass the [unit id] or a citation; a provision that is not in the verified database is not shown. Returns a marker like [[lexab:1]] — put it on its own line in your answer where the card belongs, and do not repeat the card's content in text.",
+    eager_input_streaming: true,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        unit_id: { type: 'string', description: 'The provision id from square brackets, e.g. lu_uz_180550_st-356.' },
+        citation: { type: 'string', description: 'A citation, used when there is no unit id: «ст. 333 ГК».' },
+        note: { type: 'string', description: 'One sentence: why this provision matters for the user here (your words, not the law).' },
+        jurisdiction: JURISDICTION_PROP,
+      },
+    },
+  },
+  {
+    name: 'show_chart',
+    description:
+      "Draw a chart when numbers are clearer as a picture: how a penalty, interest or debt grows over time (line), or how amounts compare — by month, by counterparty, option A against option B (bar). Every value must come from calculate in this answer, from the user's message or from documents you read — the code checks it, so compute the values first and pass them exactly as calculate returned them (the chart abbreviates large numbers itself). bar: one series; line: up to 3 series. Returns a marker like [[lexab:1]] — put it on its own line in your answer where the card belongs, and do not repeat the card's content in text.",
+    eager_input_streaming: true,
+    input_schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        title: { type: 'string', description: 'What the chart shows, e.g. «Пеня по дням просрочки, сум».' },
+        kind: { type: 'string', enum: ['bar', 'line'] },
+        unit: { type: 'string', description: 'Unit of the values: «сум», «$», «%», «дней».' },
+        labels: { type: 'array', minItems: 2, maxItems: 24, items: { type: 'string' }, description: 'X-axis labels: months, dates, counterparties, options.' },
+        series: {
+          type: 'array',
+          minItems: 1,
+          maxItems: 3,
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              name: { type: 'string', description: 'Series name (needed when there are several).' },
+              values: { type: 'array', items: { type: 'number' }, description: 'One value per label.' },
+            },
+            required: ['values'],
+          },
+        },
+      },
+      required: ['title', 'kind', 'labels', 'series'],
+    },
+  },
+  {
     name: 'search_official',
     description:
       "Search Uzbekistan's official legislation portal lex.uz for an act that Lexab's verified database does not have — Cabinet of Ministers resolutions, Central Bank and ministry acts, very new laws. Call it only after search_law found nothing that answers the point. Returns acts with their type, date and number, whether they are in force, and a link to read with read_official. Write the query in Russian, as the act would be titled.",
@@ -352,6 +469,7 @@ ${UZ_WHERE_TO_LOOK}
 - For the firm's standard positions, call get_playbook and follow them in your advice; say which position you rely on.
 - To compare two versions of a contract, call compare_versions and explain what each difference means for the user; never add or drop differences it did not return.
 - For a protocol of disagreements, call get_review_edits and write the whole protocol as ONE fenced document: its heading (protocol of disagreements to contract № … of …, the parties), then a markdown table with the columns № | Clause | Contract wording | Our wording | Reason (column names in the user's language; <br> for a line break inside a cell), then signature lines for both parties. The user downloads it as a Word file with a real table.
+- VISUALS — show, don't only tell, when it really helps: show_steps for an action plan of 3 or more steps; show_timeline when the answer turns on 3 or more dates; show_law for the one or two provisions the answer rests on; show_chart for computed numbers that are clearer as a picture. Each returns a marker such as [[lexab:1]]: put it on its own line where the card belongs and do not repeat its content in text. No visuals for greetings, short answers or simple questions; at most 3 per answer.
 - The user sees each tool step in a progress panel, so do not narrate tool calls in text: call the tools you need, then write one complete answer. Do not use tools for greetings or for questions the context above already answers.`;
 
 /**
@@ -815,12 +933,36 @@ export function createChatToolRunner(ctx: ChatToolContext): {
   let n = 0;
   // Памятки задач («специалисты») — только чаты по праву Узбекистана.
   const guides = specialistsOn(ctx.jurisdiction);
-  const tools = guides ? [...CHAT_TOOLS, TASK_GUIDE_TOOL] : CHAT_TOOLS;
+  // VISUALS=off — без наглядных блоков (замер «до / после», быстрый откат).
+  const visualsEnabled = visualsOn();
+  const base = visualsEnabled ? CHAT_TOOLS : CHAT_TOOLS.filter((t) => !VISUAL_TOOL_NAMES.includes(t.name));
+  const tools = guides ? [...base, TASK_GUIDE_TOOL] : base;
+  const agentInstructions = visualsEnabled
+    ? CHAT_AGENT_INSTRUCTIONS
+    : CHAT_AGENT_INSTRUCTIONS.split('\n').filter((l) => !l.startsWith('- VISUALS')).join('\n');
   // Документы пользователя грузятся (и расшифровываются) один раз на ответ.
   let memory: Promise<MemoryDoc[]> | null = null;
   // Предложенные в этом ответе правки: без дублей и не больше пяти.
   const proposed = new Set<string>();
   const reminded = new Set<string>();
+  // Наглядные блоки этого ответа и числа, которые можно рисовать на графике:
+  // из вопроса, документов чата и результатов инструментов (калькулятор!).
+  let visuals = 0;
+  const known: number[] = [];
+  let knownSeeded = false;
+  const knownNumbers = (): number[] => {
+    if (!knownSeeded) {
+      knownSeeded = true;
+      known.push(...numbersIn(ctx.question ?? ''));
+      for (const d of ctx.documents) known.push(...numbersIn(d.text.slice(0, 200_000)));
+    }
+    return known;
+  };
+  const addVisual = (v: Visual): string => {
+    visuals += 1;
+    ctx.onVisual?.(v);
+    return visualMarker(visuals);
+  };
   // Акты из поиска lex.uz этого ответа (по id страницы) — чтобы открытая потом
   // страница получила в Sources ту же подпись «ПКМ № 428 от 31.08.2023».
   const lexActs = new Map<string, OfficialActRef>();
@@ -1181,6 +1323,58 @@ export function createChatToolRunner(ctx: ChatToolContext): {
           throw new InputError('operation must be evaluate, days_between or add_period');
         }
 
+        case 'show_steps': {
+          if (visuals >= MAX_VISUALS) return { content: `ERROR: at most ${MAX_VISUALS} visuals per answer — write the rest as text.`, isError: true };
+          const data = normalizeSteps(o, (d) => parseDate(d).toISOString().slice(0, 10));
+          const marker = addVisual({ kind: 'steps', data });
+          step('done', { citation: data.title ?? data.steps[0].title });
+          return { content: `SHOWN: the user sees a plan card with ${data.steps.length} steps. Put ${marker} on its own line where the plan belongs; do not list the steps again in text.` };
+        }
+
+        case 'show_timeline': {
+          if (visuals >= MAX_VISUALS) return { content: `ERROR: at most ${MAX_VISUALS} visuals per answer — write the rest as text.`, isError: true };
+          const data = normalizeTimeline(o, parseDate, addPeriod);
+          const marker = addVisual({ kind: 'timeline', data });
+          step('done', { citation: data.title ?? data.events[0].label });
+          const dates = data.events.map((e) => `${e.date.split('-').reverse().join('.')} — ${e.label}`).join('; ');
+          return { content: `SHOWN: timeline card with the computed dates: ${dates}. Use exactly these dates in your text. Put ${marker} on its own line where it belongs.` };
+        }
+
+        case 'show_law': {
+          if (visuals >= MAX_VISUALS) return { content: `ERROR: at most ${MAX_VISUALS} visuals per answer.`, isError: true };
+          const unitIdIn = optString(o, 'unit_id', 200);
+          const citation = optString(o, 'citation', 300);
+          const note = optString(o, 'note', 300);
+          if (!unitIdIn && !citation) throw new InputError('pass unit_id or citation');
+          if (unitIdIn && !UNIT_ID_RE.test(unitIdIn)) throw new InputError('unit_id looks wrong — copy it from the square brackets');
+          const unitId = unitIdIn ?? (await resolveCitationText(ctx.db, citation as string, jurisdictionOf(o, ctx)));
+          const unit = unitId ? await loadUnit(ctx.db, unitId) : null;
+          if (!unit) {
+            return { content: `NOT_FOUND: no provision «${citation ?? unitIdIn}» in force in the Lexab database — it cannot be shown. Find the right one with search_law, or cite it in text without the card.`, isError: true, keys: [] };
+          }
+          const refs = await ctx.toRefs([{ unitId: unit.id, breadcrumb: unit.breadcrumb }]);
+          ctx.onRefs?.(refs, 'used');
+          const label = refs[0]?.label ?? unit.breadcrumb;
+          const marker = addVisual({ kind: 'law', data: { unitId: unit.id, label, ...(note ? { note } : {}) } });
+          step('done', { citation: label, found: 1, refs });
+          return { content: `SHOWN: the user sees the official text of ${label} with its source link. Put ${marker} on its own line where it belongs; do not quote the same text again.` };
+        }
+
+        case 'show_chart': {
+          if (visuals >= MAX_VISUALS) return { content: `ERROR: at most ${MAX_VISUALS} visuals per answer.`, isError: true };
+          const data = normalizeChart(o);
+          const bad = unverifiedValues(data.series.flatMap((x) => x.values), knownNumbers());
+          if (bad.length) {
+            return {
+              content: `NUMBERS_UNVERIFIED: ${bad.slice(0, 6).join(', ')} did not come from calculate, the user's message or the documents. Compute every value with calculate first, then call show_chart again.`,
+              isError: true,
+            };
+          }
+          const marker = addVisual({ kind: 'chart', data });
+          step('done', { citation: data.title });
+          return { content: `SHOWN: chart «${data.title}». Put ${marker} on its own line where it belongs; mention only the key figure in text.` };
+        }
+
         case 'search_official': {
           const query = reqString(o, 'query', 300);
           step('active', { queries: [query] });
@@ -1285,12 +1479,18 @@ export function createChatToolRunner(ctx: ChatToolContext): {
           return { content: `Unknown tool «${call.name}». Available: ${tools.map((t) => t.name).join(', ')}.`, isError: true };
       }
     } catch (err) {
-      const message = err instanceof InputError ? err.message : 'the tool failed — try again or answer without it';
-      if (!(err instanceof InputError)) console.warn(`[chat-agent] ${call.name} failed: ${(err as Error).message}`);
+      const message = err instanceof InputError || err instanceof VisualInputError ? err.message : 'the tool failed — try again or answer without it';
+      if (!(err instanceof InputError) && !(err instanceof VisualInputError)) console.warn(`[chat-agent] ${call.name} failed: ${(err as Error).message}`);
       if (shown) step('done', {});
       return { content: `ERROR: ${message}`, isError: true };
     }
   };
 
-  return { tools, run, instructions: guides ? `${CHAT_AGENT_INSTRUCTIONS}\n${TASK_GUIDE_INSTRUCTIONS}` : CHAT_AGENT_INSTRUCTIONS };
+  const runAndLearn = async (call: ToolCall): Promise<ToolOutcome> => {
+    const out = await run(call);
+    if (!out.isError && call.name !== 'show_chart') knownNumbers().push(...numbersIn(out.content));
+    return out;
+  };
+
+  return { tools, run: runAndLearn, instructions: guides ? `${agentInstructions}\n${TASK_GUIDE_INSTRUCTIONS}` : agentInstructions };
 }

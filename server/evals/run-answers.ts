@@ -25,6 +25,7 @@ import { fileURLToPath } from 'node:url';
 import { getDb, migrate } from '../src/db.ts';
 import { generateChatReply, usesChatAgent } from '../src/llm.ts';
 import { citesProvision, createChatToolRunner } from '../src/lib/chatTools.ts';
+import { visualAsPlainText, type Visual } from '../src/lib/chatVisuals.ts';
 import { formatLegalContext } from '../src/rag/context.ts';
 import { retrieveLegalContext } from '../src/rag/retrieve.ts';
 
@@ -99,6 +100,7 @@ async function main(): Promise<void> {
     let error: string | undefined;
     const tools: string[] = [];
     const guides: string[] = [];
+    const visuals: Visual[] = [];
     try {
       if (regradeFrom) {
         if (!saved.has(row.question)) throw new Error('нет ответа в сохранённом отчёте');
@@ -123,6 +125,10 @@ async function main(): Promise<void> {
           jurisdiction: 'UZ',
           documents: [],
           toRefs: async (units) => units.map((u) => ({ label: u.unitId, doc: u.breadcrumb })),
+          // Наглядные блоки (план, сроки, норма, график): человек видит их
+          // содержимое — оцениваем ответ вместе с ним.
+          question: row.question,
+          onVisual: (v) => visuals.push(v),
           // След: какие инструменты агент реально вызвал и что открыл (в отчёт).
           onStep: (st) => {
             const d = st.data;
@@ -130,11 +136,21 @@ async function main(): Promise<void> {
             if (st.status === 'done' && d?.tool === 'task_guide' && d.task) guides.push(d.task);
           },
         });
-        reply = await generateChatReply([], row.question, undefined, undefined, 'Uzbekistan', plan, null, formatLegalContext(hits, 'UZ') || null, null, {
+        const raw = await generateChatReply([], row.question, undefined, undefined, 'Uzbekistan', plan, null, formatLegalContext(hits, 'UZ') || null, null, {
           tools: runner.tools,
           run: runner.run,
           instructions: runner.instructions,
         });
+        // Метки [[lexab:N]] → текст карточек на их месте; без метки — в конец.
+        const placed = new Set<number>();
+        reply = raw.replace(/\[\[lexab:(\d+)\]\]/g, (_m, n: string) => {
+          const v = visuals[Number(n) - 1];
+          if (!v) return '';
+          placed.add(Number(n) - 1);
+          return visualAsPlainText(v);
+        });
+        const rest = visuals.filter((_, i) => !placed.has(i)).map(visualAsPlainText);
+        if (rest.length) reply = `${reply.trimEnd()}\n\n${rest.join('\n\n')}`;
       }
     } catch (err) {
       error = (err as Error).message;
@@ -163,6 +179,7 @@ async function main(): Promise<void> {
       tools,
       guide: row.guide,
       guides,
+      visuals: visuals.map((v) => v.kind),
       seconds: Math.round((Date.now() - t0) / 100) / 10,
       reply,
     });
@@ -184,6 +201,12 @@ async function main(): Promise<void> {
     specialists: process.env.SPECIALISTS === 'off' ? 'off' : 'on',
     guideCalled: +(guideCalled / rows.length).toFixed(3),
     ...(guideAsked ? { guideRight: +(guideRight / guideAsked).toFixed(3) } : {}),
+    // Наглядные блоки: справка, в «зачёт» не входит — сколько ответов с ними и каких.
+    visuals: process.env.VISUALS === 'off' ? 'off' : 'on',
+    answersWithVisuals: results.filter((r) => (r.visuals as string[] | undefined)?.length).length,
+    visualKinds: results
+      .flatMap((r) => (r.visuals as string[] | undefined) ?? [])
+      .reduce<Record<string, number>>((acc, k) => ((acc[k] = (acc[k] ?? 0) + 1), acc), {}),
   };
   console.log('\n=== ANSWERS ===', JSON.stringify(summary));
   const dir = path.join(HERE, 'reports');

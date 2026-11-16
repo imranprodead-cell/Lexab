@@ -1750,197 +1750,6 @@
   margin: 12px 0;
 }
 
-/* Презентация (/slides): карточка с миниатюрами и кнопкой «Скачать .pptx» -- */
-.deckCard {
-  width: 100%;
-  max-width: 680px;
-  padding: 14px;
-  border-radius: var(--r-xl);
-  border-start-start-radius: 10px;
-  background: var(--panel-2);
-  border: 1px solid var(--panel-edge);
-  box-shadow: var(--shadow-card);
-  animation: lxfade 0.2s ease both;
-}
-.deckHead {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px 11px;
-  margin-bottom: 12px;
-}
-/* Не уже 150px: иначе подпись сжималась в столбик («Сл… 11»), а кнопки
-   уезжали за край. Не помещается — группа кнопок переносится ниже. */
-.deckHeadText {
-  flex: 1 1 150px;
-  min-width: 0;
-}
-.deckActions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-}
-.deckLabel {
-  font-family: var(--font-label);
-  font-size: 12px;
-  color: var(--mut);
-}
-.deckTitle {
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.deckDownload {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  flex-shrink: 0;
-  height: 34px;
-  padding: 0 14px;
-  border-radius: 999px;
-  border: none;
-  background: var(--accent);
-  color: var(--on-accent);
-  font-family: var(--font-label);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: background var(--dur-fast);
-}
-.deckDownload:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent) 86%, var(--bg));
-}
-.deckDownload:disabled {
-  cursor: progress;
-  opacity: 0.85;
-}
-/* Индикатор сборки — цветом текста кнопки (стандартный тёмный на ней не виден). */
-.deckDownload [role='status'] {
-  border-color: color-mix(in srgb, var(--on-accent) 35%, transparent);
-  border-top-color: var(--on-accent);
-}
-.deckDownload:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-.deckGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-  gap: 10px;
-}
-/* Миниатюра повторяет слайд файла: белый лист, заголовок, золотая черта. */
-.deckThumb {
-  position: relative;
-  aspect-ratio: 16 / 9;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: #ffffff;
-  border: 1px solid var(--border);
-  color: #232120;
-}
-.deckThumbNum {
-  position: absolute;
-  inset-inline-end: 8px;
-  bottom: 6px;
-  font-family: var(--font-label);
-  font-size: 9px;
-  color: #a3a09a;
-}
-.deckThumbTitle {
-  font-size: 11.5px;
-  font-weight: 700;
-  line-height: 1.25;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.deckThumbRule,
-.deckCoverRule {
-  display: block;
-  flex-shrink: 0;
-  width: 18px;
-  height: 2px;
-  background: #b08d57;
-}
-.deckThumbList {
-  margin: 2px 0 0;
-  padding: 0;
-  list-style: disc inside; /* общий сброс стилей убирает маркеры */
-  font-size: 9.5px;
-  line-height: 1.35;
-  color: #3d3a37;
-}
-.deckThumbList li {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.deckThumbCover {
-  justify-content: center;
-  background: #232120;
-  border-color: #232120;
-  color: #ffffff;
-}
-.deckCoverBrand {
-  position: absolute;
-  top: 9px;
-  inset-inline-start: 12px;
-  font-family: var(--font-label);
-  font-size: 7.5px;
-  font-weight: 700;
-  letter-spacing: 0.2em;
-  color: #b08d57;
-}
-.deckCoverTitle {
-  font-size: 12.5px;
-  font-weight: 700;
-  line-height: 1.25;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.deckCoverSub {
-  font-size: 9.5px;
-  color: #d9d6d0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-:global(html.dark) .deckThumb:not(.deckThumbCover) {
-  border-color: transparent;
-}
-:global(html.dark) .deckThumbCover {
-  border-color: var(--border);
-}
-@media (max-width: 600px) {
-  .deckHead {
-    flex-wrap: wrap;
-  }
-  .deckDownload {
-    width: 100%;
-    justify-content: center;
-  }
-  .deckGrid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
-  }
-}
-@media (pointer: coarse) {
-  .deckDownload {
-    height: 44px;
-  }
-}
-
 /* Карточки над полем ввода: уточняющие вопросы ИИ и одобрение плана -------- */
 .choiceWrap {
   max-width: 760px;
@@ -2964,124 +2773,111 @@ a.sideItem:focus-visible .sideItemOut {
   box-shadow: none;
 }
 .slideThumbOn {
-  border-color: #c2417a;
+  border-color: #b0531f;
 }
 
-/* Карточки документа и большой таблицы внутри ответа ИИ. */
+/* Карточки того, что создал ИИ (документ, таблица, презентация), — как у
+   Claude: серая плашка, цветной значок типа, название и тип файла. Вся
+   карточка — кнопка «открыть в панели». Цвета — как у карточек файлов в
+   Vault: документ синий, таблица зелёная, презентация оранжевая. */
 .artCard {
-  margin: 10px 0;
-  border-radius: 12px;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  overflow: hidden;
-  white-space: normal;
-}
-.artHead {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
+  gap: 14px;
+  width: 100%;
+  max-width: 680px;
+  margin: 10px 0;
+  padding: 14px 18px 14px 14px;
+  border: 0;
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--text) 4.5%, var(--bg));
+  color: var(--text);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease);
 }
-.artHeadText {
+.artCard:hover {
+  background: color-mix(in srgb, var(--text) 7.5%, var(--bg));
+}
+.artCard:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.artIcon {
+  --art-ink: #2f5bb0;
+  --art-tile: #e3eaf7;
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 11px;
+  background: var(--art-tile);
+  color: var(--art-ink);
+}
+.artIcon[data-kind='sheet'] {
+  --art-ink: #2e6b2c;
+  --art-tile: #dfeadc;
+}
+.artIcon[data-kind='slides'] {
+  --art-ink: #b0531f;
+  --art-tile: #f7e4d6;
+}
+/* Маленький значок в заголовке боковой панели. */
+.artIconSm {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+}
+.artText {
+  display: flex;
   flex: 1;
+  flex-direction: column;
+  gap: 3px;
   min-width: 0;
 }
 .artTitle {
-  font-size: 14px;
-  font-weight: 600;
+  overflow: hidden;
+  font-size: 16px;
+  font-weight: 500;
   line-height: 1.3;
   color: var(--text);
-  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .artSub {
-  font-family: var(--font-label);
-  font-size: 12px;
-  line-height: 1.3;
-  color: var(--mut);
-}
-.artOpen,
-.deckOpen {
-  flex-shrink: 0;
-  height: 32px;
-  padding: 0 14px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--panel);
-  color: var(--text);
-  font-family: var(--font-label);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-}
-.artOpen:hover,
-.deckOpen:hover {
-  background: var(--hover-2);
-}
-.artPreview {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  width: 100%;
-  padding: 10px 14px 12px;
-  border: none;
-  border-top: 1px solid var(--border);
-  background: var(--panel-2);
-  color: var(--dim);
-  font-family: var(--font-serif);
-  font-size: 13px;
-  line-height: 1.5;
-  text-align: start;
-  cursor: pointer;
-}
-.artPreview span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   overflow: hidden;
+  font-size: 14px;
+  color: var(--dim);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.artTablePreview {
-  display: block;
-  width: 100%;
-  padding: 0;
-  border: none;
-  border-top: 1px solid var(--border);
-  background: var(--panel-2);
-  text-align: start;
-  cursor: pointer;
-  overflow: hidden;
+:global(html.dark) .artCard {
+  background: color-mix(in srgb, var(--text) 6%, var(--bg));
 }
-.artTablePreview table {
-  width: 100%;
-  border-collapse: collapse;
-  table-layout: fixed;
-  font-size: 12.5px;
-  color: var(--dim);
+:global(html.dark) .artIcon {
+  --art-ink: #8fb0ee;
+  --art-tile: color-mix(in srgb, #2f5bb0 32%, var(--panel));
 }
-.artTablePreview th,
-.artTablePreview td {
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--border);
-  text-align: start;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+:global(html.dark) .artIcon[data-kind='sheet'] {
+  --art-ink: #8fcf8a;
+  --art-tile: color-mix(in srgb, #2e6b2c 34%, var(--panel));
 }
-.artTablePreview th {
-  font-weight: 600;
-  color: var(--text);
+:global(html.dark) .artIcon[data-kind='slides'] {
+  --art-ink: #f0a877;
+  --art-tile: color-mix(in srgb, #b0531f 32%, var(--panel));
 }
-.artMore {
-  display: block;
-  padding: 6px 10px 8px;
-  font-family: var(--font-label);
-  font-size: 12px;
-  color: var(--mut);
+:global(html.dark) .artCard:hover {
+  background: color-mix(in srgb, var(--text) 9%, var(--bg));
 }
 @media (pointer: coarse) {
-  .artOpen,
-  .deckOpen {
-    height: 44px;
+  .artCard {
+    min-height: 64px;
   }
 }
 

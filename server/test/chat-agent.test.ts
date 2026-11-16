@@ -159,7 +159,7 @@ describe('law tools', () => {
     assert.equal(badJur.isError, true);
     const unknown = await r.run({ id: 'c', name: 'send_email', input: {} });
     assert.equal(unknown.isError, true);
-    assert.equal(CHAT_TOOLS.length, 13); // +search_official, read_official (официальные сайты, 2026-11-09)
+    assert.equal(CHAT_TOOLS.length, 17); // +search_official, read_official (2026-11-09); +show_steps/timeline/law/chart (наглядные блоки, 2026-11-16)
   });
 });
 
@@ -954,5 +954,70 @@ describe('provision numbers with an index (175-4, 175⁴)', () => {
     assert.equal(refNumber('Статья 333'), '333');
     assert.ok(citesProvision('Штраф — по ст. 175-4 Кодекса об административной ответственности.', '175-4', 'Кодекс Республики Узбекистан об административной ответственности', 'UZ'));
     assert.ok(!citesProvision('Штраф — по ст. 175-4 Кодекса об административной ответственности.', '4', 'Кодекс Республики Узбекистан об административной ответственности', 'UZ'));
+  });
+});
+
+describe('visual blocks: plan, timeline, law card, chart (code checks the data)', () => {
+  it('show_law shows only a provision that is in the database — by unit id or citation; the block holds the id, never the text', async () => {
+    const visuals: unknown[] = [];
+    const r = createChatToolRunner({ db, jurisdiction: 'UZ', documents: [], toRefs: async () => [{ label: 'ст. 356 ГК', doc: TITLE }], onVisual: (v) => visuals.push(v) });
+    const ok = await r.run({ id: 'l1', name: 'show_law', input: { unit_id: 'lu_uz_agent_st-356', note: 'Цена — по соглашению сторон' } });
+    assert.ok(!ok.isError, ok.content);
+    assert.match(ok.content, /\[\[lexab:1\]\]/);
+    assert.deepEqual(visuals[0], { kind: 'law', data: { unitId: 'lu_uz_agent_st-356', label: 'ст. 356 ГК', note: 'Цена — по соглашению сторон' } });
+    assert.ok(!JSON.stringify(visuals[0]).includes('Исполнение договора'), 'the law text is not stored in the block');
+    const missing = await r.run({ id: 'l2', name: 'show_law', input: { unit_id: 'lu_uz_agent_st-9999' } });
+    assert.equal(missing.isError, true);
+    assert.equal(visuals.length, 1);
+  });
+
+  it('show_chart refuses numbers nobody computed; accepts them after calculate', async () => {
+    const visuals: unknown[] = [];
+    const r = createChatToolRunner({ db, jurisdiction: 'UZ', documents: [], question: 'Долг 240 000 000 сум', toRefs: async () => [], onVisual: (v) => visuals.push(v) });
+    const chart = { title: 'Пеня', kind: 'bar', unit: 'сум', labels: ['30 дней', '60 дней'], series: [{ values: [36000000, 72000000] }] };
+    const early = await r.run({ id: 'c1', name: 'show_chart', input: chart });
+    assert.equal(early.isError, true);
+    assert.match(early.content, /NUMBERS_UNVERIFIED/);
+    await r.run({ id: 'c2', name: 'calculate', input: { operation: 'evaluate', expression: '240000000 * 0.5/100 * 30' } });
+    await r.run({ id: 'c3', name: 'calculate', input: { operation: 'evaluate', expression: '240000000 * 0.5/100 * 60' } });
+    const ok = await r.run({ id: 'c4', name: 'show_chart', input: chart });
+    assert.ok(!ok.isError, ok.content);
+    assert.equal(visuals.length, 1);
+  });
+
+  it('show_timeline computes the dates itself and tells the model the exact dates', async () => {
+    const visuals: { kind: string; data: { events: { date: string }[] } }[] = [];
+    const r = createChatToolRunner({ db, jurisdiction: 'UZ', documents: [], toRefs: async () => [], onVisual: (v) => visuals.push(v as never) });
+    const res = await r.run({
+      id: 't1',
+      name: 'show_timeline',
+      input: { events: [{ label: 'Поставка', date: '31.01.2027' }, { label: 'Оплата', after: 1, months: 1 }, { label: 'Иск', after: 2, years: 3 }] },
+    });
+    assert.ok(!res.isError, res.content);
+    assert.deepEqual(visuals[0].data.events.map((e) => e.date), ['2027-01-31', '2027-02-28', '2030-02-28']);
+    assert.match(res.content, /28\.02\.2027 — Оплата/);
+  });
+
+  it('at most 4 visuals per answer; the instructions describe the markers', async () => {
+    const r = createChatToolRunner({ db, jurisdiction: 'UZ', documents: [], toRefs: async () => [] });
+    const plan = { steps: [{ title: 'a' }, { title: 'b' }] };
+    for (let i = 0; i < 4; i++) assert.ok(!(await r.run({ id: `s${i}`, name: 'show_steps', input: plan })).isError);
+    assert.equal((await r.run({ id: 's5', name: 'show_steps', input: plan })).isError, true);
+    assert.ok(CHAT_TOOLS.some((t) => t.name === 'show_chart'));
+    assert.match(CHAT_AGENT_INSTRUCTIONS, /\[\[lexab:1\]\]/);
+  });
+
+  it('VISUALS=off removes the four tools and their instruction line (measurement / quick rollback)', () => {
+    process.env.VISUALS = 'off';
+    try {
+      const r = createChatToolRunner({ db, jurisdiction: 'UZ', documents: [], toRefs: async () => [] });
+      assert.ok(!r.tools.some((t) => t.name.startsWith('show_')));
+      assert.ok(!r.instructions.includes('- VISUALS'));
+      assert.ok(r.tools.some((t) => t.name === 'calculate'));
+    } finally {
+      delete process.env.VISUALS;
+    }
+    const on = createChatToolRunner({ db, jurisdiction: 'UZ', documents: [], toRefs: async () => [] });
+    assert.equal(on.tools.filter((t) => t.name.startsWith('show_')).length, 4);
   });
 });
