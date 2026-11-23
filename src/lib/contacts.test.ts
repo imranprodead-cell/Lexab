@@ -5,6 +5,8 @@
  * ломаются со временем и утаскивают чужую метку в чужую же аналитику.
  * Тест не даст такому хвосту вернуться при следующей правке.
  */
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { MANAGER_TELEGRAM, MANAGER_TELEGRAM_HANDLE, SOCIAL_LINKS } from './contacts';
 
@@ -37,5 +39,13 @@ describe('контакт менеджера', () => {
   it('ссылка собирается из одного аккаунта — разъехаться нечему', () => {
     expect(MANAGER_TELEGRAM).toBe(`https://t.me/${MANAGER_TELEGRAM_HANDLE}`);
     expect(MANAGER_TELEGRAM_HANDLE.startsWith('@')).toBe(false);
+  });
+
+  it('описание компании для поисковиков (index.html) ведёт на тот же Telegram', () => {
+    // index.html не импортирует TS — адрес там вписан руками. Ровно здесь он
+    // и отстал: до 23.11.2026 поисковики видели старый t.me/MANAGER_CIVIS.
+    const html = readFileSync(fileURLToPath(new URL('../../index.html', import.meta.url)), 'utf8');
+    const telegramLinks = html.match(/https:\/\/t\.me\/[A-Za-z0-9_]+/g) ?? [];
+    expect(telegramLinks).toEqual([MANAGER_TELEGRAM]);
   });
 });
