@@ -70,6 +70,12 @@ export const authApi = {
     return http<AuthSession>('/auth/verify', { method: 'POST', body: { token, deviceId: deviceId() } });
   },
 
+  /** Confirm an account email CHANGE by the token from the letter sent to the
+   *  new address. No session is issued: the server ends every session. */
+  async confirmEmailChange(token: string): Promise<{ ok: boolean; email: string }> {
+    return http<{ ok: boolean; email: string }>('/auth/confirm-email', { method: 'POST', body: { token } });
+  },
+
   /** Send the verification letter again (signed-in users). */
   async resendVerify(): Promise<void> {
     await http<void>('/auth/verify/resend', { method: 'POST', body: {} });

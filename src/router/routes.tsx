@@ -37,6 +37,7 @@ const loaders = {
   SignPage: () => import('@/pages/SignPage'),
   SharePage: () => import('@/pages/SharePage'),
   VerifyEmailPage: () => import('@/pages/VerifyEmailPage'),
+  ConfirmEmailPage: () => import('@/pages/ConfirmEmailPage'),
   ApprovePage: () => import('@/pages/ApprovePage'),
   ResetPasswordPage: () => import('@/pages/ResetPasswordPage'),
   LegalPage: () => import('@/pages/LegalPage'),
@@ -147,6 +148,12 @@ const appRoutes: RouteObject[] = [
   {
     path: '/verify-email',
     lazy: async () => ({ Component: (await loaders.VerifyEmailPage()).VerifyEmailPage }),
+  },
+  {
+    // Подтверждение СМЕНЫ почты: ссылка из письма на новый адрес
+    // (server/src/routes/auth.routes.ts → startEmailChange).
+    path: '/confirm-email',
+    lazy: async () => ({ Component: (await loaders.ConfirmEmailPage()).ConfirmEmailPage }),
   },
   {
     path: '/reset-password',

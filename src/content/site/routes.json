@@ -170,6 +170,7 @@
     "/share/",
     "/approve/",
     "/verify-email",
+    "/confirm-email",
     "/reset-password"
   ]
 }

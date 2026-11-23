@@ -902,6 +902,8 @@ const uz: Record<string, string> = {
   "verify.errorTitle": "Nimadir xato ketdi",
   "verify.toApp": "Ilovaga oʻtish",
   "verify.toLogin": "Kirish",
+  "confirmEmail.doneTitle": "Pochta oʻzgartirildi",
+  "confirmEmail.doneBody": "Endi kirish uchun {email} manzilidan foydalaning. Xavfsizlik uchun barcha seanslar yakunlandi — qaytadan kiring.",
   "reset.title": "Yangi parol",
   "reset.sub": "Yangi parol tanlang (kamida 8 belgi) — saqlaganingizdan soʻng darhol tizimga kirasiz.",
   "reset.newPassword": "Yangi parol",

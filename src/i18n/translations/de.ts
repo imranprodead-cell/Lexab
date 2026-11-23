@@ -902,6 +902,8 @@ const de: Record<string, string> = {
   "verify.errorTitle": "Etwas ist schiefgelaufen",
   "verify.toApp": "App öffnen",
   "verify.toLogin": "Anmelden",
+  "confirmEmail.doneTitle": "E-Mail-Adresse geändert",
+  "confirmEmail.doneBody": "Melden Sie sich ab jetzt mit {email} an. Aus Sicherheitsgründen wurden alle Sitzungen beendet — bitte melden Sie sich erneut an.",
   "reset.title": "Neues Passwort",
   "reset.sub": "Wählen Sie ein neues Passwort (mind. 8 Zeichen) — nach dem Speichern werden Sie sofort angemeldet.",
   "reset.newPassword": "Neues Passwort",

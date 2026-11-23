@@ -1583,6 +1583,11 @@ export const MESSAGES: Dict = {
   'verify.toApp': { ru: 'В приложение', en: 'Open the app' },
   'verify.toTeam': { ru: 'Перейти к приглашению в команду', en: 'Go to your team invitation' },
   'verify.toLogin': { ru: 'Войти', en: 'Sign in' },
+  'confirmEmail.doneTitle': { ru: 'Почта изменена', en: 'Email changed' },
+  'confirmEmail.doneBody': {
+    ru: 'Теперь для входа используйте {email}. Ради безопасности все сеансы завершены — войдите снова.',
+    en: 'From now on, sign in with {email}. For security, all sessions have been ended — please sign in again.',
+  },
 
   // Password reset page
   'reset.title': { ru: 'Новый пароль', en: 'New password' },

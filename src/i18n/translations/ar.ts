@@ -902,6 +902,8 @@ const ar: Record<string, string> = {
   "verify.errorTitle": "حدث خطأ ما",
   "verify.toApp": "فتح التطبيق",
   "verify.toLogin": "تسجيل الدخول",
+  "confirmEmail.doneTitle": "تم تغيير البريد الإلكتروني",
+  "confirmEmail.doneBody": "من الآن سجّل الدخول باستخدام {email}. لأسباب أمنية أُنهيت جميع الجلسات — يرجى تسجيل الدخول مجددًا.",
   "reset.title": "كلمة مرور جديدة",
   "reset.sub": "اختر كلمة مرور جديدة (٨ أحرف على الأقل) — سيتم تسجيل دخولك مباشرة بعد الحفظ.",
   "reset.newPassword": "كلمة مرور جديدة",

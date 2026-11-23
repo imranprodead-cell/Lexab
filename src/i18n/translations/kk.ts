@@ -902,6 +902,8 @@ const kk: Record<string, string> = {
   "verify.errorTitle": "Бірдеңе дұрыс болмады",
   "verify.toApp": "Қосымшаға өту",
   "verify.toLogin": "Кіру",
+  "confirmEmail.doneTitle": "Пошта өзгертілді",
+  "confirmEmail.doneBody": "Енді кіру үшін {email} мекенжайын пайдаланыңыз. Қауіпсіздік үшін барлық сеанстар аяқталды — қайта кіріңіз.",
   "reset.title": "Жаңа құпия сөз",
   "reset.sub": "Жаңа құпия сөз ойлап табыңыз (кемінде 8 таңба) — сақтаған соң бірден аккаунтқа кіресіз.",
   "reset.newPassword": "Жаңа құпия сөз",
