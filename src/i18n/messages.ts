@@ -1014,7 +1014,7 @@ export const MESSAGES: Dict = {
     en: ' — click the link in the letter to confirm your address and sign in.',
   },
   'auth.backToSignIn': { ru: '← Назад ко входу', en: '← Back to sign in' },
-  'auth.heroLine1': { ru: 'Анализируй контракты', en: 'Review contracts' },
+  'auth.heroLine1': { ru: 'Проверяй договоры', en: 'Review contracts' },
   'auth.heroLine2': { ru: 'быстрее', en: 'faster' },
   'auth.heroSub': {
     ru: 'Lexab находит риски, готовит правки и отвечает на вопросы по документам — за минуты, а не часы.',
