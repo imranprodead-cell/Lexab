@@ -98,6 +98,26 @@ export function buildSetCookie(token, { secure = true, maxAgeDays = COOKIE_MAX_A
 }
 
 /**
+ * Проверка «этот адрес обрабатывает приложение». Нужна, чтобы оболочка
+ * index.html на неизвестный адрес уходила с кодом 404, а не 200 (soft-404).
+ *
+ * publicUrls — точные адреса публичных страниц; privatePaths — разделы
+ * кабинета ПРЕФИКСАМИ в той же семантике, что Disallow в robots.txt:
+ *  • '/chat'   — сам раздел и всё под ним (/chat, /chat/abc), но не /chatty;
+ *  • '/share/' — только адреса ПОД ним (/share/<токен>), голый /share — нет.
+ */
+export function appRouteMatcher(publicUrls, privatePaths) {
+  const exact = new Set(publicUrls);
+  return (pathname) => {
+    const p = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
+    if (p === '' || p === '/' || exact.has(p)) return true;
+    return privatePaths.some((prefix) =>
+      prefix.endsWith('/') ? p.startsWith(prefix) && p.length > prefix.length : p === prefix || p.startsWith(`${prefix}/`),
+    );
+  };
+}
+
+/**
  * Какой файл отдать по адресу из браузера.
  *
  * Сборка кладёт разделы сайта в dist/<слаг>/index.html (предрендер для

@@ -502,14 +502,14 @@ const NOT_DOING: { title: Text6; text: Text6 }[] = [
     },
   },
   {
-    title: { ru: 'Не ищет судебную практику', en: 'Does not search case law', de: 'Sucht keine Rechtsprechung', ar: 'لا يبحث في السوابق', kk: 'Сот практикасын іздемейді', uz: 'Sud amaliyotini qidirmaydi' },
+    title: { ru: 'Не ищет решения судов по делам', en: 'Does not search court decisions', de: 'Sucht keine Gerichtsentscheidungen', ar: 'لا يبحث في الأحكام القضائية', kk: 'Істер бойынша сот шешімдерін іздемейді', uz: 'Ishlar boʻyicha sud qarorlarini qidirmaydi' },
     text: {
-      ru: 'В корпусе только тексты законов с государственных порталов: судебных решений там нет вовсе.',
-      en: 'The corpus holds only statutory texts from government portals: there are no court decisions in it at all.',
-      de: 'Der Korpus enthält nur Gesetzestexte von staatlichen Portalen: Gerichtsentscheidungen gibt es dort gar nicht.',
-      ar: 'تضم القاعدة نصوص القوانين من البوابات الحكومية فقط: ولا توجد فيها أحكام قضائية إطلاقًا.',
-      kk: 'Корпуста тек мемлекеттік порталдардан алынған заң мәтіндері: сот шешімдері мүлде жоқ.',
-      uz: 'Korpusda faqat davlat portallaridan olingan qonun matnlari: sud qarorlari umuman yoʻq.',
+      ru: 'Решений по конкретным делам в корпусе нет. По Узбекистану загружены только постановления Пленума Верховного суда — обобщённые разъяснения практики.',
+      en: 'There are no decisions on individual cases in the corpus. For Uzbekistan only resolutions of the Plenum of the Supreme Court are loaded — general guidance on judicial practice.',
+      de: 'Entscheidungen zu Einzelfällen gibt es im Korpus nicht. Für Usbekistan sind nur Beschlüsse des Plenums des Obersten Gerichts geladen — allgemeine Hinweise zur Rechtsprechung.',
+      ar: 'لا أحكام في قضايا بعينها في القاعدة. لأوزبكستان حُمِّلت فقط قرارات الهيئة العامة للمحكمة العليا — توجيهات عامة حول الممارسة القضائية.',
+      kk: 'Корпуста нақты істер бойынша шешімдер жоқ. Өзбекстан бойынша тек Жоғарғы сот Пленумының қаулылары жүктелген — сот практикасының жалпы түсіндірмелері.',
+      uz: 'Korpusda aniq ishlar boʻyicha qarorlar yoʻq. Oʻzbekiston boʻyicha faqat Oliy sud Plenumi qarorlari yuklangan — sud amaliyotining umumiy tushuntirishlari.',
     },
   },
   {

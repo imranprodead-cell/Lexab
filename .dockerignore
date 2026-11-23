@@ -1,0 +1,17 @@
+# Только то, что нужно сборке сайта. Секреты и чужие каталоги — никогда:
+# всё, что попало в контекст, может оказаться в слоях образа.
+.git
+.env
+.env.*
+!.env.example
+**/.env
+node_modules
+**/node_modules
+dist
+server
+Presentation Lexhackathon
+docs
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+.DS_Store

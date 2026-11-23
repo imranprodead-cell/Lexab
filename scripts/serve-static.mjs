@@ -18,6 +18,17 @@
  *                         удаляется, код не трогаем.
  *   SITE_GATE_SECRET    — соль для куки. Смена = разлогинить всех приглашённых.
  *   SITE_DIST_DIR       — каталог сборки (по умолчанию ./dist)
+ *   INDEXNOW_PING       — '1' = через 2 минуты после старта сообщить поисковикам
+ *                         (IndexNow: Bing, Яндекс и др.) адреса из sitemap.xml.
+ *                         Ставит только Dockerfile боевого образа: локальный
+ *                         запуск не должен «анонсировать» боевой сайт.
+ *
+ * Для поисковиков (ноябрь 2026):
+ *  • www.<домен> → 301 на основной домен: одна копия сайта вместо двух;
+ *  • адрес, которого нет ни среди публичных страниц, ни среди разделов
+ *    кабинета (src/content/site/routes.json), отвечает 404 — тело то же
+ *    index.html, приложение само рисует «не найдено». Раньше любой мусорный
+ *    адрес отвечал 200, и поисковик считал его страницей сайта (soft-404).
  */
 import http from 'node:http';
 import fs from 'node:fs';
@@ -26,6 +37,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   COOKIE_NAME,
+  appRouteMatcher,
   buildSetCookie,
   cacheControlFor,
   contentTypeFor,
@@ -45,6 +57,33 @@ const PORT = Number(process.env.PORT ?? 4173);
 const CODES = parseCodes(process.env.SITE_ACCESS_CODES);
 const SECRET = process.env.SITE_GATE_SECRET ?? 'lexab-site-gate';
 const GATED = CODES.length > 0;
+
+/**
+ * Реестр адресов — тот же файл, из которого собраны снимки, robots.txt и
+ * sitemap.xml. Нет файла — сервер не стартует: без реестра нельзя отличить
+ * раздел кабинета от мусорного адреса, а молча отвечать 200 на всё — ровно
+ * та ошибка, которую здесь исправляли.
+ */
+const REGISTRY = JSON.parse(fs.readFileSync(path.join(ROOT, 'src/content/site/routes.json'), 'utf8'));
+const isAppRoute = appRouteMatcher(
+  REGISTRY.routes.map((r) => r.url),
+  REGISTRY.privatePaths,
+);
+
+/**
+ * Боевой домен и список адресов — из собранной карты сайта: там они уже
+ * проставлены из VITE_SITE_ORIGIN, второй точки настройки домена не появляется.
+ */
+function readSitemap() {
+  try {
+    const xml = fs.readFileSync(path.join(DIST, 'sitemap.xml'), 'utf8');
+    const urls = [...xml.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
+    return { urls, host: urls.length ? new URL(urls[0]).host : null };
+  } catch {
+    return { urls: [], host: null };
+  }
+}
+const SITEMAP = readSitemap();
 
 /**
  * Secure-кука по http не ставится вовсе, поэтому признак берём из самого
@@ -107,7 +146,7 @@ async function statFile(filePath) {
   }
 }
 
-async function serveFile(req, res, relPath) {
+async function serveFile(req, res, relPath, status = 200) {
   const filePath = path.join(DIST, relPath);
   // Второй рубеж против выхода из каталога: staticCandidates уже отсекает '..',
   // но проверка по итоговому пути переживёт любую будущую правку разбора.
@@ -133,7 +172,7 @@ async function serveFile(req, res, relPath) {
   };
   if (encoding) headers['Content-Encoding'] = encoding;
 
-  res.writeHead(200, { 'X-Content-Type-Options': 'nosniff', ...headers });
+  res.writeHead(status, { 'X-Content-Type-Options': 'nosniff', ...headers });
   if (req.method === 'HEAD') {
     res.end();
     return true;
@@ -159,6 +198,13 @@ const server = http.createServer(async (req, res) => {
     // закрытый сайт упавшим и будет бесконечно перезапускать контейнер.
     if (url.pathname === '/healthz') {
       return send(res, 200, 'ok', { 'Content-Type': 'text/plain; charset=utf-8' });
+    }
+
+    // www → основной домен. Только для СВОЕГО домена: перенаправлять на любой
+    // присланный Host значило бы открыть редирект на чужой сайт.
+    const host = String(req.headers.host ?? '').toLowerCase();
+    if (SITEMAP.host && host === `www.${SITEMAP.host}`) {
+      return send(res, 301, '', { Location: `https://${SITEMAP.host}${req.url}`, 'Cache-Control': 'public, max-age=86400' });
     }
 
     if (GATED) {
@@ -196,7 +242,11 @@ const server = http.createServer(async (req, res) => {
     const candidates = staticCandidates(url.pathname);
     if (!candidates) return send(res, 400, 'Bad Request', { 'Content-Type': 'text/plain; charset=utf-8' });
     for (const rel of candidates) {
-      if (await serveFile(req, res, rel)) return;
+      // Последний кандидат «index.html» для непустого адреса — это запасная
+      // оболочка приложения. Для неизвестного адреса отдаём её с кодом 404.
+      const isShellFallback = rel === 'index.html' && candidates.length > 1;
+      const status = isShellFallback && !isAppRoute(url.pathname) ? 404 : 200;
+      if (await serveFile(req, res, rel, status)) return;
     }
     send(res, 404, 'Not Found', { 'Content-Type': 'text/plain; charset=utf-8', ...noindexHeaders() });
   } catch (err) {
@@ -217,6 +267,38 @@ server.listen(PORT, '0.0.0.0', () => {
       (GATED ? `доступ по ссылке, кодов: ${CODES.length}` : 'ОТКРЫТ ВСЕМ (SITE_ACCESS_CODES пуст)'),
   );
 });
+
+/**
+ * IndexNow: Bing, Яндекс и другие узнают о новой версии сайта сразу после
+ * выкладки, а не при следующем обходе. Ждём 2 минуты: поисковик проверяет ключ
+ * запросом <домен>/<ключ>.txt, а Railway переключает трафик на новый контейнер
+ * только после проверки живости. Сбой здесь ни на что не влияет — только лог.
+ */
+function pingIndexNow() {
+  const key = REGISTRY.indexNowKey;
+  if (!SITEMAP.host || !SITEMAP.urls.length || !key) {
+    console.warn('[indexnow] пропущено: нет sitemap.xml или ключа в routes.json');
+    return;
+  }
+  fetch(process.env.INDEXNOW_ENDPOINT || 'https://api.indexnow.org/indexnow', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json; charset=utf-8' },
+    body: JSON.stringify({
+      host: SITEMAP.host,
+      key,
+      keyLocation: `https://${SITEMAP.host}/${key}.txt`,
+      urlList: SITEMAP.urls,
+    }),
+    signal: AbortSignal.timeout(15_000),
+  })
+    .then((r) => console.log(`[indexnow] ответ ${r.status} — отправлено адресов: ${SITEMAP.urls.length}`))
+    .catch((err) => console.warn(`[indexnow] не отправлено: ${err.message}`));
+}
+if (process.env.INDEXNOW_PING === '1' && !GATED) {
+  // INDEXNOW_ENDPOINT / INDEXNOW_DELAY_MS — только для теста (подставной
+  // приёмник вместо настоящего сервиса и без двухминутного ожидания).
+  setTimeout(pingIndexNow, Number(process.env.INDEXNOW_DELAY_MS ?? 120_000)).unref();
+}
 
 // Railway останавливает контейнер сигналом: закрываем приём соединений, чтобы
 // деплой не рвал ответ на полуслове.

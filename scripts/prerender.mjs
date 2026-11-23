@@ -14,8 +14,15 @@
  * пишутся ДО проверки puppeteer: снимки страниц — улучшение, а карта сайта и
  * robots нужны всегда.
  *
- * Gracefully SKIPS (exit 0, build still succeeds) when puppeteer is not
- * installed — enable prerender with:  npm i -D puppeteer
+ * СНИМКИ ОБЯЗАТЕЛЬНЫ: нет puppeteer или браузера — сборка ПАДАЕТ.
+ * Раньше здесь был «мягкий пропуск» (exit 0), и на Railway, где браузер не
+ * скачивался (PUPPETEER_SKIP_DOWNLOAD), сайт с августа по ноябрь 2026 жил без
+ * единого снимка: ChatGPT, Claude, Perplexity и поисковики видели на любом
+ * адресе пустой <div id="root"> и заголовок главной. Сборка при этом «зелёная».
+ * Упавшая сборка безопаснее: Railway оставляет в работе прошлую версию.
+ * Сознательно собрать без снимков (быстрая локальная проверка) — PRERENDER=skip.
+ * Браузер на сервере ставит Dockerfile (системный chromium,
+ * PUPPETEER_EXECUTABLE_PATH — puppeteer читает его сам).
  */
 import { createServer } from 'node:http';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
@@ -139,8 +146,28 @@ async function writeSeoFiles(origin) {
     `\n</urlset>\n`;
   await writeFile(path.join(DIST, 'sitemap.xml'), sitemap);
 
+  // llms.txt — визитка сайта для ИИ-ассистентов (llmstxt.org). Текст — в
+  // src/content/site/llms.md, список страниц — из того же реестра: новая
+  // страница попадает сюда сама, а удалённая не остаётся висеть ссылкой.
+  const LEGAL_URLS = new Set(['/terms', '/privacy']);
+  const SKIP_URLS = new Set(['/', '/login']);
+  const line = (r) => `- [${textOf(r.title, r.url, 'title')}](${loc(r.url)}): ${textOf(r.desc, r.url, 'desc')}`;
+  const llmsTemplate = await readFile(path.join(ROOT, 'src/content/site/llms.md'), 'utf8');
+  const llms = llmsTemplate
+    .replaceAll('{{ORIGIN}}', () => origin)
+    .replace('{{PAGES}}', () => ROUTES.filter((r) => !SKIP_URLS.has(r.url) && !LEGAL_URLS.has(r.url)).map(line).join('\n'))
+    .replace('{{LEGAL}}', () => ROUTES.filter((r) => LEGAL_URLS.has(r.url)).map(line).join('\n'));
+  const leftoverMark = llms.match(/\{\{[A-Z]+\}\}/);
+  if (leftoverMark) throw new Error(`в llms.md осталась неподставленная метка ${leftoverMark[0]}`);
+  await writeFile(path.join(DIST, 'llms.txt'), llms);
+
+  // Ключ IndexNow: поисковик проверяет, что сайт наш, по файлу <ключ>.txt.
+  const key = registry.indexNowKey;
+  if (!/^[a-f0-9]{32}$/.test(key ?? '')) throw new Error('в routes.json нет indexNowKey (32 шестнадцатеричных символа)');
+  await writeFile(path.join(DIST, `${key}.txt`), key);
+
   console.log(
-    `[prerender] robots.txt (${ROUTES.length} allow / ${PRIVATE_PATHS.length} disallow) + sitemap.xml (${ROUTES.length} адресов, lastmod ${today}) — из реестра маршрутов, домен ${origin}`,
+    `[prerender] robots.txt (${ROUTES.length} allow / ${PRIVATE_PATHS.length} disallow) + sitemap.xml (${ROUTES.length} адресов, lastmod ${today}) + llms.txt + ключ IndexNow — из реестра маршрутов, домен ${origin}`,
   );
 }
 
@@ -202,6 +229,13 @@ async function main() {
 
   // Неподставленная переменная Vite в собранном HTML = битый canonical/og на
   // живом сайте. Ловим здесь, а не через месяц в поисковой выдаче.
+  // Снимок вклеивается на место пустого корня. Нет пустого корня — значит,
+  // dist уже снят (повторный запуск без vite build), и каждая страница молча
+  // получила бы текст главной.
+  if (!template.includes('<div id="root"></div>')) {
+    throw new Error('в dist/index.html нет пустого <div id="root"></div> — снимки уже сделаны; пересоберите: npm run build');
+  }
+
   const leftover = template.match(/%VITE_[A-Z0-9_]+%/);
   if (leftover) {
     throw new Error(`в dist/index.html осталась неподставленная переменная ${leftover[0]} — задайте её в .env и пересоберите`);
@@ -209,12 +243,16 @@ async function main() {
 
   await writeSeoFiles(origin);
 
+  if (process.env.PRERENDER === 'skip') {
+    console.warn('[prerender] PRERENDER=skip — снимки страниц НЕ сделаны. Такую сборку нельзя выкладывать: боты увидят пустые страницы.');
+    return;
+  }
+
   let puppeteer;
   try {
     puppeteer = (await import('puppeteer')).default;
   } catch {
-    console.warn('[prerender] puppeteer not installed — SKIPPING prerender (build still valid). Enable with: npm i -D puppeteer');
-    return;
+    throw new Error('puppeteer не установлен — снимки страниц сделать нечем (npm i -D puppeteer). Собрать без них: PRERENDER=skip');
   }
 
   // Static file server over dist/ with SPA fallback to index.html.
@@ -236,13 +274,15 @@ async function main() {
 
   let browser;
   try {
-    browser = await puppeteer.launch({ args: ['--no-sandbox', '--lang=ru-RU'] });
+    // --disable-dev-shm-usage: в контейнере /dev/shm всего 64 МБ, и вкладки
+    // Chromium падают на нём посреди снимка.
+    browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-dev-shm-usage', '--lang=ru-RU'] });
   } catch (err) {
-    // Browser binary missing (e.g. a CI that blocked puppeteer's postinstall).
-    // Prerender is an enhancement — skip rather than break the build.
-    console.warn(`[prerender] browser unavailable — SKIPPING prerender (build still valid): ${err.message}`);
     server.close();
-    return;
+    throw new Error(
+      `браузер для снимков не запустился (${err.message}). Без снимков сайт для ботов пустой — сборка остановлена. ` +
+        'Собрать без них: PRERENDER=skip',
+    );
   }
 
   const started = Date.now();

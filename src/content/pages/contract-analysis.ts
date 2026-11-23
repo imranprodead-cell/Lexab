@@ -80,7 +80,7 @@ export const contractAnalysis: PageContent = {
       kind: 'facts',
       items: [
         {
-          value: { ru: '17 248', en: '17,248', de: '17.248', ar: '17 248', kk: '17 248', uz: '17 248' },
+          value: { ru: '21 868', en: '21,868', de: '21.868', ar: '21 868', kk: '21 868', uz: '21 868' },
           label: {
             ru: 'норм в корпусе',
             en: 'provisions in the corpus',
@@ -90,12 +90,12 @@ export const contractAnalysis: PageContent = {
             uz: 'norma korpusda',
           },
           proof: {
-            ru: 'из 100 официальных актов по 7 юрисдикциям, данные на 5 августа 2026',
-            en: 'from 100 official acts across 7 jurisdictions, as of 5 August 2026',
-            de: 'aus 100 amtlichen Rechtsakten in 7 Jurisdiktionen, Stand 5. August 2026',
-            ar: 'من 100 نص رسمي في 7 ولايات قضائية، بتاريخ 5 أغسطس 2026',
-            kk: '7 юрисдикция бойынша 100 ресми актіден, 2026 жылғы 5 тамыздағы дерек',
-            uz: '7 yurisdiksiya boʻyicha 100 ta rasmiy hujjatdan, 2026-yil 5-avgust holatiga',
+            ru: 'из 192 официальных актов по 7 юрисдикциям, данные на 23 ноября 2026',
+            en: 'from 192 official acts across 7 jurisdictions, as of 23 November 2026',
+            de: 'aus 192 amtlichen Rechtsakten in 7 Jurisdiktionen, Stand 23. November 2026',
+            ar: 'من 192 نصًا رسميًا في 7 ولايات قضائية، بتاريخ 23 نوفمبر 2026',
+            kk: '7 юрисдикция бойынша 192 ресми актіден, 2026 жылғы 23 қарашадағы дерек',
+            uz: '7 yurisdiksiya boʻyicha 192 ta rasmiy hujjatdan, 2026-yil 23-noyabr holatiga',
           },
         },
         {
@@ -348,12 +348,12 @@ export const contractAnalysis: PageContent = {
       },
       paragraphs: [
         {
-          ru: 'Ссылки берутся из собственного корпуса: 100 официальных актов, 17 248 норм, семь юрисдикций. Тексты загружаются только с государственных правовых порталов — legislation.gov.uk, lex.uz, adilet.zan.kz, gesetze-im-internet.de, govinfo.gov, legisquebec.gouv.qc.ca, uaelegislation.gov.ae и. Больше ниоткуда.',
-          en: 'Citations come from our own corpus: 100 official acts, 17,248 provisions, seven jurisdictions. Texts are loaded only from state legal portals — legislation.gov.uk, lex.uz, adilet.zan.kz, gesetze-im-internet.de, govinfo.gov, legisquebec.gouv.qc.ca, uaelegislation.gov.ae. Nowhere else.',
-          de: 'Die Fundstellen stammen aus einem eigenen Korpus: 100 amtliche Rechtsakte, 17.248 Normen, sieben Jurisdiktionen. Texte werden ausschließlich von staatlichen Rechtsportalen geladen — legislation.gov.uk, lex.uz, adilet.zan.kz, gesetze-im-internet.de, govinfo.gov, legisquebec.gouv.qc.ca, uaelegislation.gov.ae. Sonst nirgendwoher.',
-          ar: 'تأتي الإحالات من قاعدتنا الخاصة: 100 نص رسمي، و17 248 حكمًا، وسبع ولايات قضائية. ولا تُحمَّل النصوص إلا من بوابات قانونية حكومية — legislation.gov.uk وlex.uz وadilet.zan.kz وgesetze-im-internet.de وgovinfo.gov وlegisquebec.gouv.qc.ca وuaelegislation.gov.ae و. ولا شيء سواها.',
-          kk: 'Сілтемелер өз корпусымыздан алынады: 100 ресми акт, 17 248 норма, жеті юрисдикция. Мәтіндер тек мемлекеттік құқықтық порталдардан жүктеледі — legislation.gov.uk, lex.uz, adilet.zan.kz, gesetze-im-internet.de, govinfo.gov, legisquebec.gouv.qc.ca, uaelegislation.gov.ae және. Басқа еш жерден.',
-          uz: 'Havolalar oʻz korpusimizdan olinadi: 100 ta rasmiy hujjat, 17 248 norma, yettita yurisdiksiya. Matnlar faqat davlat huquqiy portallaridan yuklanadi — legislation.gov.uk, lex.uz, adilet.zan.kz, gesetze-im-internet.de, govinfo.gov, legisquebec.gouv.qc.ca, uaelegislation.gov.ae. Boshqa hech qayerdan.',
+          ru: 'Ссылки берутся из собственного корпуса: 192 официальных акта, 21 868 норм, семь юрисдикций. Тексты загружаются только с государственных правовых порталов — legislation.gov.uk, lex.uz, adilet.zan.kz, gesetze-im-internet.de, govinfo.gov, legisquebec.gouv.qc.ca, uaelegislation.gov.ae. Больше ниоткуда.',
+          en: 'Citations come from our own corpus: 192 official acts, 21,868 provisions, seven jurisdictions. Texts are loaded only from state legal portals — legislation.gov.uk, lex.uz, adilet.zan.kz, gesetze-im-internet.de, govinfo.gov, legisquebec.gouv.qc.ca, uaelegislation.gov.ae. Nowhere else.',
+          de: 'Die Fundstellen stammen aus einem eigenen Korpus: 192 amtliche Rechtsakte, 21.868 Normen, sieben Jurisdiktionen. Texte werden ausschließlich von staatlichen Rechtsportalen geladen — legislation.gov.uk, lex.uz, adilet.zan.kz, gesetze-im-internet.de, govinfo.gov, legisquebec.gouv.qc.ca, uaelegislation.gov.ae. Sonst nirgendwoher.',
+          ar: 'تأتي الإحالات من قاعدتنا الخاصة: 192 نصًا رسميًا، و21 868 حكمًا، وسبع ولايات قضائية. ولا تُحمَّل النصوص إلا من بوابات قانونية حكومية — legislation.gov.uk وlex.uz وadilet.zan.kz وgesetze-im-internet.de وgovinfo.gov وlegisquebec.gouv.qc.ca وuaelegislation.gov.ae. ولا شيء سواها.',
+          kk: 'Сілтемелер өз корпусымыздан алынады: 192 ресми акт, 21 868 норма, жеті юрисдикция. Мәтіндер тек мемлекеттік құқықтық порталдардан жүктеледі — legislation.gov.uk, lex.uz, adilet.zan.kz, gesetze-im-internet.de, govinfo.gov, legisquebec.gouv.qc.ca, uaelegislation.gov.ae. Басқа еш жерден.',
+          uz: 'Havolalar oʻz korpusimizdan olinadi: 192 ta rasmiy hujjat, 21 868 norma, yettita yurisdiksiya. Matnlar faqat davlat huquqiy portallaridan yuklanadi — legislation.gov.uk, lex.uz, adilet.zan.kz, gesetze-im-internet.de, govinfo.gov, legisquebec.gouv.qc.ca, uaelegislation.gov.ae. Boshqa hech qayerdan.',
         },
         {
           ru: 'Норма без адреса источника, контрольной суммы и даты загрузки физически не сохранится в базе — это ограничение самой базы данных, а не редакционная политика. И главное правило: Lexab никогда не генерирует текст закона. Если нормы нет в корпусе, вы увидите отметку «не проверено», а не выдуманный номер статьи.',
@@ -380,20 +380,20 @@ export const contractAnalysis: PageContent = {
       items: [
         {
           title: {
-            ru: 'Не даёт судебной практики',
-            en: 'Does not provide case law',
-            de: 'Liefert keine Rechtsprechung',
-            ar: 'لا يقدّم السوابق القضائية',
-            kk: 'Сот тәжірибесін бермейді',
-            uz: 'Sud amaliyotini bermaydi',
+            ru: 'Не даёт решений судов по делам',
+            en: 'Does not provide court decisions',
+            de: 'Liefert keine Gerichtsentscheidungen',
+            ar: 'لا يقدّم أحكام المحاكم في القضايا',
+            kk: 'Істер бойынша сот шешімдерін бермейді',
+            uz: 'Ishlar boʻyicha sud qarorlarini bermaydi',
           },
           body: {
-            ru: 'в корпусе только действующие нормативные акты; как норму применяют суды — вывод юриста',
-            en: 'the corpus holds statutes only; how courts apply a provision is the lawyer’s call',
-            de: 'im Korpus stehen nur Rechtsvorschriften; wie Gerichte eine Norm anwenden, entscheidet der Jurist',
-            ar: 'تضم القاعدة النصوص التشريعية فقط؛ أما كيفية تطبيق المحاكم فمن اختصاص المحامي',
-            kk: 'корпуста тек қолданыстағы нормативтік актілер бар; норманы соттар қалай қолданатыны — заңгердің тұжырымы',
-            uz: 'korpusda faqat amaldagi normativ hujjatlar bor; normani sudlar qanday qoʻllashi — yuristning xulosasi',
+            ru: 'решений по делам в корпусе нет (по Узбекистану — только постановления Пленума Верховного суда); как норму применяют суды в вашем споре — вывод юриста',
+            en: 'there are no decisions on cases in the corpus (for Uzbekistan, only resolutions of the Plenum of the Supreme Court); how courts would apply a provision in your dispute is the lawyer’s call',
+            de: 'Entscheidungen zu Einzelfällen gibt es im Korpus nicht (für Usbekistan nur Beschlüsse des Plenums des Obersten Gerichts); wie Gerichte eine Norm in Ihrem Streit anwenden, entscheidet der Jurist',
+            ar: 'لا أحكام في قضايا بعينها في القاعدة (لأوزبكستان قرارات الهيئة العامة للمحكمة العليا فقط)؛ أما كيف ستطبّق المحاكم النص في نزاعك فمن اختصاص المحامي',
+            kk: 'корпуста нақты істер бойынша шешімдер жоқ (Өзбекстан бойынша — тек Жоғарғы сот Пленумының қаулылары); сіздің дауыңызда норманы соттар қалай қолданатыны — заңгердің тұжырымы',
+            uz: 'korpusda aniq ishlar boʻyicha qarorlar yoʻq (Oʻzbekiston boʻyicha — faqat Oliy sud Plenumi qarorlari); nizongizda normani sudlar qanday qoʻllashi — yuristning xulosasi',
           },
         },
         {

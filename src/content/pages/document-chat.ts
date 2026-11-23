@@ -1,14 +1,15 @@
 /**
  * Публичная страница «Вопросы по документу».
  *
- * Проверено по коду 05.08.2026:
+ * Проверено по коду 05.08.2026, число норм — 23.11.2026:
  *  - гейта по тарифу у чата НЕТ (server/src/lib/limits.ts → FEATURE_MIN_PLAN),
  *    расходуется общий месячный лимит обращений к ИИ: Free 20, Standard 100,
  *    Pro 500, Business 10 000;
- *  - к каждому вопросу подмешиваются 5 норм юрисдикции чата
- *    (chats.routes.ts: retrieveLegalContext … topK: 5);
+ *  - к каждому вопросу подбираются 8 норм юрисдикции чата из пула ≥ 20
+ *    (chats.routes.ts: retrieveLegalContext … topK: 8; rag/retrieve.ts MIN_POOL);
  *  - цитаты проверяются тем же кодом, что и в разборе (validate-citations.ts).
- * Ничего про судебную практику и про «правовую консультацию» не обещаем.
+ * Про практику — только правда: решений по делам 0, у УЗ есть 66 постановлений
+ * Пленума ВС. Про «правовую консультацию» ничего не обещаем.
  */
 import type { PageContent } from '../types';
 
@@ -34,12 +35,12 @@ export const documentChat: PageContent = {
         uz: 'Shartnoma boʻyicha savollar, normalarga havolalar bilan',
       },
       lead: {
-        ru: 'Спрашиваете обычными словами — «чем грозит пункт 7.2», «кто платит при досрочном расторжении». Ответ строится по тексту вашего документа, а к вопросу подмешиваются пять норм из законодательства выбранной юрисдикции. Ссылки на нормы проверяются тем же кодом, что и в разборе договора.',
-        en: 'Ask in plain words — “what does clause 7.2 expose us to”, “who pays on early termination”. The answer is built from the text of your document, and five provisions from the chosen jurisdiction are added to the question. Citations are validated by the same code as in the contract review.',
-        de: 'Fragen Sie in normalen Worten — „Was droht uns aus Ziffer 7.2?“, „Wer zahlt bei vorzeitiger Kündigung?“. Die Antwort entsteht aus dem Text Ihres Dokuments, und der Frage werden fünf Normen der gewählten Rechtsordnung beigegeben. Fundstellen prüft derselbe Code wie in der Vertragsprüfung.',
-        ar: 'اسأل بكلمات عادية — «ماذا يعرّضنا له البند 7.2»، «من يدفع عند الإنهاء المبكر». تُبنى الإجابة من نص مستندك، ويُضاف إلى السؤال خمسة نصوص من تشريع الولاية المختارة. وتُتحقَّق الإحالات بالشيفرة نفسها المستخدمة في مراجعة العقد.',
-        kk: 'Кәдімгі сөзбен сұрайсыз — «7.2-тармақ немен қауіпті», «мерзімінен бұрын бұзғанда кім төлейді». Жауап құжатыңыздың мәтіні бойынша құрылады, ал сұраққа таңдалған юрисдикцияның бес нормасы қосылады. Сілтемелерді шарт талдауындағы код тексереді.',
-        uz: 'Oddiy soʻz bilan soʻraysiz — «7.2-band nima bilan xavfli», «muddatidan oldin bekor qilinganda kim toʻlaydi». Javob hujjatingiz matni asosida quriladi, savolga esa tanlangan yurisdiksiyaning beshta normasi qoʻshiladi. Havolalarni shartnoma tahlilidagi kod tekshiradi.',
+        ru: 'Спрашиваете обычными словами — «чем грозит пункт 7.2», «кто платит при досрочном расторжении». Ответ строится по тексту вашего документа, а к вопросу подбираются восемь норм из законодательства выбранной юрисдикции. Ссылки на нормы проверяются тем же кодом, что и в разборе договора.',
+        en: 'Ask in plain words — “what does clause 7.2 expose us to”, “who pays on early termination”. The answer is built from the text of your document, and eight provisions from the chosen jurisdiction are added to the question. Citations are validated by the same code as in the contract review.',
+        de: 'Fragen Sie in normalen Worten — „Was droht uns aus Ziffer 7.2?“, „Wer zahlt bei vorzeitiger Kündigung?“. Die Antwort entsteht aus dem Text Ihres Dokuments, und der Frage werden acht Normen der gewählten Rechtsordnung beigegeben. Fundstellen prüft derselbe Code wie in der Vertragsprüfung.',
+        ar: 'اسأل بكلمات عادية — «ماذا يعرّضنا له البند 7.2»، «من يدفع عند الإنهاء المبكر». تُبنى الإجابة من نص مستندك، ويُضاف إلى السؤال ثمانية نصوص من تشريع الولاية المختارة. وتُتحقَّق الإحالات بالشيفرة نفسها المستخدمة في مراجعة العقد.',
+        kk: 'Кәдімгі сөзбен сұрайсыз — «7.2-тармақ немен қауіпті», «мерзімінен бұрын бұзғанда кім төлейді». Жауап құжатыңыздың мәтіні бойынша құрылады, ал сұраққа таңдалған юрисдикцияның сегіз нормасы қосылады. Сілтемелерді шарт талдауындағы код тексереді.',
+        uz: 'Oddiy soʻz bilan soʻraysiz — «7.2-band nima bilan xavfli», «muddatidan oldin bekor qilinganda kim toʻlaydi». Javob hujjatingiz matni asosida quriladi, savolga esa tanlangan yurisdiksiyaning sakkizta normasi qoʻshiladi. Havolalarni shartnoma tahlilidagi kod tekshiradi.',
       },
       planNote: {
         ru: 'На всех тарифах, включая бесплатный. Расходуется общий месячный лимит обращений к ИИ: 20 на Free, 100 на Standard, 500 на Pro, 10 000 на Business.',
@@ -245,14 +246,14 @@ export const documentChat: PageContent = {
           },
         },
         {
-          title: { ru: 'Практику суда не ищем', en: 'We do not search case law', de: 'Wir suchen keine Rechtsprechung', ar: 'لا نبحث في السوابق', kk: 'Сот практикасын іздемейміз', uz: 'Sud amaliyotini qidirmaymiz' },
+          title: { ru: 'Решения судов по делам не ищем', en: 'We do not search court decisions', de: 'Wir suchen keine Gerichtsentscheidungen', ar: 'لا نبحث في الأحكام القضائية', kk: 'Істер бойынша сот шешімдерін іздемейміз', uz: 'Ishlar boʻyicha sud qarorlarini qidirmaymiz' },
           body: {
-            ru: 'В базе только тексты законов: судебных решений там нет вовсе, и мы не притворяемся, что есть.',
-            en: 'The base holds statutory texts only: there are no court decisions in it, and we do not pretend otherwise.',
-            de: 'Die Basis enthält nur Gesetzestexte: Gerichtsentscheidungen gibt es dort nicht, und wir tun nicht so als ob.',
-            ar: 'القاعدة تضم نصوص القوانين فقط: لا أحكام قضائية فيها، ولا ندّعي غير ذلك.',
-            kk: 'Базада тек заң мәтіндері: сот шешімдері мүлде жоқ, біз бар сияқты көрсетпейміз.',
-            uz: 'Bazada faqat qonun matnlari: sud qarorlari umuman yoʻq, biz bordek koʻrsatmaymiz.',
+            ru: 'Решений по конкретным делам в базе нет, и мы не притворяемся, что есть. По Узбекистану есть только постановления Пленума Верховного суда — обобщённые разъяснения практики.',
+            en: 'There are no decisions on individual cases in the base, and we do not pretend otherwise. For Uzbekistan there are only resolutions of the Plenum of the Supreme Court — general guidance on judicial practice.',
+            de: 'Entscheidungen zu Einzelfällen gibt es in der Basis nicht, und wir tun nicht so als ob. Für Usbekistan gibt es nur Beschlüsse des Plenums des Obersten Gerichts — allgemeine Hinweise zur Rechtsprechung.',
+            ar: 'لا أحكام في قضايا بعينها في القاعدة، ولا ندّعي غير ذلك. لأوزبكستان توجد فقط قرارات الهيئة العامة للمحكمة العليا — توجيهات عامة حول الممارسة القضائية.',
+            kk: 'Базада нақты істер бойынша шешімдер жоқ, біз бар сияқты көрсетпейміз. Өзбекстан бойынша тек Жоғарғы сот Пленумының қаулылары бар — сот практикасының жалпы түсіндірмелері.',
+            uz: 'Bazada aniq ishlar boʻyicha qarorlar yoʻq, biz bordek koʻrsatmaymiz. Oʻzbekiston boʻyicha faqat Oliy sud Plenumi qarorlari bor — sud amaliyotining umumiy tushuntirishlari.',
           },
         },
         {

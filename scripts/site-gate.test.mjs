@@ -6,11 +6,13 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
+import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   COOKIE_NAME,
+  appRouteMatcher,
   buildSetCookie,
   cacheControlFor,
   isTokenValid,
@@ -99,6 +101,35 @@ describe('какой файл отдать', () => {
     expect(staticCandidates('/%2e%2e/%2e%2e/.env')).toBe(null);
     expect(staticCandidates('/..\\.env')).toBe(null);
     expect(staticCandidates('/%ZZ')).toBe(null);
+  });
+});
+
+describe('адрес приложения или мусор (для кода 404)', () => {
+  const isAppRoute = appRouteMatcher(['/', '/pricing', '/team-access'], ['/chat', '/team', '/share/']);
+
+  it('публичные страницы и корень — адреса приложения', () => {
+    expect(isAppRoute('/')).toBe(true);
+    expect(isAppRoute('/pricing')).toBe(true);
+    expect(isAppRoute('/pricing/')).toBe(true);
+    expect(isAppRoute('/team-access')).toBe(true);
+  });
+
+  it('раздел кабинета — сам и всё под ним, но не похожие слова', () => {
+    expect(isAppRoute('/chat')).toBe(true);
+    expect(isAppRoute('/chat/abc/workspace')).toBe(true);
+    expect(isAppRoute('/chatty')).toBe(false);
+    expect(isAppRoute('/teams')).toBe(false);
+  });
+
+  it('префикс со слешем — только адреса под ним', () => {
+    expect(isAppRoute('/share/tok123')).toBe(true);
+    expect(isAppRoute('/share')).toBe(false);
+    expect(isAppRoute('/share/')).toBe(false);
+  });
+
+  it('неизвестный адрес — не приложение', () => {
+    expect(isAppRoute('/wp-login.php-like')).toBe(false);
+    expect(isAppRoute('/pricing/old')).toBe(false);
   });
 });
 
@@ -215,5 +246,127 @@ describe('живой сервер', () => {
     const cookie = `${COOKIE_NAME}=${tokenForCode('grant-2026', 'тест')}`;
     const res = await fetch(`${BASE}/../../package.json`, { headers: { cookie }, redirect: 'manual' });
     expect(res.status).not.toBe(200);
+  });
+});
+
+describe('открытый сайт: коды ответа для поисковиков', () => {
+  const PORT = 43118;
+  const BASE = `http://127.0.0.1:${PORT}`;
+  let dist;
+  let child;
+
+  beforeAll(async () => {
+    dist = await fs.mkdtemp(path.join(os.tmpdir(), 'lexab-dist-open-'));
+    await fs.writeFile(path.join(dist, 'index.html'), '<html>ОБОЛОЧКА</html>');
+    await fs.mkdir(path.join(dist, 'pricing'));
+    await fs.writeFile(path.join(dist, 'pricing/index.html'), '<html>ТАРИФЫ</html>');
+    await fs.writeFile(
+      path.join(dist, 'sitemap.xml'),
+      '<urlset><url><loc>https://example.test/</loc></url><url><loc>https://example.test/pricing</loc></url></urlset>',
+    );
+
+    // Без SITE_ACCESS_CODES — сайт открыт всем; INDEXNOW_PING не задан —
+    // тест не должен ничего отправлять наружу.
+    const { SITE_ACCESS_CODES: _codes, INDEXNOW_PING: _ping, ...env } = process.env;
+    child = spawn(process.execPath, [path.join(SCRIPTS, 'serve-static.mjs')], {
+      env: { ...env, PORT: String(PORT), SITE_DIST_DIR: dist },
+      stdio: 'ignore',
+    });
+
+    for (let i = 0; i < 100; i++) {
+      try {
+        await fetch(`${BASE}/healthz`);
+        return;
+      } catch {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+    }
+    throw new Error('сервер не поднялся');
+  }, 20_000);
+
+  afterAll(async () => {
+    child?.kill();
+    if (dist) await fs.rm(dist, { recursive: true, force: true });
+  });
+
+  it('снимок раздела — 200 со своим текстом', async () => {
+    const res = await fetch(`${BASE}/pricing`);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('ТАРИФЫ');
+  });
+
+  it('раздел кабинета — 200 и оболочка приложения', async () => {
+    const res = await fetch(`${BASE}/chat/abc`);
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('ОБОЛОЧКА');
+  });
+
+  it('неизвестный адрес — 404, но с оболочкой: приложение нарисует «не найдено»', async () => {
+    const res = await fetch(`${BASE}/no-such-page-xyz`);
+    expect(res.status).toBe(404);
+    expect(await res.text()).toContain('ОБОЛОЧКА');
+  });
+
+  // fetch молча выбрасывает заголовок Host (запрещённый заголовок по стандарту
+  // Fetch) — поэтому здесь обычный http.get, иначе тест проверял бы не то.
+  const getWithHost = (urlPath, host) =>
+    new Promise((resolve, reject) => {
+      http
+        .get({ host: '127.0.0.1', port: PORT, path: urlPath, headers: { host } }, (res) => {
+          res.resume();
+          resolve({ status: res.statusCode, location: res.headers.location });
+        })
+        .on('error', reject);
+    });
+
+  it('www своего домена — 301 на основной с тем же путём', async () => {
+    const res = await getWithHost('/pricing?x=1', 'www.example.test');
+    expect(res.status).toBe(301);
+    expect(res.location).toBe('https://example.test/pricing?x=1');
+  });
+
+  it('IndexNow: после старта отправляет адреса из sitemap с ключом из реестра', async () => {
+    // Подставной приёмник вместо api.indexnow.org — наружу тест ничего не шлёт.
+    const received = new Promise((resolve) => {
+      const sink = http.createServer((req, res) => {
+        let body = '';
+        req.on('data', (c) => (body += c));
+        req.on('end', () => {
+          res.writeHead(200).end();
+          sink.close();
+          resolve({ method: req.method, body: JSON.parse(body) });
+        });
+      });
+      sink.listen(43119);
+    });
+    const pinger = spawn(process.execPath, [path.join(SCRIPTS, 'serve-static.mjs')], {
+      env: {
+        ...process.env,
+        SITE_ACCESS_CODES: '',
+        PORT: '43120',
+        SITE_DIST_DIR: dist,
+        INDEXNOW_PING: '1',
+        INDEXNOW_DELAY_MS: '50',
+        INDEXNOW_ENDPOINT: 'http://127.0.0.1:43119/indexnow',
+      },
+      stdio: 'ignore',
+    });
+    try {
+      const { method, body } = await received;
+      const registry = JSON.parse(await fs.readFile(path.join(SCRIPTS, '../src/content/site/routes.json'), 'utf8'));
+      expect(method).toBe('POST');
+      expect(body.host).toBe('example.test');
+      expect(body.key).toBe(registry.indexNowKey);
+      expect(body.keyLocation).toBe(`https://example.test/${registry.indexNowKey}.txt`);
+      expect(body.urlList).toEqual(['https://example.test/', 'https://example.test/pricing']);
+    } finally {
+      pinger.kill();
+    }
+  }, 10_000);
+
+  it('чужой Host не перенаправляется (нет открытого редиректа)', async () => {
+    const res = await getWithHost('/pricing', 'www.evil.test');
+    expect(res.status).toBe(200);
+    expect(res.location).toBeUndefined();
   });
 });

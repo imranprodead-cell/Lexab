@@ -1,10 +1,11 @@
 /**
  * Публичная страница «База законов» — центр доверия всего сайта.
  *
- * ВСЕ ЧИСЛА ЗДЕСЬ — ИЗ ЖИВОГО ЗАПРОСА К БОЕВОЙ БАЗЕ 05.08.2026:
- *   100 документов · 17 248 норм · 14 357 фрагментов · у 14 357 есть вектор
- *   UZ 83/8131 · DE 1/2798 · UK 8/2148 · AE 1/1526 · KZ 4/1328 · CA 1/1271 · US 2/46
- *   7 официальных хостов-источников · 0 судебных дел (практики в корпусе НЕТ)
+ * ВСЕ ЧИСЛА ЗДЕСЬ — ИЗ ЖИВОГО ЗАПРОСА К БОЕВОЙ БАЗЕ 23.11.2026 (прошлый — 05.08):
+ *   192 документа · 21 868 норм (все legal_units) · 18 744 фрагмента · у всех вектор
+ *   UZ 175/12751 · DE 1/2798 · UK 8/2148 · AE 1/1526 · KZ 4/1328 · CA 1/1271 · US 2/46
+ *   7 официальных хостов-источников · 0 судебных дел (court_cases), но у УЗ
+ *   66 постановлений Пленума ВС (doc_type 'plenum') — это НЕ «практики нет вовсе»
  * Меняется корпус — сначала перезапросить базу, потом править эту страницу.
  *
  * Страница намеренно показывает СЛАБЫЕ места (США — 46 норм, нет практики, нет
@@ -35,12 +36,12 @@ export const legalBase: PageContent = {
         uz: 'Shartnomangiz haqidagi xulosalar nimaga asoslanadi',
       },
       lead: {
-        ru: 'Корпус из 17 248 норм, загруженных с официальных государственных сайтов семи юрисдикций. Тексты законов никогда не пишет модель: норма попадает в базу только файлом с официального источника, с адресом, контрольной суммой и датой загрузки. Строка без источника физически не сохраняется — это запрещено ограничением базы данных.',
-        en: 'A corpus of 17,248 provisions loaded from the official government sites of seven jurisdictions. Statutory text is never written by the model: a provision enters the base only as a file from an official source, with its address, checksum and retrieval date. A row without a source physically cannot be saved — a database constraint forbids it.',
-        de: 'Ein Korpus aus 17 248 Normen, geladen von den amtlichen Websites von sieben Rechtsordnungen. Gesetzestext schreibt das Modell nie: Eine Norm gelangt nur als Datei aus amtlicher Quelle in die Basis — mit Adresse, Prüfsumme und Ladedatum. Ein Datensatz ohne Quelle lässt sich schlicht nicht speichern; das verbietet eine Datenbank-Bedingung.',
-        ar: 'مجموعة من 17٬248 نصًا قانونيًا محمَّلة من المواقع الحكومية الرسمية لسبع ولايات قضائية. النموذج لا يكتب نصوص القوانين أبدًا: النص يدخل القاعدة كملف من مصدر رسمي فقط، مع عنوانه وبصمته وتاريخ تحميله. الصف بلا مصدر لا يُحفَظ أصلًا — قيد في قاعدة البيانات يمنع ذلك.',
-        kk: '17 248 нормадан тұратын корпус жеті юрисдикцияның ресми мемлекеттік сайттарынан жүктелген. Заң мәтінін модель ешқашан жазбайды: норма базаға тек ресми дереккөзден файл түрінде, мекенжайымен, бақылау сомасымен және жүктелген күнімен түседі. Дереккөзсіз жол сақталмайды — оған дерекқор шектеуі жол бермейді.',
-        uz: '17 248 normadan iborat korpus yettita yurisdiksiyaning rasmiy davlat saytlaridan yuklangan. Qonun matnini model hech qachon yozmaydi: norma bazaga faqat rasmiy manbadan fayl sifatida, manzili, nazorat summasi va yuklangan sanasi bilan tushadi. Manbasiz satr saqlanmaydi — buni maʼlumotlar bazasi cheklovi taqiqlaydi.',
+        ru: 'Корпус из 21 868 норм, загруженных с официальных государственных сайтов семи юрисдикций. Тексты законов никогда не пишет модель: норма попадает в базу только файлом с официального источника, с адресом, контрольной суммой и датой загрузки. Строка без источника физически не сохраняется — это запрещено ограничением базы данных.',
+        en: 'A corpus of 21,868 provisions loaded from the official government sites of seven jurisdictions. Statutory text is never written by the model: a provision enters the base only as a file from an official source, with its address, checksum and retrieval date. A row without a source physically cannot be saved — a database constraint forbids it.',
+        de: 'Ein Korpus aus 21 868 Normen, geladen von den amtlichen Websites von sieben Rechtsordnungen. Gesetzestext schreibt das Modell nie: Eine Norm gelangt nur als Datei aus amtlicher Quelle in die Basis — mit Adresse, Prüfsumme und Ladedatum. Ein Datensatz ohne Quelle lässt sich schlicht nicht speichern; das verbietet eine Datenbank-Bedingung.',
+        ar: 'مجموعة من 21٬868 نصًا قانونيًا محمَّلة من المواقع الحكومية الرسمية لسبع ولايات قضائية. النموذج لا يكتب نصوص القوانين أبدًا: النص يدخل القاعدة كملف من مصدر رسمي فقط، مع عنوانه وبصمته وتاريخ تحميله. الصف بلا مصدر لا يُحفَظ أصلًا — قيد في قاعدة البيانات يمنع ذلك.',
+        kk: '21 868 нормадан тұратын корпус жеті юрисдикцияның ресми мемлекеттік сайттарынан жүктелген. Заң мәтінін модель ешқашан жазбайды: норма базаға тек ресми дереккөзден файл түрінде, мекенжайымен, бақылау сомасымен және жүктелген күнімен түседі. Дереккөзсіз жол сақталмайды — оған дерекқор шектеуі жол бермейді.',
+        uz: '21 868 normadan iborat korpus yettita yurisdiksiyaning rasmiy davlat saytlaridan yuklangan. Qonun matnini model hech qachon yozmaydi: norma bazaga faqat rasmiy manbadan fayl sifatida, manzili, nazorat summasi va yuklangan sanasi bilan tushadi. Manbasiz satr saqlanmaydi — buni maʼlumotlar bazasi cheklovi taqiqlaydi.',
       },
       cta: [
         {
@@ -112,7 +113,7 @@ export const legalBase: PageContent = {
       },
       items: [
         {
-          value: { ru: '17 248', en: '17,248', de: '17 248', ar: '17٬248', kk: '17 248', uz: '17 248' },
+          value: { ru: '21 868', en: '21,868', de: '21 868', ar: '21٬868', kk: '21 868', uz: '21 868' },
           label: {
             ru: 'норм в базе',
             en: 'provisions in the base',
@@ -122,12 +123,12 @@ export const legalBase: PageContent = {
             uz: 'norma bazada',
           },
           proof: {
-            ru: 'Статьи, параграфы и пункты из 100 официальных документов. Замер по базе 05.08.2026.',
-            en: 'Articles, sections and paragraphs from 100 official documents. Measured 5 Aug 2026.',
-            de: 'Paragrafen, Artikel und Absätze aus 100 amtlichen Dokumenten. Messung vom 05.08.2026.',
-            ar: 'مواد وفقرات من 100 وثيقة رسمية. القياس بتاريخ 05.08.2026.',
-            kk: '100 ресми құжаттағы баптар мен тармақтар. 05.08.2026 өлшемі.',
-            uz: '100 ta rasmiy hujjatdagi moddalar va bandlar. 05.08.2026 oʻlchovi.',
+            ru: 'Статьи, параграфы и пункты из 192 официальных документов. Замер по базе 23.11.2026.',
+            en: 'Articles, sections and paragraphs from 192 official documents. Measured 23 Nov 2026.',
+            de: 'Paragrafen, Artikel und Absätze aus 192 amtlichen Dokumenten. Messung vom 23.11.2026.',
+            ar: 'مواد وفقرات من 192 وثيقة رسمية. القياس بتاريخ 23.11.2026.',
+            kk: '192 ресми құжаттағы баптар мен тармақтар. 23.11.2026 өлшемі.',
+            uz: '192 ta rasmiy hujjatdagi moddalar va bandlar. 23.11.2026 oʻlchovi.',
           },
         },
         {
@@ -160,12 +161,12 @@ export const legalBase: PageContent = {
             uz: 'fragmentda vektor indeksi bor',
           },
           proof: {
-            ru: '14 357 фрагментов, у всех 14 357 построен вектор — поиск по смыслу работает по всему корпусу, а не по его части.',
-            en: '14,357 fragments, all 14,357 vectorised — semantic search covers the whole corpus, not a part of it.',
-            de: '14 357 Fragmente, alle 14 357 vektorisiert — die semantische Suche deckt den gesamten Korpus ab, nicht nur einen Teil.',
-            ar: '14٬357 مقطعًا، وجميعها 14٬357 مُتَّجهة — البحث الدلالي يغطي القاعدة كلها لا جزءًا منها.',
-            kk: '14 357 фрагмент, барлық 14 357-інде вектор бар — мағыналық іздеу бүкіл корпус бойынша жұмыс істейді.',
-            uz: '14 357 fragment, barchasi 14 357 tasi vektorlangan — maʼno boʻyicha qidiruv butun korpus boʻylab ishlaydi.',
+            ru: '18 744 фрагмента, у всех 18 744 построен вектор — поиск по смыслу работает по всему корпусу, а не по его части.',
+            en: '18,744 fragments, all 18,744 vectorised — semantic search covers the whole corpus, not a part of it.',
+            de: '18 744 Fragmente, alle 18 744 vektorisiert — die semantische Suche deckt den gesamten Korpus ab, nicht nur einen Teil.',
+            ar: '18٬744 مقطعًا، وجميعها 18٬744 مُتَّجهة — البحث الدلالي يغطي القاعدة كلها لا جزءًا منها.',
+            kk: '18 744 фрагмент, барлық 18 744-інде вектор бар — мағыналық іздеу бүкіл корпус бойынша жұмыс істейді.',
+            uz: '18 744 fragment, barchasi 18 744 tasi vektorlangan — maʼno boʻyicha qidiruv butun korpus boʻylab ishlaydi.',
           },
         },
         {
@@ -217,8 +218,8 @@ export const legalBase: PageContent = {
       rows: [
         [
           { ru: 'Узбекистан', en: 'Uzbekistan', de: 'Usbekistan', ar: 'أوزبكستان', kk: 'Өзбекстан', uz: 'Oʻzbekiston' },
-          { ru: '83', en: '83', de: '83', ar: '83', kk: '83', uz: '83' },
-          { ru: '8131', en: '8,131', de: '8131', ar: '8٬131', kk: '8131', uz: '8131' },
+          { ru: '175', en: '175', de: '175', ar: '175', kk: '175', uz: '175' },
+          { ru: '12 751', en: '12,751', de: '12 751', ar: '12٬751', kk: '12 751', uz: '12 751' },
           {
             ru: 'Постановлений Кабинета Министров нет; редакций на прошедшую дату нет',
             en: 'No Cabinet of Ministers resolutions; no point-in-time versions',
@@ -308,12 +309,12 @@ export const legalBase: PageContent = {
         ],
       ],
       note: {
-        ru: 'Замер по боевой базе 5 августа 2026 года. Корпус пополняется — цифры на этой странице обновляются вместе с ним.',
-        en: 'Measured against the production database on 5 August 2026. The corpus grows — the figures on this page are updated with it.',
-        de: 'Messung an der Produktionsdatenbank am 5. August 2026. Der Korpus wächst — die Zahlen auf dieser Seite werden mitgeführt.',
-        ar: 'قياس على قاعدة البيانات الإنتاجية في 5 أغسطس 2026. القاعدة تنمو — والأرقام هنا تُحدَّث معها.',
-        kk: '2026 жылғы 5 тамыздағы өндірістік база бойынша өлшем. Корпус толығады — беттегі сандар онымен бірге жаңарады.',
-        uz: '2026-yil 5-avgustdagi ishchi baza boʻyicha oʻlchov. Korpus toʻlib boradi — sahifadagi raqamlar u bilan birga yangilanadi.',
+        ru: 'Замер по боевой базе 23 ноября 2026 года. Корпус пополняется — цифры на этой странице обновляются вместе с ним.',
+        en: 'Measured against the production database on 23 November 2026. The corpus grows — the figures on this page are updated with it.',
+        de: 'Messung an der Produktionsdatenbank am 23. November 2026. Der Korpus wächst — die Zahlen auf dieser Seite werden mitgeführt.',
+        ar: 'قياس على قاعدة البيانات الإنتاجية في 23 نوفمبر 2026. القاعدة تنمو — والأرقام هنا تُحدَّث معها.',
+        kk: '2026 жылғы 23 қарашадағы өндірістік база бойынша өлшем. Корпус толығады — беттегі сандар онымен бірге жаңарады.',
+        uz: '2026-yil 23-noyabrdagi ishchi baza boʻyicha oʻlchov. Korpus toʻlib boradi — sahifadagi raqamlar u bilan birga yangilanadi.',
       },
     },
 
@@ -513,20 +514,20 @@ export const legalBase: PageContent = {
       items: [
         {
           title: {
-            ru: 'Судебной практики нет вовсе',
-            en: 'There is no case law at all',
-            de: 'Rechtsprechung gibt es überhaupt nicht',
-            ar: 'لا توجد سوابق قضائية إطلاقًا',
-            kk: 'Сот практикасы мүлде жоқ',
-            uz: 'Sud amaliyoti umuman yoʻq',
+            ru: 'Решений по делам нет',
+            en: 'No court decisions on cases',
+            de: 'Keine Gerichtsentscheidungen zu Einzelfällen',
+            ar: 'لا أحكام في قضايا بعينها',
+            kk: 'Нақты істер бойынша шешімдер жоқ',
+            uz: 'Aniq ishlar boʻyicha qarorlar yoʻq',
           },
           body: {
-            ru: 'В базе 0 судебных дел. Мы не ищем позиции судов и не проверяем ваш договор против практики — только против текста законов.',
-            en: 'The base holds 0 court cases. We do not search for judicial positions and do not check your contract against case law — only against statutory text.',
-            de: 'Die Basis enthält 0 Gerichtsentscheidungen. Wir suchen keine Rechtsprechung und prüfen Ihren Vertrag nicht gegen sie — nur gegen Gesetzestext.',
-            ar: 'تحوي القاعدة 0 قضية. لا نبحث في مواقف المحاكم ولا نفحص عقدك في ضوء السوابق — بل في ضوء نصوص القوانين فقط.',
-            kk: 'Базада 0 сот ісі. Біз соттардың ұстанымын іздемейміз және шартыңызды практикаға қарсы тексермейміз — тек заң мәтініне қарсы.',
-            uz: 'Bazada 0 ta sud ishi. Biz sudlar pozitsiyasini qidirmaymiz va shartnomangizni amaliyotga qarshi tekshirmaymiz — faqat qonun matniga qarshi.',
+            ru: 'В базе 0 судебных решений по конкретным делам. Единственное исключение — Узбекистан: загружены 66 постановлений Пленума Верховного суда — разъяснения о том, как суды применяют законы. По остальным странам нет и этого.',
+            en: 'The base holds 0 court decisions on individual cases. The one exception is Uzbekistan: 66 resolutions of the Plenum of the Supreme Court are loaded — general guidance on how courts apply the law. For the other jurisdictions there is no case law at all.',
+            de: 'Die Basis enthält 0 Gerichtsentscheidungen zu Einzelfällen. Einzige Ausnahme ist Usbekistan: 66 Beschlüsse des Plenums des Obersten Gerichts sind geladen — allgemeine Auslegungshinweise zur Rechtsprechung. Für die übrigen Rechtsordnungen gibt es keine Rechtsprechung.',
+            ar: 'تحوي القاعدة 0 حكمًا في قضايا بعينها. الاستثناء الوحيد أوزبكستان: حُمِّل 66 قرارًا للهيئة العامة للمحكمة العليا، وهي توجيهات عامة حول تطبيق المحاكم للقانون. أما بقية الولايات القضائية فلا سوابق فيها إطلاقًا.',
+            kk: 'Базада нақты істер бойынша 0 сот шешімі. Жалғыз ерекшелік — Өзбекстан: Жоғарғы сот Пленумының 66 қаулысы жүктелген, бұл сот практикасының жалпы түсіндірмелері. Қалған елдер бойынша практика мүлде жоқ.',
+            uz: 'Bazada aniq ishlar boʻyicha 0 ta sud qarori. Yagona istisno — Oʻzbekiston: Oliy sud Plenumining 66 ta qarori yuklangan, bu sud amaliyotining umumiy tushuntirishlari. Qolgan davlatlar boʻyicha amaliyot umuman yoʻq.',
           },
         },
         {
